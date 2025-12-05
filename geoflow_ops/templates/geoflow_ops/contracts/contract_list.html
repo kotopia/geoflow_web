@@ -1,0 +1,107 @@
+{# templates/geoflow_ops/contracts/contract_list.html #}
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
+{% load static %}
+{% block title %}Contracts | GeoFlow{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="mb-3">
+    <h1 class="h3 d-inline align-middle">
+      <span>계약</span>
+      <span class="h5 text-muted">Contract</span>
+    </h1>
+  </div>
+
+
+  <div class="card" id="contractsCard" hidden>
+    <div class="card-header pb-0">
+      <div class="card-actions float-end">
+        <div class="dropdown position-relative">
+          <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
+            <i class="align-middle" data-feather="more-horizontal"></i>
+          </a>
+          <div class="dropdown-menu dropdown-menu-end">
+            <a class="dropdown-item" href="{% url 'tenant:contract_create' %}">계약 생성</a>
+            <a class="dropdown-item" href="#">Action</a>
+          </div>
+        </div>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div id="statusButtons"
+            class="gf-status-tabs"
+            data-count-all="{{ status_counts.total|default:0 }}"
+            data-count-planned="{{ status_counts.planned|default:0 }}"
+            data-count-active="{{ status_counts.active|default:0 }}"
+            data-count-pause="{{ status_counts.pause|default:0 }}"
+            data-count-cancel="{{ status_counts.cancel|default:0 }}"
+            data-count-complete="{{ status_counts.complete|default:0 }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="card-body">
+
+      <table id="datatables-contracts" class="table table-responsive table-striped table-hover" width="100%" style="cursor: pointer">
+        <thead class="text-center">
+          <tr>
+            <th>계약번호</th>
+            <th>계약명</th>
+            <th>시작일</th>
+            <th>종료일</th>
+            <th>계약형태</th>
+            <th>계약금액</th>
+            <th>발주처</th>
+            <th>계약자</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in contracts %}
+          <tr data-id="{{ c.id }}" data-status="{{ c.status|lower }}"
+              data-href="{% url 'tenant:contract_detail' c.id %}">
+            <td data-col="code">{{ c.code }}</td>
+            <td data-col="name" class="text-truncate">{{ c.name }}</td>
+            <td data-col="start">{{ c.start_date|date:"Y-m-d" }}</td>
+            <td data-col="end">{{ c.end_date|date:"Y-m-d" }}</td>
+            <td data-col="kind">{{ c.get_kind_display|default:c.kind }}</td>
+            <td data-col="amount" class="text-end">{{ c.amount|intcomma }}</td>
+            {# 하도급이면 원도급(= sub_client) 표시, 아니면 발주처 표시 #}
+            <td data-col="client">
+              {% with kd=c.get_kind_display|default:c.kind %}
+                {% if "하도급" in kd %}
+                  {{ c.sub_client.name|default:c.client.name }}
+                {% else %}
+                  {{ c.client.name }}
+                {% endif %}
+              {% endwith %}
+            </td>
+            <td data-col="orgunit">{{ c.org_unit.label }}</td>
+            <td data-col="status" class="text-center">
+              <span class="gf-status" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      const tbody = document.querySelector('#datatables-contracts tbody');
+      if (!tbody) return;
+      tbody.addEventListener('click', function(e){
+        const tr = e.target.closest('tr[data-href]');
+        if (!tr) return;
+        window.location.assign(tr.dataset.href);
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "control/base_central.html" %}
+{% block title %}회원가입{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:560px">
+  <h1 class="h4 mb-3">회원가입</h1>
+  {% if messages %}{% for m in messages %}
+    <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+  {% endfor %}{% endif %}
+  <form method="post">{% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label">이메일</label>
+      <input type="email" name="email" class="form-control" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">비밀번호</label>
+      <input type="password" name="password" class="form-control" required minlength="6">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">이름(표시명)</label>
+      <input type="text" name="name" class="form-control">
+    </div>
+    <button class="btn btn-primary w-100">가입</button>
+  </form>
+  <div class="text-center mt-3">
+    이미 계정이 있으신가요? <a href="/login/">로그인</a>
+  </div>
+</div>
+{% endblock %}

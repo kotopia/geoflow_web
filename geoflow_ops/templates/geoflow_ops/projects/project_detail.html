@@ -1,0 +1,259 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
+{% load static %}
+
+{% block content %}
+<style>.pre-wrap { white-space: pre-wrap; }</style>
+
+
+<div class="mb-3 d-flex justify-content-between align-items-center">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb m-0">
+      <li class="breadcrumb-item"><a href="{% url 'tenant:project_list' %}">프로젝트관리</a></li>
+      <li class="breadcrumb-item active" aria-current="page">프로젝트 상세</li>
+    </ol>
+  </nav>
+  <div class="d-flex gap-2">
+    {% if not edit_mode %}
+    <a class="btn btn-primary btn-sm" href="?edit=1">편집</a>
+    {% endif %}
+    <a href="{% url 'tenant:project_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+  </div>
+</div>
+
+<div class="container-fluid px-0">
+  <div class="row">
+    <!-- <div class="col-md-3 col-lg-3">
+    </div> -->
+    <!-- 왼쪽: 프로젝트/계약 상세 카드 -->
+    <div class="col-md-6 col-lg-6">
+      <div class="card">
+        <!-- <div class="card-header">
+          <h5 class="card-title mb-0">프로젝트 상세</h5>
+        </div> -->
+
+        <div class="card-body">
+          {# ------------------ 보기 모드 ------------------ #}
+          {% if not edit_mode %}
+          <div id="view-mode">
+            <div class="row g-3">
+              <h5 class="h6 card-title">계약정보</h5>
+
+              <div class="col-md-3">
+                <label class="small text-muted">계약번호</label>
+                <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
+              </div>
+              <div class="col-md-3">
+                <label class="small text-muted">상태</label>
+                <div class="form-control-plaintext">
+                  <span class="gf-status" data-render="badge" data-size="sm"
+                        data-status="{{ obj.contract.status|default:'' }}"></span>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <label class="small text-muted">계약형태</label>
+                <div class="form-control-plaintext">{{ obj.contract.kind|default:"-" }}</div>
+              </div>
+              <div class="col-md-12">
+                <label class="small text-muted">계약명</label>
+                <div class="form-control-plaintext fw-semibold">{{ obj.contract.name|default:"-" }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">시작일</label>
+                <div class="form-control-plaintext">{{ obj.contract.start_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">종료일</label>
+                <div class="form-control-plaintext">{{ obj.contract.end_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              
+              <div class="col-md-6">
+                <label class="small text-muted">발주처</label>
+                <div class="form-control-plaintext">
+                  {% if obj.contract.kind == "하도급" %}
+                    {{ obj.contract.sub_client.name|default:"-" }}
+                  {% else %}
+                    {{ obj.contract.client.name|default:"-" }}
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-md-12">
+                <label class="small text-muted">계약자</label>
+                <div class="form-control-plaintext">{{ obj.contract.org_unit.name|default:"-" }}</div>
+              </div>
+
+              <hr />
+              <h5 class="h6 card-title">기타정보</h5>
+              <div class="col-md-12">
+                <!-- <label class="small text-muted">비고</label> -->
+                <div class="form-control-plaintext pre-wrap">{{ obj.description|default:"-" }}</div>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+
+          {# ------------------ 편집 모드 ------------------ #}
+          {% if edit_mode %}
+          <form id="edit-mode" method="post" action="{{ request.path }}" novalidate>
+            {% csrf_token %}
+
+            {% if errors %}
+            <div class="alert alert-warning py-2 mb-3">
+              {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="row g-3">
+              <h5 class="h6 card-title">계약정보</h5>
+
+              <div class="col-md-3">
+                <label class="small text-muted">계약번호</label>
+                <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
+              </div>
+              <div class="col-md-3">
+                <label class="small text-muted">상태</label>
+                <div class="form-control-plaintext">
+                  <span class="gf-status" data-render="badge" data-size="sm"
+                        data-status="{{ obj.contract.status|default:'' }}"></span>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <label class="small text-muted">계약형태</label>
+                <div class="form-control-plaintext">{{ obj.contract.kind|default:"-" }}</div>
+              </div>
+              <div class="col-md-12">
+                <label class="small text-muted">계약명</label>
+                <div class="form-control-plaintext fw-semibold">{{ obj.contract.name|default:"-" }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">시작일</label>
+                <div class="form-control-plaintext">{{ obj.contract.start_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">종료일</label>
+                <div class="form-control-plaintext"> {{ obj.contract.end_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">발주처</label>
+                <div class="form-control-plaintext">
+                  {% if obj.contract.kind == "하도급" %}
+                    {{ obj.contract.sub_client.name|default:"-" }}
+                  {% else %}
+                    {{ obj.contract.client.name|default:"-" }}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">계약자</label>
+                <div class="form-control-plaintext">{{ obj.contract.org_unit.name|default:"-" }}</div>
+              </div>
+
+              <hr />
+              <h5 class="h6 card-title">기타정보</h5>
+
+              <div class="col-md-12">
+                <!-- <label class="form-label">비고</label> -->
+                <textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:obj.description }}</textarea>
+              </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+              <button class="btn btn-primary" type="submit">저장</button>
+              <a href="{% url 'tenant:project_detail' pk=obj.id %}" class="btn btn-outline-secondary">취소</a>
+            </div>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    
+    {# 오른쪽: 업무범위 카드 — 기존 그대로 유지 #}
+    <div class="col-md-3 col-lg-3">
+      {{ block.super }}
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">업무범위</h5>
+            <button type="button"
+                    class="btn btn-sm btn-primary"
+                    id="btn-scope-modal"
+                    data-project-id="{{ obj.pk }}">
+              업무범위 설정
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="table-responsive">
+              <!-- <table class="table table-sm mb-0 align-middle"> -->
+                <tbody>
+                  {% if scope_groups %}
+                    {% for g in scope_groups %}
+                      <!-- L1 구분 행 -->
+                      <tr>
+                        <td colspan="5">
+                          <span class="fw-semibold">[대분류] {{ g.l1_name }}</span>
+                          <!-- <span class="small text-muted ms-2">{{ g.l1_code }}</span> -->
+                          <!-- <hr /> -->
+                        </td>
+                      </tr>
+                      <hr class="my-0" />
+
+                      {% for b in g.l2_blocks %}
+                        <!-- L2 구분 행 -->
+                        <tr>
+                          <td colspan="5">
+                            <div class="small text-muted mb-0 align-middle" style="margin-top:30px; padding-left:4px">{{ b.l2_name }}</div>
+                          </td>
+                        </tr class="d-flex align-items-start">
+
+                        <!-- L3 옵션 행들 -->
+                        {% for row in b.rows %}
+                        <table class="table table-sm mb-0 align-middle">
+                          <tr>
+                            <td style="width:50%">{{ row.l3_name }}</td>
+                            <td class="text-end" style="width:40%">{{ row.design_display }} {{ row.unit }}</td>
+                            <td class="text-end" style="width:10%">{{ row.completed_display }}</td>
+                          </tr>
+                        </table>
+                        {% endfor %}
+                      {% endfor %}
+                    {% endfor %}
+                  {% else %}
+                    <tr>
+                      <td colspan="5" class="text-center text-muted py-3">
+                        등록된 업무범위가 없습니다.<br>
+                        상단의 <span class="fw-semibold">업무범위 설정</span> 버튼으로 추가하세요.
+                      </td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              <!-- </table> -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+
+    <!-- 업무범위 편집용 모달 (내용은 AJAX로 로드) -->
+    <div class="modal fade" id="scopeModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content" id="scope-modal-content">
+          <!-- 내용은 /projects/<id>/scope-modal/ 에서 로드 -->
+        </div>
+      </div>
+    </div>
+    
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static 'geoflow_ops/js/scope-linker.js' %}"></script>
+  <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
+  <script>
+    // 상세페이지에서도 배지 렌더 실행
+    window.GeoFlowListCore && GeoFlowListCore.renderBadges(document);
+  </script>
+{% endblock %}

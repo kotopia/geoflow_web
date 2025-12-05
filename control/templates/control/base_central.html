@@ -1,0 +1,29 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" type="image/png" sizes="48x48" href="{% static 'control/img/icons/icon-48x48.png' %}">
+  <link class="js-stylesheet" rel="stylesheet" href="{% static 'control/css/light.css' %}">
+  <script src="{% static 'control/js/settings.js' %}"></script>
+  <title>{% block title %}Central Admin{% endblock %}</title>
+  <script>
+    window.STATIC_PREFIX = "{% static '' %}";  // 보통 "/static/"
+    window.ASSET_NS = "control";
+  </script>
+
+</head>
+<body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+  <div class="wrapper">
+    {% include "control/partials/sidebar.html" %}
+    <div class="main">
+      {% include "control/partials/topbar.html" %}
+      <main class="content"><div class="container-fluid p-0">
+        {% block content %}{% endblock %}
+      </div></main>
+    </div>
+  </div>
+  <script src="{% static 'control/js/app.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

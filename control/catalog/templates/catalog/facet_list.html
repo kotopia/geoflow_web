@@ -1,0 +1,55 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}옵션팩 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">옵션팩 관리</h3>
+  <a class="btn btn-primary" href="{% url 'catalog:facet_admin_create' %}">+ 옵션팩 추가</a>
+</div>
+
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:80px">정렬</th>
+          <th>코드</th>
+          <th>이름</th>
+          <th style="width:120px">상태</th>
+          <th style="width:260px">작업</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for it in items %}
+        <tr>
+          <td>{{ it.ord }}</td>
+          <td class="font-monospace">{{ it.code }}</td>
+          <td>{{ it.name }}</td>
+          <td>
+            {% if it.active %}
+              <span class="badge bg-success">활성</span>
+            {% else %}
+              <span class="badge bg-secondary">숨김</span>
+            {% endif %}
+          </td>
+          <td class="d-flex gap-1">
+            <a href="{% url 'catalog:facet_admin_update' it.id %}" class="btn btn-sm btn-outline-primary">수정</a>
+            <form method="post" action="{% url 'catalog:facet_admin_delete' it.id %}" onsubmit="return confirm('삭제할까요?');">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-outline-danger">삭제</button>
+            </form>
+            <a href="{% url 'catalog:option_admin_list' it.id %}" class="btn btn-sm btn-primary">옵션 관리</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5" class="text-center text-muted py-4">데이터가 없습니다.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+
+{% block title %}
+  {% if mode == "edit" %}회사 정보 편집 | GeoFlow{% else %}회사 정보 등록 | GeoFlow{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">
+      {% if mode == "edit" %}회사 정보 편집{% else %}회사 정보 등록{% endif %}
+    </h1>
+    <a href="{% url 'tenant:myinfo_orgunit_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="card">
+      <div class="card-body">
+        {{ form.non_field_errors }}
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">이름</label>
+            {{ form.name }}
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">구분</label>
+            {{ form.type }}
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">사업자번호</label>
+            {{ form.biz_no }}
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">대표자</label>
+            {{ form.rep_name }}
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">전화</label>
+            {{ form.phone }}
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">이메일</label>
+            {{ form.email }}
+          </div>
+          <div class="col-12 mb-3">
+            <label class="form-label">주소</label>
+            {{ form.address }}
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">별칭</label>
+            {{ form.label }}
+          </div>
+          <div class="col-12 mb-3">
+            <label class="form-label">비고</label>
+            {{ form.description }}
+          </div>
+        </div>
+      </div>
+      <div class="card-footer text-end">
+        <button type="submit" class="btn btn-primary">
+          {% if mode == "edit" %}저장{% else %}등록{% endif %}
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

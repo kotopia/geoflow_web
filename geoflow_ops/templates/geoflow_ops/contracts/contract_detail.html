@@ -1,0 +1,410 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load static humanize %}
+
+{% block title %}계약 상세 | GeoFlow{% endblock %}
+
+{% block content %}
+<style>.pre-wrap { white-space: pre-wrap; }</style>
+
+<div class="mb-3 d-flex justify-content-between align-items-center">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb m-0">
+      <li class="breadcrumb-item"><a href="{% url 'tenant:contract_list' %}">계약관리</a></li>
+      <li class="breadcrumb-item active" aria-current="page">계약 상세</li>
+    </ol>
+  </nav>
+  <div class="d-flex gap-2">
+    {% if not edit_mode %}
+    <button id="btn-edit" class="btn btn-primary btn-sm">편집</button>
+    {% endif %}
+    <!-- <button id="btn-edit" class="btn btn-primary btn-sm">편집</button> -->
+    <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+  </div>
+</div>
+<!-- <div class="container-fluid px-0">
+  <div class="card col-md-4 col-lg-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h5 class="card-title mb-0">업무범위(프로젝트 참조)</h5>
+      <small class="text-muted">프로젝트에서 작성한 범위를 계약에 참고합니다</small>
+    </div>
+    
+  </div>
+</div> -->
+
+<div class="container-fluid px-0">
+  <div class="row">
+    <div class="col-md-6 col-lg-6">
+      <div class="card">
+    <!-- <div class="card-header">
+      <h5 class="card-title mb-0">{{ obj.name|default:"-" }}</h5>
+    </div> -->
+        <div class="card-body">
+          {% if project_for_scope %}
+            {% if scope_groups and scope_groups|length %}
+              {# L1 → L2 → 행 구조로 표출 (project_detail과 동일한 구성) #}
+              {% for g in scope_groups %}
+                <div class="mb-3">
+                  <div class="fw-bold mb-1">{{ g.l1_name }}</div>
+                  {% for b in g.l2_blocks %}
+                    <div class="mb-2">
+                      <div class="text-body mb-1">{{ b.l2_name }}</div>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-striped align-middle mb-2">
+                          <thead>
+                            <tr class="text-muted small">
+                              <th style="width:40%">항목</th>
+                              <th style="width:20%">단위</th>
+                              <th style="width:20%" class="text-end">설계물량</th>
+                              <th style="width:20%" class="text-end">완료물량</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for r in b.rows %}
+                              <tr>
+                                <td>{{ r.l3_name }}</td>
+                                <td>{{ r.unit|default:"-" }}</td>
+                                <td class="text-end">{{ r.design_display|default:r.design_qty|default:"-" }}</td>
+                                <td class="text-end">{{ r.completed_display|default:r.completed_qty|default:"-" }}</td>
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="text-muted small">표시할 업무범위가 없습니다.</div>
+            {% endif %}
+          {% else %}
+            <div class="text-muted small">연결된 프로젝트가 없습니다.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6 col-lg-6">
+      <div class="card">
+        <div class="card-body">
+          {# ------------------ 보기 모드 ------------------ #}
+          {% if not edit_mode %}
+          <div id="view-mode">
+            <div class="row g-3">
+              <h5 class="h6 card-title">일반사항</h5>
+              <div class="col-md-2">
+                <label class="small text-muted">계약번호</label>
+                <div class="form-control-plaintext">{{ obj.code|default:"-" }}</div>
+              </div>
+              <div class="col-md-2">
+                <label class="small text-muted">상태</label>
+                <div class="form-control-plaintext">
+                  {# 'completed'→'complete', 'canceled'→'cancel' 매핑 후 배지 렌더 #}
+                  {% with s=obj.status|default:""|lower %}
+                    {% if s == "completed" %}
+                      {% with ss="complete" %}
+                        <span class="gf-status" data-render="badge" data-status="{{ ss }}"></span>
+                      {% endwith %}
+                    {% elif s == "canceled" %}
+                      {% with ss="cancel" %}
+                        <span class="gf-status" data-render="badge" data-status="{{ ss }}"></span>
+                      {% endwith %}
+                    {% else %}
+                      <span class="gf-status" data-render="badge" data-status="{{ s }}"></span>
+                    {% endif %}
+                  {% endwith %}
+                </div>
+              </div>
+              
+              <div class="col-md-12">
+                <label class="small text-muted">계약명</label>
+                <div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div>
+              </div>
+
+
+              <div class="col-md-6">
+                <label class="small text-muted">시작일</label>
+                <div class="form-control-plaintext">{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              <div class="col-md-6">
+                <label class="small text-muted">종료일</label>
+                <div class="form-control-plaintext">{{ obj.end_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              <hr/>
+              <h5 class="h6 card-title">계약정보</h5>
+
+              <div class="col-md-6">
+                <label class="small text-muted">계약형태</label>
+                <div class="form-control-plaintext">
+                  {{ obj.kind|default:"-" }}
+                </div>
+              </div>
+
+              <div class="col-md-6">
+                <label class="small text-muted">계약금액</label>
+                <div class="form-control-plaintext">{{ obj.amount|intcomma|default:"-" }}</div>
+              </div>
+
+              <div class="col-md-6">
+                <label class="small text-muted">발주처</label>
+                <div class="form-control-plaintext">{{ obj.client.name|default:"-" }}</div>
+              </div>
+
+              {% if obj.kind == "하도급" %}
+              <div class="col-md-6">
+                <label class="small text-muted">원도급</label>
+                <div class="form-control-plaintext">{{ obj.sub_client.name|default:"-" }}</div>
+              </div>
+              {% endif %}
+
+              {# 🔹 계약자 #}
+              <div class="col-md-12">
+                <label class="small text-muted">계약자</label>
+                <div class="form-control-plaintext">
+                  {{ obj.org_unit.name|default:"-" }}
+                </div>
+              </div>
+              <hr/>
+              <h5 class="h6 card-title">기타정보</h5>
+
+              <div class="col-md-12">
+                <label class="small text-muted">비고</label>
+                <div class="form-control-plaintext pre-wrap">{{ obj.description|default:"-" }}</div>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          {# ------------------ 편집 모드 ------------------ #}
+          {% if edit_mode %}
+          <form id="edit-mode" method="post" action="{{ request.path }}" novalidate>
+            {% csrf_token %}
+
+            {% if errors %}
+            <div class="alert alert-warning py-2 mb-3">
+              {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="row g-3">
+              <h5 class="h6 card-title">일반사항</h5>
+              <div class="col-md-3">
+                <label class="form-label">계약번호 <span class="text-danger">*</span></label>
+                <input type="text" name="code" class="form-control"
+                      value="{{ form.code.value|default_if_none:'' }}" required>
+              </div>
+
+              <div class="col-md-3">
+                <label class="form-label">상태</label>
+                {% with s=form.status.value %}
+                <select name="status" class="form-select">
+                  <option value="">-</option>
+                  <option value="planned" {% if s == "planned" %}selected{% endif %}>계약전</option>
+                  <option value="active"  {% if s == "active"  %}selected{% endif %}>진행</option>
+                  <option value="completed"    {% if s == "completed"    %}selected{% endif %}>완료</option>
+                  <option value="cancel"    {% if s == "cancel"    %}selected{% endif %}>취소</option>
+                  <option value="pause"    {% if s == "pause"    %}selected{% endif %}>중지</option>
+                </select>
+                {% endwith %}
+              </div>
+
+              <div class="col-md-12">
+                <label class="form-label">계약명 <span class="text-danger">*</span></label>
+                <input type="text" name="name" class="form-control" required
+                      value="{{ form.name.value|default_if_none:'' }}">
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label">시작일</label>
+                <input type="text" id="start_date" name="start_date" class="form-control"
+                      data-provider="flatpickr"
+                      data-date-format="Y-m-d"
+                      data-alt-input="true"
+                      data-alt-format="Y/m/d"
+                      placeholder="YYYY/MM/DD" autocomplete="off"
+                      value="{{ form.instance.start_date|date:'Y-m-d' }}">
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label">종료일</label>
+                <input type="text" id="end_date" name="end_date" class="form-control"
+                      data-provider="flatpickr"
+                      data-date-format="Y-m-d"
+                      data-alt-input="true"
+                      data-alt-format="Y/m/d"
+                      placeholder="YYYY-MM-DD" autocomplete="off"
+                      value="{{ form.instance.end_date|date:'Y-m-d' }}">
+              </div>
+
+              <hr/>
+              <h5 class="h6 card-title">계약정보</h5>
+
+              <div class="col-md-6">
+                <label class="form-label">계약형태</label>
+                {% with k=form.kind.value %}
+                <select id="kind" name="kind" class="form-select">
+                  <option value="">-</option>
+                  <option value="총액"   {% if k == "총액"   %}selected{% endif %}>총액계약</option>
+                  <option value="공동"   {% if k == "공동"   %}selected{% endif %}>공동계약</option>
+                  <option value="장기계속" {% if k == "장기계속" %}selected{% endif %}>장기계속계약</option>
+                  <option value="단가"   {% if k == "단가"   %}selected{% endif %}>단가계약</option>
+                  <option value="하도급" {% if k == "하도급" %}selected{% endif %}>하도급계약</option>
+                </select>
+                {% endwith %}
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label">계약금액</label>
+                <input type="number" name="amount" class="form-control"
+                      value="{{ form.amount.value|default_if_none:'' }}">
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label">발주처 <span class="text-danger">*</span></label>
+                <select id="client" name="client" class="form-select"
+                        data-selected="{{ client_selected|default:form.client.value|default_if_none:'' }}"
+                        data-choices="true" data-choices-search-true data-placeholder="발주처 선택">
+                </select>
+              </div>
+
+              <div class="col-md-6
+                          {% if form.kind.value != '하도급' %}d-none{% endif %}"
+                  id="sub_client_group">
+                <label class="form-label">원도급</label>
+                <select id="sub_client" name="sub_client" class="form-select"
+                        data-selected="{{ sub_client_selected|default:form.sub_client.value|default_if_none:'' }}"
+                        data-choices="true" data-choices-search-true data-placeholder="원도급 선택">
+                </select>
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label">계약자</label>
+                {{ form.org_unit }}
+              </div>
+              <hr/>
+              <h5 class="h6 card-title">기타정보</h5>
+
+              <div class="col-md-12">
+                <label class="form-label">비고</label>
+                <textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea>
+              </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+              <button class="btn btn-primary" type="submit">저장</button>
+
+              {# 생성 모드(force_create=True)면 목록으로, 아니면 상세로 #}
+              {% if force_create %}
+                <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary">취소</a>
+              {% else %}
+                {% if form.instance and form.instance.id %}
+                  <a href="{% url 'tenant:contract_detail' pk=form.instance.id %}" class="btn btn-outline-secondary">취소</a>
+                {% else %}
+                  <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary">취소</a>
+                {% endif %}
+              {% endif %}
+            </div>
+
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+<script src="{% static 'geoflow_ops/js/scope-linker.js' %}"></script>
+<script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // 1) 상세페이지 배지 강제 렌더 (상태 뱃지 표시)
+  if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) {
+    GeoFlowListCore.renderBadges(document);
+  }
+
+  // 2) 편집 버튼 (?edit=1)
+  var btn = document.getElementById("btn-edit");
+  if (btn) {
+    btn.addEventListener("click", function () {
+      var url = new URL(window.location.href);
+      url.searchParams.set("edit", "1");
+      window.location.assign(url.toString());
+    });
+  }
+
+  // Choices 초기화(한 번만)
+  function initChoicesOnce(sel){
+    if (!sel) return;
+    if (sel.dataset.choicesInited === "1") return;
+    sel.dataset.choicesInited = "1";
+    if (window.Choices) {
+      // AdminKit Pro가 자동 초기화를 못 잡았을 때 수동 초기화
+      new Choices(sel, {
+        searchEnabled: true,
+        shouldSort: false,
+        itemSelectText: "",
+        removeItemButton: false,
+        placeholder: true,
+        placeholderValue: sel.getAttribute("data-placeholder") || ""
+      });
+    }
+  }
+
+  // ===== 편집 모드 전용: 파트너 옵션 채우기 =====
+  var clientSel  = document.getElementById("client");
+  var subSel     = document.getElementById("sub_client");
+  var kindSel    = document.getElementById("kind");
+  var subGroup   = document.getElementById("sub_client_group");
+
+  if (clientSel || subSel) {
+    fetch("{% url 'tenant:partner_options' %}?limit=500")
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var items = (data.results || data || []);
+        // 회사명 정렬 (gf-list-core 유틸이 있으면 사용)
+        if (window.GeoFlow && GeoFlow.utils && GeoFlow.utils.sortOptionsByCompany) {
+          items = GeoFlow.utils.sortOptionsByCompany(items);
+        }
+        // 공통 로더
+        function fillSelect(sel){
+          if (!sel) return;
+          var selected = sel.getAttribute("data-selected") || "";
+          sel.innerHTML = '<option value="">-</option>';
+          items.forEach(function(it){
+            var opt = document.createElement("option");
+            opt.value = it.id;
+            opt.textContent = it.text || it.name || "";
+            if (selected && String(selected) === String(it.id)) opt.selected = true;
+            sel.appendChild(opt);
+          });
+          // 옵션 채운 직후 검색 활성화(1회)
+          initChoicesOnce(sel);
+        }
+        fillSelect(clientSel);
+        fillSelect(subSel);
+      })
+      .catch(function(){ /* 무시(네트워크 오류 등) */ });
+  }
+
+  // 하도급 선택 시 원도급 영역 토글
+  function toggleSub(){
+    if (!kindSel || !subGroup) return;
+    var v = (kindSel.value || "").trim();
+    if (v === "하도급") {
+      subGroup.classList.remove("d-none");
+      // 노출 순간에도 검색 UI가 보장되도록
+      initChoicesOnce(subSel);
+    } else {
+      subGroup.classList.add("d-none");
+    }
+  }
+  if (kindSel) {
+    kindSel.addEventListener("change", toggleSub);
+    toggleSub();
+  }
+});
+</script>
+{% endblock %}
+

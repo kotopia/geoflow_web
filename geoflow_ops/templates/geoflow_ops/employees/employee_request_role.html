@@ -1,0 +1,31 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block title %}권한요청{% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <h1 class="h3 mb-3">권한요청</h1>
+  <div class="card"><div class="card-body">
+    <div class="mb-2">
+      <div><b>직원</b> {{ employee_name|default:"-" }} &lt;{{ employee_email }}&gt;</div>
+    </div>
+    <form method="post">
+      {% csrf_token %}
+      <div class="row g-2 align-items-end">
+        <div class="col-auto"><label class="form-label mb-0">역할</label></div>
+        <div class="col-auto">
+          <select name="role_code" class="form-select">
+            {% for code in role_codes %}
+              <option value="{{ code }}">{{ code }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-primary">요청 보내기</button>
+        </div>
+      </div>
+      <p class="text-muted small mt-2">
+        * 중앙 전용 권한(central_admin, owner, sys_admin)은 테넌트에서 요청할 수 없습니다.
+      </p>
+    </form>
+  </div></div>
+</div>
+{% endblock %}

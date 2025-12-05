@@ -1,0 +1,199 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
+{% block title %}Partners | GeoFlow{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="mb-3">
+    <h1 class="h3 d-inline align-middle">거래처</h1>
+  </div>
+
+  <div class="card">
+    <div class="card-header pb-0">
+      <div class="card-actions float-end">
+        <div class="dropdown position-relative">
+          <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
+            <i class="align-middle" data-feather="more-horizontal"></i>
+          </a>
+          <div class="dropdown-menu dropdown-menu-end">
+            <a class="dropdown-item" href="{% url 'tenant:partner_create' %}">새 파트너 생성</a>
+          </div>
+        </div>
+      </div>
+      <h5 class="card-title mb-0">Partners</h5>
+    </div>
+
+    <div class="card-body">
+      <div class="row mb-2">
+        <div class="col-md-6"><!-- 버튼 없음 --></div>
+        <div class="col-md-6 text-end">
+          <div id="datatable-search" style="width:50% !important; display:inline-block;"></div>
+        </div>
+      </div>
+
+      <table id="datatables-partners" class="table table-responsive table-striped table-hover" width="100%" style="cursor: pointer">
+        <thead>
+          <tr>
+            <th>회사명</th>
+            <th>사업자번호</th>
+            <th>대표자</th>
+            <th>주소</th>
+            <th>구분</th>
+            <th>상태</th>
+            <th>비고</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in partners %}
+          <tr data-id="{{ p.id }}">
+            <td>{{ p.name }}</td>
+            <td>{{ p.biz_no }}</td>
+            <td>{{ p.rep_name }}</td>
+            <td>{{ p.address }}</td>
+            <td>{{ p.type }}</td>
+            <td>{{ p.status }}</td>
+            <td>{{ p.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Offcanvas: 거래처 요약 -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="partnerDetail" aria-labelledby="partnerDetailLabel">
+  <div class="offcanvas-header">
+    <h5 class="offcanvas-title" id="partnerDetailLabel">거래처 상세</h5>
+    <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body">
+    <div class="mb-3">
+      <div class="small text-muted">회사명</div>
+      <div id="detail-name" class="fw-semibold">-</div>
+    </div>
+    <div class="row g-3">
+      <div class="col-6">
+        <div class="small text-muted">사업자번호</div>
+        <div id="detail-biz_no">-</div>
+      </div>
+      <div class="col-6">
+        <div class="small text-muted">대표자</div>
+        <div id="detail-rep_name">-</div>
+      </div>
+    </div>
+    <div class="mt-3">
+      <div class="small text-muted">주소</div>
+      <div id="detail-address">-</div>
+    </div>
+    <div class="row g-3 mt-1">
+      <div class="col-6">
+        <div class="small text-muted">구분</div>
+        <div id="detail-type">-</div>
+      </div>
+      <div class="col-6">
+        <div class="small text-muted">상태</div>
+        <span id="detail-status" class="badge bg-secondary">-</span>
+      </div>
+    </div>
+    <div class="row g-3 mt-1">
+      <div class="col-6">
+        <div class="small text-muted">전화</div>
+        <div id="detail-phone">-</div>
+      </div>
+      <div class="col-6">
+        <div class="small text-muted">이메일</div>
+        <div id="detail-email">-</div>
+      </div>
+    </div>
+    <div class="mt-3">
+      <div class="small text-muted">비고</div>
+      <div id="detail-description">-</div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <a id="detail-full-link" href="#" class="btn btn-outline-primary btn-sm">상세 페이지로</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const dt = $("#datatables-partners").DataTable({
+    responsive: true,
+    pageLength: 10,
+    lengthMenu: [10, 25, 50],
+    language: {
+      search: "",
+      searchPlaceholder: "Search",
+      lengthMenu: "_MENU_",
+      info: "총 _TOTAL_건 중 _START_–_END_",
+      infoEmpty: "데이터가 없습니다",
+      zeroRecords: "일치하는 결과가 없습니다",
+      paginate: { previous: "이전", next: "다음" }
+    },
+    dom:
+      "<'row mb-2'<'col-md-6'><'col-md-6 text-end'f>>" +
+      "t" +
+      "<'row mt-2'<'col-md-6 d-flex align-items-center gap-3'l i><'col-md-6 text-end'p>>",
+    columnDefs: [
+      { targets: 0, responsivePriority: 1 }, // 회사명
+      { targets: 1, responsivePriority: 2 }  // 사업자번호
+    ]
+  });
+
+  // 검색 input만 우측 자리로
+  const $wrap = $("#datatables-partners_wrapper");
+  const $filter = $wrap.find(".dataTables_filter");
+  const $input = $filter.find("input");
+  $("#datatable-search").empty().append($input);
+  $filter.remove();
+  $input.attr("placeholder", "Search").val("").on("focus", function(){ this.select?.(); });
+
+  // 행 클릭 → 요약 로드
+  $("#datatables-partners tbody").on("click", "tr", async function () {
+    const id = this.dataset.id;
+    if (!id) return;
+
+    // 리스트 값으로 먼저 채움(백엔드 키 불일치 대비)
+    const row = dt.row(this).data();
+    document.getElementById("detail-name").textContent = row?.[0] ?? "-";
+    document.getElementById("detail-biz_no").textContent       = row?.[1] ?? "-";
+    document.getElementById("detail-rep_name").textContent     = row?.[2] ?? "-";
+    document.getElementById("detail-address").textContent      = row?.[3] ?? "-";
+    document.getElementById("detail-type").textContent = row?.[4] ?? "-";
+    document.getElementById("detail-status").textContent       = row?.[5] ?? "-";
+    document.getElementById("detail-description").textContent  = row?.[6] ?? "-";
+
+    try {
+      const res = await fetch(`/partners/${id}/json/`);
+      if (!res.ok) throw new Error("상세 요청 실패");
+      const d = await res.json();
+
+      // JSON으로 보강
+      const set = (id, v) => { const el = document.getElementById(id); if(el && v!=null){ el.textContent = v; } };
+      set("detail-name", d.name);
+      set("detail-biz_no", d.biz_no);
+      set("detail-rep_name", d.rep_name);
+      set("detail-address", d.address);
+      set("detail-type", d.type);
+      set("detail-status", d.status);
+      set("detail-description", d.description);
+      set("detail-phone", d.phone);
+      set("detail-email", d.email);
+
+      document.getElementById("detail-full-link").href = `/partners/${id}/`;
+    } catch(e) {
+      console.error(e);
+      document.getElementById("detail-full-link").href = `/partners/${id}/`;
+    }
+
+    const offcanvasEl = document.getElementById("partnerDetail");
+    const off = bootstrap.Offcanvas.getOrCreateInstance(offcanvasEl);
+    off.show();
+  });
+});
+</script>
+{% endblock %}

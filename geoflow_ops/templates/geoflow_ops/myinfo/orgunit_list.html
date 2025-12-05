@@ -1,0 +1,42 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <h1 class="h3 mb-3">내 회사 관리 (본사/지사)</h1>
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span class="card-title mb-0">본사 / 지사 목록</span>
+      <a href="{% url 'tenant:myinfo_orgunit_create' %}" class="btn btn-sm btn-primary">
+        새 회사 추가
+      </a>
+    </div>
+    <div class="card-body">
+      <table class="table table-striped table-hover align-middle">
+        <thead>
+          <tr>
+            <th>이름</th>
+            <th>구분</th>
+            <th>사업자번호</th>
+            <th>대표자</th>
+            <th>별칭</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for o in items %}
+          <tr onclick="location.href='{% url 'tenant:myinfo_orgunit_detail' o.id %}'" style="cursor:pointer;">
+            <td>{{ o.name }}</td>
+            <td>{{ o.type|default:"-" }}</td>
+            <td>{{ o.biz_no|default:"-" }}</td>
+            <td>{{ o.rep_name|default:"-" }}</td>
+            <td>{{ o.label|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="text-center text-muted">등록된 본사/지사가 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

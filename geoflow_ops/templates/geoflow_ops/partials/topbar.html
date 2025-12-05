@@ -1,0 +1,36 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Dashboard | GeoFlow</title>
+        <link rel="shortcut icon" href="{% static 'control/img/icons/icon-48x48.png' %}" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+        <link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
+        <script src="{% static 'control/js/settings.js' %}"></script>
+    </head>
+
+<nav class="navbar navbar-expand navbar-light navbar-bg">
+    <a class="sidebar-toggle js-sidebar-toggle">
+        <i class="hamburger align-self-center"></i>
+    </a>
+
+    <div class="navbar-collapse collapse">
+        <ul class="navbar-nav navbar-align">
+            <li class="nav-item dropdown">
+                <a class="nav-icon dropdown-toggle" href="#" id="userDropdown" data-bs-toggle="dropdown">
+                    <img src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded me-1" alt="User" />
+                    <span class="text-dark">{{ request.session.user_id }}</span>
+                </a>
+                <div class="dropdown-menu dropdown-menu-end">
+                    <a class="dropdown-item" href="#">Settings</a>
+                    <a class="sidebar-link" href="{% url 'tenant:myinfo_orgunit_list' %}">
+                        <i class="align-middle" data-feather="home"></i>
+                        <span class="align-middle">나의기업정보</span>
+                    </a>
+                    <a class="dropdown-item" href="{% url 'control:logout' %}">Logout</a>
+                </div>
+            </li>
+        </ul>
+    </div>
+</nav>

@@ -1,0 +1,60 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}옵션 관리{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="mb-0">옵션 관리 <small class="text-muted">({{ facet.code }} / {{ facet.name }})</small></h3>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{% url 'catalog:facet_admin_list' %}">← 옵션팩 목록</a>
+      <a class="btn btn-primary" href="{% url 'catalog:option_admin_create' facet.id %}">+ 옵션 추가</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th style="width:80px">정렬</th>
+            <th>코드</th>
+            <th>이름</th>
+            <th>단위</th>
+            <th>지오메</th>
+            <th>스타일</th>
+            <th style="width:100px">상태</th>
+            <th style="width:160px">작업</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for it in items %}
+          <tr>
+            <td>{{ it.ord }}</td>
+            <td class="font-monospace">{{ it.code }}</td>
+            <td>{{ it.name }}</td>
+            <td>{{ it.default_unit|default:"-" }}</td>
+            <td>{{ it.geom_hint|default:"-" }}</td>
+            <td>{% if it.style %}{{ it.style|truncatechars:20 }}{% else %}-{% endif %}</td>
+            <td>
+              {% if it.active %}<span class="badge bg-success">활성</span>
+              {% else %}<span class="badge bg-secondary">숨김</span>{% endif %}
+            </td>
+            <td class="d-flex gap-1">
+              <a href="{% url 'catalog:option_admin_update' it.id %}" class="btn btn-sm btn-outline-primary">수정</a>
+              <form method="post" action="{% url 'catalog:option_admin_delete' it.id %}" onsubmit="return confirm('삭제할까요?');">
+                {% csrf_token %}
+                <button class="btn btn-sm btn-outline-danger">삭제</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

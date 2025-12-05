@@ -1,0 +1,179 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
+
+{% block title %}파트너 상세 | GeoFlow{% endblock %}
+
+{% block content %}
+<div class="mb-3 d-flex justify-content-between align-items-center">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb m-0">
+      <li class="breadcrumb-item"><a href="{% url 'tenant:partner_list' %}">파트너 관리</a></li>
+      <li class="breadcrumb-item active" aria-current="page">파트너 상세</li>
+    </ol>
+  </nav>
+  <div class="d-flex gap-2">
+    {% if not edit_mode %}
+      <button id="btn-edit" class="btn btn-primary btn-sm">편집</button>
+    {% endif %}
+    <a href="{% url 'tenant:partner_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+  </div>
+</div>
+
+<div class="container-fluid px-0">
+  <div class="card col-md-8">
+    <div class="card-header">
+      <h5 class="card-title mb-0">파트너</h5>
+    </div>
+
+    <div class="card-body">
+      {# 보기 모드 #}
+      {% if not edit_mode %}
+      <div id="view-mode">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="small text-muted">업체명</label>
+            <div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div>
+          </div>
+          <div class="col-md-3">
+            <label class="small text-muted">구분</label>
+            <div class="form-control-plaintext">{{ obj.type|default:"-" }}</div>
+          </div>
+          <div class="col-md-3">
+            <label class="small text-muted">상태</label>
+            <div class="form-control-plaintext">{{ obj.status|default:"-" }}</div>
+          </div>
+
+          <div class="col-md-4">
+            <label class="small text-muted">사업자등록번호</label>
+            <div class="form-control-plaintext">{{ obj.biz_no|default:"-" }}</div>
+          </div>
+          <div class="col-md-4">
+            <label class="small text-muted">대표자</label>
+            <div class="form-control-plaintext">{{ obj.rep_name|default:"-" }}</div>
+          </div>
+          <div class="col-md-4">
+            <label class="small text-muted">연락처</label>
+            <div class="form-control-plaintext">{{ obj.phone|default:"-" }}</div>
+          </div>
+
+          <div class="col-md-6">
+            <label class="small text-muted">이메일</label>
+            <div class="form-control-plaintext">{{ obj.email|default:"-" }}</div>
+          </div>
+          <div class="col-md-12">
+            <label class="small text-muted">주소</label>
+            <div class="form-control-plaintext">{{ obj.address|default:"-" }}</div>
+          </div>
+
+          <div class="col-md-12">
+            <label class="small text-muted">비고</label>
+            <div class="form-control-plaintext">{{ obj.description|default:"-" }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {# 편집/생성 모드 #}
+      {% if edit_mode %}
+      <form id="edit-mode" method="post" action="{{ request.path }}" novalidate>
+        {% csrf_token %}
+
+        {% if errors %}
+        <div class="alert alert-warning py-2 mb-3">
+          {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">업체명 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control"
+                   value="{{ form.name.value|default_if_none:'' }}" required>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">구분</label>
+            {% with t=form.type.value %}
+            <select name="type" class="form-select">
+              <option value="">-</option>
+              <option value="발주처" {% if t == "발주처" %}selected{% endif %}>발주처</option>
+              <option value="거래처" {% if t == "거래처" %}selected{% endif %}>거래처</option>
+              <option value="기타"   {% if t == "기타" %}selected{% endif %}>기타</option>
+            </select>
+            {% endwith %}
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">상태</label>
+            {% with s=form.status.value %}
+            <select name="status" class="form-select">
+              <option value="">-</option>
+              <option value="활성" {% if s == "활성" %}selected{% endif %}>활성</option>
+              <option value="중지" {% if s == "중지" %}selected{% endif %}>중지</option>
+            </select>
+            {% endwith %}
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">사업자등록번호</label>
+            <input type="text" name="biz_no" class="form-control" value="{{ form.biz_no.value|default_if_none:'' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">대표자</label>
+            <input type="text" name="rep_name" class="form-control" value="{{ form.rep_name.value|default_if_none:'' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">연락처</label>
+            <input type="text" name="phone" class="form-control" value="{{ form.phone.value|default_if_none:'' }}">
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">이메일</label>
+            <input type="email" name="email" class="form-control" value="{{ form.email.value|default_if_none:'' }}">
+          </div>
+          <div class="col-md-12">
+            <label class="form-label">주소</label>
+            <input type="text" name="address" class="form-control" value="{{ form.address.value|default_if_none:'' }}">
+          </div>
+
+          <div class="col-md-12">
+            <label class="form-label">비고</label>
+            <textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea>
+          </div>
+        </div>
+
+        <div class="mt-4 d-flex gap-2">
+          <button class="btn btn-primary" type="submit">저장</button>
+          {% if force_create %}
+            <a href="{% url 'tenant:partner_list' %}" class="btn btn-outline-secondary">취소</a>
+          {% else %}
+            {% if obj and obj.id %}
+              <a href="{% url 'tenant:partner_detail' pk=obj.id %}" class="btn btn-outline-secondary">취소</a>
+            {% else %}
+              <a href="{% url 'tenant:partner_list' %}" class="btn btn-outline-secondary">취소</a>
+            {% endif %}
+          {% endif %}
+        </div>
+      </form>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // 계약 상세와 동일: 보기→편집 쿼리 토글
+  const editBtn = document.getElementById("btn-edit");
+  if (editBtn) {
+    editBtn.addEventListener("click", () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("edit", "1");
+      window.location.assign(url.toString());
+    });
+  }
+});
+</script>
+{% endblock %}

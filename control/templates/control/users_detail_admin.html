@@ -1,0 +1,54 @@
+{% extends "control/base_central.html" %}
+{% block title %}User Detail (Central){% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <h1 class="h3 mb-3">사용자 상세</h1>
+  <div class="card mb-3"><div class="card-body">
+    <div class="mb-1"><b>Email</b> {{ user.email }}</div>
+    <div class="text-muted small">Active: {{ user.is_active|yesno:"Y,N" }}, Verified: {{ user.email_verified|yesno:"Y,N" }}</div>
+  </div></div>
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="card"><div class="card-body">
+        <h6 class="card-title">멤버십</h6>
+        <ul class="list-group list-group-flush">
+          {% for m in memberships %}
+          <li class="list-group-item">{{ m.group_name }} ({{ m.group_code }}) — {{ m.role_code }} / {{ m.status }}</li>
+          {% empty %}<li class="list-group-item text-muted">없음</li>{% endfor %}
+        </ul>
+      </div></div>
+    </div>
+    <div class="col-md-6">
+      <div class="card"><div class="card-body">
+        <h6 class="card-title">그룹/역할 지정</h6>
+        <form method="post" action="{% url 'control:users_assign_group_admin' user.id %}">
+          {% csrf_token %}
+          <div class="row g-2">
+            <div class="col">
+              <select name="group_id" class="form-select">
+                {% for g in groups %}<option value="{{ g.id }}">{{ g.name }} ({{ g.code }})</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col">
+              <select name="role_id" class="form-select">
+                {% for r in roles %}<option value="{{ r.id }}">{{ r.code }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-auto"><button class="btn btn-primary">지정</button></div>
+          </div>
+        </form>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="card mt-3"><div class="card-body">
+    <h6 class="card-title">합류 요청</h6>
+    <ul class="list-group list-group-flush">
+      {% for j in joins %}
+      <li class="list-group-item">{{ j.group_name }} ({{ j.group_code }}) — {{ j.status }} / {{ j.created_at|date:"Y-m-d H:i" }}</li>
+      {% empty %}<li class="list-group-item text-muted">없음</li>{% endfor %}
+    </ul>
+  </div></div>
+</div>
+{% endblock %}

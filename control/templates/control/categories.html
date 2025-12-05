@@ -1,0 +1,120 @@
+{% extends "control/base_central.html" %}
+{% block content %}
+<div class="container-fluid p-0">
+  <h1 class="h3 mb-3">카테고리 (중앙)</h1>
+
+  <div class="card shadow-sm">
+    <div class="card-header">
+      <div class="row g-2 align-items-center">
+        <div class="col-auto">
+          <label for="selL1" class="form-label mb-0">레벨 1</label>
+        </div>
+        <div class="col-auto">
+          <select id="selL1" class="form-select form-select-sm">
+            <option value="">-- 선택 --</option>
+          </select>
+        </div>
+
+        <div class="col-auto ms-3">
+          <label for="selL2" class="form-label mb-0">레벨 2</label>
+        </div>
+        <div class="col-auto">
+          <select id="selL2" class="form-select form-select-sm" disabled>
+            <option value="">-- 선택 --</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="tblL2">
+          <thead>
+            <tr>
+              <th style="width:22%">코드</th>
+              <th style="width:48%">이름</th>
+              <th style="width:10%">정렬</th>
+              <th style="width:20%">비고</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="4" class="text-muted">레벨1을 선택하세요.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const URL_OPTIONS = "{% url 'control:ctrl_category_options' %}";
+
+function fillSelect(selectEl, items, placeholder) {
+  selectEl.innerHTML = "";
+  const opt0 = document.createElement("option");
+  opt0.value = "";
+  opt0.textContent = placeholder || "-- 선택 --";
+  selectEl.appendChild(opt0);
+  (items || []).forEach(it => {
+    const opt = document.createElement("option");
+    opt.value = it.id;
+    opt.dataset.code = it.code;
+    opt.textContent = `${it.name} (${it.code})`;
+    selectEl.appendChild(opt);
+  });
+}
+
+function renderL2Table(items) {
+  const tbody = document.querySelector("#tblL2 tbody");
+  tbody.innerHTML = "";
+  if (!items || items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-muted">레벨2 항목이 없습니다.</td></tr>`;
+    return;
+  }
+  items.forEach(it => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><code>${it.code}</code></td>
+      <td>${it.name}</td>
+      <td>${it.ord ?? ""}</td>
+      <td></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadL1() {
+  const res = await fetch(`${URL_OPTIONS}?level=1`, { credentials: "same-origin" });
+  const json = await res.json();
+  fillSelect(document.getElementById("selL1"), json.results || [], "-- L1 선택 --");
+}
+
+async function loadL2(parentId) {
+  const selL2 = document.getElementById("selL2");
+  selL2.disabled = true;
+  fillSelect(selL2, [], "-- 로딩중 --");
+  const res = await fetch(`${URL_OPTIONS}?level=2&parent_id=${encodeURIComponent(parentId)}`, { credentials: "same-origin" });
+  const json = await res.json();
+  const items = json.results || [];
+  fillSelect(selL2, items, "-- L2 선택 --");
+  selL2.disabled = false;
+  renderL2Table(items);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const selL1 = document.getElementById("selL1");
+  const selL2 = document.getElementById("selL2");
+
+  loadL1();
+
+  selL1.addEventListener("change", () => {
+    const l1Id = selL1.value;
+    fillSelect(selL2, [], "-- L1 먼저 선택 --");
+    document.querySelector("#tblL2 tbody").innerHTML =
+      `<tr><td colspan="4" class="text-muted">레벨1을 먼저 선택하세요.</td></tr>`;
+    if (l1Id) loadL2(l1Id);
+    selL2.disabled = !l1Id;
+  });
+});
+</script>
+{% endblock %}

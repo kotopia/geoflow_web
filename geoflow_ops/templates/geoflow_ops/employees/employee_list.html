@@ -1,0 +1,36 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block title %}직원{% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">직원</h1>
+  </div>
+  <div class="card"><div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead><tr>
+        <th>이메일</th><th>이름</th><th>직함</th><th>상태</th><th>액션</th>
+      </tr></thead>
+      <tbody>
+        {% for e in employees %}
+        <tr>
+          <td>{{ e.email }}</td>
+          <td>{{ e.name|default:"-" }}</td>
+          <td>{{ e.title|default:"-" }}</td>
+          <td>{{ e.status }}</td>
+          <td>
+            <a href="{% url 'tenant:employees_detail' e.id %}" class="btn btn-sm btn-outline-secondary">상세</a>
+            {% with me_email=request.user.email|default:request.user.username %}
+              {% if e.email|lower != me_email|lower %}
+                <a href="{% url 'tenant:employees_request_role' e.id %}" class="btn btn-sm btn-outline-primary">권한요청</a>
+              {% endif %}
+            {% endwith %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center text-muted">직원이 없습니다.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</div>
+{% endblock %}

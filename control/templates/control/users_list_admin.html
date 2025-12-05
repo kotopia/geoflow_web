@@ -1,0 +1,33 @@
+{% extends "control/base_central.html" %}
+{% block title %}Users (Central){% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <h1 class="h3 mb-3">중앙 사용자</h1>
+  <div class="card"><div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead><tr>
+        <th>이메일</th><th>활성</th><th>인증</th><th>최근 로그인</th><th>그룹수</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>{{ u.email }}</td>
+          <td>{{ u.is_active|yesno:"Y,N" }}</td>
+          <td>{{ u.email_verified|yesno:"Y,N" }}</td>
+          <td>{{ u.last_login|date:"Y-m-d H:i" }}</td>
+          <td>{{ u.groups_count }}</td>
+          <td><a class="btn btn-sm btn-outline-primary" href="{% url 'control:users_detail_admin' u.id %}">상세</a></td>
+          <td class="text-end">
+            <a class="btn btn-sm btn-outline-primary" href="{% url 'control:users_detail_admin' u.id %}">상세</a>
+            <form method="post" action="{% url 'control:users_delete_admin' u.id %}" class="d-inline" onsubmit="return confirm('정말 삭제?');">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-danger">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</div>
+{% endblock %}

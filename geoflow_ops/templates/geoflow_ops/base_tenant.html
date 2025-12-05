@@ -1,0 +1,31 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <link rel="shortcut icon" href="{% static 'control/img/icons/icon-48x48.png' %}" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+        <link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.1/dist/style.css">
+        <script src="{% static 'control/js/settings.js' %}"></script>
+    </head>
+
+    <body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+        <div class="wrapper">
+        {% include "geoflow_ops/partials/sidebar.html" %}
+        <div class="main">
+            {% include "geoflow_ops/partials/topbar.html" %}
+            <main class="content">
+            <div class="container-fluid p-0">
+                {% block content %}{% endblock %}
+            </div>
+            </main>
+        </div>
+        </div>
+
+        <script src="{% static 'control/js/app.js' %}"></script>
+        <script src="{% static 'control/js/datatables.js' %}"></script>
+
+        {% block scripts %}{% endblock %}
+    </body>
+</html>

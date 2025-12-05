@@ -1,0 +1,57 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}옵션 {% if mode == 'create' %}추가{% else %}수정{% endif %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4" style="max-width:720px">
+  <h3 class="mb-3">
+    옵션팩 {% if mode == 'create' %}추가{% else %}수정{% endif %}
+    <small class="text-muted">({{ facet.code }} / {{ facet.name }})</small>
+  </h3>
+
+  <form method="post" class="card p-3">
+    {% csrf_token %}
+
+    <div class="mb-3">
+      <label class="form-label">코드</label>
+      {{ form.code }}
+      <div class="form-text">예: LV_1, BM_1 등</div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">이름</label>
+      {{ form.name }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">정렬 순서</label>
+      {{ form.ord }}
+    </div>
+
+    <div class="row">
+      <div class="col-md-4 mb-3">
+        <label class="form-label">단위(선택)</label>
+        {{ form.default_unit }}
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label">지오메 힌트(선택)</label>
+        {{ form.geom_hint }}
+      </div>
+      {% if form.fields.style %}
+      <div class="col-md-4 mb-3">
+        <label class="form-label">스타일(선택)</label>
+        {{ form.style }}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="form-check form-switch mb-3">
+      {{ form.active }} <label class="form-check-label">활성</label>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">저장</button>
+      <a href="{% url 'catalog:option_admin_list' facet.id %}" class="btn btn-outline-secondary">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

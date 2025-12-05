@@ -1,0 +1,162 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}[카탈로그] {{ l2.name }} 옵션팩 연결{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+  <h3 class="mb-3">[{{ l2.code }}] {{ l2.name }} — 옵션팩 연결</h3>
+
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>현재 연결된 옵션팩</strong>
+      <a class="btn btn-sm btn-primary"
+         href="{% url 'catalog:option_rule_list' l2.id %}">규칙 관리(L3↔L4 조합)</a>
+      {# ✅ 옵션팩 생성 버튼(모달 트리거) #}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalFacetCreate">
+        옵션팩 생성
+      </button>
+    </div>
+
+    <div class="card-body p-0">
+      <table class="table mb-0 align-middle">
+        <thead>
+        <tr>
+          <th style="width:90px">레벨</th>
+          <th>옵션팩 코드</th>
+          <th>옵션팩 이름</th>
+          <th style="width:120px">정렬</th>
+          <th style="width:120px">관리</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for s in sets %}
+          <tr>
+            <td>L{{ s.level_no }}</td>
+            <td class="font-monospace">{{ s.facet.code }}</td>
+            <td>{{ s.facet.name }}</td>
+            <td>{{ s.ord }}</td>
+            <td>
+              <a class="btn btn-sm btn-outline-danger"
+                 href="{% url 'catalog:option_set_delete' s.id %}"
+                 onclick="return confirm('삭제할까요?');">삭제</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="text-center text-muted py-4">연결된 옵션팩이 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div class="card">
+      <div class="card-header"><strong>L3 옵션팩 추가</strong></div>
+      <div class="card-body">
+        <form method="post" action="{% url 'catalog:option_set_create' l2.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="l2" value="{{ l2.id }}">
+          <input type="hidden" name="level_no" value="3">
+          <div class="mb-3">
+            <label class="form-label">옵션팩 선택</label>
+            <select name="facet" class="form-select" required>
+              <option value="">- 선택 -</option>
+              {% for f in facets3 %}
+                <option value="{{ f.id }}">{{ f.name }} ({{ f.code }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">정렬(숫자)</label>
+            <input type="number" name="ord" class="form-control" value="1" min="1">
+          </div>
+          <button class="btn btn-primary">추가</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><strong>L4 옵션팩 추가</strong></div>
+      <div class="card-body">
+        <form method="post" action="{% url 'catalog:option_set_create' l2.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="l2" value="{{ l2.id }}">
+          <input type="hidden" name="level_no" value="4">
+          <div class="mb-3">
+            <label class="form-label">옵션팩 선택</label>
+            <select name="facet" class="form-select" required>
+              <option value="">- 선택 -</option>
+              {% for f in facets4 %}
+                <option value="{{ f.id }}">{{ f.name }} ({{ f.code }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">정렬(숫자)</label>
+            <input type="number" name="ord" class="form-control" value="1" min="1">
+          </div>
+          <button class="btn btn-primary">추가</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <a class="btn btn-secondary" href="{% url 'catalog:node_admin_list' %}">L2 목록으로</a>
+  </div>
+
+  {# ✅ 옵션팩 빠른 생성 모달 #}
+  <div class="modal fade" id="modalFacetCreate" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <form method="post" action="{% url 'catalog:facet_admin_create' %}">
+          {% csrf_token %}
+          {# 성공 시 되돌아올 주소(next): 현재 페이지를 그대로 보내기 #}
+          <input type="hidden" name="next" value="{% url 'catalog:node_link_admin' l2.id %}">
+
+          <div class="modal-header">
+            <h5 class="modal-title">옵션팩 생성</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="close"></button>
+          </div>
+
+          <div class="modal-body">
+            <div class="row g-3">
+              <div class="col-12 col-md-4">
+                <label class="form-label">코드</label>
+                <input type="text" name="code" class="form-control form-control-sm"
+                      maxlength="20" placeholder="예: PROC" required>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">이름</label>
+                <input type="text" name="name" class="form-control form-control-sm"
+                      maxlength="20" placeholder="예: 공정팩" required>
+              </div>
+              <div class="col-6 col-md-2">
+                <label class="form-label">정렬</label>
+                <input type="number" name="ord" class="form-control form-control-sm"
+                      value="1" min="1" step="1">
+              </div>
+              <div class="col-12">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="active" id="facetActive" checked>
+                  <label class="form-check-label ms-2" for="facetActive">사용</label>
+                </div>
+              </div>
+            </div>
+            <div class="text-muted small mt-2">
+              ※ 옵션팩은 Lv3/Lv4 어디에도 종속되지 않습니다. 연결 시 레벨을 지정합니다.
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-primary">저장</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

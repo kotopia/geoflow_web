@@ -1,0 +1,50 @@
+{% load static %}
+{% load acl_tags %}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dashboard | GeoFlow</title>
+    <link rel="shortcut icon" href="{% static 'control/img/icons/icon-48x48.png' %}" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
+    <script src="{% static 'control/js/settings.js' %}"></script>
+  </head>
+  
+<nav id="sidebar" class="sidebar js-sidebar">
+  <div class="sidebar-content js-simplebar">
+    <a class="sidebar-brand" href="{% url 'control:dashboard' %}">
+      <span class="align-middle">GeoFlow</span>
+    </a>
+    <ul class="sidebar-nav">
+      <li class="sidebar-header">Central</li>
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'control:users_list_admin' %}">Users</a>
+      </li>
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'control:group_list_admin' %}">Groups</a>
+      </li>
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'control:join_requests_pending' %}">Join Requests</a>
+      </li>
+
+      <li class="sidebar-header">Catalog</li>
+        <li class="sidebar-item">
+          <a class="sidebar-link" href="{% url 'catalog:categories_board' %}">
+            <i class="align-middle" data-feather="grid"></i>
+            <span class="align-middle">카테고리 보드</span>
+          </a>
+        </li>
+        <li class="sidebar-item">
+          <a class="sidebar-link" href="{% url 'catalog:facet_admin_list' %}">
+            <i class="align-middle" data-feather="grid"></i>
+            <span class="align-middle">옵션팩</span>
+          </a>
+        </li>
+
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+

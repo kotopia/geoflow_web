@@ -1,0 +1,22 @@
+{% extends "control/base_central.html" %}
+{% block title %}내 합류 요청{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <h1 class="h4 mb-3">내 합류 요청</h1>
+  <table class="table">
+    <thead><tr><th>그룹</th><th>코드</th><th>상태</th><th>요청일</th></tr></thead>
+    <tbody>
+    {% for id, gname, gcode, st, dt in rows %}
+      <tr>
+        <td>{{ gname }}</td>
+        <td>{{ gcode }}</td>
+        <td>{{ st }}</td>
+        <td>{{ dt|date:"Y-m-d H:i" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4" class="text-muted text-center">요청 내역이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

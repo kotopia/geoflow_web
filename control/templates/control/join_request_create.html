@@ -1,0 +1,14 @@
+{% extends "control/base_central.html" %}
+{% block title %}합류 요청{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:640px">
+  <h1 class="h4 mb-3">그룹 합류 요청</h1>
+  <form method="post">{% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label">요청 메모(선택)</label>
+      <textarea name="message" rows="4" class="form-control" placeholder="관리자에게 전달할 메모가 있다면 입력하세요."></textarea>
+    </div>
+    <button class="btn btn-primary w-100">요청 제출</button>
+  </form>
+</div>
+{% endblock %}

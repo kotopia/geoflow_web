@@ -1,0 +1,24 @@
+# Python / Django
+__pycache__/
+*.pyc
+.venv/
+*.sqlite3
+staticfiles/
+media/
+logs/
+*.log
+
+# Env / Secrets
+.env
+.env.*
+settings_local.py
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ZIP/유료 템플릿 원본
+*.zip
+adminkit*/

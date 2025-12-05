@@ -1,0 +1,33 @@
+{% extends "control/base_central.html" %}
+{% block title %}Groups (Admin){% endblock %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h4">Groups</h1>
+    <a class="btn btn-primary" href="{% url 'control:group_create_admin' %}">New Group</a>
+  </div>
+  {% if messages %}{% for m in messages %}
+  <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+  {% endfor %}{% endif %}
+  <table class="table align-middle">
+    <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Domains</th><th>Owner</th><th>DB Alias</th><th></th></tr></thead>
+    <tbody>
+      {% for id, code, name, status, domains, owner, db_alias in rows %}
+      <tr>
+        <td>{{ code }}</td>
+        <td>{{ name }}</td>
+        <td>{{ status }}</td>
+        <td>{{ domains|default:"-" }}</td>
+        <td>{{ owner|default:"-" }}</td>
+        <td>{{ db_alias|default:"-" }}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-secondary" href="{% url 'control:group_edit_admin' id %}">Edit</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="text-muted text-center">No groups.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

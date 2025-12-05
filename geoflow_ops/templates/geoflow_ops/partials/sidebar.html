@@ -1,0 +1,62 @@
+{% load static %}
+{% load acl_tags %}
+
+<nav id="sidebar" class="sidebar js-sidebar">
+  <div class="sidebar-content js-simplebar">
+    <a class="sidebar-brand" href="{% url 'tenant:home' %}">
+      <span class="align-middle">GeoFlow</span>
+    </a>
+
+    <ul class="sidebar-nav">
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'tenant:home' %}">
+          <i class="align-middle" data-feather="sliders"></i>
+          <span class="align-middle">Dashboard</span>
+        </a>
+      </li>
+
+      <li class="sidebar-header">Contract</li>
+      <li class="sidebar-item">
+        <a data-bs-target="#contract-menu" data-bs-toggle="collapse" class="sidebar-link collapsed">
+          <i class="align-middle" data-feather="file-text"></i>
+          <span class="align-middle">Contract</span>
+        </a>
+        <ul id="contract-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
+          <li class="sidebar-item">
+            <a class="sidebar-link" href="{% url 'tenant:contract_list' %}">Contract List</a>
+          </li>
+          <li class="sidebar-item">
+            <a class="sidebar-link" href="{% url 'tenant:partner_list' %}">Partners</a>
+          </li>
+        </ul>
+      </li>
+
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'tenant:project_list' %}">
+          <i class="align-middle" data-feather="folder"></i>
+          <span class="align-middle">Projects</span>
+        </a>
+      </li>
+
+      <li class="sidebar-header">Employee</li>
+      <li class="sidebar-item">
+        <a data-bs-target="#employee-menu" data-bs-toggle="collapse" class="sidebar-link collapsed">
+          <i class="align-middle" data-feather="users"></i>
+          <span class="align-middle">Employee</span>
+        </a>
+        <ul id="employee-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
+          <li class="sidebar-item">
+            <a class="sidebar-link" href="{% url 'tenant:employees_list' %}">
+              <i class="align-middle" data-feather="users"></i> <span class="align-middle">직원</span>
+            </a>
+          </li>
+          <li class="sidebar-item">
+            <a class="sidebar-link" href="{% url 'tenant:employees_create' %}">
+              <i class="align-middle" data-feather="user-plus"></i> <span class="align-middle">직원 생성</span>
+            </a>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+</nav>

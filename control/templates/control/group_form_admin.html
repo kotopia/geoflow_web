@@ -1,0 +1,49 @@
+{% extends "control/base_central.html" %}
+{% block title %}Group Form{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:760px">
+    <h1 class="h4 mb-3">Group {{ row|yesno:"Edit,Create" }}</h1>
+    {% if messages %}{% for m in messages %}
+    <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+    {% endfor %}{% endif %}
+
+    <form method="post">{% csrf_token %}
+        {% if not row %}
+        <div class="mb-3">
+            <label class="form-label">Code (unique)</label>
+            <input type="text" name="code" class="form-control" required>
+        </div>
+        {% endif %}
+        <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" class="form-control" value="{{ row.2|default:'' }}" required>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Status</label>
+            <select name="status" class="form-select">
+                {% for s in status_choices %}
+                <option value="{{ s }}" {% if row and row.3 == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Allowed Domains (comma)</label>
+            <input type="text" name="allowed_domains" class="form-control" value="{{ row.4|default:'' }}" placeholder="example.com, sub.com">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Owner Email</label>
+            <input type="email" name="owner_email" class="form-control" value="{{ row.5|default:'' }}">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">DB Alias</label>
+            <input type="text" name="db_alias" class="form-control" value="{{ row.6|default:'' }}" placeholder="cheonan_db">
+            <div class="form-text">settings.DATABASES의 키와 동일해야 합니다.</div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary">Save</button>
+            <a class="btn btn-light" href="{% url 'control:group_list_admin' %}">Back</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

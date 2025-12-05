@@ -1,0 +1,34 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}옵션팩 {% if mode == 'create' %}추가{% else %}수정{% endif %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-4" style="max-width:720px">
+  <h3 class="mb-3">옵션팩 {% if mode == 'create' %}추가{% else %}수정{% endif %}</h3>
+
+  <form method="post" class="card p-3">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label">코드</label>
+      {{ form.code }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">이름</label>
+      {{ form.name }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">정렬</label>
+      {{ form.ord }}
+    </div>
+    <div class="form-check form-switch mb-3">
+      {{ form.active }} <label class="form-check-label">활성</label>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">저장</button>
+      <a href="{% url 'catalog:facet_admin_list' %}" class="btn btn-outline-secondary">취소</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

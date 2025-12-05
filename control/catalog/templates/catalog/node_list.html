@@ -1,0 +1,46 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}[카탈로그] L2 목록{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">L2(중분류) 목록</h3>
+  {# 필요 시 L2 생성 버튼이 있다면 아래를 해제하고 해당 URL을 연결 #}
+  {# <a class="btn btn-primary" href="{% url 'catalog:node_admin_create' %}">+ L2 추가</a> #}
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <table class="table mb-0 align-middle">
+      <thead>
+      <tr>
+        <th style="width:100px">정렬</th>
+        <th>코드</th>
+        <th>이름</th>
+        <th style="width:180px">관리</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for it in items %}
+        <tr>
+          <td>{{ it.ord }}</td>
+          <td class="font-monospace">{{ it.code }}</td>
+          <td>{{ it.name }}</td>
+          <td>
+            <a class="btn btn-sm btn-primary"
+               href="{% url 'catalog:node_link_admin' it.id %}">
+              옵션팩 연결
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="4" class="text-center text-muted py-4">데이터 없음</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

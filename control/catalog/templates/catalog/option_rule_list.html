@@ -1,0 +1,44 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}규칙 목록{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+  <h3 class="mb-3">[{{ l2.code }}] {{ l2.name }} — 규칙 목록</h3>
+
+  <div class="mb-3 d-flex gap-2">
+    <a class="btn btn-primary" href="{% url 'catalog:option_rule_create' l2.id %}">규칙 추가</a>
+    <a class="btn btn-secondary" href="{% url 'catalog:node_link_admin' l2.id %}">옵션팩 연결로</a>
+  </div>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table mb-0 align-middle">
+        <thead>
+          <tr>
+            <th>L3 옵션</th>
+            <th>L4 옵션</th>
+            <th style="width:120px">관리</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in rules %}
+          <tr>
+            <td>{{ r.facet3_opt.facet.name }} / {{ r.facet3_opt.name }}</td>
+            <td>{{ r.facet4_opt.facet.name }} / {{ r.facet4_opt.name }}</td>
+            <td>
+              <a class="btn btn-sm btn-outline-danger"
+                 href="{% url 'catalog:option_rule_delete' r.id %}"
+                 onclick="return confirm('삭제할까요?');">삭제</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="text-center text-muted py-4">규칙이 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

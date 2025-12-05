@@ -1,0 +1,43 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">{{ obj.name }}</h1>
+    <div>
+      <a href="{% url 'tenant:myinfo_orgunit_update' obj.id %}" class="btn btn-sm btn-primary">편집</a>
+      <a href="{% url 'tenant:myinfo_orgunit_list' %}" class="btn btn-sm btn-outline-secondary">목록</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-2">구분</dt>
+        <dd class="col-sm-10">{{ obj.type|default:"-" }}</dd>
+
+        <dt class="col-sm-2">사업자번호</dt>
+        <dd class="col-sm-10">{{ obj.biz_no|default:"-" }}</dd>
+
+        <dt class="col-sm-2">대표자</dt>
+        <dd class="col-sm-10">{{ obj.rep_name|default:"-" }}</dd>
+
+        <dt class="col-sm-2">전화</dt>
+        <dd class="col-sm-10">{{ obj.phone|default:"-" }}</dd>
+
+        <dt class="col-sm-2">이메일</dt>
+        <dd class="col-sm-10">{{ obj.email|default:"-" }}</dd>
+
+        <dt class="col-sm-2">주소</dt>
+        <dd class="col-sm-10">{{ obj.address|linebreaksbr|default:"-" }}</dd>
+
+        <dt class="col-sm-2">별칭</dt>
+        <dd class="col-sm-10">{{ obj.label|default:"-" }}</dd>
+
+        <dt class="col-sm-2">비고</dt>
+        <dd class="col-sm-10">{{ obj.description|linebreaksbr|default:"-" }}</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+{% endblock %}

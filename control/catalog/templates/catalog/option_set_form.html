@@ -1,0 +1,40 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block title %}옵션팩 연결 추가{% endblock %}
+
+{% block content %}
+<div class="container my-4" style="max-width:720px">
+  <h3 class="mb-3">[{{ l2.code }}] {{ l2.name }} — 옵션팩 연결 추가</h3>
+
+  <div class="card">
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+
+        {{ form.non_field_errors }}
+        <div class="mb-3">
+          <label class="form-label">레벨(L3/L4)</label>
+          {{ form.level_no }}
+          {{ form.level_no.errors }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label">옵션팩</label>
+          {{ form.facet }}
+          {{ form.facet.errors }}
+        </div>
+        <div class="mb-3">
+          <label class="form-label">정렬</label>
+          {{ form.ord }}
+          {{ form.ord.errors }}
+        </div>
+
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary">저장</button>
+          <a class="btn btn-secondary" href="{% url 'catalog:node_link_admin' l2.id %}">취소</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

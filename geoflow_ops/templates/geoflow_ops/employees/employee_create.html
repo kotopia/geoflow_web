@@ -1,0 +1,36 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block title %}직원 생성{% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <h1 class="h3 mb-3">직원 생성</h1>
+  <form method="post" class="card card-body">
+    {% csrf_token %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">이메일</label>
+        <input type="email" name="email" class="form-control" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">이름</label>
+        <input type="text" name="name" class="form-control">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">직함</label>
+        <input type="text" name="title" class="form-control">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">전화</label>
+        <input type="text" name="phone" class="form-control">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">입사일</label>
+        <input type="date" name="hire_date" class="form-control">
+      </div>
+    </div>
+    <div class="mt-3">
+      <button class="btn btn-primary">저장</button>
+      <a href="{% url 'tenant:employees_list' %}" class="btn btn-outline-secondary">목록</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

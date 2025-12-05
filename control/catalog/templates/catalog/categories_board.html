@@ -1,0 +1,313 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid py-3"> 
+    <div class="row g-3">
+
+    {# ── COL1: Lv1 ───────────────────────────── #}
+    <div class="col-12 col-md-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">Lv1 대분류</span>
+                <div class="card-actions float-end">
+                    <div class="dropdown position-relative">
+                        <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
+                            <i class="align-middle" data-feather="more-horizontal"></i>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-end">
+                            <a class="dropdown-item" href="{% url 'catalog:l1_admin_create' %}">생성</a>
+                            {% if l1_sel %}
+                            <li><a class="dropdown-item" href="{% url 'catalog:l1_admin_update' l1_sel.id %}">편집</a></li>
+                            <li>
+                                <form method="post" action="{% url 'catalog:l1_admin_delete' l1_sel.id %}" onsubmit="return confirm('정말 삭제할까요? 이 Lv1의 연결/규칙/선택 옵션도 함께 삭제됩니다.');">
+                                {% csrf_token %}
+                                <button type="submit" class="dropdown-item text-danger">삭제</button>
+                                </form>
+                            </li>
+                            {% else %}
+                            <li><span class="dropdown-item disabled">편집</span></li>
+                            <li><span class="dropdown-item disabled">삭제</span></li>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush" style="max-height:calc(100vh - 260px);overflow:auto;">
+                    {% for n in l1_list %}
+                    <a class="list-group-item list-group-item-action {% if l1_sel and n.id == l1_sel.id %}active{% endif %}"
+                        href="{% url 'catalog:categories_board' %}?l1={{ n.id }}">
+                        <div class="fw-semibold">{{ n.name }}</div>
+                        <div class="small text-muted">{{ n.code }}</div>
+                    </a>
+                    {% empty %}
+                    <li class="list-group-item text-muted">등록된 L1이 없습니다.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    
+    {# ── COL2: Lv2 ───────────────────────────── #}
+    <div class="col-12 col-md-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">Lv2 중분류</span>
+                <div class="card-actions float-end">
+                    <div class="dropdown position-relative">
+                        <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
+                            <i class="align-middle" data-feather="more-horizontal"></i>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-end">
+                            {# 생성: L1이 선택되어 있을 때만 활성 #}
+                            {% if l1_sel %}
+                            <li><a class="dropdown-item" href="{% url 'catalog:l2_admin_create' %}?l1={{ l1_sel.id }}">생성</a></li>
+                            {% else %}
+                            <li><span class="dropdown-item disabled">생성</span></li>
+                            {% endif %}
+
+                            {% if l2_sel %}
+                            <li><a class="dropdown-item" href="{% url 'catalog:l2_admin_update' l2_sel.id %}?from=board&l1={{ l1_sel.id }}">편집</a></li>
+                            <li>
+                                <form method="post" action="{% url 'catalog:l2_admin_delete' l2_sel.id %}" onsubmit="return confirm('정말 삭제할까요? 이 Lv2의 연결/규칙/선택 옵션도 함께 삭제됩니다.');">
+                                {% csrf_token %}
+                                <button type="submit" class="dropdown-item text-danger">삭제</button>
+                                </form>
+                            </li>
+                            <li><a class="dropdown-item" href="{% url 'catalog:node_link_admin' l2_sel.id %}" target="_blank" rel="noopener">옵션팩 연결 관리</a></li>
+                            {% else %}
+                            <li><span class="dropdown-item disabled">편집</span></li>
+                            <li><span class="dropdown-item disabled">삭제</span></li>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-body p-0">
+            {% if not l1_sel %}
+                <div class="p-3 text-muted">좌측에서 Lv1을 선택하세요.</div>
+            {% else %}
+                <ul class="list-group list-group-flush" style="max-height:calc(100vh - 300px);overflow:auto;">
+                {% for n in l2_list %}
+                    <a class="list-group-item list-group-item-action {% if l2_sel and n.id == l2_sel.id %}active{% endif %}"
+                    href="{% url 'catalog:categories_board' %}?l1={{ l1_sel.id }}&l2={{ n.id }}">
+                    <div class="fw-semibold">{{ n.name }}</div>
+                    <div class="small text-muted">{{ n.code }}</div>
+                    </a>
+                {% empty %}
+                    <li class="list-group-item text-muted">연결된 Lv2가 없습니다.</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- {# ── COL2: Lv2 ───────────────────────────── #}
+    <div class="col-12 col-md-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">Lv2 중분류</span>
+
+                <div class="btn-group btn-group-sm">
+                    {# 새 Lv2: 선택된 L1이 있을 때만 활성화 #}
+                    {% if l1_sel %}
+                    <a class="btn btn-primary"
+                        href="{% url 'catalog:l2_admin_create' %}?l1={{ l1_sel.id }}">새 Lv2</a>
+                    {% else %}
+                    <button class="btn btn-primary" disabled>새 Lv2</button>
+                    {% endif %}
+
+                    {# 연결 관리(옵션팩 화면): 선택된 L2가 있을 때만 이동 #}
+                    {% if l2_sel %}
+                    <a class="btn btn-outline-secondary"
+                        href="{% url 'catalog:node_link_admin' l2_sel.id %}"
+                        target="_blank" rel="noopener">관리</a>
+                    {% else %}
+                    <button class="btn btn-outline-secondary" disabled>관리</button>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card-body p-0">
+            {% if not l1_sel %}
+                <div class="p-3 text-muted">좌측에서 Lv1을 선택하세요.</div>
+            {% else %}
+                <ul class="list-group list-group-flush" style="max-height:calc(100vh - 300px);overflow:auto;">
+                {% for n in l2_list %}
+                    <a class="list-group-item list-group-item-action {% if l2_sel and n.id == l2_sel.id %}active{% endif %}"
+                    href="{% url 'catalog:categories_board' %}?l1={{ l1_sel.id }}&l2={{ n.id }}">
+                    <div class="fw-semibold">{{ n.name }}</div>
+                    <div class="small text-muted">{{ n.code }}</div>
+                    </a>
+                {% empty %}
+                    <li class="list-group-item text-muted">연결된 Lv2가 없습니다.</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+            </div>
+
+            {# 선택된 Lv2가 있을 때: 수정/삭제 버튼 표시 #}
+            {% if l2_sel %}
+            <div class="card-footer d-flex gap-2">
+                <a class="btn btn-sm btn-outline-secondary flex-fill"
+                href="{% url 'catalog:l2_admin_update' l2_sel.id %}?from=board&l1={{ l1_sel.id }}">Lv2 수정</a>
+
+                <form method="post" action="{% url 'catalog:l2_admin_delete' l2_sel.id %}" class="flex-fill"
+                    onsubmit="return confirm('정말 삭제할까요? 이 Lv2의 연결/규칙/선택 옵션도 함께 삭제됩니다.');">
+                {% csrf_token %}
+                <input type="hidden" name="l1" value="{{ l1_sel.id }}">
+                <button class="btn btn-sm btn-outline-danger w-100" type="submit">Lv2 삭제</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </div> -->
+
+    {# ── COL3: Lv3 옵션 (개별 선택) ── #}
+    <div class="col-12 col-md-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">Lv3 옵션</span>
+            </div>
+
+            {% if l2_sel %}
+            <form method="post" class="p-3 border-bottom">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_pick">
+                <input type="hidden" name="level_no" value="3">
+                <div class="d-flex gap-2">
+                <select name="option_id" class="form-select form-select-sm">
+                    {% for o in add_candidates3 %}
+                    <option value="{{ o.id }}">{{ o.name }} ({{ o.code }})</option>
+                    {% empty %}
+                    <option value="">추가 가능한 옵션이 없습니다</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-primary" {% if add_candidates3|length == 0 %}disabled{% endif %}>추가</button>
+                </div>
+            </form>
+            {% endif %}
+
+            <div class="card-body p-0">
+            {% if not l2_sel %}
+                <div class="p-3 text-muted">Lv2를 선택하세요.</div>
+            {% else %}
+                {% if picks3 %}
+                <div class="p-2 small text-muted border-bottom">부분선택 모드 (선택된 옵션만 사용)</div>
+                <ul class="list-group list-group-flush">
+                    {% for p in picks3 %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                        <div class="fw-semibold">{{ p.option.name }}</div>
+                        <div class="text-muted small">{{ p.option.code }}</div>
+                        </div>
+                        <form method="post" class="ms-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="del_pick">
+                        <input type="hidden" name="pick_id" value="{{ p.id }}">
+                        <button class="btn btn-sm btn-outline-danger">삭제</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <form method="post" class="p-3 border-top">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="clear_picks">
+                    <input type="hidden" name="level_no" value="3">
+                    <button class="btn btn-sm btn-outline-secondary w-100">전체 사용 모드로 전환</button>
+                </form>
+                {% else %}
+                <div class="p-2 small text-muted border-bottom">전체 사용 모드 (연결된 팩의 모든 옵션 사용)</div>
+                <ul class="list-group list-group-flush">
+                    {% for o in eff_opts3 %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>{{ o.name }}</span>
+                        <span class="text-muted small">{{ o.code }}</span>
+                    </li>
+                    {% empty %}
+                    <li class="list-group-item text-muted">옵션 없음</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            {% endif %}
+            </div>
+        </div>
+    </div>
+
+
+    {# ── COL4: Lv4 옵션팩/규칙 ────────────────── #}
+    <div class="col-12 col-md-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-bold">Lv3 옵션</span>
+            </div>
+
+            {% if l2_sel %}
+            <form method="post" class="p-3 border-bottom">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_pick">
+                <input type="hidden" name="level_no" value="4">
+                <div class="d-flex gap-2">
+                <select name="option_id" class="form-select form-select-sm">
+                    {% for o in add_candidates4 %}
+                    <option value="{{ o.id }}">{{ o.name }} ({{ o.code }})</option>
+                    {% empty %}
+                    <option value="">추가 가능한 옵션이 없습니다</option>
+                    {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-primary" {% if add_candidates3|length == 0 %}disabled{% endif %}>추가</button>
+                </div>
+            </form>
+            {% endif %}
+
+            <div class="card-body p-0">
+            {% if not l2_sel %}
+                <div class="p-3 text-muted">Lv2를 선택하세요.</div>
+            {% else %}
+                {% if picks4 %}
+                <div class="p-2 small text-muted border-bottom">부분선택 모드 (선택된 옵션만 사용)</div>
+                <ul class="list-group list-group-flush">
+                    {% for p in picks4 %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                        <div class="fw-semibold">{{ p.option.name }}</div>
+                        <div class="text-muted small">{{ p.option.code }}</div>
+                        </div>
+                        <form method="post" class="ms-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="del_pick">
+                        <input type="hidden" name="pick_id" value="{{ p.id }}">
+                        <button class="btn btn-sm btn-outline-danger">삭제</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <form method="post" class="p-3 border-top">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="clear_picks">
+                    <input type="hidden" name="level_no" value="4">
+                    <button class="btn btn-sm btn-outline-secondary w-100">전체 사용 모드로 전환</button>
+                </form>
+                {% else %}
+                <div class="p-2 small text-muted border-bottom">전체 사용 모드 (연결된 팩의 모든 옵션 사용)</div>
+                <ul class="list-group list-group-flush">
+                    {% for o in eff_opts4 %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>{{ o.name }}</span>
+                        <span class="text-muted small">{{ o.code }}</span>
+                    </li>
+                    {% empty %}
+                    <li class="list-group-item text-muted">옵션 없음</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
