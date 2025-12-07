@@ -33,56 +33,7 @@
 
 <div class="container-fluid px-0">
   <div class="row">
-    <div class="col-md-6 col-lg-6">
-      <div class="card">
-    <!-- <div class="card-header">
-      <h5 class="card-title mb-0">{{ obj.name|default:"-" }}</h5>
-    </div> -->
-        <div class="card-body">
-          {% if project_for_scope %}
-            {% if scope_groups and scope_groups|length %}
-              {# L1 → L2 → 행 구조로 표출 (project_detail과 동일한 구성) #}
-              {% for g in scope_groups %}
-                <div class="mb-3">
-                  <div class="fw-bold mb-1">{{ g.l1_name }}</div>
-                  {% for b in g.l2_blocks %}
-                    <div class="mb-2">
-                      <div class="text-body mb-1">{{ b.l2_name }}</div>
-                      <div class="table-responsive">
-                        <table class="table table-sm table-striped align-middle mb-2">
-                          <thead>
-                            <tr class="text-muted small">
-                              <th style="width:40%">항목</th>
-                              <th style="width:20%">단위</th>
-                              <th style="width:20%" class="text-end">설계물량</th>
-                              <th style="width:20%" class="text-end">완료물량</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {% for r in b.rows %}
-                              <tr>
-                                <td>{{ r.l3_name }}</td>
-                                <td>{{ r.unit|default:"-" }}</td>
-                                <td class="text-end">{{ r.design_display|default:r.design_qty|default:"-" }}</td>
-                                <td class="text-end">{{ r.completed_display|default:r.completed_qty|default:"-" }}</td>
-                              </tr>
-                            {% endfor %}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  {% endfor %}
-                </div>
-              {% endfor %}
-            {% else %}
-              <div class="text-muted small">표시할 업무범위가 없습니다.</div>
-            {% endif %}
-          {% else %}
-            <div class="text-muted small">연결된 프로젝트가 없습니다.</div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
+    
     <div class="col-md-6 col-lg-6">
       <div class="card">
         <div class="card-body">
@@ -306,6 +257,83 @@
 
           </form>
           {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-lg-3">
+      <div class="card">
+    <!-- <div class="card-header">
+      <h5 class="card-title mb-0">{{ obj.name|default:"-" }}</h5>
+    </div> -->
+    <!-- <hr/> -->
+        <div class="card-body">
+          <h5 class="h6 card-title">업무범위</h5>
+
+          {% if project_for_scope %}
+            {% if scope_groups and scope_groups|length %}
+
+              <!-- ===== L1 탭 영역 ===== -->
+              <ul class="nav nav-tabs" id="scopeTabs" role="tablist">
+                {% for g in scope_groups %}
+                  <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if forloop.first %}active{% endif %}"
+                            id="tab-btn-{{ g.l1_code }}"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-{{ g.l1_code }}"
+                            type="button"
+                            role="tab">
+                      {{ g.l1_name }}
+                    </button>
+                  </li>
+                {% endfor %}
+              </ul>
+
+              <!-- ===== 탭별 컨텐츠 영역 ===== -->
+              <div class="tab-content mt-3" id="scopeTabsContent">
+                {% for g in scope_groups %}
+                  <div class="tab-pane fade {% if forloop.first %}show active{% endif %}"
+                      id="tab-{{ g.l1_code }}"
+                      role="tabpanel">
+
+                    {% for b in g.l2_blocks %}
+                      <div class="mb-2">
+                        <div class="text-body mb-1 small">{{ b.l2_name }}</div>
+
+                        <div class="table-responsive">
+                          <table class="table table-sm align-middle mb-2">
+                            <tbody>
+                              {% for r in b.rows %}
+                                <tr>
+                                  <td style="width:50%">{{ r.l3_name }}</td>
+
+                                  <td class="text-end" style="width:25%">
+                                    <span>{{ r.design_display|default:r.design_qty|default:"-" }}</span>
+                                    <span class="small">{{ r.unit|default:"-" }}</span>
+                                  </td>
+
+                                  <td class="text-end" style="width:25%">
+                                    {{ r.completed_display|default:r.completed_qty|default:"-" }}
+                                  </td>
+                                </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table>
+                        </div>
+
+                      </div>
+                    {% endfor %}
+
+                  </div>
+                {% endfor %}
+              </div>
+
+            {% else %}
+              <div class="text-muted small">표시할 업무범위가 없습니다.</div>
+            {% endif %}
+          {% else %}
+            <div class="text-muted small">연결된 프로젝트가 없습니다.</div>
+          {% endif %}
+
         </div>
       </div>
     </div>
