@@ -6,144 +6,21 @@
   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
 </div>
 
-<div class="modal-body">
-  <div class="row">
-    <!-- 왼쪽: L1 / L2 목록 -->
+<div class="modal-body p-0" id="scope-root" data-project-id="{{ project.id }}">
+  <div class="row g-0">
+    <!-- 왼쪽: L1 / L2 -->
     <div class="col-md-4 border-end">
-        <div class="mb-2 d-flex justify-content-between align-items-center">
-            <span class="fw-semibold">카테고리 (L1/L2)</span>
-        </div>
-
-        {% if l1_list %}
-            <div class="accordion" id="scope-acc-l1">
-                {% for l1 in l1_list %}
-                <div class="accordion-item mb-1">
-                    <h2 class="accordion-header" id="scope-acc-h-{{ l1.id }}">
-                    <button class="accordion-button js-scope-l1-btn {% if current_l1_id != l1.id %}collapsed{% endif %} py-2"
-                            type="button"
-                            data-bs-toggle="collapse"
-                            data-bs-target="#scope-acc-c-{{ l1.id }}"
-                            aria-expanded="{% if current_l1_id == l1.id %}true{% else %}false{% endif %}"
-                            aria-controls="scope-acc-c-{{ l1.id }}"
-                            data-l1-id="{{ l1.id }}">
-                    <span class="fw-semibold">[L1] {{ l1.name }}</span>
-                    </button>
-
-                    </h2>
-                    <div id="scope-acc-c-{{ l1.id }}"
-                        class="accordion-collapse collapse{% if current_l1_id == l1.id %} show{% endif %}"
-                        aria-labelledby="scope-acc-h-{{ l1.id }}" data-bs-parent="#scope-acc-l1">
-                    <div class="accordion-body py-2">
-                        {% if panel and current_l1_id == l1.id and panel.l2 %}
-                        <ul class="list-unstyled mb-0">
-                            {% for row in panel.l2 %}
-                            {% with node=row.node %}
-                                <li class="mb-1">
-                                <button type="button"
-                                        class="btn btn-sm w-100 text-start js-scope-l2-btn {% if current_l2_id == node.id %}btn-primary text-white{% else %}btn-outline-secondary{% endif %}"
-                                        data-l1-id="{{ l1.id }}"
-                                        data-l2-id="{{ node.id }}">
-                                    <div class="fw-semibold">{{ node.name }}</div>
-                                    <div class="small">{{ node.code }}</div>
-                                </button>
-                                </li>
-                            {% endwith %}
-                            {% endfor %}
-                        </ul>
-                        {% else %}
-                        <div class="text-muted small">이 L1에는 현재 L2가 없습니다.</div>
-                        {% endif %}
-                    </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="text-muted">중앙 카탈로그에 L1이 없습니다.</div>
-        {% endif %}
-
-    </div>
-
-    <!-- 오른쪽: L2 + L3 기준 업무범위 표 -->
-    <div class="col-md-8">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <span class="fw-semibold">업무범위 (L2 / L3 기준)</span>
-        <span class="small text-muted">체크된 항목만 저장됩니다.</span>
+      <div class="p-2 fw-semibold">카테고리 (L1/L2)</div>
+      <div class="row g-0">
+        <div class="col-6 border-end" id="scope-l1-pane" style="max-height:70vh; overflow:auto;"></div>
+        <div class="col-6" id="scope-l2-pane" style="max-height:70vh; overflow:auto;"></div>
       </div>
-
-      <div class="table-responsive">
-        <table class="table table-sm align-middle" id="scope-table">
-            <thead>
-                <tr>
-                <th style="width: 60px;">사용</th>
-                <th style="width: 25%;">L2</th>
-                <th style="width: 25%;">L3</th>
-                <th style="width: 10%;">단위</th>
-                <th style="width: 15%;">설계 물량</th>
-                <th style="width: 15%;">완료 물량</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% if table_rows %}
-                    {% for row in table_rows %}
-                    {% with l2=row.l2 opt3=row.opt3 existing=row.existing %}
-                        <tr data-l2-id="{{ l2.id }}"
-                            data-lv3-id="{{ opt3.id }}"
-                            data-unit-default="{{ opt3.default_unit }}">
-                        <td>
-                            <div class="form-check form-switch">
-                            <input class="form-check-input js-scope-active"
-                                    type="checkbox"
-                                    role="switch"
-                                    {% if existing %}checked{% endif %}>
-                            </div>
-                        </td>
-                        <td>
-                            <div class="fw-semibold">
-                            {% if selected_l2 %}{{ selected_l2.name }}{% else %}{{ l2.name }}{% endif %}
-                            </div>
-                            <div class="small text-muted">
-                            {% if selected_l2 %}{{ selected_l2.code }}{% else %}{{ l2.code }}{% endif %}
-                            </div>
-                        </td>
-                        <td>
-                            <div class="fw-semibold">{{ opt3.name }}</div>
-                            <div class="small text-muted">{{ opt3.code }}</div>
-                        </td>
-                        <td>
-                            <input type="text"
-                                    class="form-control form-control-sm js-scope-unit"
-                                    value="{{ row.unit_value }}"
-                                    {% if not existing %}disabled{% endif %}>
-                        </td>
-                        <td>
-                            <input type="number" step="0.001"
-                                    class="form-control form-control-sm text-end js-scope-design"
-                                    value="{{ row.design_display }}"
-                                    {% if not existing %}disabled{% endif %}>
-                        </td>
-                        <td>
-                            <input type="number" step="0.001"
-                                    class="form-control form-control-sm text-end js-scope-completed"
-                                    value="{{ row.completed_display }}"
-                                    {% if not existing %}disabled{% endif %}>
-                        </td>
-                        </tr>
-                    {% endwith %}
-                    {% endfor %}
-                {% else %}
-                    <tr>
-                    <td colspan="6" class="text-center text-muted py-4">
-                        선택된 L2에 대한 L3 정보가 없습니다.
-                    </td>
-                    </tr>
-                {% endif %}
-            </tbody>
-
-        </table>
-        </div>
-        </div>
     </div>
+    <!-- 오른쪽: L3 표 -->
+    <div class="col-md-8" id="scope-table-pane" style="max-height:70vh; overflow:auto;">
+      <div class="p-3 text-muted small">좌측에서 L1/L2를 선택하세요.</div>
+    </div>
+  </div>
 </div>
 
 <div class="modal-footer">

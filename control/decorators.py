@@ -2,9 +2,8 @@
 from functools import wraps
 from django.http import HttpResponseForbidden
 from django.db import connections
-from control.middleware import current_db_alias
-from control.services_identity import ensure_user_from_request, to_group_uuid
-from control.services_acl import user_has_perm
+from control.services_identity import ensure_user_from_request
+from control.templatetags.acl_tags import has_perm as _has_perm_tag
 import logging
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ def _is_staff(email: str) -> bool:
     return bool(row and row[0])
 
 def require_staff(view):
+    @wraps(view)
     def _wrap(request, *args, **kwargs):
         if not request.user.is_authenticated:
             return HttpResponseForbidden("로그인이 필요합니다.")
@@ -39,18 +39,28 @@ def require_staff(view):
         return HttpResponseForbidden("중앙 관리자만 접근 가능합니다.")
     return _wrap
 
-def require_perm(perm_code):
+def require_perm(perm_code: str):
+    """
+    세션 기반 권한 검사 데코레이터.
+    - 중앙 관리자(is_staff)는 무조건 통과
+    - 그 외에는 템플릿 태그 has_perm과 동일한 규칙으로 검사
+    """
     def deco(view):
+        @wraps(view)
         def _wrap(request, *args, **kwargs):
-            # 1) 중앙 관리자는 무조건 통과
+            # 1) 중앙 관리자는 우선 통과
             if request.user.is_authenticated and _is_staff(request.user.username):
                 return view(request, *args, **kwargs)
 
-            # 2) 이하 테넌트 권한 검사(기존 로직)
-            group_id = request.session.get("group_id")
-            if not group_id:
-                return HttpResponseForbidden("권한이 없습니다. (세션/계정 매핑 실패)")
-            # ... 기존 perm 체크 계속 ...
-            return view(request, *args, **kwargs)  # 실제 체크 코드 뒤에 위치
+            # 2) 동일 로직 재사용(acl_tags.has_perm)
+            ctx = {"request": request}
+            if not _has_perm_tag(ctx, perm_code):
+                logger.info("FORBIDDEN: user=%s perm=%s group=%s perms=%s",
+                            getattr(request.user, "email", None),
+                            perm_code,
+                            request.session.get("group_id") or request.session.get("group_uuid"),
+                            request.session.get("perms"))
+                return HttpResponseForbidden("권한이 없습니다: " + perm_code)
+            return view(request, *args, **kwargs)
         return _wrap
     return deco

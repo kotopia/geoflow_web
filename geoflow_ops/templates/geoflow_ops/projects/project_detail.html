@@ -169,80 +169,55 @@
       </div>
     </div>
     
-    {# 오른쪽: 업무범위 카드 — 기존 그대로 유지 #}
-    <div class="col-md-3 col-lg-3">
-      {{ block.super }}
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="card-title mb-0">업무범위</h5>
-            <button type="button"
-                    class="btn btn-sm btn-primary"
-                    id="btn-scope-modal"
-                    data-project-id="{{ obj.pk }}">
-              업무범위 설정
-            </button>
-          </div>
-          <div class="card-body">
-            <div class="table-responsive">
-              <!-- <table class="table table-sm mb-0 align-middle"> -->
-                <tbody>
-                  {% if scope_groups %}
-                    {% for g in scope_groups %}
-                      <!-- L1 구분 행 -->
-                      <tr>
-                        <td colspan="5">
-                          <span class="fw-semibold">[대분류] {{ g.l1_name }}</span>
-                          <!-- <span class="small text-muted ms-2">{{ g.l1_code }}</span> -->
-                          <!-- <hr /> -->
-                        </td>
-                      </tr>
-                      <hr class="my-0" />
+    {# 오른쪽: 업무범위 카드 — 읽기 전용 + 동작 버튼 #}
+    <div class="col-md-4 col-lg-4">
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="card-title mb-0">업무범위</h5>
 
-                      {% for b in g.l2_blocks %}
-                        <!-- L2 구분 행 -->
-                        <tr>
-                          <td colspan="5">
-                            <div class="small text-muted mb-0 align-middle" style="margin-top:30px; padding-left:4px">{{ b.l2_name }}</div>
-                          </td>
-                        </tr class="d-flex align-items-start">
+          {# 드롭다운 액션 #}
+          <div class="card-actions float-end">
+            <div class="dropdown position-relative">
+              <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
+                <i class="align-middle" data-feather="more-horizontal"></i>
+              </a>
+              <div class="dropdown-menu dropdown-menu-end">
+                {# 현재 업무 편집 (모달) #}
+                <a class="dropdown-item"
+                  href="#"
+                  id="btn-summary-modal"
+                  data-project-id="{{ obj.id }}"
+                  data-modal-url-tpl="{% url 'tenant:project_summary' pk='00000000-0000-0000-0000-000000000000' %}">
+                  현재 업무 편집
+                </a>
 
-                        <!-- L3 옵션 행들 -->
-                        {% for row in b.rows %}
-                        <table class="table table-sm mb-0 align-middle">
-                          <tr>
-                            <td style="width:50%">{{ row.l3_name }}</td>
-                            <td class="text-end" style="width:40%">{{ row.design_display }} {{ row.unit }}</td>
-                            <td class="text-end" style="width:10%">{{ row.completed_display }}</td>
-                          </tr>
-                        </table>
-                        {% endfor %}
-                      {% endfor %}
-                    {% endfor %}
-                  {% else %}
-                    <tr>
-                      <td colspan="5" class="text-center text-muted py-3">
-                        등록된 업무범위가 없습니다.<br>
-                        상단의 <span class="fw-semibold">업무범위 설정</span> 버튼으로 추가하세요.
-                      </td>
-                    </tr>
-                  {% endif %}
-                </tbody>
-              <!-- </table> -->
+                {# 업무범위 설정 (모달) #}
+                <a class="dropdown-item"
+                  href="#"
+                  id="btn-scope-modal"
+                  data-project-id="{{ obj.id }}"
+                  data-modal-url-tpl="{% url 'tenant:project_scope_modal' pk='00000000-0000-0000-0000-000000000000' %}">
+                  업무범위 설정
+                </a>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </div>
-    
 
-    <!-- 업무범위 편집용 모달 (내용은 AJAX로 로드) -->
-    <div class="modal fade" id="scopeModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content" id="scope-modal-content">
-          <!-- 내용은 /projects/<id>/scope-modal/ 에서 로드 -->
+        <div class="card-body">
+          {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=obj only %}
+        </div>
+
+      </div>
+
+      {# 모달 셸(공용) #}
+      <div class="modal fade" id="scopeModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+          <div class="modal-content" id="scope-modal-content"></div>
         </div>
       </div>
     </div>
+
     
   </div>
 </div>

@@ -86,6 +86,8 @@ class FacetForm(forms.ModelForm):
 # 1) DB 제약과 동일한 choice 상수 정의
 DEFAULT_UNIT_CHOICES = [
     ('EA',  'EA'),
+    ('점',  '점'),
+    ('식',  '식'),
     ('m',   'm'),
     ('㎡',  '㎡'),
     ('km',  'km'),

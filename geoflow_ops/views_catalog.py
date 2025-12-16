@@ -1,10 +1,12 @@
+import json
+
 # 중앙 카탈로그 헬퍼 불러오기
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from control.gf_authz.permissions import gf_perm_required
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
 
 # ── 멀티테넌트 alias 헬퍼 (views_projects와 동일한 방식)
 from control.middleware import current_db_alias
@@ -159,15 +161,97 @@ def project_scope_modal(request, pk):
     }
     return render(request, "geoflow_ops/projects/project_scope_modal.html", context)
 
+@require_GET
+@login_required
+@gf_perm_required("projects.edit")
+def project_scope_data(request, pk):
+    """
+    모달 오픈 시 1회 호출:
+    - 중앙 카탈로그 L1→L2→(L3) 전체
+    - 현재 프로젝트의 선택/수량 상태
+    를 JSON 한 번에 내려준다.
+    """
+    alias = _alias(request)
+    project = get_object_or_404(Project.objects.using(alias), pk=pk)
+
+    # 1) 중앙 L1 목록
+    l1_nodes = cat_svc.fetch_l1_list()  # NodeDTO 리스트 (id, code, name, ord)
+    l1_list = [{"id": x.id, "code": x.code, "name": x.name, "ord": getattr(x, "ord", 0)} for x in l1_nodes]
+
+    # 2) L1별 L2 + L2별 L3 수집
+    l2_by_l1 = {}
+    l3_by_l2 = {}
+    for l1 in l1_nodes:
+        panel = cat_svc.build_l2_panel_data(
+            tenant_alias=alias, l1_id=l1.id, project_id=str(pk)
+        )
+        l2_items = panel.get("l2") or []
+        l2_list = []
+        for row in l2_items:
+            node = row["node"]  # L2 NodeDTO
+            l2_list.append({"id": node.id, "code": node.code, "name": node.name, "ord": getattr(node, "ord", 0)})
+
+            # 이 L2의 L3 옵션들
+            opts3 = (row.get("options") or {}).get(3, [])  # FacetOptionDTO(id, code, name, default_unit, ord)
+            l3_list = []
+            for opt in opts3:
+                l3_list.append({
+                    "id": opt.id,
+                    "code": opt.code,
+                    "name": opt.name,
+                    "unit_def": getattr(opt, "default_unit", "") or "",
+                    "ord": getattr(opt, "ord", 0),
+                })
+            l3_by_l2[str(node.id)] = l3_list
+        l2_by_l1[str(l1.id)] = l2_list
+
+    # 3) 현재 프로젝트의 선택/수량(테넌트 DB) -> (l2|l3) 맵
+    items = ProjectScopeItem.objects.using(alias).filter(project_id=project.pk, lv4_id__isnull=True)
+    project_items = {}
+    for it in items:
+        key = f"{it.lv2_id}|{it.lv3_id}"
+        project_items[key] = {
+            "active": True,
+            "unit": it.unit or "",
+            "design_qty": "" if it.design_qty is None else str(it.design_qty),
+            "completed_qty": "" if it.completed_qty is None else str(it.completed_qty),
+        }
+
+    # 4) 버전(중앙 최신 개정 시각 등). 지금은 간단히 v1
+    version = "v1"
+
+    return JsonResponse({
+        "version": version,
+        "l1_list": sorted(l1_list, key=lambda x: (x["ord"], x["name"])),
+        "l2_by_l1": l2_by_l1,
+        "l3_by_l2": l3_by_l2,
+        "project_items": project_items,
+    })
+
+
 @login_required
 @gf_perm_required("projects.edit")
 @require_POST
 def project_scope_save(request, pk):
     alias = _alias(request)
 
+    # 1) JSON 시도
+    payload = None
     try:
-        payload = json.loads(request.body.decode("utf-8"))
+        payload = json.loads(request.body.decode("utf-8") or "{}")
     except Exception:
+        payload = None
+
+    # 2) 폼 대안(items=<json string>)도 허용
+    if payload is None or "items" not in payload:
+        items_str = request.POST.get("items")
+        if items_str:
+            try:
+                payload = {"items": json.loads(items_str)}
+            except Exception:
+                return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+
+    if not payload:
         return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
 
     items = payload.get("items") or []
@@ -181,12 +265,12 @@ def project_scope_save(request, pk):
             return None
         try:
             return Decimal(str(val))
-        except (InvalidOperation, ValueError):
+        except (InvalidOperation, TypeError, ValueError):
             return None
 
     for row in items:
         lv2_id = row.get("lv2_id")
-        lv3_id = row.get("lv3_id")  # 🔹 추가
+        lv3_id = row.get("lv3_id")
         if not lv2_id or not lv3_id:
             continue
 
@@ -199,19 +283,16 @@ def project_scope_save(request, pk):
             "project_id": project.pk,
             "lv2_id": lv2_id,
             "lv3_id": lv3_id,
-            "lv4_id": None,   # L4는 다음 단계에서
+            "lv4_id": None,
         }
 
-        qs = ProjectScopeItem.objects.using(alias).filter(**base_filter)
-
         if not active:
-            # OFF → 기존 row 삭제
-            if qs.exists():
-                qs.delete()
+            # OFF면 해당 레코드 제거(있으면)
+            ProjectScopeItem.objects.using(alias).filter(**base_filter).delete()
             continue
 
         if not unit:
-            unit = "EA"  # 단위 기본값 (나중에 카탈로그 단위로 교체 가능)
+            unit = "EA"
 
         defaults = {
             "unit": unit,

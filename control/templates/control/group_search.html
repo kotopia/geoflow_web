@@ -12,7 +12,7 @@
   <div class="list-group">
     {% for id, code, name, status in rows %}
       <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-         href="{% url 'control:control:group_select' id %}">
+         href="{% url 'control:group_select' id %}">
         <span>
           <strong>{{ name }}</strong>
           <span class="text-muted ms-2">({{ code }})</span>

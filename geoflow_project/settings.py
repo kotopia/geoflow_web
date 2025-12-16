@@ -104,6 +104,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'control.context_processors.central_flags',
+                "control.context_processors.perms_context",
                 'control.gf_authz.context_processors.gf_authz',
             ],
         },
@@ -209,6 +210,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"  # 콘솔 출력
 SITE_ORIGIN = "http://192.168.0.19:8000"
 DEFAULT_FROM_EMAIL = "noreply@geoflow.local"
+
+RRN_SYM_KEY = "여러분의-강력한-대칭키"
 
 LOGGING = {
     "version": 1,

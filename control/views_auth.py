@@ -112,16 +112,26 @@ def login_view(request):
                 request.session["group_id"]        = t["id"]        # 하위호환
                 request.session["tenant_db_alias"] = t["db_alias"]
                 request.session["db_key"]          = t["db_alias"]  # 하위호환
-                logger.info("AUTH: user=%s -> SINGLE TENANT group=%s alias=%s",
-                            request.user.email, t["id"], t["db_alias"])
-                return redirect("after_login")  # 또는 바로 테넌트 대시보드
+
+                # 여러 역할 조회 → 대표 등급 선정 → 세션에 저장
+                try:
+                    roles = C.list_roles_for_user_in_group(user_uuid, t["id"])
+                except Exception:
+                    roles = []
+
+                request.session["roles"] = roles     # [{id,name,code}, ...]만 저장
+
+                return redirect("after_login")
             else:
                 # 여러 테넌트면 선택 화면으로
                 request.session["tenant_candidates"] = tenants
-                logger.info("AUTH: user=%s -> MULTI TENANT candidates=%s", request.user.email, [x["db_alias"] for x in tenants])
-                return redirect("group_search")  # 또는 group_select 뷰로 유도
+                logger.info(
+                    "AUTH: user=%s -> MULTI TENANT candidates=%s",
+                    request.user.email, [x["db_alias"] for x in tenants]
+                )
+                return redirect("group_search")
         else:
-            # ✅ 소속이 없으면 중앙으로 (no-tenant 안내 페이지 or 중앙 대시보드)
+            # 소속 없음 → 중앙
             request.session["tenant_db_alias"] = central_alias
             logger.info("AUTH: user=%s -> CENTRAL (no tenant membership)", request.user.email)
             return redirect("after_login")

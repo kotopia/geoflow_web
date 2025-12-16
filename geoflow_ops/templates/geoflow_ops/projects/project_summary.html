@@ -1,0 +1,145 @@
+{# templates/geoflow_ops/projects/project_summary.html #}
+
+{% if summary_only %}
+
+  {# ───── 요약 전용(읽기) — L1 탭 구조 ───── #}
+  {% if scope_groups and scope_groups|length %}
+    <ul class="nav nav-tabs" role="tablist">
+      {% for g in scope_groups %}
+        <li class="nav-item" role="presentation">
+          <button class="nav-link {% if forloop.first %}active{% endif %}"
+                  data-bs-toggle="tab"
+                  data-bs-target="#tab-l1-{{ forloop.counter }}"
+                  type="button" role="tab">
+            {{ g.l1_name }}
+          </button>
+        </li>
+      {% endfor %}
+    </ul>
+
+    <div class="tab-content pt-3">
+      {% for g in scope_groups %}
+        <div class="tab-pane fade {% if forloop.first %}show active{% endif %}"
+             id="tab-l1-{{ forloop.counter }}" role="tabpanel">
+          {% for b in g.l2_blocks %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-1 small">{{ b.l2_name }}</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <tbody>
+                    {% for r in b.rows %}
+                      <tr>
+                        <td><div style="width:60%;">{{ r.l3_name }}</div></td>
+                        <td class="text-end" style="width:20%;">{{ r.design_display|default:"-" }}
+                          <span class="small text-muted"> {{ r.unit|default:"-" }}</span>
+                        </td>
+                        <td class="text-end" style="width:20%;">{{ r.completed_display|default:"-" }}</td>
+                        <!-- <td class="text-muted">{{ r.note|default:"-" }}</td> -->
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="5" class="text-center text-muted py-4">항목이 없습니다.</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-muted small">표시할 업무범위가 없습니다.</div>
+  {% endif %}
+
+{% else %}
+
+  {# ───── 모달 편집(현재 업무 편집) ───── #}
+  <div class="modal-body">
+    {% if scope_groups and scope_groups|length %}
+    <form id="summaryForm" novalidate method="post"
+          action="{% url 'tenant:project_summary_save' pk=project.id %}">
+      {% csrf_token %}
+
+      {# ← 여기 있던 안쪽 modal-body 래퍼는 제거하세요 #}
+
+      {# L1/L2는 서버가 이미 펼쳐 렌더한다고 가정 #}
+      {# L1 → L2 블록 → rows #}
+      {% for g in scope_groups %}
+        {% for block in g.l2_blocks %}
+          <div class="mb-3">
+            <div class="fw-semibold mb-2">[L2] {{ block.l2_name }} <span class="text-muted small">{{ block.l2_code }}</span></div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>업무(L3)</th>
+                    <th style="width:8rem;">단위</th>
+                    <th style="width:10rem;" class="text-end">설계 물량</th>
+                    <th style="width:10rem;" class="text-end">진행 물량</th>
+                    <th style="width:10rem;" class="text-end">완료 물량</th>
+                    <th style="width:16rem;">비고</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in block.rows %}
+                    {% firstof r.item_id block.l2_code|add:"|"|add:r.l3_code as key %}
+                    <tr>
+                      <td>
+                        <div class="fw-semibold">{{ r.l3_name }}</div>
+                        <div class="small text-muted">{{ r.l3_code }}</div>
+                      </td>
+                      {# 단위 #}
+                      <td>{{ r.unit|default:"" }}</td>
+
+                      {# 설계 물량(보기와 동일 값) #}
+                      <td class="text-end">{{ r.design_display|default:r.design_qty|default:"-" }}</td>
+
+                      {# 진행 물량: row에 progress 값이 있다면 채우기(없으면 공란) #}
+                      <td>
+                        <input name="rows[{{ key }}][progress]" type="number"
+                              inputmode="decimal" step="any"
+                              class="form-control form-control-sm text-end"
+                              value="{{ r.progress_qty|default_if_none:'' }}">
+                      </td>
+
+                      {# 완료 물량: 기존 completed 값 채워넣기 #}
+                      <td>
+                        <input name="rows[{{ key }}][completed]" type="number"
+                              inputmode="decimal" step="any"
+                              class="form-control form-control-sm text-end"
+                              value="{{ r.completed_qty|default_if_none:'' }}">
+                      </td>
+
+                      {# 비고 #}
+                      <td>
+                        <input name="rows[{{ key }}][note]" type="text"
+                              class="form-control form-control-sm"
+                              value="{{ r.note|default_if_none:'' }}">
+                      </td>
+
+                      {% if r.item_id %}
+                        <input type="hidden" name="rows[{{ key }}][item_id]" value="{{ r.item_id }}">
+                      {% else %}
+                        <input type="hidden" name="rows[{{ key }}][l2_code]" value="{{ block.l2_code }}">
+                        <input type="hidden" name="rows[{{ key }}][l3_code]" value="{{ r.l3_code }}">
+                      {% endif %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        {% endfor %}
+      {% endfor %}
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-primary">저장</button>
+      </div>
+    </form>
+
+    {# ✅ 내부 if 닫기 추가 #}
+    {% endif %}
+  </div>
+
+{% endif %}

@@ -10,7 +10,25 @@
         <script src="{% static 'control/js/settings.js' %}"></script>
     </head>
 
+    
     <body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+        <div id="globalSpinner" class="gf-spinner-overlay d-none" aria-hidden="true">
+            <div class="text-center">
+                <div class="spinner-border" role="status" aria-label="Loading"></div>
+                <div class="mt-2 text-muted small">로딩중…</div>
+            </div>
+        </div>
+
+        <style>
+            .gf-spinner-overlay{
+                position: fixed; inset: 0; display: flex;
+                align-items: center; justify-content: center;
+                background-color: rgba(255,255,255,.6);
+                backdrop-filter: blur(2px);
+                z-index: 2000; /* modal(1050)보다 위 */
+            }
+        </style>
+
         <div class="wrapper">
         {% include "geoflow_ops/partials/sidebar.html" %}
         <div class="main">

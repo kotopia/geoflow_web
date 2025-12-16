@@ -482,3 +482,116 @@ GeoFlow에 접근하실 수 있도록 비밀번호 설정 링크를 보내드립
 본인이 요청하지 않은 경우 이 메일을 무시하셔도 됩니다.
 """
     send_mail(subject, body, getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@geoflow.local"), [to_email], fail_silently=False)
+
+def list_permissions_for_user_in_group(user_id: str, group_id: str) -> list[str]:
+    """
+    중앙 DB에서 (user_id, group_id) 기준으로 부여된 권한 코드 목록을 반환.
+    """
+    if not user_id or not group_id:
+        return []
+    alias = _central_alias()
+    with connections[alias].cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT p.code
+              FROM user_group_map ugm
+              JOIN roles r            ON r.id = ugm.role_id
+              JOIN role_permissions rp ON rp.role_id = r.id
+              JOIN permissions p       ON p.id = rp.permission_id
+             WHERE ugm.user_id = %s
+               AND ugm.group_id = %s
+               AND ugm.status   = 'active'
+        """, [user_id, group_id])
+        rows = cur.fetchall()
+    return [r[0] for r in rows]
+
+def list_roles_for_user_in_group(user_id: str, group_id: str) -> list[dict]:
+    """
+    (user_id, group_id) 기준으로 모든 역할을 반환.
+    [{"id": "...", "name": "...", "code": "..."}, ...]
+    """
+    if not user_id or not group_id:
+        return []
+    alias = _central_alias()
+    with connections[alias].cursor() as cur:
+        cur.execute("""
+            SELECT r.id::text, r.name, r.code
+            FROM user_group_map ugm
+            JOIN roles r ON r.id = ugm.role_id
+            WHERE ugm.user_id = %s
+              AND ugm.group_id = %s
+              AND ugm.status = 'active'
+            ORDER BY r.name ASC
+        """, [user_id, group_id])
+        rows = cur.fetchall()
+    return [{"id": r[0], "name": r[1], "code": r[2]} for r in rows]
+
+def get_permission_labels(codes: list[str]) -> dict[str, str]:
+    """codes가 비어 있지 않다면 {code: name} 딕셔너리로 반환"""
+    if not codes:
+        return {}
+    with connections[_central_alias()].cursor() as cur:
+        cur.execute(
+            "SELECT code, name FROM permissions WHERE code = ANY(%s)",
+            [codes],
+        )
+        return {r[0]: r[1] for r in cur.fetchall()}
+    
+def get_user_role_in_group(user_id: str, group_id: str):
+    """
+    해당 사용자의 그룹 내 역할(role)을 반환.
+    하나만 반환한다고 가정(여러 개일 경우 첫 번째).
+    반환 형식: {"id": "...", "name": "...", "code": "..."}
+    """
+    if not user_id or not group_id:
+        return None
+
+    alias = _central_alias()
+
+    with connections[alias].cursor() as cur:
+        cur.execute("""
+            SELECT r.id::text, r.name, r.code
+            FROM user_group_map ugm
+            JOIN roles r ON r.id = ugm.role_id
+            WHERE ugm.user_id = %s
+              AND ugm.group_id = %s
+              AND ugm.status = 'active'
+            LIMIT 1
+        """, [user_id, group_id])
+
+        row = cur.fetchone()
+
+    if not row:
+        return None
+    return {"id": row[0], "name": row[1], "code": row[2]}
+
+# 코드/이름 기반 우선순위 (필요시 수정)
+_ROLE_PRIORITY = [
+    ("tenant.admin", "테넌트 관리자"),
+    ("manager", "매니저"),
+    ("project.manager", "프로젝트관리자"),
+    ("user", "일반"),
+]
+
+def pick_primary_role(roles: list[dict]) -> dict | None:
+    """
+    여러 역할 중 가장 높은 우선순위 1개를 선택.
+    code 우선 매칭, 없으면 name 포함 매칭.
+    """
+    if not roles:
+        return None
+
+    # 1) code 기반
+    codes = { (r.get("code") or "").lower(): r for r in roles }
+    for code, _label in _ROLE_PRIORITY:
+        if code in codes:
+            return codes[code]
+
+    # 2) name 기반(포함 매칭)
+    name_map = { (r.get("name") or "").lower(): r for r in roles }
+    for _code, label in _ROLE_PRIORITY:
+        for nm, r in name_map.items():
+            if label.lower() in nm:
+                return r
+
+    # 3) 아무것도 매칭 안 되면 첫 번째
+    return roles[0]

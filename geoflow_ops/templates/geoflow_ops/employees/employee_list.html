@@ -1,36 +1,76 @@
 {% extends "geoflow_ops/base_tenant.html" %}
-{% block title %}직원{% endblock %}
+{% load humanize %}
+{% load static %}
+{% block title %}직원 | GeoFlow{% endblock %}
+
 {% block content %}
-<div class="container-fluid px-4">
-  <div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h3 mb-0">직원</h1>
+<div class="container-fluid p-0">
+  <div class="mb-3">
+    <h1 class="h3 d-inline align-middle">
+      <span>직원</span>
+      <span class="h5 text-muted">Employees</span>
+    </h1>
   </div>
-  <div class="card"><div class="card-body table-responsive">
-    <table class="table align-middle">
-      <thead><tr>
-        <th>이메일</th><th>이름</th><th>직함</th><th>상태</th><th>액션</th>
-      </tr></thead>
-      <tbody>
+
+  {# 카드: 로딩 시 숨김 -> JS가 DataTables/탭 생성되면 표시 #}
+  <div class="card" id="employeesCard" hidden>
+    <div class="card-header pb-0">
+      <div class="card-actions float-end">
+        <div class="dropdown position-relative">
+          <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
+            <i class="align-middle" data-feather="more-horizontal"></i>
+          </a>
+          <div class="dropdown-menu dropdown-menu-end">
+            <a class="dropdown-item" href="{% url 'tenant:employees_create' %}">직원 생성</a>
+          </div>
+        </div>
+      </div>
+
+      {# 상태 탭: data-count-*가 없어도 gf-list-core가 테이블에서 카운트 산출 #}
+      <div id="statusButtons" class="gf-status-tabs"></div>
+    </div>
+
+    <div class="card-body">
+      <table id="datatables-employees"
+             class="table table-responsive table-striped table-hover"
+             data-entity="employee" width="100%" style="cursor: pointer">
+        <thead class="text-center">
+          <tr>
+            <th>이메일</th>
+            <th>이름</th>
+            <th>직함</th>
+            <th>연락처</th>
+            <th>역할코드</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>
         {% for e in employees %}
-        <tr>
-          <td>{{ e.email }}</td>
-          <td>{{ e.name|default:"-" }}</td>
-          <td>{{ e.title|default:"-" }}</td>
-          <td>{{ e.status }}</td>
-          <td>
-            <a href="{% url 'tenant:employees_detail' e.id %}" class="btn btn-sm btn-outline-secondary">상세</a>
-            {% with me_email=request.user.email|default:request.user.username %}
-              {% if e.email|lower != me_email|lower %}
-                <a href="{% url 'tenant:employees_request_role' e.id %}" class="btn btn-sm btn-outline-primary">권한요청</a>
-              {% endif %}
-            {% endwith %}
-          </td>
-        </tr>
+          <tr data-id="{{ e.id }}"
+              data-status="{{ e.status|default:'-'|lower }}"
+              data-href="{% url 'tenant:employees_detail' e.id %}">
+            <td data-col="email">{{ e.email }}</td>
+            <td data-col="name" class="text-truncate">{{ e.name|default:"-" }}</td>
+            <td data-col="title">{{ e.title|default:"-" }}</td>
+            <td data-col="phone">{{ e.phone|default:"-" }}</td>
+            <td data-col="role">{{ e.role_code|default:"-" }}</td>
+            <td data-col="status" class="text-center">
+              <span class="gf-status" data-status="{{ e.status|default:'-' }}" data-render="badge" data-size="sm"></span>
+            </td>
+          </tr>
         {% empty %}
-        <tr><td colspan="5" class="text-center text-muted">직원이 없습니다.</td></tr>
+          <tr><td colspan="6" class="text-center text-muted">직원이 없습니다.</td></tr>
         {% endfor %}
-      </tbody>
-    </table>
-  </div></div>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+  {# 공용 리스트 코어(배지/탭/게이트/데이터테이블 가드) #}
+  <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
+  {# 인사 전용 초기화 #}
+  <script src="{% static 'geoflow_ops/js/hr-list.js' %}"></script>
 {% endblock %}
