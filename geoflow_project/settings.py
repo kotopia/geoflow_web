@@ -12,32 +12,59 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+import logging
+from dotenv import load_dotenv
+
+logger = logging.getLogger("geoflow.env")
+
+# Django 표준: BASE_DIR = manage.py가 있는 프로젝트 루트
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# .env는 프로젝트 루트에 둔다: C:\GeoFlow\geoflow_web\.env
+DOTENV_PATH = BASE_DIR / ".env"
+
+# override=False: OS 환경변수가 있으면 OS 값 우선, .env는 보조
+_loaded = load_dotenv(dotenv_path=DOTENV_PATH, override=False)
+logger.info("ENV: load .env path=%s loaded=%s", str(DOTENV_PATH), bool(_loaded))
+
+
+def get_env_required(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or value == "":
+        raise RuntimeError(f"Required environment variable is missing: {name}")
+    return value
+
+
+def get_env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def get_env_list(name: str, default: str = "") -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 # BASE_DIR = Path(__file__).resolve().parent.parent
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-bi5!%5s2n5!1lg=i)g8bvrvrvq#h$-oe&6o8eb-opxkxves0f2'
+SECRET_KEY = get_env_required("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = get_env_bool("DJANGO_DEBUG", default=False)
 
-ALLOWED_HOSTS = ["192.168.0.19", "localhost", "127.0.0.1"]
-CSRF_TRUSTED_ORIGINS = [
-    "http://192.168.0.19",
-    "http://192.168.0.19:8000",
-    "http://127.0.0.1",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-]
+ALLOWED_HOSTS = get_env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
+CSRF_TRUSTED_ORIGINS = get_env_list("DJANGO_CSRF_TRUSTED_ORIGINS", default="")
 
-# 로컬 개발환경에서만
-CSRF_COOKIE_SECURE = False
-SESSION_COOKIE_SECURE = False
+# 기본값은 운영 보안 우선(secure=True), 로컬 http 개발 시 .env에서 False로 오버라이드
+CSRF_COOKIE_SECURE = get_env_bool("DJANGO_CSRF_COOKIE_SECURE", default=True)
+SESSION_COOKIE_SECURE = get_env_bool("DJANGO_SESSION_COOKIE_SECURE", default=True)
 
 
 # Application definition
@@ -56,6 +83,71 @@ INSTALLED_APPS = [
     'django.contrib.humanize',
 ]
 
+# -------------------------------------------------------------------
+# GeoDjango 라이브러리 체크 (Windows)
+# -------------------------------------------------------------------
+# PostGIS 백엔드를 사용하는 경우 GDAL/GEOS가 필요합니다.
+# 로드 실패 시 경고 로그를 출력하지만, 엔진은 변경하지 않습니다.
+# 진단: python scripts/check_geodjango.py
+
+def _check_geodjango_libraries():
+    """GeoDjango 라이브러리 로드 가능 여부 체크 (경고만)"""
+    gdal_ok = False
+    geos_ok = False
+
+    try:
+        from django.contrib.gis import gdal
+        gdal_ok = True
+    except (ImportError, OSError) as e:
+        logger.warning("GDAL 라이브러리 로드 실패: %s", e)
+        if "WinError 127" in str(e) or "지정된 프로시저" in str(e):
+            logger.warning("  → DLL 파일을 찾을 수 없거나 버전 mismatch (WinError 127)")
+
+    try:
+        from django.contrib.gis import geos
+        geos_ok = True
+    except (ImportError, OSError) as e:
+        logger.warning("GEOS 라이브러리 로드 실패: %s", e)
+        if "WinError 127" in str(e) or "지정된 프로시저" in str(e):
+            logger.warning("  → DLL 파일을 찾을 수 없거나 버전 mismatch (WinError 127)")
+
+    if not gdal_ok or not geos_ok:
+        logger.warning("=" * 70)
+        logger.warning("GeoDjango 라이브러리 미설치 또는 DLL mismatch")
+        logger.warning("=" * 70)
+        logger.warning("PostGIS 백엔드를 사용하려면 GDAL/GEOS 설치가 필요합니다.")
+        logger.warning("")
+        logger.warning("현재 환경변수:")
+        logger.warning("  GDAL_LIBRARY_PATH = %s", os.getenv("GDAL_LIBRARY_PATH", "(미설정)"))
+        logger.warning("  GEOS_LIBRARY_PATH = %s", os.getenv("GEOS_LIBRARY_PATH", "(미설정)"))
+        logger.warning("  PROJ_LIB = %s", os.getenv("PROJ_LIB", "(미설정)"))
+
+        # PATH에서 OSGeo4W 관련 경로만 출력
+        path_env = os.getenv("PATH", "")
+        if path_env:
+            osgeo_paths = [p for p in path_env.split(os.pathsep) if "osgeo" in p.lower() or "gdal" in p.lower()]
+            if osgeo_paths:
+                logger.warning("  PATH (OSGeo4W 관련): %s", "; ".join(osgeo_paths[:3]))
+            else:
+                logger.warning("  PATH에 OSGeo4W 관련 경로 없음")
+
+        logger.warning("")
+        logger.warning("해결 방법:")
+        logger.warning("  1. OSGeo4W 설치: https://trac.osgeo.org/osgeo4w/")
+        logger.warning("  2. 환경변수 설정 (예):")
+        logger.warning("       GDAL_LIBRARY_PATH=C:\\OSGeo4W\\bin\\gdal308.dll")
+        logger.warning("       GEOS_LIBRARY_PATH=C:\\OSGeo4W\\bin\\geos_c.dll")
+        logger.warning("       PROJ_LIB=C:\\OSGeo4W\\share\\proj")
+        logger.warning("       PATH에 C:\\OSGeo4W\\bin 추가")
+        logger.warning("  3. 진단: python scripts/check_geodjango.py")
+        logger.warning("=" * 70)
+    else:
+        logger.info("GeoDjango 라이브러리 정상 로드 (GDAL: OK, GEOS: OK)")
+
+# Windows에서만 체크 (Linux/Mac은 일반적으로 자동 설치됨)
+if os.name == 'nt':
+    _check_geodjango_libraries()
+
 DATABASE_ROUTERS = ['control.db_router.TenantRouter']
 
 MIDDLEWARE = [
@@ -73,7 +165,6 @@ MIDDLEWARE = [
 ]
 
 # 중앙 DB 별칭(기본이 중앙이면 그대로 'default')
-GF_AUTHZ_CENTRAL_ALIAS = "default"
 
 # gf_authz가 사용할 중앙 테이블 경로(스키마.테이블)
 GF_AUTHZ_TABLES = {
@@ -105,6 +196,8 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'control.context_processors.central_flags',
                 "control.context_processors.perms_context",
+                "control.context_processors.avatar_context",
+                "geoflow_ops.context_processors.topbar_user",
                 'control.gf_authz.context_processors.gf_authz',
             ],
         },
@@ -117,21 +210,104 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "/"
 
 CENTRAL_DB_ALIAS = "default"            # 중앙 DB 별칭
-DEFAULT_TENANT_DB_ALIAS = "cheonan_db"  # 세션이 비어있을 때 사용할 테넌트 기본값
+# gf_authz에서 사용할 중앙 DB 별칭 (CENTRAL_DB_ALIAS와 동일하게 유지)
+GF_AUTHZ_CENTRAL_ALIAS = CENTRAL_DB_ALIAS
+
+DEFAULT_TENANT_DB_ALIAS = "cheonan_db"  # 테넌트 앱 마이그레이션/초기화용 기본 테넌트 DB (런타임 기본은 CENTRAL_DB_ALIAS)
+
+# 중앙(Control) DB 접속 정보
+CENTRAL_DB_NAME = os.getenv("CENTRAL_DB_NAME", "geoflow_control")
+CENTRAL_DB_USER = os.getenv("CENTRAL_DB_USER", "geoflow_admin")
+CENTRAL_DB_PASSWORD = os.getenv("CENTRAL_DB_PASSWORD", "")
+CENTRAL_DB_HOST = os.getenv("CENTRAL_DB_HOST", "localhost")
+CENTRAL_DB_PORT = os.getenv("CENTRAL_DB_PORT", "5432")
 
 
 # 테넌트 인사 프로필
 TENANT_PROFILE_VIEW = "people_profile"          # 조회 전용
 TENANT_PROFILE_TABLE = "hr.employee_profile"    # 쓰기/업서트 대상
 
+# -------------------------------------------------------------------
+# Tenant DB Credentials (테넌트 DB 접속 계정)
+# -------------------------------------------------------------------
+# Fallback 순서:
+#   1. TENANT_DB_USER/PASSWORD/HOST/PORT (전용 계정)
+#   2. PROVISIONER_DB_USER/PASSWORD/HOST/PORT (프로비저닝 계정)
+#   3. CENTRAL_DB_USER/PASSWORD/HOST/PORT (중앙 DB 기본값)
+# 확인: python manage.py shell -c "from django.conf import settings; print(settings.DATABASES['cheonan_db'])"
+
+TENANT_DB_NAME = os.getenv("TENANT_DB_NAME", "cheonan_db")
+TENANT_DB_USER = os.getenv("TENANT_DB_USER") or os.getenv("PROVISIONER_DB_USER") or CENTRAL_DB_USER
+TENANT_DB_PASSWORD = os.getenv("TENANT_DB_PASSWORD") or os.getenv("PROVISIONER_DB_PASSWORD") or CENTRAL_DB_PASSWORD
+TENANT_DB_HOST = os.getenv("TENANT_DB_HOST") or os.getenv("PROVISIONER_DB_HOST") or CENTRAL_DB_HOST
+TENANT_DB_PORT = os.getenv("TENANT_DB_PORT") or os.getenv("PROVISIONER_DB_PORT") or CENTRAL_DB_PORT
+
+# 경고: 중요 설정이 빈 문자열일 경우
+if not TENANT_DB_USER:
+    logger.warning("TENANT_DB_USER is empty (using fallback: 'postgres')")
+if not TENANT_DB_PASSWORD:
+    logger.warning("TENANT_DB_PASSWORD is empty (using fallback from DB_PASSWORD)")
+if not TENANT_DB_HOST or TENANT_DB_HOST == "localhost":
+    logger.warning("TENANT_DB_HOST is empty or localhost (fallback: %s)", TENANT_DB_HOST)
+if not TENANT_DB_PORT or TENANT_DB_PORT == "5432":
+    logger.info("TENANT_DB_PORT using default: %s", TENANT_DB_PORT)
+
+# 테넌트 DB 프로비저닝/검증용 기본 템플릿(실제 생성/마이그레이션은 별도 로직에서 수행)
+TENANT_DB_TEMPLATE = {
+    "ENGINE": "django.contrib.gis.db.backends.postgis",
+    "HOST": TENANT_DB_HOST,
+    "PORT": int(TENANT_DB_PORT),
+    "USER": TENANT_DB_USER,
+    "PASSWORD": TENANT_DB_PASSWORD,
+}
+
+# -------------------------------------------------------------------
+# Provisioner DB Credentials (프로비저닝 전용)
+# -------------------------------------------------------------------
+
+def _getenv(name: str, default: str = "") -> str:
+    v = os.getenv(name, default)
+    return (v or "").strip()
+
+PROVISIONER_DB_HOST = _getenv("PROVISIONER_DB_HOST", "")
+PROVISIONER_DB_PORT = _getenv("PROVISIONER_DB_PORT", "")
+PROVISIONER_DB_USER = _getenv("PROVISIONER_DB_USER", "")
+PROVISIONER_DB_PASSWORD = _getenv("PROVISIONER_DB_PASSWORD", "")
+
+# 1-B 안전장치:
+# - 기본: 프로비저닝 기능은 꺼져있음(ENABLE_TENANT_PROVISIONING=1일 때만 ON)
+# - ON 상태인데 필수 값이 없으면 즉시 중단(“조용히 실패” 방지)
+ENABLE_TENANT_PROVISIONING = _getenv("ENABLE_TENANT_PROVISIONING", "0") in ("1", "true", "True", "yes", "YES")
+
+_missing = []
+if not PROVISIONER_DB_HOST: _missing.append("PROVISIONER_DB_HOST")
+if not PROVISIONER_DB_PORT: _missing.append("PROVISIONER_DB_PORT")
+if not PROVISIONER_DB_USER: _missing.append("PROVISIONER_DB_USER")
+if not PROVISIONER_DB_PASSWORD: _missing.append("PROVISIONER_DB_PASSWORD")
+
+PROVISIONING_READY = (len(_missing) == 0)
+
+if ENABLE_TENANT_PROVISIONING and not PROVISIONING_READY:
+    raise RuntimeError(
+        "Tenant provisioning is ENABLED but missing env vars: "
+        + ", ".join(_missing)
+        + f" (loaded_dotenv={bool(_loaded)} path={DOTENV_PATH})"
+    )
+
+if not ENABLE_TENANT_PROVISIONING:
+    logger.info("Provisioning disabled (ENABLE_TENANT_PROVISIONING!=1).")
+elif PROVISIONING_READY:
+    logger.info("Provisioning enabled and READY (PROVISIONER_* present).")
+
+
 DATABASES = {
     "default": {  # 중앙
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "geoflow_control",
-        "USER": "geoflow_admin",
-        "PASSWORD": "geoflow2025",
-        "HOST": "geoflow-rds1.c5okm2mm22bu.ap-northeast-2.rds.amazonaws.com",
-        "PORT": "5432",
+        "NAME": CENTRAL_DB_NAME,
+        "USER": CENTRAL_DB_USER,
+        "PASSWORD": CENTRAL_DB_PASSWORD,
+        "HOST": CENTRAL_DB_HOST,
+        "PORT": CENTRAL_DB_PORT,
         "OPTIONS": {
             "sslmode": "require",   # verify-full 사용 중이면 pem 경로 그대로 두셔도 됩니다
             # "sslrootcert": os.path.join(BASE_DIR, "rds-combined-ca-bundle.pem"),
@@ -141,12 +317,12 @@ DATABASES = {
         "CONN_HEALTH_CHECKS": False,
     },
     "cheonan_db": {  # 테넌트
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "cheonan_db",
-        "USER": "cheonan_admin",
-        "PASSWORD": "test1234",     # 타깃에서 만든 비밀번호 값으로
-        "HOST": "geoflow-rds1.c5okm2mm22bu.ap-northeast-2.rds.amazonaws.com",
-        "PORT": "5432",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
+        "NAME": TENANT_DB_NAME,
+        "USER": TENANT_DB_USER,
+        "PASSWORD": TENANT_DB_PASSWORD,
+        "HOST": TENANT_DB_HOST,
+        "PORT": TENANT_DB_PORT,
         "OPTIONS": {
             "sslmode": "require",
             # "sslrootcert": os.path.join(BASE_DIR, "rds-combined-ca-bundle.pem"),
@@ -207,11 +383,28 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"  # 콘솔 출력
+# Email backend selection:
+# - If USE_SMTP_EMAIL=1 in environment, force SMTP backend regardless of DEBUG
+# - Otherwise, preserve behavior: DEBUG -> console backend, else SMTP backend
+USE_SMTP_EMAIL = os.getenv("USE_SMTP_EMAIL", "") == "1"
+if USE_SMTP_EMAIL:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    if DEBUG:
+        EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+    else:
+        EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+# 기본 SMTP 설정(환경에 맞게 오버라이드 권장)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.example.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 SITE_ORIGIN = "http://192.168.0.19:8000"
 DEFAULT_FROM_EMAIL = "noreply@geoflow.local"
 
-RRN_SYM_KEY = "여러분의-강력한-대칭키"
+RRN_SYM_KEY = get_env_required("RRN_SYM_KEY")
 
 LOGGING = {
     "version": 1,

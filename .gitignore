@@ -23,3 +23,8 @@ Thumbs.db
 # ZIP/유료 템플릿 원본
 *.zip
 adminkit*/
+
+# Backup / Dump
+backups/
+*.dump
+*.sql
