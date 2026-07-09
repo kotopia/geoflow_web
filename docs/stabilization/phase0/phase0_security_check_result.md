@@ -49,6 +49,10 @@
 - Phase 0 완료 여부: 미완료
 - 다음 작업: credential rotation 여부 확정 및 적용 계획 수립
 - 코드 수정 여부: .gitignore, settings.py, .env, .env.example 수정 완료
+- DJANGO_SECRET_KEY 교체 완료
+- .env에만 반영
+- Git에는 실제 키 미포함
+- 검증: py_compile 성공, manage.py check 성공
 - DB 구조 변경 여부: 없음
 
 ## 9. cheonan_db 백업 기록
@@ -66,10 +70,10 @@
 ## 10. Credential Rotation 판단표
 | Credential | 교체 필요 여부 | 이유 | 완료 여부 |
 |---|---|---|---|
-| DB password | 미정 | settings.py에 하드코딩 확인 | 미완료 |
-| AWS key | 미정 | .env에 실제 키 존재 | 미완료 |
-| DJANGO_SECRET_KEY | 필요 | settings.py에 하드코딩 확인 | 미완료 |
-| RRN_SYM_KEY | 필요 | settings.py에 하드코딩 확인 | 미완료 |
+| DB password | 권장 | settings.py에 하드코딩되어 있었음 | 미완료 |
+| AWS key | 권장 | .env에 실제 키 존재 | 미완료 |
+| DJANGO_SECRET_KEY | 완료 | settings.py에 하드코딩되어 있었고 새 키로 교체 완료 | 완료 |
+| RRN_SYM_KEY | 보류 | 실제 주민등록번호 암복호화에 사용 중 | Phase 0 교체 금지 |
 
 ## 11. .gitignore 보완 기록
 - 보완 상태: 완료

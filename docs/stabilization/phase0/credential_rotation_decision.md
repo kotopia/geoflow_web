@@ -10,7 +10,7 @@
 
 | Credential | 현재 위험 근거 | 교체 필요 여부 | 즉시 교체 가능 여부 | 주의사항 |
 |---|---|---|---|---|
-| DJANGO_SECRET_KEY | settings.py에 하드코딩되어 있었음 | 필요 | 가능 | 세션 로그아웃 발생 가능 |
+| DJANGO_SECRET_KEY | settings.py에 하드코딩되어 있었음 | 완료 | 완료 | 새 키로 교체 완료, 기존 로그인 세션은 무효화될 수 있음 |
 | AWS key | .env에 실제 값 존재 | 권장 | 가능 | AWS 콘솔/IAM에서 새 키 발급 후 기존 키 비활성화 |
 | DB password | settings.py에 하드코딩되어 있었음 | 권장 | 조건부 가능 | RDS/DB 사용자 비밀번호 변경 후 .env 반영 필요 |
 | RRN_SYM_KEY | settings.py에 하드코딩되어 있었고 실제 주민등록번호 암복호화에 사용 중 | 보류 | 즉시 교체 금지 | 기존 rrn_cipher 복호화 불가 위험 |
@@ -31,12 +31,11 @@
 - AWS key 실제 교체
 - DB password 실제 교체
 - RRN_SYM_KEY 실제 교체
-- .env 값 변경
+- AWS key / DB password / RRN_SYM_KEY의 .env 값 변경
 - git push
 - migrate 실행
 
 ## 6. 다음 작업
-- DJANGO_SECRET_KEY 교체
 - AWS key 교체 여부 결정
 - DB password 교체 여부 결정
 - RRN_SYM_KEY는 Phase 0에서 교체하지 않고 유지
