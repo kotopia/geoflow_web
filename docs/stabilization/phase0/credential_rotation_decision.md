@@ -11,7 +11,7 @@
 | Credential | 현재 위험 근거 | 교체 필요 여부 | 즉시 교체 가능 여부 | 주의사항 |
 |---|---|---|---|---|
 | DJANGO_SECRET_KEY | settings.py에 하드코딩되어 있었음 | 완료 | 완료 | 새 키로 교체 완료, 기존 로그인 세션은 무효화될 수 있음 |
-| AWS key | .env에 실제 값 존재 및 S3 presigned URL 생성에 사용 중 | 교체 권장 | 가능 | 코드 수정 없이 .env 교체 가능, IAM/S3/KMS 권한 확인 필요 |
+| AWS key | .env에 실제 값 존재 및 S3 presigned URL 생성에 사용 중 | 완료 | 완료 | webgis 전용 IAM User key로 교체 완료, 업로드/미리보기 테스트 성공 |
 | DB password | settings.py에 하드코딩되어 있었음 | 권장 | 조건부 가능 | RDS/DB 사용자 비밀번호 변경 후 .env 반영 필요 |
 | RRN_SYM_KEY | settings.py에 하드코딩되어 있었고 실제 주민등록번호 암복호화에 사용 중 | 보류 | 즉시 교체 금지 | 기존 rrn_cipher 복호화 불가 위험 |
 
@@ -36,13 +36,9 @@
 - migrate 실행
 
 ## 6. 다음 작업
-- webgis 전용 IAM User 생성
-- webgis 전용 최소 S3 권한 정책 생성
-- 새 Access Key 생성
-- .env의 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 교체
-- 업로드/미리보기 기능 테스트
 - DB password 교체 여부 결정
 - RRN_SYM_KEY는 Phase 0에서 교체하지 않고 유지
+- 기존 AWS key 정리 여부는 별도 단계에서 판단
 - git push는 아직 하지 않음
 
 ## 7. RRN_SYM_KEY 사용 여부 확인 결과
@@ -102,23 +98,17 @@
 
 ## 10. AWS key 최종 판단
 
-- 판단: Phase 0에서 교체 권장
-- 이유: .env에 실제 AWS key가 존재했고, 코드 ZIP 또는 AI 검토 과정에 포함됐을 가능성이 있음
+- 판단: Phase 0 교체 완료
+- 교체 방식: webgis 전용 IAM User의 새 Access Key를 .env에 반영
 - 코드 수정 필요 여부: 없음
-- 교체 방식:
-	1. 기존 IAM User의 Access Key 2개는 Phase 0에서 비활성화/삭제하지 않음
-	2. webgis 전용 IAM User를 새로 생성
-	3. webgis 전용 IAM User에 S3 최소 권한 부여
-	4. 새 IAM User의 Access Key를 생성
-	5. .env의 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY만 새 키로 교체
-	6. 업로드/미리보기 기능 테스트
-	7. 문제가 없으면 기존 webgis 키 정리 여부는 별도 단계에서 판단
-- 주의사항:
-	- 기존 S3 버킷은 유지
-	- AWS_REGION 유지
-	- AWS_S3_BUCKET 유지
-	- AWS_KMS_KEY_ID를 쓰고 있다면 새 키 사용자에게 KMS 권한 필요
-	- IAM/S3/KMS 권한이 다르면 업로드 또는 다운로드 실패 가능
+- S3 기능 테스트:
+	- presigned PUT 성공
+	- upload commit 성공
+	- presigned GET 성공
+	- PDF inline preview 성공
+	- 오류 메시지 없음
+- 기존 IAM User의 Access Key 2개는 Phase 0에서 비활성화/삭제하지 않음
+- 기존 webgis key 정리 여부는 별도 단계에서 판단
 
 ## 11. webgis 전용 IAM User 권한 초안
 
