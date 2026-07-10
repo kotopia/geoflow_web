@@ -23,15 +23,15 @@
 
 ## 4. 권장 순서
 - DJANGO_SECRET_KEY 새 값 생성 및 .env 반영 완료
-- AWS key 교체 실행 준비
-- DB password 교체 여부 결정
+- AWS key는 webgis 전용 IAM User key로 교체 완료
+- DB password는 교체 권장이나 Phase 0에서는 조건부 보류
 - RRN_SYM_KEY는 Phase 0에서 교체하지 않음
 
 ## 5. 아직 하지 않을 것
-- AWS key 실제 교체
 - DB password 실제 교체
 - RRN_SYM_KEY 실제 교체
-- AWS key / DB password / RRN_SYM_KEY의 .env 값 변경
+- DB password / RRN_SYM_KEY의 .env 값 변경
+- 기존 AWS key 비활성화/삭제
 - git push
 - migrate 실행
 

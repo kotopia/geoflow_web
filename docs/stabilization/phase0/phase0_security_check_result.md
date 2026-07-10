@@ -45,24 +45,12 @@
 - csrf_exempt API 보완은 Phase 3로 넘김
 
 ## 8. Phase 0 진행 상태
-- 현재 상태: cheonan_db 백업, .gitignore 보완, settings.py 환경변수화 완료
-- Phase 0 완료 여부: 미완료
-- 다음 작업: credential rotation 여부 확정 및 적용 계획 수립
-- 코드 수정 여부: .gitignore, settings.py, .env, .env.example 수정 완료
-- DJANGO_SECRET_KEY 교체 완료
-- AWS key 교체 완료
-- webgis 전용 IAM User key를 .env에 반영
-- .env에만 반영
-- Git에는 실제 키 미포함
-- S3 업로드 테스트 성공
-- S3 미리보기 테스트 성공
-- 검증: py_compile 성공, manage.py check 성공
-- 기존 AWS key는 Phase 0에서 비활성화/삭제하지 않음
-- DB password 사용 범위 점검 완료
-- DB password는 교체 권장이나 즉시 교체는 보류
-- CENTRAL_DB_*, TENANT_DB_*, PROVISIONER_DB_*, group_db_config.db_password 정합성 확인 후 별도 유지보수 단계에서 교체
-- Phase 0에서는 DB password 실제 값 변경 없음
+- 현재 상태: cheonan_db 백업, .gitignore 보완, settings.py 환경변수화, DJANGO_SECRET_KEY 교체, AWS key 교체 및 S3 테스트, DB password 사용 범위 점검 완료
+- Phase 0 완료 여부: 보안 차단 1차 조치 완료
+- 다음 작업: DB password 교체는 별도 유지보수 단계에서 수행, csrf_exempt API 보완은 Phase 3에서 수행
+- 코드 수정 여부: .gitignore, settings.py, .env, .env.example, Phase 0 문서 수정 완료
 - DB 구조 변경 여부: 없음
+- git push는 아직 하지 않음
 
 ## 9. cheonan_db 백업 기록
 - 백업 상태: 완료
