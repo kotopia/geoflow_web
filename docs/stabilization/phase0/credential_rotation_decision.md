@@ -36,7 +36,11 @@
 - migrate 실행
 
 ## 6. 다음 작업
-- AWS key 교체 실행 준비
+- webgis 전용 IAM User 생성
+- webgis 전용 최소 S3 권한 정책 생성
+- 새 Access Key 생성
+- .env의 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 교체
+- 업로드/미리보기 기능 테스트
 - DB password 교체 여부 결정
 - RRN_SYM_KEY는 Phase 0에서 교체하지 않고 유지
 - git push는 아직 하지 않음
@@ -102,14 +106,38 @@
 - 이유: .env에 실제 AWS key가 존재했고, 코드 ZIP 또는 AI 검토 과정에 포함됐을 가능성이 있음
 - 코드 수정 필요 여부: 없음
 - 교체 방식:
-	1. AWS IAM에서 새 Access Key 생성
-	2. .env의 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 교체
-	3. 기존 키 비활성화
-	4. 업로드/미리보기 기능 테스트
-	5. 문제가 없으면 기존 키 삭제
+	1. 기존 IAM User의 Access Key 2개는 Phase 0에서 비활성화/삭제하지 않음
+	2. webgis 전용 IAM User를 새로 생성
+	3. webgis 전용 IAM User에 S3 최소 권한 부여
+	4. 새 IAM User의 Access Key를 생성
+	5. .env의 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY만 새 키로 교체
+	6. 업로드/미리보기 기능 테스트
+	7. 문제가 없으면 기존 webgis 키 정리 여부는 별도 단계에서 판단
 - 주의사항:
 	- 기존 S3 버킷은 유지
 	- AWS_REGION 유지
 	- AWS_S3_BUCKET 유지
 	- AWS_KMS_KEY_ID를 쓰고 있다면 새 키 사용자에게 KMS 권한 필요
 	- IAM/S3/KMS 권한이 다르면 업로드 또는 다운로드 실패 가능
+
+## 11. webgis 전용 IAM User 권한 초안
+
+- 생성 목적:
+	- 기존 QGIS, boto3, 기타 S3 업로드용 Access Key와 webgis용 Access Key를 분리
+- 기존 키 처리:
+	- 기존 IAM User의 Access Key 2개는 Phase 0에서 비활성화/삭제하지 않음
+- 현재 KMS 상태:
+	- AWS_KMS_KEY_ID가 실제 값으로 설정되어 있지 않으므로 Phase 0에서는 KMS 권한 제외 가능
+- 최소 S3 권한:
+	- s3:PutObject
+	- s3:GetObject
+- 권한 범위:
+	- 특정 S3 버킷의 tenants/* prefix로 제한 권장
+- 현재 코드 기준 불필요 권한:
+	- s3:ListBucket
+	- s3:DeleteObject
+	- s3:PutObjectAcl
+- KMS를 나중에 사용할 경우 추가 검토:
+	- kms:GenerateDataKey
+	- kms:Decrypt
+	- KMS Key Policy 반영 필요
