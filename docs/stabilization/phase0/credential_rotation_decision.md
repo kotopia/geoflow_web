@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | DJANGO_SECRET_KEY | settings.py에 하드코딩되어 있었음 | 완료 | 완료 | 새 키로 교체 완료, 기존 로그인 세션은 무효화될 수 있음 |
 | AWS key | .env에 실제 값 존재 및 S3 presigned URL 생성에 사용 중 | 완료 | 완료 | webgis 전용 IAM User key로 교체 완료, 업로드/미리보기 테스트 성공 |
-| DB password | settings.py에 하드코딩되어 있었음 | 권장 | 조건부 가능 | RDS/DB 사용자 비밀번호 변경 후 .env 반영 필요 |
+| DB password | settings.py에 하드코딩되어 있었음 | 권장 | 조건부 보류 | CENTRAL_DB_*, TENANT_DB_*, PROVISIONER_DB_*, group_db_config.db_password 정합성 확인 후 별도 유지보수 단계에서 교체 |
 | RRN_SYM_KEY | settings.py에 하드코딩되어 있었고 실제 주민등록번호 암복호화에 사용 중 | 보류 | 즉시 교체 금지 | 기존 rrn_cipher 복호화 불가 위험 |
 
 ## 3. RRN_SYM_KEY 특별 주의
@@ -36,7 +36,8 @@
 - migrate 실행
 
 ## 6. 다음 작업
-- DB password 교체 여부 결정
+- DB password 교체는 Phase 0에서 즉시 실행하지 않고, 별도 유지보수 단계에서 수행
+- DB password 교체 전 중앙 DB/테넌트 DB/PROVISIONER/group_db_config 정합성 확인 필요
 - RRN_SYM_KEY는 Phase 0에서 교체하지 않고 유지
 - 기존 AWS key 정리 여부는 별도 단계에서 판단
 - git push는 아직 하지 않음
@@ -131,3 +132,43 @@
 	- kms:GenerateDataKey
 	- kms:Decrypt
 	- KMS Key Policy 반영 필요
+
+## 12. DB password 사용 범위 점검 결과
+
+- settings.py 사용 환경변수:
+	- default alias: CENTRAL_DB_NAME, CENTRAL_DB_USER, CENTRAL_DB_PASSWORD, CENTRAL_DB_HOST, CENTRAL_DB_PORT
+	- cheonan_db alias: TENANT_DB_NAME, TENANT_DB_USER, TENANT_DB_PASSWORD, TENANT_DB_HOST, TENANT_DB_PORT
+	- cheonan_db USER/PASSWORD/HOST/PORT는 TENANT_DB_* -> PROVISIONER_DB_* -> CENTRAL_DB_* 순으로 fallback 가능
+- .env 상태:
+	- CENTRAL_DB_* 존재
+	- TENANT_DB_* 존재
+	- 실제 값은 문서에 기록하지 않음
+- 하드코딩 잔존 여부:
+	- 파이썬 코드 기준 DB 접속 password 리터럴 하드코딩 미발견
+	- postgres://, postgresql:// 하드코딩 미발견
+- group_db_config 영향:
+	- 중앙 DB의 group_db_config에 db_name, db_host, db_port, db_user, db_password 저장/조회 구조 존재
+	- tenant alias 런타임 주입에 사용될 수 있음
+- 영향 범위:
+	- 중앙 로그인 DB
+	- cheonan_db 업무 데이터 DB
+	- tenant 선택/라우팅
+	- tenant_provision / PROVISIONER_DB_* 경로
+	- group_db_config 저장값
+	- 로컬 개발 서버 .env
+	- 운영 서버가 있다면 운영 .env
+- 최종 판단:
+	- 즉시 교체는 위험
+	- 조건부 교체 가능
+	- Phase 0에서는 실제 변경하지 않고, 별도 유지보수 단계에서 수행
+- 향후 교체 절차:
+	1. 중앙 DB/테넌트 DB별 사용 계정 매핑 확인
+	2. 운영 포함 .env 반영 대상 확정
+	3. group_db_config.db_password 사용 여부 확인
+	4. 백업 확인
+	5. 유지보수 시간 확보
+	6. DB password 변경
+	7. .env 및 필요한 group_db_config 값 반영
+	8. 앱 재기동
+	9. central 로그인과 cheonan_db tenant 기능 점검
+	10. 실패 시 이전 password로 롤백

@@ -58,6 +58,10 @@
 - S3 미리보기 테스트 성공
 - 검증: py_compile 성공, manage.py check 성공
 - 기존 AWS key는 Phase 0에서 비활성화/삭제하지 않음
+- DB password 사용 범위 점검 완료
+- DB password는 교체 권장이나 즉시 교체는 보류
+- CENTRAL_DB_*, TENANT_DB_*, PROVISIONER_DB_*, group_db_config.db_password 정합성 확인 후 별도 유지보수 단계에서 교체
+- Phase 0에서는 DB password 실제 값 변경 없음
 - DB 구조 변경 여부: 없음
 
 ## 9. cheonan_db 백업 기록
@@ -75,7 +79,7 @@
 ## 10. Credential Rotation 판단표
 | Credential | 교체 필요 여부 | 이유 | 완료 여부 |
 |---|---|---|---|
-| DB password | 권장 | settings.py에 하드코딩되어 있었음 | 미완료 |
+| DB password | 권장 | settings.py 하드코딩은 제거됐으나 기존 password 노출 가능성이 있어 교체 권장. 단, central/tenant/provisioner/group_db_config 영향으로 별도 유지보수 단계 필요 | 조건부 보류 |
 | AWS key | 완료 | webgis 전용 IAM User key로 교체 및 S3 테스트 성공 | 완료 |
 | DJANGO_SECRET_KEY | 완료 | settings.py에 하드코딩되어 있었고 새 키로 교체 완료 | 완료 |
 | RRN_SYM_KEY | 보류 | 실제 주민등록번호 암복호화에 사용 중 | Phase 0 교체 금지 |
