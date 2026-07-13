@@ -1,0 +1,106 @@
+<div class="modal fade" id="eventModal" tabindex="-1" aria-labelledby="eventModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="eventModalLabel">이벤트 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="event-alert" class="alert alert-danger d-none"></div>
+
+        <input type="hidden" id="event-scope-type-hidden" value="{{ scope_type }}">
+        <input type="hidden" id="event-scope-id-hidden" value="{{ scope_id }}">
+        <input type="hidden" id="event-id" value="">
+
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Stage</label>
+            <select class="form-select" id="event-stage">
+              <option value="pre_contract">계약전</option>
+              <option value="contract">계약</option>
+              <option value="project">진행</option>
+              <option value="closeout">준공/검수</option>
+              <option value="blilling">청구/정산</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Type</label>
+            <select class="form-select" id="event-type">
+              <option value="estimate">견적제출</option>
+              <option value="contract_doc">계약체결</option>
+              <option value="kickoff">착수계</option>
+              <option value="progress_report">공정보고</option>
+              <option value="suspend">중지</option>
+              <option value="completion_doc">준공계</option>
+              <option value="inspection">검수</option>
+              <option value="advance_payment">선금</option>
+              <option value="invoice">기성/청구</option>
+              <option value="payment">지급완료</option>
+              <option value="etc">기타</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Status</label>
+            <select class="form-select" id="event-status">
+              <option value="draft">초안</option>
+              <option value="open">승인</option>
+              <option value="done">완료</option>
+              <option value="void">반려</option>
+            </select>
+          </div>
+
+          <div class="col-md-8">
+            <label class="form-label">제목</label>
+            <input type="text" class="form-control" id="event-title" placeholder="(선택)">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">일자</label>
+            <input type="date" class="form-control" id="event-occurred-at">
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">메모</label>
+            <textarea class="form-control" id="event-memo" rows="4"></textarea>
+          </div>
+
+          <div class="col-md-6">
+            <label class="small text-muted">Scope Type</label>
+            <input type="text" class="form-control" id="event-scope-type" disabled>
+          </div>
+          <div class="col-md-6">
+            <label class="small text-muted">Scope ID</label>
+            <input type="text" class="form-control" id="event-scope-id" disabled>
+          </div>
+
+          <div class="col-md-6">
+            <label class="small text-muted">생성일</label>
+            <input type="text" class="form-control" id="event-created-at" disabled>
+          </div>
+          <div class="col-md-6">
+            <label class="small text-muted">생성자</label>
+            <input type="text" class="form-control" id="event-created-by" disabled>
+          </div>
+        </div>
+
+        <hr>
+
+        <div id="event-attach-section" class="d-none">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <strong>첨부</strong>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-timeline-attach">
+              <i class="fas fa-paperclip"></i> 파일 선택
+            </button>
+          </div>
+          <div id="event-attachment-list" class="small"></div>
+          <div class="text-muted small mt-2">이벤트를 저장한 뒤 첨부 업로드가 활성화됩니다.</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto d-none" id="btn-delete-event-modal">이벤트 삭제</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-primary" id="btn-save-event">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
