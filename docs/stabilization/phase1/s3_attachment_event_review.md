@@ -16,6 +16,15 @@
 - upload commit 성공
 - presigned GET 성공
 - PDF inline preview 성공
+- 계약 상세 화면 로드 성공
+- event create 성공
+- event list refresh 성공
+- 이벤트 생성 직후 presigned PUT 성공
+- 이벤트 생성 직후 upload commit 성공
+- event attachment link 생성 성공
+- event 상태 draft → done 변경 성공
+- event update 성공
+- 이벤트 첨부 PDF inline preview 성공
 - 오류 메시지 없음
 
 ## 2. 필수 보존 파일
@@ -112,12 +121,12 @@ settings.py 의존 여부:
 
 ## 6. 확인된 리스크
 
-- 이벤트 생성 응답 스키마 불일치 가능성
-  - 프론트는 data.event.id를 기대할 수 있음
-  - 백엔드는 event_id를 반환할 수 있음
-- 이벤트 생성 직후 첨부 업로드 UX 추가 테스트 필요
-- soft delete 후 presign-get 410 처리 UI 반응 확인 필요
-- 계약/직원/topbar 미리보기 경로 회귀 확인 필요
+- 이벤트 생성 직후 첨부 업로드 테스트 완료
+- 현재 테스트 기준으로 data.event.id / event_id 응답 스키마 문제는 발생하지 않음
+- presigned PUT, commit, event link, preview까지 정상 동작 확인
+- 남은 확인 항목:
+  - soft delete 후 presign-get 410 처리 UI 반응
+  - 계약/직원/topbar 미리보기 경로 추가 회귀 확인
 
 ## 7. 권장 commit 전략
 
@@ -147,11 +156,11 @@ commit C:
 
 ## 8. 다음 조치
 
-1. 이벤트 생성 직후 첨부 업로드 테스트
-2. 응답 스키마 불일치 여부 확인
-3. 필요 시 최소 수정으로 JS/API 응답 정합성 보정
-4. S3/첨부/이벤트 최소 파일 묶음 확정
-5. migration 0015~0018은 별도 승인 후 처리
+1. soft delete 후 presign-get 410 처리 UI 반응 확인
+2. 계약/직원/topbar 미리보기 경로 회귀 확인
+3. S3/첨부/이벤트 최소 파일 묶음 commit 후보 확정
+4. migration 0015~0018은 별도 승인 후 처리
+5. 코드 commit 전 exact staging list 검토
 
 ## 9. 아직 금지할 명령
 
