@@ -25,6 +25,11 @@
 - event 상태 draft → done 변경 성공
 - event update 성공
 - 이벤트 첨부 PDF inline preview 성공
+- attachment delete 성공
+- soft delete 후 event list refresh 성공
+- event delete 성공
+- event delete 후 event list refresh 성공
+- 삭제 관련 오류 메시지 없음
 - 오류 메시지 없음
 
 ## 2. 필수 보존 파일
@@ -121,11 +126,13 @@ settings.py 의존 여부:
 
 ## 6. 확인된 리스크
 
-- 이벤트 생성 직후 첨부 업로드 테스트 완료
-- 현재 테스트 기준으로 data.event.id / event_id 응답 스키마 문제는 발생하지 않음
-- presigned PUT, commit, event link, preview까지 정상 동작 확인
+- soft delete 후 UI 반응 테스트 완료
+- attachment delete 200 성공
+- event list refresh 성공
+- event delete 200 성공
+- 삭제 후 화면 갱신 정상
+- 현재 테스트 기준으로 presign, commit, preview, soft delete, event delete 흐름 모두 정상
 - 남은 확인 항목:
-  - soft delete 후 presign-get 410 처리 UI 반응
   - 계약/직원/topbar 미리보기 경로 추가 회귀 확인
 
 ## 7. 권장 commit 전략
@@ -156,11 +163,10 @@ commit C:
 
 ## 8. 다음 조치
 
-1. soft delete 후 presign-get 410 처리 UI 반응 확인
-2. 계약/직원/topbar 미리보기 경로 회귀 확인
-3. S3/첨부/이벤트 최소 파일 묶음 commit 후보 확정
-4. migration 0015~0018은 별도 승인 후 처리
-5. 코드 commit 전 exact staging list 검토
+1. 계약/직원/topbar 미리보기 경로 회귀 확인
+2. S3/첨부/이벤트 최소 파일 묶음 commit 후보 확정
+3. migration 0015~0018은 별도 승인 후 처리
+4. 코드 commit 전 exact staging list 검토
 
 ## 9. 아직 금지할 명령
 
