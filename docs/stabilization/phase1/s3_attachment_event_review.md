@@ -17,6 +17,12 @@
 - presigned GET 성공
 - PDF inline preview 성공
 - 계약 상세 화면 로드 성공
+- 직원 목록 화면 로드 성공
+- 직원 상세 화면 로드 성공
+- 직원 사진 presigned GET 성공
+- 직원 상세 사진 미리보기 성공
+- topbar 썸네일 표시 성공
+- 계약/직원/topbar 미리보기 회귀 오류 없음
 - event create 성공
 - event list refresh 성공
 - 이벤트 생성 직후 presigned PUT 성공
@@ -30,7 +36,6 @@
 - event delete 성공
 - event delete 후 event list refresh 성공
 - 삭제 관련 오류 메시지 없음
-- 오류 메시지 없음
 
 ## 2. 필수 보존 파일
 
@@ -126,14 +131,13 @@ settings.py 의존 여부:
 
 ## 6. 확인된 리스크
 
-- soft delete 후 UI 반응 테스트 완료
-- attachment delete 200 성공
-- event list refresh 성공
-- event delete 200 성공
-- 삭제 후 화면 갱신 정상
-- 현재 테스트 기준으로 presign, commit, preview, soft delete, event delete 흐름 모두 정상
+- 계약/직원/topbar 미리보기 경로 회귀 확인 완료
+- 직원 상세 사진 presigned GET 200 성공
+- topbar 썸네일 표시 정상
+- 현재 테스트 기준으로 presign, commit, preview, soft delete, event delete, 직원 사진 미리보기, topbar 썸네일 흐름 모두 정상
 - 남은 확인 항목:
-  - 계약/직원/topbar 미리보기 경로 추가 회귀 확인
+  - 현재 S3/첨부/이벤트 핵심 테스트 기준 잔여 blocking 리스크 없음
+  - migration 0015~0018 적용 타이밍은 별도 승인 필요
 
 ## 7. 권장 commit 전략
 
@@ -163,10 +167,10 @@ commit C:
 
 ## 8. 다음 조치
 
-1. 계약/직원/topbar 미리보기 경로 회귀 확인
-2. S3/첨부/이벤트 최소 파일 묶음 commit 후보 확정
+1. S3/첨부/이벤트 최소 파일 묶음 commit 후보 확정
+2. 코드 commit 전 exact staging list 검토
 3. migration 0015~0018은 별도 승인 후 처리
-4. 코드 commit 전 exact staging list 검토
+4. control/tenant_provision/대량 migration 변경은 계속 보류
 
 ## 9. 아직 금지할 명령
 
