@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('webgisapp', '0005_myorgunit_projectscopeitem_delete_prjcategory_and_more'),
+        ('webgisapp', '0014_add_employee_profile_address_fields'),
     ]
 
     operations = [
