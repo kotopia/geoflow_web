@@ -224,5 +224,126 @@ class ProjectScopeItem(models.Model):
 
     def __str__(self):
         return f"{self.project_id} / {self.lv2_id} ({self.unit}, {self.design_qty or 0})"
+
+
+# =========================
+# 첨부파일 (ops.attachments)
+# =========================
+class Attachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_column="id")
+    entity_type = models.TextField(db_column="entity_type")
+    entity_id = models.UUIDField(db_column="entity_id")
+    purpose = models.TextField(db_column="purpose")
+
+    object_key = models.TextField(db_column="object_key", unique=True)
+    original_name = models.TextField(db_column="original_name")
+    mime_type = models.TextField(db_column="mime_type", blank=True, null=True)
+    size_bytes = models.BigIntegerField(db_column="size_bytes", null=True, blank=True)
+    sha256 = models.TextField(db_column="sha256", blank=True, null=True)
+
+    active = models.BooleanField(db_column="active", default=True)
+    ord = models.IntegerField(db_column="ord", default=0)
+    meta = models.JSONField(db_column="meta", default=dict, blank=True)
+
+    created_at = models.DateTimeField(db_column="created_at", auto_now_add=True)
+    updated_at = models.DateTimeField(db_column="updated_at", auto_now=True)
+
+    deleted_at = models.DateTimeField(db_column="deleted_at", null=True, blank=True)
+    deleted_by = models.TextField(db_column="deleted_by", null=True, blank=True)
+    is_deleted = models.BooleanField(db_column="is_deleted", default=False)
+
+    kind = models.TextField(db_column="kind", default="file")
+    parent = models.ForeignKey(
+        "self",
+        db_column="parent_id",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="derivatives",
+    )
+
+    class Meta:
+        db_table = '"ops"."attachments"'
+        managed = True
+        indexes = [
+            models.Index(fields=["entity_type", "entity_id"], name="idx_att_entity"),
+            models.Index(fields=["entity_type", "entity_id", "purpose", "ord"], name="idx_att_entity_purpose_ord"),
+        ]
+
+
+# =========================
+# 업무 프로세스 이벤트 (ops.process_events)
+# =========================
+class ProcessEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_column="id")
+    scope_type = models.CharField(max_length=50, db_column="scope_type")
+    scope_id = models.UUIDField(db_column="scope_id")
+    stage = models.CharField(max_length=50, db_column="stage")
+    event_type = models.CharField(max_length=50, db_column="event_type")
+
+    title = models.CharField(max_length=255, db_column="title", default="", blank=True)
+    memo = models.TextField(db_column="memo", blank=True, default="")
+
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("open", "Open"),
+        ("done", "Done"),
+        ("void", "Void"),
+    ]
+    status = models.CharField(max_length=20, db_column="status", choices=STATUS_CHOICES, default="draft")
+
+    occurred_at = models.DateField(db_column="occurred_at", null=True, blank=True)
+    due_at = models.DateField(db_column="due_at", null=True, blank=True)
+
+    created_by = models.CharField(max_length=255, db_column="created_by")
+    created_at = models.DateTimeField(db_column="created_at", auto_now_add=True)
+    updated_at = models.DateTimeField(db_column="updated_at", auto_now=True)
+
+    class Meta:
+        db_table = '"ops"."process_events"'
+        managed = True
+        indexes = [
+            models.Index(fields=["scope_type", "scope_id"], name="idx_event_scope"),
+            models.Index(fields=["scope_type", "scope_id", "stage"], name="idx_event_scope_stage"),
+            models.Index(fields=["status"], name="idx_event_status"),
+        ]
+
+
+# =========================
+# 프로세스 이벤트-첨부 링크 (ops.process_event_attachments)
+# =========================
+class ProcessEventAttachment(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, db_column="id")
+
+    event = models.ForeignKey(
+        ProcessEvent,
+        db_column="event_id",
+        on_delete=models.CASCADE,
+        related_name="attachment_links",
+    )
+    attachment = models.ForeignKey(
+        Attachment,
+        db_column="attachment_id",
+        on_delete=models.CASCADE,
+        related_name="event_links",
+    )
+
+    ROLE_CHOICES = [
+        ("primary", "Primary"),
+        ("support", "Support"),
+    ]
+    role = models.CharField(max_length=20, db_column="role", choices=ROLE_CHOICES, default="support")
+    ord = models.PositiveIntegerField(db_column="ord", default=0)
+    created_at = models.DateTimeField(db_column="created_at", auto_now_add=True)
+
+    class Meta:
+        db_table = '"ops"."process_event_attachments"'
+        managed = True
+        constraints = [
+            models.UniqueConstraint(fields=["event", "attachment"], name="unique_event_attachment"),
+        ]
+        indexes = [
+            models.Index(fields=["event", "ord"], name="idx_event_att_ord"),
+        ]
     
 

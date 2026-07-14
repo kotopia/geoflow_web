@@ -18,6 +18,9 @@ from control.decorators import require_perm
 
 from django.http import JsonResponse
 
+from .models import Attachment
+from .services.s3_service import generate_presigned_get_url
+
 import re
 
 # -----------------------------
@@ -334,6 +337,53 @@ def employees_detail(request, emp_id):
     employee_roles = _get_employee_roles_for_central(
         request, alias, profile["id"], profile["email"], profile["central_user_id"]
     )
+
+    # 직원 사진: photo_thumb/thumb 우선, 없으면 photo
+    photo_attachment = (
+        Attachment.objects.using(alias)
+        .filter(
+            entity_type="employee",
+            entity_id=profile["id"],
+            purpose__in=["photo_thumb", "thumb"],
+            active=True,
+            deleted_at__isnull=True,
+        )
+        .order_by("ord", "-created_at")
+        .first()
+    )
+    if not photo_attachment:
+        photo_attachment = (
+            Attachment.objects.using(alias)
+            .filter(
+                entity_type="employee",
+                entity_id=profile["id"],
+                purpose="photo",
+                active=True,
+                deleted_at__isnull=True,
+            )
+            .order_by("ord", "-created_at")
+            .first()
+        )
+
+    photo_url = None
+    if photo_attachment:
+        try:
+            photo_url = generate_presigned_get_url(photo_attachment.object_key, expires_in=3600)
+        except Exception:
+            photo_url = None
+
+    doc_attachment = (
+        Attachment.objects.using(alias)
+        .filter(
+            entity_type="employee",
+            entity_id=profile["id"],
+            purpose="doc",
+            active=True,
+            deleted_at__isnull=True,
+        )
+        .order_by("ord", "-created_at")
+        .first()
+    )
     
     # 편집모드 결정(계약 상세와 동일: ?edit=1 & 편집권한이 있을 때만)
     want_edit = str(request.GET.get("edit", "")).lower() in ("1", "true", "yes")
@@ -352,6 +402,9 @@ def employees_detail(request, emp_id):
             "managers": managers,
             "employee_roles": employee_roles,
             "edit_mode": edit_mode,
+            "photo_attachment": photo_attachment,
+            "photo_url": photo_url,
+            "doc_attachment": doc_attachment,
         },
     )
 

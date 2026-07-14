@@ -272,17 +272,41 @@
           {% endif %}
         </div>
 
+        <hr class="my-0" />
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">타임라인</h6>
+            <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
+          </div>
+          <div id="timelineList"></div>
+          <div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
+        </div>
+
       </div>
     </div>
 
   </div>
 </div>
+<div id="eventModalMount"
+     data-scope-type="contract"
+     data-scope-id="{{ obj.id }}"
+     data-csrf="{{ csrf_token }}"
+     data-events-list-url="{% url 'tenant:event_list' %}"
+     data-events-create-url="{% url 'tenant:event_create' %}"
+     data-events-update-url="{% url 'tenant:event_update' '00000000-0000-0000-0000-000000000000' %}"
+     data-events-delete-url="{% url 'tenant:event_delete' '00000000-0000-0000-0000-000000000000' %}"
+     data-events-modal-ui-url="{% url 'tenant:event_modal_ui' %}"
+     data-presign-put-url="{% url 'tenant:upload_presign_put' %}"
+     data-commit-url="{% url 'tenant:upload_commit' %}">
+</div>
 {% endblock %}
 
 {% block scripts %}
 {{ block.super }}
+<script src="{% static 'geoflow_ops/js/upload-utils.js' %}"></script>
 <script src="{% static 'geoflow_ops/js/scope-linker.js' %}"></script>
 <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
+<script src="{% static 'geoflow_ops/js/process-events-ui.js' %}"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   // 1) 상세페이지 배지 강제 렌더 (상태 뱃지 표시)
@@ -298,6 +322,16 @@ document.addEventListener("DOMContentLoaded", function () {
       url.searchParams.set("edit", "1");
       window.location.assign(url.toString());
     });
+  }
+
+  if (window.ProcessEventsUI) {
+    window.ProcessEventsUI.init('#eventModalMount');
+  }
+
+  var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
+  var csrfToken = csrfInput ? csrfInput.value : '{{ csrf_token }}';
+  if (window.initAttachmentActions) {
+    window.initAttachmentActions({ root: document, csrfToken: csrfToken });
   }
 
   // Choices 초기화(한 번만)

@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo
+from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events
 
 app_name = "tenant"
 
@@ -47,4 +47,18 @@ urlpatterns = [
     path("myinfo/org-units/new/", views_myinfo.orgunit_create, name="myinfo_orgunit_create"),
     path("myinfo/org-units/<uuid:pk>/", views_myinfo.orgunit_detail, name="myinfo_orgunit_detail"),
     path("myinfo/org-units/<uuid:pk>/edit/", views_myinfo.orgunit_update, name="myinfo_orgunit_update"),
+
+    # ▼ 첨부파일 업로드 API
+    path("api/uploads/presign-put/", views_uploads.presign_put, name="upload_presign_put"),
+    path("api/uploads/commit/", views_uploads.commit, name="upload_commit"),
+    path("api/uploads/presign-get/<uuid:attachment_id>/", views_uploads.presign_get, name="upload_presign_get"),
+    path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
+    path("uploads/excel-preview/<uuid:attachment_id>/", views_uploads.excel_preview, name="excel_preview"),
+
+    # ▼ Process Event API
+    path("api/events/create/", views_events.create_event, name="event_create"),
+    path("api/events/list/", views_events.list_events, name="event_list"),
+    path("api/events/update/<uuid:event_id>/", views_events.update_event, name="event_update"),
+    path("api/events/delete/<uuid:event_id>/", views_events.delete_event, name="event_delete"),
+    path("events/ui/modal/", views_contracts.event_modal_ui, name="event_modal_ui"),
 ]

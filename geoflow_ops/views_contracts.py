@@ -22,7 +22,7 @@ from django.views.generic import ListView
 
 from control.services import central_repo as C   # 표준 접속/조회
 from control.middleware import current_db_alias
-from .models import Contract, Partner, Project, MyOrgUnit
+from .models import Contract, Partner, Project, MyOrgUnit, Attachment
 from .forms import ContractForm, PartnerForm
 from .views_catalog import build_scope_groups  # ← 프로젝트 범위 SSR용
 
@@ -169,6 +169,15 @@ def contract_detail_page(request, pk):
     context["project_for_scope"] = prj
     context["scope_groups"] = build_scope_groups(alias, prj.id) if prj else []
 
+    # 계약 첨부파일 목록 (삭제되지 않은 것만)
+    attachments = Attachment.objects.using(alias).filter(
+        entity_type="contract",
+        entity_id=obj.id,
+        active=True,
+        deleted_at__isnull=True,
+    ).order_by("purpose", "ord", "-created_at")
+    context["attachments"] = list(attachments)
+
     if edit_mode:
         form = ContractForm(instance=obj)
         # ✅ 권장: 편집 폼의 선택지도 alias에 맞추기
@@ -224,6 +233,19 @@ def contract_json(request, pk):
         "sub_client_name": subclient_name,
         "org_unit_name": org_unit_name,
     })
+
+
+def event_modal_ui(request):
+    scope_type = request.GET.get("scope_type", "")
+    scope_id = request.GET.get("scope_id", "")
+    return render(
+        request,
+        "geoflow_ops/events/_event_modal.html",
+        {
+            "scope_type": scope_type,
+            "scope_id": scope_id,
+        },
+    )
 
 
 @login_required
