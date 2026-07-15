@@ -12,15 +12,21 @@
 - fbcb9cd phase1: restore topbar context processor
 - 9ac75f0 phase1: wire s3 event attachments
 - 9d7e484 phase1: add s3 event attachment migrations
+- 16ad9df phase1: restore tenant migration chain
 
 ## 3. 최종 patch 백업
 
-- 위치: C:\GeoFlow\phase1_s3_event_clean_patches_final
-- 파일:
-  - 0001-phase1-restore-avatar-context-processor.patch
-  - 0002-phase1-restore-topbar-context-processor.patch
-  - 0003-phase1-wire-s3-event-attachments.patch
-  - 0004-phase1-add-s3-event-attachment-migrations.patch
+- 위치: C:\GeoFlow\phase1_s3_event_clean_patches_final_v3
+- 상태: 이 문서 수정 commit 후 생성 예정
+- 예상 파일 수: 7개
+- 예상 포함 commit:
+  - 0001 phase1: restore avatar context processor
+  - 0002 phase1: restore topbar context processor
+  - 0003 phase1: wire s3 event attachments
+  - 0004 phase1: add s3 event attachment migrations
+  - 0005 phase1: document s3 event clean branch result
+  - 0006 phase1: restore tenant migration chain
+  - 0007 phase1: update s3 event clean branch result
 
 ## 4. 선행 fix
 
@@ -66,9 +72,13 @@
 - geoflow_ops/migrations/0018_processevent_processeventattachment.py
 
 주의:
-- 0015 dependency는 clean branch 기준 마지막 migration인 0005_myorgunit_projectscopeitem_delete_prjcategory_and_more로 조정
-- migrate는 아직 실행하지 않음
-- cheonan_db 실제 DB에는 이미 테스트 중 관련 테이블/컬럼이 존재하므로, 운영 반영 전 migration 적용 전략은 별도 검토 필요
+- cheonan_db 실제 django_migrations 이력에는 webgisapp 0001~0018이 모두 적용되어 있음
+- clean branch에는 처음에 0006~0014 migration 파일이 누락되어 있었음
+- 0006~0014 migration 파일을 clean branch에 복구함
+- 0015_attachment.py dependency는 실제 이력에 맞게 0014_add_employee_profile_address_fields로 원복함
+- 따라서 HEAD 기준 migration chain은 0001~0018로 정합화됨
+- python manage.py showmigrations webgisapp --database cheonan_db 결과 0001~0018 모두 [X] 확인
+- cheonan_db에는 0015~0018이 이미 적용되어 있으므로 현재 migrate 실행은 불필요
 
 ## 7. 테스트 결과
 
@@ -127,11 +137,13 @@
 
 ## 10. 다음 권장 조치
 
-1. clean branch 결과 문서 commit
-2. 원본 main dirty 상태를 별도 분석
-3. 원본 main에 clean branch 4개 commit을 반영할지, 또는 clean branch를 기준 브랜치로 삼을지 결정
-4. migrate는 별도 DB 적용 전략 수립 전까지 보류
-5. git push는 명시 지시 전까지 보류
+1. clean branch 결과 문서 수정 commit을 생성
+2. 최종 patch 백업을 v3로 갱신
+3. 원본 main dirty 상태를 보존본 기준으로 별도 분석
+4. 원본 main에는 아직 merge/cherry-pick/apply 하지 않음
+5. cheonan_db는 webgisapp 0001~0018이 모두 적용되어 있으므로 현재 migrate 실행은 불필요
+6. 다른 tenant DB가 생기면 별도 적용 전략을 검토
+7. git push는 명시 지시 전까지 보류
 
 ## 11. 금지 사항
 
@@ -140,3 +152,4 @@
 - makemigrations 금지
 - 원본 main merge/cherry-pick/apply 금지
 - 원본 worktree reset/restore/clean 금지
+
