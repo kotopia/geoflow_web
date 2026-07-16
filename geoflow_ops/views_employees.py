@@ -557,13 +557,14 @@ def employees_request_role(request, emp_id):
 
     # 대상 직원 기본 정보
     with connections[alias].cursor() as cur:
-        cur.execute("SELECT email, name FROM hr.employee_profile WHERE id=%s LIMIT 1", [str(emp_id)])
+        cur.execute("SELECT email, name, role_code FROM hr.employee_profile WHERE id=%s LIMIT 1", [str(emp_id)])
         row = cur.fetchone()
     if not row:
         messages.error(request, "직원을 찾을 수 없습니다.")
         return redirect("employees_list")
     target_email = (row[0] or "").strip().lower()
     target_name = row[1] or ""
+    current_role_code = (row[2] or "").strip()
 
     if request.method == "GET":
         # 중앙 역할 목록(활성 + 테넌트에서 금지된 중앙/시스템 권한은 필터)
@@ -576,6 +577,7 @@ def employees_request_role(request, emp_id):
                 "emp_id": emp_id,
                 "employee_email": target_email,
                 "employee_name": target_name,
+                "current_role_code": current_role_code,
                 "role_codes": role_codes,
             },
         )

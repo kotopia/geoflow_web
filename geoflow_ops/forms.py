@@ -82,6 +82,11 @@ class ContractForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         alias = current_db_alias()
 
+        def _partner_label(p):
+            name = getattr(p, "name", "") or str(p)
+            partner_type = getattr(p, "type", None) or getattr(p, "kind", None)
+            return f"{name} ({partner_type})" if partner_type else name
+
         # (명시 안 해도 위에서 required=False 지정했지만, 일관성 유지)
         self.fields["start_date"].required = False
         self.fields["end_date"].required = False
@@ -92,8 +97,10 @@ class ContractForm(forms.ModelForm):
         # 파트너 선택은 테넌트 DB 기준으로
         if "client" in self.fields:
             self.fields["client"].queryset = Partner.objects.using(alias).all().order_by("name")
+            self.fields["client"].label_from_instance = _partner_label
         if "sub_client" in self.fields:
             self.fields["sub_client"].queryset = Partner.objects.using(alias).all().order_by("name")
+            self.fields["sub_client"].label_from_instance = _partner_label
 
     def clean_code(self):
         code = (self.cleaned_data.get('code') or '').strip()

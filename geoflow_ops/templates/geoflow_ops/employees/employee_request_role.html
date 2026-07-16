@@ -14,7 +14,7 @@
         <div class="col-auto">
           <select name="role_code" class="form-select">
             {% for code in role_codes %}
-              <option value="{{ code }}">{{ code }}</option>
+              <option value="{{ code }}" {% if code == current_role_code %}selected{% endif %}>{{ code }}</option>
             {% endfor %}
           </select>
         </div>
