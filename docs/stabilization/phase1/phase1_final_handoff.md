@@ -35,9 +35,9 @@
 
 ## 4. 최종 patch 백업
 
-- 위치: C:\GeoFlow\phase1_s3_event_clean_patches_final_v5
-- 상태: 이 문서 commit 후 생성 예정
-- 예상 patch 파일 수: 9개
+- 위치: C:\GeoFlow\_phase1_archive\phase1_s3_event_clean_patches_final_v5
+- 상태: 생성 완료 후 archive 이동 완료
+- patch 파일 수: 9개
 
 파일:
 - 0001-phase1-restore-avatar-context-processor.patch

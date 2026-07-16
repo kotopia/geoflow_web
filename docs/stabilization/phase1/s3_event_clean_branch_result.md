@@ -16,9 +16,9 @@
 
 ## 3. 최종 patch 백업
 
-- 위치: C:\GeoFlow\phase1_s3_event_clean_patches_final_v3
-- 상태: 이 문서 수정 commit 후 생성 예정
-- 예상 파일 수: 7개
+- 위치: C:\GeoFlow\_phase1_archive\phase1_s3_event_clean_patches_final_v3
+- 상태: v3 생성 완료 후 archive 이동 완료
+- 파일 수: 7개
 - 예상 포함 commit:
   - 0001 phase1: restore avatar context processor
   - 0002 phase1: restore topbar context processor

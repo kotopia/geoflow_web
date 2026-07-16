@@ -5,7 +5,7 @@
 - v2 patch 6개 중 2개는 일반 check 성공, 4개는 일반 check 실패
 - 실패한 4개는 --unidiff-zero 조건에서 check 통과
 - 실제 index를 보호하기 위해 GIT_INDEX_FILE을 사용한 임시 index에만 적용 테스트 수행
-- 임시 staged diff를 C:\GeoFlow\phase1_commitA_temp_staged.diff 로 저장
+- 임시 staged diff를 C:\GeoFlow\_phase1_archive\phase1_commitA_temp_staged.diff 로 저장
 - 실제 index는 최종 확인 결과 비어 있음
 
 ## 2. 임시 index 적용 결과

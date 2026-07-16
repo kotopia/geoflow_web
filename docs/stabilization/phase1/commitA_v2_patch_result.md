@@ -12,7 +12,7 @@
 
 ### models.py
 
-- patch path: C:\GeoFlow\phase1_commitA_models_v2.patch
+- patch path: C:\GeoFlow\_phase1_archive\phase1_commitA_models_v2.patch
 - check 결과: 성공
 - 포함 hunk:
   - Attachment 모델 전체
@@ -27,7 +27,7 @@
 
 ### urls.py
 
-- patch path: C:\GeoFlow\phase1_commitA_urls_v2.patch
+- patch path: C:\GeoFlow\_phase1_archive\phase1_commitA_urls_v2.patch
 - check 결과: 실패
 - 포함 hunk:
   - views_uploads/views_events import
@@ -41,7 +41,7 @@
 
 ### views_contracts.py
 
-- patch path: C:\GeoFlow\phase1_commitA_views_contracts_v2.patch
+- patch path: C:\GeoFlow\_phase1_archive\phase1_commitA_views_contracts_v2.patch
 - check 결과: 실패
 - 포함 hunk:
   - Attachment import
@@ -57,7 +57,7 @@
 
 ### views_employees.py
 
-- patch path: C:\GeoFlow\phase1_commitA_views_employees_v2.patch
+- patch path: C:\GeoFlow\_phase1_archive\phase1_commitA_views_employees_v2.patch
 - check 결과: 성공
 - 포함 hunk:
   - Attachment / generate_presigned_get_url import
@@ -75,7 +75,7 @@
 
 ### contract_detail.html
 
-- patch path: C:\GeoFlow\phase1_commitA_contract_detail_v2.patch
+- patch path: C:\GeoFlow\_phase1_archive\phase1_commitA_contract_detail_v2.patch
 - check 결과: 실패
 - 포함 hunk:
   - 타임라인 영역
@@ -93,7 +93,7 @@
 
 ### employee_detail.html
 
-- patch path: C:\GeoFlow\phase1_commitA_employee_detail_v2.patch
+- patch path: C:\GeoFlow\_phase1_archive\phase1_commitA_employee_detail_v2.patch
 - check 결과: 실패
 - 포함 hunk:
   - photo_url 표시

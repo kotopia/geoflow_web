@@ -13,10 +13,10 @@
 
 원본 main dirty 상태는 아래 위치에 백업됨.
 
-- C:\GeoFlow\main_dirty_backup_before_clean_branch_merge
-- C:\GeoFlow\main_dirty_backup_before_clean_branch_merge\main_tracked_changes.diff
-- C:\GeoFlow\main_dirty_backup_before_clean_branch_merge\main_untracked_files.txt
-- C:\GeoFlow\main_dirty_backup_before_clean_branch_merge\full_worktree_copy
+- C:\GeoFlow\_phase1_archive\main_dirty_backup_before_clean_branch_merge
+- C:\GeoFlow\_phase1_archive\main_dirty_backup_before_clean_branch_merge\main_tracked_changes.diff
+- C:\GeoFlow\_phase1_archive\main_dirty_backup_before_clean_branch_merge\main_untracked_files.txt
+- C:\GeoFlow\_phase1_archive\main_dirty_backup_before_clean_branch_merge\full_worktree_copy
 
 전체 worktree 복사 결과:
 - robocopy exit code: 1
@@ -26,7 +26,7 @@
 ## 3. 분석 파일
 
 분석 결과 파일 위치:
-- C:\GeoFlow\main_dirty_analysis_after_phase1_clean
+- C:\GeoFlow\_phase1_archive\main_dirty_analysis_after_phase1_clean
 
 생성 파일:
 - 01_status_short.txt
