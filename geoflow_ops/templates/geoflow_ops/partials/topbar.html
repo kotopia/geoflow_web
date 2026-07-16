@@ -19,7 +19,7 @@
         <ul class="navbar-nav navbar-align">
             <li class="nav-item dropdown">
                 <a class="nav-icon dropdown-toggle" href="#" id="userDropdown" data-bs-toggle="dropdown">
-                    <img src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded me-1" alt="User" />
+                    <img id="gfTopbarAvatar" src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded me-1" alt="User" {% if avatar_attachment_id %}data-avatar-id="{{ avatar_attachment_id }}"{% endif %} />
                     <span class="text-dark">{{ request.session.user_id }}</span>
                 </a>
                 <div class="dropdown-menu dropdown-menu-end">
@@ -34,3 +34,30 @@
         </ul>
     </div>
 </nav>
+
+<script>
+(function () {
+  var avatar = document.getElementById("gfTopbarAvatar");
+  if (!avatar) return;
+
+  var attachmentId = avatar.getAttribute("data-avatar-id");
+  if (!attachmentId) return;
+
+  fetch("/api/uploads/presign-get/" + encodeURIComponent(attachmentId) + "/?mode=inline", {
+    method: "GET",
+    credentials: "same-origin"
+  })
+    .then(function (res) {
+      if (!res.ok) return null;
+      return res.json();
+    })
+    .then(function (data) {
+      if (data && data.presigned_url) {
+        avatar.src = data.presigned_url;
+      }
+    })
+    .catch(function () {
+      // Keep the default avatar.
+    });
+})();
+</script>
