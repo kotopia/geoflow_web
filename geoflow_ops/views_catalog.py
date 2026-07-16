@@ -29,10 +29,7 @@ def catalog_board(request):
     - 오른쪽: 선택된 L1에 대한 L2 + Lv3/Lv4 옵션 보드
     """
     # 1) 현재 테넌트 DB alias (미들웨어에서 세션에 넣어줌)
-    tenant_alias = request.session.get(
-        "tenant_db_alias",
-        getattr(settings, "DEFAULT_TENANT_DB_ALIAS", "cheonan_db"),
-    )
+    tenant_alias = _alias(request)
 
     # 2) 프로젝트 ID (지금은 GET 파라미터로 받도록)
     project_id = request.GET.get("project_id")  # 나중에 현재 프로젝트 context에서 가져오면 됨
@@ -306,6 +303,8 @@ def project_scope_save(request, pk):
 
     return JsonResponse({"ok": True})
 
+@login_required
+@gf_perm_required("projects.view")
 def project_scope_summary(request, pk):
     alias = _alias(request)
     prj = get_object_or_404(Project.objects.using(alias)
