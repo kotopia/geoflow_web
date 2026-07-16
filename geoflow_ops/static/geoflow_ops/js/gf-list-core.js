@@ -216,6 +216,7 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
   function initTable(opts){
     var tableId = opts && opts.tableId ? opts.tableId : null;
     var statusSel = opts && opts.statusSel ? opts.statusSel : "#statusButtons";
+    var emptyTableText = opts && typeof opts.emptyTable === "string" ? opts.emptyTable : null;
     if (!tableId) return;
 
     var tableEl = document.getElementById(tableId);
@@ -240,6 +241,7 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
         infoEmpty:  "표시할 항목이 없습니다",
         infoFiltered: "(총 _MAX_개에서 필터링됨)",
         zeroRecords:  "일치하는 결과가 없습니다",
+        emptyTable: (emptyTableText || undefined),
         search:       "검색:",
         paginate: { first:"처음", last:"마지막", next:"다음", previous:"이전" }
       },
