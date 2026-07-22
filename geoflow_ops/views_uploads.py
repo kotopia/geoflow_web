@@ -36,6 +36,43 @@ def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"error": message}, status=status)
 
 
+def _resolve_attachment_entity(alias, attachment) -> bool:
+    if attachment.entity_type == "employee":
+        from django.db import connections
+
+        with connections[alias].cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM hr.employee_profile WHERE id = %s LIMIT 1",
+                [attachment.entity_id],
+            )
+            return cur.fetchone() is not None
+
+    if attachment.entity_type == "contract":
+        from .models import Contract
+
+        return Contract.objects.using(alias).filter(pk=attachment.entity_id).exists()
+
+    if attachment.entity_type == "orgunit":
+        from .models import MyOrgUnit
+
+        return MyOrgUnit.objects.using(alias).filter(pk=attachment.entity_id).exists()
+
+    if attachment.entity_type == "event":
+        from .models import ProcessEvent, ProcessEventAttachment
+
+        event_exists = ProcessEvent.objects.using(alias).filter(
+            pk=attachment.entity_id
+        ).exists()
+        if not event_exists:
+            return False
+        return ProcessEventAttachment.objects.using(alias).filter(
+            event_id=attachment.entity_id,
+            attachment_id=attachment.id,
+        ).exists()
+
+    return False
+
+
 @login_required
 @csrf_exempt
 @require_POST
@@ -364,6 +401,9 @@ def presign_get(request, attachment_id):
         )
         return _json_error("Attachment has been deleted", status=410)
 
+    if not _resolve_attachment_entity(alias, att):
+        return _json_error("Attachment entity not found", status=404)
+
     # mode 파라미터 읽기 (inline | download)
     mode = request.GET.get("mode", "inline")
 
@@ -445,6 +485,9 @@ def delete_attachment(request, attachment_id):
     # 이미 삭제된 파일
     if att.deleted_at:
         return _json_error("Already deleted", status=410)
+
+    if not _resolve_attachment_entity(alias, att):
+        return _json_error("Attachment entity not found", status=404)
 
     # 소프트 삭제 처리
     att.deleted_at = timezone.now()
