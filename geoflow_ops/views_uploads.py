@@ -73,6 +73,50 @@ def _resolve_attachment_entity(alias, attachment) -> bool:
     return False
 
 
+def _request_has_any_perm(request, *codes) -> bool:
+    permission_values = (
+        getattr(request, "_gf_perms_cache", None),
+        request.session.get("gf_perms"),
+        request.session.get("perms"),
+    )
+
+    for value in permission_values:
+        if isinstance(value, dict):
+            if any(bool(value.get(code)) or code in value.values() for code in codes):
+                return True
+        elif isinstance(value, (list, set, tuple)):
+            if any(code in value for code in codes):
+                return True
+        elif isinstance(value, str):
+            if value in codes:
+                return True
+    return False
+
+
+def _authorize_attachment_read(request, alias, attachment) -> bool:
+    if attachment.entity_type == "employee":
+        return _request_has_any_perm(request, "directory.view")
+
+    if attachment.entity_type == "contract":
+        return _request_has_any_perm(request, "contracts.view")
+
+    if attachment.entity_type == "event":
+        from .models import ProcessEvent
+
+        event = ProcessEvent.objects.using(alias).filter(
+            pk=attachment.entity_id
+        ).only("scope_type").first()
+        if not event:
+            return False
+        if event.scope_type == "employee":
+            return _request_has_any_perm(request, "directory.view")
+        if event.scope_type == "contract":
+            return _request_has_any_perm(request, "contracts.view")
+        return False
+
+    return False
+
+
 @login_required
 @csrf_exempt
 @require_POST
@@ -403,6 +447,9 @@ def presign_get(request, attachment_id):
 
     if not _resolve_attachment_entity(alias, att):
         return _json_error("Attachment entity not found", status=404)
+
+    if not _authorize_attachment_read(request, alias, att):
+        return _json_error("Forbidden", status=403)
 
     # mode 파라미터 읽기 (inline | download)
     mode = request.GET.get("mode", "inline")
