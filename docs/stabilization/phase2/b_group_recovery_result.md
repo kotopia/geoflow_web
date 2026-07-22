@@ -229,6 +229,24 @@ Decision:
 - Do not modify for now.
 - Revisit only during project module cleanup.
 
+### 4.5 Excel preview template
+
+Status:
+
+- Reverted / Disabled
+
+Reason:
+
+- Browser-rendered Excel preview cannot reliably match Excel's native layout and behavior.
+- The project decision is to keep Excel attachments download-only.
+- Commit 58e5c05 added the template, but commit aa2c76f reverted it.
+
+Decision:
+
+- Do not recreate geoflow_ops/templates/geoflow_ops/excel_preview.html.
+- Keep Excel attachment behavior download-only.
+- Revisit only if a later requirement accepts approximate table preview or uses a more reliable server-side/document-rendering approach.
+
 ## 5. Final B Group Decision
 
 B그룹은 다음 기준으로 처리했다.
@@ -262,10 +280,10 @@ Known acceptable warning:
 
 ## 7. Next Recommended Step
 
-Move to D-group review:
+Close D-group helper review with:
 
-- UPLOAD_REFACTORING_SUMMARY.md
-- geoflow_ops/static/geoflow_ops/js/thumbnail-utils.js
-- geoflow_ops/templates/geoflow_ops/excel_preview.html
+- thumbnail-utils.js: rejected
+- excel_preview.html: disabled / reverted
+- UPLOAD_REFACTORING_SUMMARY.md: reference only / document only
 
-D-group should be handled as S3/upload/preview helper review.
+Next implementation work should be selected from a new, explicitly approved scope.
