@@ -181,6 +181,15 @@ def commit(request):
     if not all([object_key, entity_type, entity_id_str, purpose, original_name]):
         return _json_error("Missing required fields: object_key, entity_type, entity_id, purpose, original_name")
 
+    entity_folders = {
+        "employee": "employees",
+        "contract": "contracts",
+        "orgunit": "orgunits",
+        "event": "events",
+    }
+    if entity_type not in entity_folders:
+        return _json_error("entity_type must be 'employee', 'contract', 'orgunit', or 'event'")
+
     try:
         entity_id = UUID(entity_id_str)
     except Exception:
@@ -195,6 +204,15 @@ def commit(request):
             return _json_error("parent_attachment_id must be a valid UUID")
 
     alias = _alias(request)
+    expected_entity_prefix = (
+        f"tenants/{alias}/{entity_folders[entity_type]}/{entity_id}/"
+    )
+    if not object_key.startswith(expected_entity_prefix):
+        return _json_error("object_key does not match tenant, entity_type, or entity_id")
+
+    expected_purpose_prefix = f"{expected_entity_prefix}{purpose}/"
+    if not object_key.startswith(expected_purpose_prefix):
+        return _json_error("object_key purpose does not match purpose")
 
     try:
         # 중복 방지: object_key unique constraint
