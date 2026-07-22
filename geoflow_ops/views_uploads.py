@@ -11,7 +11,6 @@ from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
@@ -355,6 +354,8 @@ def presign_get(request, attachment_id):
         att.mime_type == "application/pdf" or
         (att.original_name and att.original_name.lower().endswith(".pdf"))
     )
+    filename = att.original_name or att.object_key or ""
+    is_excel = filename.lower().endswith((".xls", ".xlsx"))
 
     try:
         if is_pdf:
@@ -374,6 +375,14 @@ def presign_get(request, attachment_id):
                     disposition="inline",
                     filename=att.original_name
                 )
+        elif is_excel or mode == "download":
+            presigned_url = generate_presigned_get_url(
+                att.object_key,
+                expires_in=3600,
+                content_type=att.mime_type or None,
+                disposition="attachment",
+                filename=att.original_name
+            )
         else:
             presigned_url = generate_presigned_get_url(
                 att.object_key,
@@ -496,17 +505,4 @@ def delete_attachment(request, attachment_id):
     return JsonResponse({
         "success": True,
         "message": "Attachment deleted successfully"
-    })
-
-
-@login_required
-@require_GET
-def excel_preview(request, attachment_id):
-    """
-    GET /uploads/excel-preview/<attachment_id>/
-    
-    엑셀 파일 미리보기 페이지 (SheetJS 사용)
-    """
-    return render(request, "geoflow_ops/excel_preview.html", {
-        "attachment_id": attachment_id
     })

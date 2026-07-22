@@ -53,7 +53,6 @@ urlpatterns = [
     path("api/uploads/commit/", views_uploads.commit, name="upload_commit"),
     path("api/uploads/presign-get/<uuid:attachment_id>/", views_uploads.presign_get, name="upload_presign_get"),
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
-    path("uploads/excel-preview/<uuid:attachment_id>/", views_uploads.excel_preview, name="excel_preview"),
 
     # ▼ Process Event API
     path("api/events/create/", views_events.create_event, name="event_create"),
