@@ -1,11 +1,12 @@
 from typing import List
 from datetime import date
 from hashlib import sha256
+import logging
 from django.conf import settings
 from django.db import transaction
 
 from django.contrib.auth.decorators import login_required
-from django.db import connections
+from django.db import connections, DatabaseError
 from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.http import HttpResponseBadRequest, HttpResponseForbidden
@@ -22,6 +23,8 @@ from .models import Attachment
 from .services.s3_service import generate_presigned_get_url
 
 import re
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # 로컬 옵션(중앙 이관시, 이 파트를 중앙 조회로 교체)
@@ -310,21 +313,28 @@ def employees_detail(request, emp_id):
 
     if rrn_key:
         # pgcrypto 필요: CREATE EXTENSION IF NOT EXISTS pgcrypto;
-        with connections[alias].cursor() as cur2:
-            cur2.execute(
-                "SELECT pgp_sym_decrypt(rrn_cipher, %s) FROM hr.employee_profile WHERE id=%s",
-                [rrn_key, profile["id"]],
-            )
-            row = cur2.fetchone()
-        rrn_plain = (row[0] or "") if row else ""
-        digits = re.sub(r"\D", "", rrn_plain)
+        try:
+            with connections[alias].cursor() as cur2:
+                cur2.execute(
+                    "SELECT pgp_sym_decrypt(rrn_cipher, %s) FROM hr.employee_profile WHERE id=%s",
+                    [rrn_key, profile["id"]],
+                )
+                row = cur2.fetchone()
+            rrn_plain = (row[0] or "") if row else ""
+            digits = re.sub(r"\D", "", rrn_plain)
 
-        # 원하는 형식: 앞 6자리 + '-' + 7번째 자리 + '******'
-        if len(digits) >= 7:
-            profile["rrn_masked"] = f"{digits[:6]}-{digits[6]}******"
-        else:
-            # 복호화 불가·불완전 시 기존 표시 유지(없음)
-            profile["rrn_masked"] = profile.get("rrn_masked")  # 템플릿에서 default 처리
+            # 원하는 형식: 앞 6자리 + '-' + 7번째 자리 + '******'
+            if len(digits) >= 7:
+                profile["rrn_masked"] = f"{digits[:6]}-{digits[6]}******"
+            else:
+                # 복호화 불가·불완전 시 기존 표시 유지(없음)
+                profile["rrn_masked"] = profile.get("rrn_masked")  # 템플릿에서 default 처리
+        except DatabaseError as exc:
+            logger.warning(
+                "RRN decryption failed: employee_id=%s error_type=%s",
+                profile["id"],
+                type(exc).__name__,
+            )
 
 
     # ------------------------
