@@ -392,10 +392,12 @@ function initAttachmentActions(options) {
     var filename = btn.getAttribute('data-filename') || '';
     if (!attId) return;
 
-    // Excel 파일은 전용 미리보기 페이지
+    // Excel 파일은 다운로드 전용
     var ext = filename.toLowerCase().split('.').pop();
     if (ext === 'xlsx' || ext === 'xls') {
-      window.open('/uploads/excel-preview/' + attId + '/', '_blank', 'noopener');
+      getPresignedGetUrl(attId, csrfToken, 'download')
+        .then(function(url) { window.open(url, '_blank', 'noopener'); })
+        .catch(function(err) { alert('다운로드 실패: ' + err.message); });
       return;
     }
 
