@@ -118,7 +118,6 @@ def _authorize_attachment_read(request, alias, attachment) -> bool:
 
 
 @login_required
-@csrf_exempt
 @require_POST
 def presign_put(request):
     """
@@ -213,7 +212,6 @@ def presign_put(request):
 
 
 @login_required
-@csrf_exempt
 @require_POST
 def commit(request):
     """
