@@ -12,7 +12,6 @@ from uuid import UUID
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 
 from control.middleware import current_db_alias
@@ -512,7 +511,6 @@ def presign_get(request, attachment_id):
 
 
 @login_required
-@csrf_exempt
 @require_http_methods(["DELETE"])
 def delete_attachment(request, attachment_id):
     """

@@ -1,4 +1,5 @@
 from uuid import uuid4
+from unittest.mock import patch
 
 from django.middleware.csrf import CsrfViewMiddleware
 from django.test import RequestFactory, SimpleTestCase
@@ -57,11 +58,19 @@ class UploadWriteCsrfTests(SimpleTestCase):
 
         self.assertFalse(getattr(view_func, "csrf_exempt", False))
 
-    def test_delete_resolved_view_remains_csrf_exempt(self):
+    def test_delete_resolved_view_is_not_csrf_exempt(self):
         path = f"/api/uploads/delete/{uuid4()}/"
         view_func = resolve(path).func
 
-        self.assertTrue(getattr(view_func, "csrf_exempt", False))
+        self.assertFalse(getattr(view_func, "csrf_exempt", False))
+
+    def test_delete_without_csrf_token_returns_403(self):
+        path = f"/api/uploads/delete/{uuid4()}/"
+        with patch("django.middleware.csrf.logger"):
+            response = self._csrf_process_view(path, method="delete")
+
+        self.assertIsNotNone(response)
+        self.assertEqual(response.status_code, 403)
 
     def test_presign_get_safe_method_is_not_blocked_by_csrf(self):
         path = f"/api/uploads/presign-get/{uuid4()}/"
