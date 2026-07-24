@@ -1,5 +1,7 @@
 # control/db_router.py
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.db import connections
 from control.middleware import current_db_alias
 
 import logging
@@ -14,10 +16,20 @@ class TenantRouter:
         if app in self.CENTRAL_APPS:
             alias = settings.CENTRAL_DB_ALIAS
         elif app in self.TENANT_APPS:
-            alias = current_db_alias() or getattr(settings, "CENTRAL_DB_ALIAS", "default")
+            central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+            alias = current_db_alias() or central_alias
+            if alias != central_alias and alias not in connections.settings:
+                logger.warning("ROUTER: tenant connection unavailable")
+                raise ImproperlyConfigured(
+                    "Tenant database connection is unavailable."
+                )
         else:
             alias = settings.CENTRAL_DB_ALIAS
-        logger.debug("ROUTER: app=%s -> alias=%s", app, alias)
+        logger.debug(
+            "ROUTER: resolved central route"
+            if alias == getattr(settings, "CENTRAL_DB_ALIAS", "default")
+            else "ROUTER: resolved tenant route"
+        )
         return alias
 
     def db_for_read(self, model, **hints):

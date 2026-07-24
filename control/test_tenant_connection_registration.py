@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.db.utils import ConnectionDoesNotExist
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import reverse
 
@@ -39,9 +42,14 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         values.update(overrides)
         return SimpleNamespace(**values)
 
-    def _connections(self, databases):
+    def _connections(self, databases, resolve_error=None):
         mocked_connections = MagicMock()
         mocked_connections.databases = databases
+        mocked_connections.settings = databases
+        if resolve_error is not None:
+            mocked_connections.__getitem__.side_effect = resolve_error
+        else:
+            mocked_connections.__getitem__.return_value = MagicMock()
         return mocked_connections
 
     def _mock_authorized_config(self, config=None, authorized=True):
@@ -92,13 +100,15 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
             {"tenant_db_alias": "tenant-key", "group_id": "group-key"}
         )
 
+        connection_handler = self._connections(databases)
         with patch(
-            "control.tenant_connections.connections", self._connections(databases)
+            "control.tenant_connections.connections", connection_handler
         ):
             result = ensure_tenant_connection_for_session(request)
 
         self.assertTrue(result)
         self.assertEqual(databases["tenant-key"], original)
+        connection_handler.__getitem__.assert_called_once_with("tenant-key")
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
     @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
@@ -116,10 +126,9 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
             self._config()
         )
 
+        connection_handler = self._connections(databases)
         with (
-            patch(
-                "control.tenant_connections.connections", self._connections(databases)
-            ),
+            patch("control.tenant_connections.connections", connection_handler),
             membership_patch,
             config_patch,
         ):
@@ -131,6 +140,59 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
             databases["tenant-key"]["ENGINE"],
             "django.contrib.gis.db.backends.postgis",
         )
+        connection_handler.__getitem__.assert_called_once_with("tenant-key")
+        connection_handler.__getitem__.return_value.cursor.assert_not_called()
+
+    @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
+    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    def test_new_registration_is_removed_when_handler_lookup_fails(
+        self, _ensure_user
+    ):
+        databases = {"default": {"ENGINE": "central-engine"}}
+        request = self._request(
+            {"tenant_db_alias": "tenant-key", "group_id": "group-key"}
+        )
+        membership_patch, config_patch = self._mock_authorized_config(
+            self._config()
+        )
+        connection_handler = self._connections(
+            databases,
+            ConnectionDoesNotExist("Handler lookup failed."),
+        )
+
+        with (
+            patch("control.tenant_connections.connections", connection_handler),
+            membership_patch,
+            config_patch,
+        ):
+            result = ensure_tenant_connection_for_session(request)
+
+        self.assertFalse(result)
+        self.assertNotIn("tenant-key", databases)
+        self.assertNotIn("tenant-key", settings.DATABASES)
+
+    @override_settings(CENTRAL_DB_ALIAS="default")
+    def test_preexisting_registration_is_not_removed_when_lookup_fails(self):
+        databases = {
+            "default": {"ENGINE": "central-engine"},
+            "tenant-key": {"ENGINE": "existing-engine"},
+        }
+        original = dict(databases["tenant-key"])
+        request = self._request(
+            {"tenant_db_alias": "tenant-key", "group_id": "group-key"}
+        )
+        connection_handler = self._connections(
+            databases,
+            ConnectionDoesNotExist("Handler lookup failed."),
+        )
+
+        with patch(
+            "control.tenant_connections.connections", connection_handler
+        ):
+            result = ensure_tenant_connection_for_session(request)
+
+        self.assertFalse(result)
+        self.assertEqual(databases["tenant-key"], original)
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
     @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
@@ -582,3 +644,52 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
 
         self.assertEqual(response, "default")
         set_threadlocal.assert_not_called()
+
+    @override_settings(CENTRAL_DB_ALIAS="default")
+    @patch(
+        "control.db_router.current_db_alias",
+        return_value="unregistered-marker",
+    )
+    def test_router_fails_closed_for_unregistered_tenant_alias(
+        self, _current_alias
+    ):
+        tenant_model = SimpleNamespace(
+            _meta=SimpleNamespace(app_label="geoflow_ops")
+        )
+        connection_handler = MagicMock()
+        connection_handler.settings = {"default": {}}
+
+        with (
+            patch("control.db_router.connections", connection_handler),
+            self.assertRaises(ImproperlyConfigured) as raised,
+        ):
+            TenantRouter().db_for_read(tenant_model)
+
+        self.assertEqual(
+            str(raised.exception),
+            "Tenant database connection is unavailable.",
+        )
+        self.assertNotIn(
+            "unregistered-marker",
+            str(raised.exception),
+        )
+
+    @override_settings(CENTRAL_DB_ALIAS="default")
+    @patch(
+        "control.db_router.current_db_alias",
+        return_value="registered-marker",
+    )
+    def test_router_uses_registered_tenant_alias(self, _current_alias):
+        tenant_model = SimpleNamespace(
+            _meta=SimpleNamespace(app_label="geoflow_ops")
+        )
+        connection_handler = MagicMock()
+        connection_handler.settings = {
+            "default": {},
+            "registered-marker": {},
+        }
+
+        with patch("control.db_router.connections", connection_handler):
+            result = TenantRouter().db_for_read(tenant_model)
+
+        self.assertEqual(result, "registered-marker")

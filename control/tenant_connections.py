@@ -10,6 +10,17 @@ from control.services_identity import ensure_user_from_request
 logger = logging.getLogger(__name__)
 
 
+def _connection_handler_can_resolve(alias):
+    try:
+        if alias not in connections.settings:
+            return False
+        connections[alias]
+    except Exception:
+        logger.warning("Tenant connection handler verification failed")
+        return False
+    return True
+
+
 def clear_tenant_session_state(request):
     central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
     request.session["tenant_db_alias"] = central_alias
@@ -29,8 +40,9 @@ def ensure_tenant_connection_for_session(request):
         return True
     if not group_id:
         return False
-    if alias in connections.databases:
-        return True
+    active_registry = connections.settings
+    if alias in active_registry:
+        return _connection_handler_can_resolve(alias)
 
     user_id = ensure_user_from_request(request)
     if not user_id:
@@ -68,7 +80,7 @@ def ensure_tenant_connection_for_session(request):
     if any(value is None or not str(value).strip() for value in required_values):
         return False
 
-    base_config = connections.databases.get(central_alias)
+    base_config = active_registry.get(central_alias)
     if not base_config:
         return False
 
@@ -89,6 +101,19 @@ def ensure_tenant_connection_for_session(request):
         }
     )
 
-    settings.DATABASES[alias] = db_config
-    connections.databases[alias] = db_config
-    return True
+    settings_registry = settings.DATABASES
+    active_registry[alias] = db_config
+    if settings_registry is not active_registry:
+        settings_registry[alias] = db_config
+
+    if _connection_handler_can_resolve(alias):
+        return True
+
+    active_registry.pop(alias, None)
+    if settings_registry is not active_registry:
+        settings_registry.pop(alias, None)
+    try:
+        del connections[alias]
+    except Exception:
+        pass
+    return False
