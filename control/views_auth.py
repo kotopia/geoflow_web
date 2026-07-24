@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model, login, logout
 from django.shortcuts import render, redirect
 from django.http import HttpResponseForbidden
 from django.db import connections
+from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth.hashers import check_password, make_password, identify_hasher
 from django.urls import reverse
 from control.services import central_repo as C
@@ -20,6 +21,83 @@ from control.tenant_connections import (
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def _has_required_candidate_value(value):
+    return value is not None and bool(str(value).strip())
+
+
+def _candidate_is_selectable(candidate, membership):
+    if not isinstance(candidate, dict) or membership is None:
+        return False
+    if str(candidate.get("id")) != str(getattr(membership, "group_id", "")):
+        return False
+    if getattr(membership, "status", None) != "active":
+        return False
+
+    group = getattr(membership, "group", None)
+    if group is None or getattr(group, "status", None) != "active":
+        return False
+    try:
+        config = group.groupdbconfig
+    except (ObjectDoesNotExist, AttributeError):
+        return False
+
+    required_candidate_values = (
+        candidate.get("id"),
+        candidate.get("code"),
+        candidate.get("name"),
+        candidate.get("db_alias"),
+    )
+    required_config_values = (
+        getattr(config, "db_alias", None),
+        getattr(config, "db_name", None),
+        getattr(config, "db_host", None),
+        getattr(config, "db_port", None),
+        getattr(config, "db_user", None),
+        getattr(config, "db_password", None),
+    )
+    if not all(
+        _has_required_candidate_value(value)
+        for value in required_candidate_values + required_config_values
+    ):
+        return False
+    return candidate["db_alias"] == config.db_alias
+
+
+def _selectable_tenant_candidates(user_id, candidates):
+    candidate_ids = [
+        str(candidate.get("id"))
+        for candidate in candidates
+        if isinstance(candidate, dict) and candidate.get("id")
+    ]
+    if not candidate_ids:
+        return []
+
+    central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+    try:
+        memberships = (
+            UserGroupMap.objects.using(central_alias)
+            .select_related("group", "group__groupdbconfig")
+            .filter(user_id=user_id, group_id__in=candidate_ids)
+        )
+        membership_by_group = {
+            str(membership.group_id): membership
+            for membership in memberships
+        }
+    except Exception:
+        logger.warning("AUTH: tenant candidate eligibility lookup failed")
+        return []
+
+    return [
+        candidate
+        for candidate in candidates
+        if _candidate_is_selectable(
+            candidate,
+            membership_by_group.get(str(candidate.get("id"))),
+        )
+    ]
+
 
 @require_http_methods(["GET", "POST"])
 @csrf_protect
@@ -108,6 +186,7 @@ def login_view(request):
         except Exception:
             logger.exception("AUTH: tenant lookup failed")
             tenants = []
+        tenants = _selectable_tenant_candidates(user_uuid, tenants)
 
         if tenants:
             if len(tenants) == 1:

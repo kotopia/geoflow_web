@@ -5,7 +5,11 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
-from control.views_auth import login_view
+from control.views_auth import (
+    _candidate_is_selectable,
+    _selectable_tenant_candidates,
+    login_view,
+)
 from control.views_groups import group_search_view, group_select_view
 
 
@@ -21,7 +25,9 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         request._dont_enforce_csrf_checks = True
         return request
 
-    def _login_request(self, tenants):
+    def _login_request(self, tenants, selectable=None):
+        if selectable is None:
+            selectable = tenants
         request = self._request_with_session(
             "post",
             {"email": "account", "password": "password"},
@@ -45,12 +51,16 @@ class GroupSearchLoginFixTests(SimpleTestCase):
             patch("control.views_auth.rotate_token"),
             patch("control.views_auth.logger.info"),
             patch("control.views_auth.C.list_tenants_for_user", return_value=tenants),
+            patch(
+                "control.views_auth._selectable_tenant_candidates",
+                return_value=selectable,
+            ),
             patch("control.views_auth.C.list_roles_for_user_in_group", return_value=[]),
         )
         return request, patches
 
-    def _call_login(self, tenants):
-        request, patches = self._login_request(tenants)
+    def _call_login(self, tenants, selectable=None):
+        request, patches = self._login_request(tenants, selectable)
         entered = []
         try:
             for patcher in patches:
@@ -60,6 +70,155 @@ class GroupSearchLoginFixTests(SimpleTestCase):
             for patcher in reversed(patches):
                 patcher.stop()
         return request, response
+
+    def _candidate(self, **overrides):
+        candidate = {
+            "id": "group-a",
+            "code": "workspace",
+            "name": "Workspace",
+            "db_alias": "tenant-a",
+        }
+        candidate.update(overrides)
+        return candidate
+
+    def _membership(
+        self,
+        *,
+        membership_status="active",
+        group_status="active",
+        include_config=True,
+        **config_overrides,
+    ):
+        config_values = {
+            "db_alias": "tenant-a",
+            "db_name": "database",
+            "db_host": "host",
+            "db_port": 5432,
+            "db_user": "user",
+            "db_password": "password",
+        }
+        config_values.update(config_overrides)
+        group_values = {
+            "status": group_status,
+        }
+        if include_config:
+            group_values["groupdbconfig"] = SimpleNamespace(**config_values)
+        return SimpleNamespace(
+            group_id="group-a",
+            status=membership_status,
+            group=SimpleNamespace(**group_values),
+        )
+
+    def test_complete_active_candidate_is_selectable(self):
+        self.assertTrue(
+            _candidate_is_selectable(
+                self._candidate(),
+                self._membership(),
+            )
+        )
+
+    def test_incomplete_or_inactive_candidates_are_excluded(self):
+        cases = (
+            ("inactive-membership", self._candidate(), self._membership(membership_status="inactive")),
+            ("inactive-group", self._candidate(), self._membership(group_status="inactive")),
+            ("missing-config", self._candidate(), self._membership(include_config=False)),
+            ("missing-alias", self._candidate(db_alias=""), self._membership()),
+            ("alias-mismatch", self._candidate(db_alias="tenant-b"), self._membership()),
+            ("missing-db-name", self._candidate(), self._membership(db_name="")),
+            ("missing-host", self._candidate(), self._membership(db_host="")),
+            ("missing-port", self._candidate(), self._membership(db_port=None)),
+            ("missing-user", self._candidate(), self._membership(db_user="")),
+            ("missing-password", self._candidate(), self._membership(db_password="")),
+            ("missing-code", self._candidate(code=""), self._membership()),
+            ("missing-name", self._candidate(name=""), self._membership()),
+        )
+
+        for label, candidate, membership in cases:
+            with self.subTest(label=label):
+                self.assertFalse(
+                    _candidate_is_selectable(candidate, membership)
+                )
+
+    @patch("control.views_auth.UserGroupMap.objects.using")
+    def test_candidate_filter_returns_only_selectable_memberships(self, using):
+        valid = self._candidate()
+        invalid = self._candidate(
+            id="group-b",
+            code="other",
+            name="Other",
+            db_alias="tenant-b",
+        )
+        invalid_membership = self._membership(
+            membership_status="inactive"
+        )
+        invalid_membership.group_id = "group-b"
+        invalid_membership.group.groupdbconfig.db_alias = "tenant-b"
+        queryset = MagicMock()
+        queryset.filter.return_value = [
+            self._membership(),
+            invalid_membership,
+        ]
+        using.return_value.select_related.return_value = queryset
+
+        result = _selectable_tenant_candidates(
+            "user-key",
+            [valid, invalid],
+        )
+
+        self.assertEqual(result, [valid])
+
+    def test_login_session_contains_only_selectable_candidates(self):
+        valid_a = self._candidate()
+        valid_b = self._candidate(
+            id="group-b",
+            code="other",
+            name="Other",
+            db_alias="tenant-b",
+        )
+        invalid = self._candidate(
+            id="group-c",
+            code="blocked",
+            name="Blocked",
+            db_alias="tenant-c",
+        )
+
+        request, response = self._call_login(
+            [valid_a, valid_b, invalid],
+            [valid_a, valid_b],
+        )
+
+        self.assertEqual(response.url, reverse("control:group_search"))
+        self.assertEqual(
+            request.session["tenant_candidates"],
+            [valid_a, valid_b],
+        )
+
+    def test_one_selectable_candidate_keeps_single_tenant_flow(self):
+        valid = self._candidate()
+        invalid = self._candidate(
+            id="group-b",
+            code="blocked",
+            name="Blocked",
+            db_alias="tenant-b",
+        )
+
+        request, response = self._call_login(
+            [valid, invalid],
+            [valid],
+        )
+
+        self.assertEqual(response.url, reverse("after_login"))
+        self.assertEqual(request.session["group_id"], valid["id"])
+        self.assertNotIn("tenant_candidates", request.session)
+
+    def test_zero_selectable_candidates_routes_to_central_flow(self):
+        invalid = self._candidate()
+
+        request, response = self._call_login([invalid], [])
+
+        self.assertEqual(response.url, reverse("after_login"))
+        self.assertEqual(request.session["tenant_db_alias"], "default")
+        self.assertNotIn("tenant_candidates", request.session)
 
     def test_multi_tenant_login_redirects_to_namespaced_group_search(self):
         candidates = [
