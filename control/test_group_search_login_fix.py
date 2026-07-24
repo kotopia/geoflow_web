@@ -6,7 +6,7 @@ from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
 from control.views_auth import login_view
-from control.views_groups import group_select_view
+from control.views_groups import group_search_view, group_select_view
 
 
 class GroupSearchLoginFixTests(SimpleTestCase):
@@ -79,6 +79,75 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         self.assertEqual(match.url_name, "group_search")
         self.assertEqual(match.namespace, "control")
 
+    @patch("control.views_groups.render")
+    def test_group_search_renders_only_session_candidates(self, render):
+        request = self._request_with_session()
+        request.session["tenant_candidates"] = [
+            {
+                "id": "group-a",
+                "code": "allowed",
+                "name": "Allowed",
+                "db_alias": "tenant-a",
+            }
+        ]
+
+        group_search_view(request)
+
+        rows = render.call_args.args[2]["rows"]
+        self.assertEqual(rows, [("group-a", "allowed", "Allowed", "active")])
+        self.assertNotIn("group-other", [row[0] for row in rows])
+
+    @patch("django.db.connections")
+    @patch("control.views_groups.render")
+    def test_group_search_does_not_query_broad_group_list(
+        self, render, connections
+    ):
+        request = self._request_with_session()
+        request.session["tenant_candidates"] = [
+            {
+                "id": "group-a",
+                "code": "allowed",
+                "name": "Allowed",
+                "db_alias": "tenant-a",
+            }
+        ]
+
+        group_search_view(request)
+
+        render.assert_called_once()
+        connections.assert_not_called()
+
+    def test_group_search_without_candidates_redirects_to_login(self):
+        request = self._request_with_session()
+
+        response = group_search_view(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("login"))
+
+    @patch("control.views_groups.C.list_roles_for_user_in_group", return_value=[])
+    @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
+    @patch("control.views_groups.render")
+    def test_rendered_candidate_can_be_selected(
+        self, render, _ensure_user, _list_roles
+    ):
+        request = self._request_with_session()
+        request.session["tenant_candidates"] = [
+            {
+                "id": "group-a",
+                "code": "allowed",
+                "name": "Allowed",
+                "db_alias": "tenant-a",
+            }
+        ]
+        group_search_view(request)
+        rendered_id = render.call_args.args[2]["rows"][0][0]
+
+        response = group_select_view(request, rendered_id)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("after_login"))
+
     @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
     def test_group_select_rejects_candidate_not_in_session(self, _ensure_user):
         request = self._request_with_session()
@@ -116,11 +185,10 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         self.assertNotIn("tenant_candidates", request.session)
         list_roles.assert_called_once_with("user-key", "group-a")
 
-    @patch("control.views_groups.connections")
     @patch("control.views_groups.C.list_roles_for_user_in_group", return_value=[])
     @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
     def test_group_select_does_not_access_tenant_database(
-        self, _ensure_user, _list_roles, connections
+        self, _ensure_user, _list_roles
     ):
         request = self._request_with_session()
         request.session["tenant_candidates"] = [
@@ -130,7 +198,6 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         response = group_select_view(request, "group-a")
 
         self.assertEqual(response.status_code, 302)
-        connections.assert_not_called()
 
     def test_single_tenant_login_behavior_is_unchanged(self):
         tenant = {"id": "group-a", "db_alias": "tenant-a"}

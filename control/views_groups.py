@@ -1,6 +1,5 @@
 # control/views_groups.py
 from django.shortcuts import render, redirect
-from django.db import connections
 from django.contrib import messages
 from django.http import HttpResponseForbidden
 from control.services import central_repo as C
@@ -8,26 +7,18 @@ from control.services_identity import ensure_user_from_request
 
 def group_search_view(request):
     q = (request.GET.get("q") or "").strip()
-    rows = []
-    with connections["default"].cursor() as cur:
-        if q:
-            cur.execute("""
-                SELECT id::text, code, name, status
-                  FROM groups
-                 WHERE status='active'
-                   AND (code ILIKE %s OR name ILIKE %s)
-                 ORDER BY name
-                 LIMIT 200
-            """, [f"%{q}%", f"%{q}%"])
-        else:
-            cur.execute("""
-                SELECT id::text, code, name, status
-                  FROM groups
-                 WHERE status='active'
-                 ORDER BY created_at DESC
-                 LIMIT 50
-            """)
-        rows = cur.fetchall()
+    candidates = request.session.get("tenant_candidates")
+    if not candidates:
+        return redirect("login")
+
+    q_lower = q.lower()
+    rows = [
+        (item["id"], item.get("code", ""), item.get("name", ""), "active")
+        for item in candidates
+        if not q_lower
+        or q_lower in (item.get("code") or "").lower()
+        or q_lower in (item.get("name") or "").lower()
+    ]
     return render(request, "control/group_search.html", {"rows": rows, "q": q})
 
 def group_select_view(request, group_id):
