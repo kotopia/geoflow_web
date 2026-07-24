@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 from django.utils import timezone
 
+from control.gf_authz.permissions import gf_has_perm
 from control.middleware import current_db_alias
 from .models import ProcessEvent, ProcessEventAttachment, Attachment
 
@@ -25,6 +26,12 @@ def _alias(request):
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"error": message}, status=status)
+
+
+def _authorize_event_write(request, scope_type) -> bool:
+    if scope_type == "contract":
+        return gf_has_perm(request, "contracts.edit")
+    return True
 
 
 @login_required
@@ -85,6 +92,9 @@ def create_event(request):
     ALLOWED_SCOPE_TYPES = ["contract", "employee", "orgunit"]
     if scope_type not in ALLOWED_SCOPE_TYPES:
         return _json_error(f"Invalid scope_type. Allowed: {', '.join(ALLOWED_SCOPE_TYPES)}")
+
+    if not _authorize_event_write(request, scope_type):
+        return _json_error("Forbidden", status=403)
 
     alias = _alias(request)
     created_by = request.user.username or request.user.email or "unknown"
@@ -254,6 +264,9 @@ def update_event(request, event_id):
     except ProcessEvent.DoesNotExist:
         return _json_error("Event not found", status=404)
 
+    if not _authorize_event_write(request, event.scope_type):
+        return _json_error("Forbidden", status=403)
+
     try:
         data = json.loads(request.body)
     except Exception as e:
@@ -302,6 +315,9 @@ def delete_event(request, event_id):
         event = ProcessEvent.objects.using(alias).get(id=event_id)
     except ProcessEvent.DoesNotExist:
         return _json_error("Event not found", status=404)
+
+    if not _authorize_event_write(request, event.scope_type):
+        return _json_error("Forbidden", status=403)
 
     try:
         # 링크된 첨부 제거
