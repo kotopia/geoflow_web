@@ -116,6 +116,30 @@ def _authorize_attachment_read(request, alias, attachment) -> bool:
     return False
 
 
+def _authorize_attachment_delete(request, alias, attachment) -> bool:
+    if attachment.entity_type == "employee":
+        return _request_has_any_perm(request, "directory.edit")
+
+    if attachment.entity_type == "contract":
+        return _request_has_any_perm(request, "contracts.edit")
+
+    if attachment.entity_type == "event":
+        from .models import ProcessEvent
+
+        event = ProcessEvent.objects.using(alias).filter(
+            pk=attachment.entity_id
+        ).only("scope_type").first()
+        if not event:
+            return False
+        if event.scope_type == "employee":
+            return _request_has_any_perm(request, "directory.edit")
+        if event.scope_type == "contract":
+            return _request_has_any_perm(request, "contracts.edit")
+        return False
+
+    return False
+
+
 @login_required
 @require_POST
 def presign_put(request):
@@ -533,6 +557,9 @@ def delete_attachment(request, attachment_id):
         return _json_error("Attachment entity not found", status=404)
 
     # 소프트 삭제 처리
+    if not _authorize_attachment_delete(request, alias, att):
+        return _json_error("Forbidden", status=403)
+
     att.deleted_at = timezone.now()
     att.deleted_by = request.user.username
     att.is_deleted = True
