@@ -129,7 +129,7 @@ def login_view(request):
                     "AUTH: user=%s -> MULTI TENANT candidates=%s",
                     request.user.email, [x["db_alias"] for x in tenants]
                 )
-                return redirect("group_search")
+                return redirect("control:group_search")
         else:
             # 소속 없음 → 중앙
             request.session["tenant_db_alias"] = central_alias

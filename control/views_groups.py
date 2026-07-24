@@ -2,6 +2,8 @@
 from django.shortcuts import render, redirect
 from django.db import connections
 from django.contrib import messages
+from django.http import HttpResponseForbidden
+from control.services import central_repo as C
 from control.services_identity import ensure_user_from_request
 
 def group_search_view(request):
@@ -38,5 +40,28 @@ def group_select_view(request, group_id):
         messages.error(request, "로그인 후 이용하세요.")
         return redirect("/login/")
 
-    request.session["group_id"] = str(group_id)
-    return redirect("post_login_redirect")
+    selected_id = str(group_id)
+    candidate = next(
+        (
+            item
+            for item in request.session.get("tenant_candidates", [])
+            if str(item.get("id")) == selected_id
+        ),
+        None,
+    )
+    if not candidate:
+        return HttpResponseForbidden("Forbidden")
+
+    request.session["group_uuid"] = candidate["id"]
+    request.session["group_id"] = candidate["id"]
+    request.session["tenant_db_alias"] = candidate["db_alias"]
+    request.session["db_key"] = candidate["db_alias"]
+
+    try:
+        roles = C.list_roles_for_user_in_group(uid, candidate["id"])
+    except Exception:
+        roles = []
+    request.session["roles"] = roles
+    request.session.pop("tenant_candidates", None)
+
+    return redirect("after_login")
