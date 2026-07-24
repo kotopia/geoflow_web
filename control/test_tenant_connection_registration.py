@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import reverse
 
-from control.middleware import TenantMiddleware
+from control.db_router import TenantRouter
+from control.middleware import (
+    EnsureTenantAliasMiddleware,
+    TenantMiddleware,
+    current_db_alias,
+)
 from control.tenant_connections import (
     ensure_tenant_connection_for_session,
 )
@@ -510,3 +515,70 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         )
         self.assertNotIn(sensitive_alias, logged_values)
         logger.info.assert_called_with("MW: resolved tenant route")
+
+    @override_settings(CENTRAL_DB_ALIAS="default")
+    @patch("control.middleware._set_threadlocal")
+    def test_fallback_does_not_set_unregistered_alias_from_session(
+        self, set_threadlocal
+    ):
+        request = self._request({"tenant_db_alias": "unregistered-marker"})
+
+        with patch("control.middleware._tlocal", SimpleNamespace()):
+            response = EnsureTenantAliasMiddleware(
+                lambda req: "response"
+            )(request)
+
+        self.assertEqual(response, "response")
+        set_threadlocal.assert_not_called()
+
+    @patch("control.middleware._set_threadlocal")
+    def test_fallback_noops_when_tenant_context_is_already_set(
+        self, set_threadlocal
+    ):
+        request = self._request({"tenant_db_alias": "session-marker"})
+        context = SimpleNamespace(
+            tenant_db_alias="registered-marker",
+            is_central=False,
+            tenant_id=None,
+        )
+
+        with patch("control.middleware._tlocal", context):
+            response = EnsureTenantAliasMiddleware(
+                lambda req: "response"
+            )(request)
+
+        self.assertEqual(response, "response")
+        self.assertEqual(context.tenant_db_alias, "registered-marker")
+        set_threadlocal.assert_not_called()
+
+    @override_settings(CENTRAL_DB_ALIAS="default")
+    @patch("control.middleware._set_threadlocal")
+    def test_fallback_keeps_no_tenant_request_central(self, set_threadlocal):
+        request = self._request({})
+
+        with patch("control.middleware._tlocal", SimpleNamespace()):
+            response = EnsureTenantAliasMiddleware(
+                lambda req: current_db_alias()
+            )(request)
+
+        self.assertEqual(response, "default")
+        set_threadlocal.assert_not_called()
+
+    @override_settings(CENTRAL_DB_ALIAS="default")
+    @patch("control.db_router.logger")
+    @patch("control.middleware._set_threadlocal")
+    def test_fallback_does_not_expose_unregistered_alias_to_router(
+        self, set_threadlocal, _logger
+    ):
+        request = self._request({"tenant_db_alias": "unregistered-marker"})
+        tenant_model = SimpleNamespace(
+            _meta=SimpleNamespace(app_label="geoflow_ops")
+        )
+
+        with patch("control.middleware._tlocal", SimpleNamespace()):
+            response = EnsureTenantAliasMiddleware(
+                lambda req: TenantRouter().db_for_read(tenant_model)
+            )(request)
+
+        self.assertEqual(response, "default")
+        set_threadlocal.assert_not_called()

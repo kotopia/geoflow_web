@@ -88,25 +88,14 @@ class TenantMiddleware:
 
 class EnsureTenantAliasMiddleware:
     """
-    C) 뷰 실행 직전/직후 alias가 비어 있지 않은지 보증(보정).
-    위 TenantMiddleware가 거의 다 처리하지만, 예외 경로 대비용 안전망.
+    Compatibility pass-through.
+    TenantMiddleware owns connection preparation and request-local context.
     """
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if not getattr(_tlocal, "tenant_db_alias", None):
-            central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
-            alias = request.session.get("tenant_db_alias") or getattr(settings, "DEFAULT_TENANT_DB_ALIAS", central_alias)
-            _set_threadlocal(alias, alias == central_alias)
-
-            try:
-                request.session["tenant_db_alias"] = alias
-            except Exception:
-                pass
-
-        response = self.get_response(request)
-        return response
+        return self.get_response(request)
 
 
 TENANT_PATH_PREFIXES = (
