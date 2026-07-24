@@ -12,7 +12,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.db import connections, transaction, IntegrityError
 from django.db.models import Q, Count
-from django.http import JsonResponse, Http404
+from django.http import JsonResponse, Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -29,7 +29,7 @@ from .views_catalog import build_scope_groups  # ← 프로젝트 범위 SSR용
 
 from .utils.ctr_utils import next_contract_code
 
-from control.gf_authz.permissions import gf_perm_required
+from control.gf_authz.permissions import gf_has_perm, gf_perm_required
 from control.gf_authz.query import gf_scope_queryset
 
 # from .services.contract_utils import next_contract_code
@@ -100,6 +100,9 @@ def contract_list(request):
 @login_required
 @gf_perm_required("contracts.view")
 def contract_detail_page(request, pk):
+    if request.method == "POST" and not gf_has_perm(request, "contracts.edit"):
+        return HttpResponseForbidden("Permission denied")
+
     alias = _alias(request)
     logger.info(f"[DETAIL] alias={alias} pk={pk} method={request.method}")
     obj = get_object_or_404(Contract.objects.using(alias), pk=pk)
