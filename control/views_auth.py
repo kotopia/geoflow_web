@@ -12,7 +12,11 @@ from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.middleware.csrf import rotate_token
 
 from control.services_identity import to_group_uuid, ensure_user_from_request
-from control.models import GroupDBConfig, UserGroupMap
+from control.models import UserGroupMap
+from control.tenant_connections import (
+    clear_tenant_session_state,
+    ensure_tenant_connection_for_session,
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -101,8 +105,8 @@ def login_view(request):
 
         try:
             tenants = C.list_tenants_for_user(user_uuid)  # [{'id','code','name','db_alias',...}, ...]
-        except Exception as ex:
-            logger.exception("AUTH tenants lookup failed: %s", ex)
+        except Exception:
+            logger.exception("AUTH: tenant lookup failed")
             tenants = []
 
         if tenants:
@@ -125,15 +129,12 @@ def login_view(request):
             else:
                 # 여러 테넌트면 선택 화면으로
                 request.session["tenant_candidates"] = tenants
-                logger.info(
-                    "AUTH: user=%s -> MULTI TENANT candidates=%s",
-                    request.user.email, [x["db_alias"] for x in tenants]
-                )
+                logger.info("AUTH: multiple tenant candidates")
                 return redirect("control:group_search")
         else:
             # 소속 없음 → 중앙
             request.session["tenant_db_alias"] = central_alias
-            logger.info("AUTH: user=%s -> CENTRAL (no tenant membership)", request.user.email)
+            logger.info("AUTH: central route without tenant membership")
             return redirect("after_login")
 
     # GET
@@ -141,80 +142,6 @@ def login_view(request):
 
 
 CENTRAL = getattr(settings, "CENTRAL_DB_ALIAS", "default")
-
-
-def ensure_tenant_connection_for_session(request):
-    central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
-    alias = request.session.get("tenant_db_alias")
-    group_id = request.session.get("group_id")
-
-    if not alias or alias == central_alias:
-        return True
-    if not group_id:
-        return False
-    if alias in connections.databases:
-        return True
-
-    user_id = ensure_user_from_request(request)
-    if not user_id:
-        return False
-
-    try:
-        is_authorized = (
-            UserGroupMap.objects.using(central_alias)
-            .filter(user_id=user_id, group_id=group_id, status="active")
-            .exists()
-        )
-        if not is_authorized:
-            return False
-
-        config = (
-            GroupDBConfig.objects.using(central_alias)
-            .select_related("group")
-            .filter(group_id=group_id, group__status="active")
-            .first()
-        )
-    except Exception:
-        logger.warning("Tenant connection configuration lookup failed")
-        return False
-
-    if not config or config.db_alias != alias:
-        return False
-
-    required_values = (
-        config.db_name,
-        config.db_host,
-        config.db_port,
-        config.db_user,
-        config.db_password,
-    )
-    if any(value is None or not str(value).strip() for value in required_values):
-        return False
-
-    base_config = connections.databases.get(central_alias)
-    if not base_config:
-        return False
-
-    db_config = dict(base_config)
-    db_config.update(
-        {
-            "ENGINE": "django.contrib.gis.db.backends.postgis",
-            "NAME": config.db_name,
-            "USER": config.db_user,
-            "PASSWORD": config.db_password,
-            "HOST": config.db_host,
-            "PORT": config.db_port,
-            "OPTIONS": dict(base_config.get("OPTIONS", {})),
-            "ATOMIC_REQUESTS": False,
-            "CONN_MAX_AGE": 0,
-            "CONN_HEALTH_CHECKS": False,
-            "AUTOCOMMIT": True,
-        }
-    )
-
-    settings.DATABASES[alias] = db_config
-    connections.databases[alias] = db_config
-    return True
 
 
 def post_login_redirect(request):
@@ -227,11 +154,7 @@ def post_login_redirect(request):
         return redirect('control:dashboard')  # 중앙 기본 홈
 
     if not ensure_tenant_connection_for_session(request):
-        request.session["tenant_db_alias"] = central_alias
-        request.session["db_key"] = central_alias
-        request.session.pop("group_uuid", None)
-        request.session.pop("group_id", None)
-        request.session.pop("roles", None)
+        clear_tenant_session_state(request)
         logger.warning("POST-LOGIN: tenant connection unavailable")
         return redirect("control:dashboard")
 
