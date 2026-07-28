@@ -330,11 +330,7 @@ def employees_detail(request, emp_id):
                 # 복호화 불가·불완전 시 기존 표시 유지(없음)
                 profile["rrn_masked"] = profile.get("rrn_masked")  # 템플릿에서 default 처리
         except DatabaseError as exc:
-            logger.warning(
-                "RRN decryption failed: employee_id=%s error_type=%s",
-                profile["id"],
-                type(exc).__name__,
-            )
+            logger.warning("employee rrn decrypt failed: safe fallback used")
 
 
     # ------------------------

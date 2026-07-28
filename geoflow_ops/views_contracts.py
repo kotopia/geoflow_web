@@ -104,7 +104,7 @@ def contract_detail_page(request, pk):
         return HttpResponseForbidden("Permission denied")
 
     alias = _alias(request)
-    logger.info(f"[DETAIL] alias={alias} pk={pk} method={request.method}")
+    logger.info("contract detail read")
     obj = get_object_or_404(Contract.objects.using(alias), pk=pk)
 
     # 연관 파트너 표시용(보기/편집 공통)
@@ -128,21 +128,21 @@ def contract_detail_page(request, pk):
         if "org_unit" in form.fields:
             form.fields["org_unit"].queryset = MyOrgUnit.objects.using(alias).all()
 
-        logger.info("[DETAIL] POST to detail (edit?)")
+        logger.info("contract detail update request")
         if form.is_valid():
             inst = form.save(commit=False)
             inst.updated_at = timezone.now()
             if inst.ext is None:
                 inst.ext = {}
             inst.save(using=alias)
-            logger.info(f"[DETAIL] saved contract pk={obj.pk}")
+            logger.info("contract detail update processed")
             messages.success(request, "저장했습니다.")
             return redirect("tenant:contract_detail", pk=obj.pk)
 
         # ❗검증 실패: 편집 모드로 재렌더 + 에러 메시지 전달
         errors_json = form.errors.get_json_data()
         flat_errors = [e["message"] for _, errs in errors_json.items() for e in errs]
-        logger.warning(f"[DETAIL] invalid on edit, errors={form.errors.as_json()}")
+        logger.warning("contract form validation failed")
         return render(
             request,
             "geoflow_ops/contracts/contract_detail.html",

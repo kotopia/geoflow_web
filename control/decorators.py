@@ -55,11 +55,7 @@ def require_perm(perm_code: str):
             # 2) 동일 로직 재사용(acl_tags.has_perm)
             ctx = {"request": request}
             if not _has_perm_tag(ctx, perm_code):
-                logger.info("FORBIDDEN: user=%s perm=%s group=%s perms=%s",
-                            getattr(request.user, "email", None),
-                            perm_code,
-                            request.session.get("group_id") or request.session.get("group_uuid"),
-                            request.session.get("perms"))
+                logger.warning("authorization denied: missing required permission")
                 return HttpResponseForbidden("권한이 없습니다: " + perm_code)
             return view(request, *args, **kwargs)
         return _wrap

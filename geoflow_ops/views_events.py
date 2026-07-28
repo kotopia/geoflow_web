@@ -99,15 +99,7 @@ def create_event(request):
     alias = _alias(request)
     created_by = request.user.username or request.user.email or "unknown"
 
-    logger.info(
-        "[CREATE_EVENT] START alias=%s scope=%s/%s stage=%s type=%s title=%s",
-        alias,
-        scope_type,
-        scope_id,
-        stage,
-        event_type,
-        title,
-    )
+    logger.info("event create request started")
 
     try:
         event = ProcessEvent(
@@ -124,18 +116,10 @@ def create_event(request):
         )
         event.save(using=alias)
     except Exception as e:
-        logger.exception("[CREATE_EVENT] Failed to create event alias=%s", alias)
+        logger.exception("event create request failed")
         return _json_error(f"Failed to create event: {e}", status=500)
 
-    logger.info(
-        "[CREATE_EVENT] SUCCESS alias=%s event_id=%s scope=%s/%s stage=%s type=%s",
-        alias,
-        event.id,
-        scope_type,
-        scope_id,
-        stage,
-        event_type,
-    )
+    logger.info("event create request processed")
 
     return JsonResponse({
         "event_id": str(event.id),
@@ -289,10 +273,10 @@ def update_event(request, event_id):
     try:
         event.save(using=alias)
     except Exception as e:
-        logger.exception("[UPDATE_EVENT] Failed to update event_id=%s", event_id)
+        logger.exception("event update request failed")
         return _json_error(f"Failed to update event: {e}", status=500)
 
-    logger.info("[UPDATE_EVENT] alias=%s event_id=%s updated", alias, event_id)
+    logger.info("event update request processed")
 
     return JsonResponse({
         "success": True,
@@ -326,10 +310,10 @@ def delete_event(request, event_id):
         # 이벤트 삭제
         event.delete(using=alias)
     except Exception as e:
-        logger.exception("[DELETE_EVENT] Failed to delete event_id=%s", event_id)
+        logger.exception("event delete request failed")
         return _json_error(f"Failed to delete event: {e}", status=500)
 
-    logger.info("[DELETE_EVENT] alias=%s event_id=%s deleted", alias, event_id)
+    logger.info("event delete request processed")
 
     return JsonResponse({
         "success": True,

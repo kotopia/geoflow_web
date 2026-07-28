@@ -217,15 +217,7 @@ def presign_put(request):
         logger.exception("[PRESIGN_PUT] generate_presigned_put_url failed")
         return _json_error(f"Failed to generate presigned URL: {e}")
 
-    logger.info(
-        "[PRESIGN_PUT] alias=%s entity=%s/%s purpose=%s object_key=%s size=%s",
-        alias,
-        entity_type,
-        entity_id,
-        purpose,
-        object_key,
-        size_bytes,
-    )
+    logger.info("presign-put request processed")
 
     return JsonResponse({
         "object_key": object_key,
@@ -335,18 +327,10 @@ def commit(request):
         )
         attachment.save(using=alias)
     except Exception as e:
-        logger.exception("[COMMIT] Failed to save Attachment alias=%s object_key=%s", alias, object_key)
+        logger.exception("upload commit failed")
         return _json_error(f"Failed to save attachment: {e}", status=500)
 
-    logger.info(
-        "[COMMIT] alias=%s attachment_id=%s entity=%s/%s purpose=%s object_key=%s",
-        alias,
-        attachment.id,
-        entity_type,
-        entity_id,
-        purpose,
-        object_key,
-    )
+    logger.info("upload commit processed")
 
     # 사용자 자신의 employee 사진 업로드 시 세션의 avatar_attachment_id 갱신
     if entity_type == "employee" and purpose in ("photo", "thumb", "photo_thumb"):
@@ -384,7 +368,7 @@ def commit(request):
                     request.session["topbar_emp_id"] = str(emp_row[0])
         except Exception as e:
             # 세션 갱신 실패해도 업로드 자체는 성공으로 처리
-            logger.warning("[COMMIT] Failed to update avatar session: %s", e)
+            logger.warning("upload commit avatar session update failed")
 
     # entity_type="event"일 때 자동으로 ProcessEventAttachment 링크 생성
     event_link_id = None
@@ -411,19 +395,13 @@ def commit(request):
             if event.status == 'draft':
                 event.status = 'done'
                 event.save(using=alias)
-                logger.info("[COMMIT] Event %s status updated: draft → done", event_id)
+                logger.info("upload commit event status updated")
             
-            logger.info(
-                "[COMMIT] Event link created: event_id=%s attachment_id=%s link_id=%s created=%s",
-                event_id,
-                attachment.id,
-                event_link_id,
-                created,
-            )
+            logger.info("upload commit event link processed")
         except ProcessEvent.DoesNotExist:
-            logger.warning("[COMMIT] Event not found: event_id=%s", event_id_str)
+            logger.warning("upload commit event not found")
         except Exception as e:
-            logger.exception("[COMMIT] Failed to create event link: event_id=%s", event_id_str)
+            logger.exception("upload commit event link failed")
 
     response_data = {
         "attachment_id": str(attachment.id),
@@ -458,12 +436,7 @@ def presign_get(request, attachment_id):
 
     # 삭제된 파일은 410 Gone 반환
     if att.deleted_at:
-        logger.warning(
-            "[PRESIGN_GET] Attempt to access deleted attachment: alias=%s attachment_id=%s deleted_at=%s",
-            alias,
-            attachment_id,
-            att.deleted_at,
-        )
+        logger.warning("presign-get rejected for deleted attachment")
         return _json_error("Attachment has been deleted", status=410)
 
     if not _resolve_attachment_entity(alias, att):
@@ -515,17 +488,10 @@ def presign_get(request, attachment_id):
                 expires_in=3600
             )
     except Exception as e:
-        logger.exception("[PRESIGN_GET] Failed to generate presigned GET URL attachment_id=%s", attachment_id)
+        logger.exception("presign-get generation failed")
         return _json_error(f"Failed to generate download URL: {e}", status=500)
 
-    logger.info(
-        "[PRESIGN_GET] alias=%s attachment_id=%s object_key=%s is_pdf=%s mode=%s",
-        alias,
-        attachment_id,
-        att.object_key,
-        is_pdf,
-        mode,
-    )
+    logger.info("presign-get processed")
 
     return JsonResponse({
         "presigned_url": presigned_url,
@@ -565,12 +531,7 @@ def delete_attachment(request, attachment_id):
     att.is_deleted = True
     att.save(using=alias)
 
-    logger.info(
-        "[DELETE_ATTACHMENT] alias=%s attachment_id=%s deleted_by=%s",
-        alias,
-        attachment_id,
-        request.user.username,
-    )
+    logger.info("attachment delete processed")
 
     # 아바타 삭제 시 세션 갱신
     if str(att.id) == request.session.get("avatar_attachment_id"):
@@ -631,7 +592,7 @@ def delete_attachment(request, attachment_id):
                             request.session["avatar_attachment_id"] = None
                             request.session["topbar_avatar_attachment_id"] = None
         except Exception as e:
-            logger.warning("[DELETE_ATTACHMENT] Failed to update avatar session: %s", e)
+            logger.warning("attachment delete avatar session update failed")
 
     return JsonResponse({
         "success": True,
