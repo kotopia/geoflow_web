@@ -49,7 +49,6 @@ class GroupSearchLoginFixTests(SimpleTestCase):
             patch("control.views_auth.get_user_model", return_value=user_model),
             patch("control.views_auth.login"),
             patch("control.views_auth.rotate_token"),
-            patch("control.views_auth.logger.info"),
             patch("control.views_auth.C.list_tenants_for_user", return_value=tenants),
             patch(
                 "control.views_auth._selectable_tenant_candidates",
