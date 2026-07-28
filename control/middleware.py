@@ -103,29 +103,6 @@ TENANT_PATH_PREFIXES = (
     '/employees', '/contracts', '/partners', '/projects', '/maps',
 )
 
-class TenantSelectorMiddleware(MiddlewareMixin):
-    """요청마다 alias를 세팅. /control/ 는 항상 중앙으로."""
-    def process_request(self, request):
-        central = getattr(settings, "CENTRAL_DB_ALIAS", "default")
-
-        if request.path.startswith('/control/'):
-            request.session['scope'] = 'central'
-            request.session['tenant_db_alias'] = central
-            logger.debug("MW: resolved central route")
-            return None
-
-        # 세션에 alias 없으면 중앙을 기본으로(런타임 기본=중앙)
-        alias = request.session.get('tenant_db_alias') or central
-        request.session['tenant_db_alias'] = alias
-        request.session['scope'] = 'tenant' if alias != central else 'central'
-        logger.debug(
-            "MW: resolved central route"
-            if alias == central
-            else "MW: resolved tenant route"
-        )
-        return None
-    
-
 class CentralGuardMiddleware(MiddlewareMixin):
     """중앙 상태에서 테넌트 URL 접근을 /control/ 로 리디렉트."""
     def process_request(self, request):
