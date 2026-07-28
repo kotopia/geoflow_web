@@ -7,9 +7,6 @@ from django.views.decorators.csrf import csrf_protect
 from django.contrib.auth.hashers import make_password
 from .decorators import require_staff
 
-import logging
-logger = logging.getLogger(__name__)
-
 @csrf_protect
 def set_password_view(request, token):
     # 1) 토큰 검증
@@ -170,6 +167,4 @@ def users_assign_group_admin(request, user_id):
     return redirect("users_detail_admin", user_id=user_id)
 
 def dashboard(request):
-    logger.info("CENTRAL_VIEW dashboard: scope=%s alias=%s",
-                request.session.get('scope'), request.session.get('tenant_db_alias'))
     return render(request, 'control/dashboard.html', {})
