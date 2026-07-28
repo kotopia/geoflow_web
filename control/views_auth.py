@@ -208,12 +208,12 @@ def login_view(request):
             else:
                 # 여러 테넌트면 선택 화면으로
                 request.session["tenant_candidates"] = tenants
-                logger.info("AUTH: multiple tenant candidates")
+                logger.debug("AUTH: multiple tenant candidates")
                 return redirect("control:group_search")
         else:
             # 소속 없음 → 중앙
             request.session["tenant_db_alias"] = central_alias
-            logger.info("AUTH: central route without tenant membership")
+            logger.debug("AUTH: central route without tenant membership")
             return redirect("after_login")
 
     # GET
@@ -229,7 +229,7 @@ def post_login_redirect(request):
     gid = request.session.get("group_id")
 
     if alias == central_alias or not gid:
-        logger.info("POST-LOGIN: route CENTRAL")
+        logger.debug("POST-LOGIN: route CENTRAL")
         return redirect('control:dashboard')  # 중앙 기본 홈
 
     if not ensure_tenant_connection_for_session(request):
@@ -237,7 +237,7 @@ def post_login_redirect(request):
         logger.warning("POST-LOGIN: tenant connection unavailable")
         return redirect("control:dashboard")
 
-    logger.info("POST-LOGIN: route TENANT")
+    logger.debug("POST-LOGIN: route TENANT")
     return redirect("/")  # 테넌트 기본 홈
 
 

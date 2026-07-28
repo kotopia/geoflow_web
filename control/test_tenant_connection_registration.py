@@ -576,7 +576,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
             for value in call.args
         )
         self.assertNotIn(sensitive_alias, logged_values)
-        logger.info.assert_called_with("MW: resolved tenant route")
+        logger.debug.assert_called_with("MW: resolved tenant route")
 
     @override_settings(CENTRAL_DB_ALIAS="default")
     @patch("control.middleware._set_threadlocal")

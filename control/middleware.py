@@ -61,7 +61,7 @@ class TenantMiddleware:
             _set_threadlocal(central_alias, True, None)
             request.session["tenant_db_alias"] = central_alias
             request.session["scope"] = "central"     # ✅ 추가
-            logger.info("MW: resolved central route")
+            logger.debug("MW: resolved central route")
             return self.get_response(request)
 
         # 세션이 있으면 사용, 없으면 중앙
@@ -77,7 +77,7 @@ class TenantMiddleware:
         request.session["tenant_db_alias"] = alias
         request.session["scope"] = "central" if alias == central_alias else "tenant"  # ✅ 추가
 
-        logger.info(
+        logger.debug(
             "MW: resolved central route"
             if alias == central_alias
             else "MW: resolved tenant route"
@@ -111,14 +111,14 @@ class TenantSelectorMiddleware(MiddlewareMixin):
         if request.path.startswith('/control/'):
             request.session['scope'] = 'central'
             request.session['tenant_db_alias'] = central
-            logger.info("MW: resolved central route")
+            logger.debug("MW: resolved central route")
             return None
 
         # 세션에 alias 없으면 중앙을 기본으로(런타임 기본=중앙)
         alias = request.session.get('tenant_db_alias') or central
         request.session['tenant_db_alias'] = alias
         request.session['scope'] = 'tenant' if alias != central else 'central'
-        logger.info(
+        logger.debug(
             "MW: resolved central route"
             if alias == central
             else "MW: resolved tenant route"
@@ -141,11 +141,11 @@ class CentralGuardMiddleware(MiddlewareMixin):
             for pre in TENANT_PATH_PREFIXES:
                 # 루트('/')는 정확 판별
                 if pre == '/' and request.path == '/':
-                    logger.info("CENTRAL_GUARD: redirect to central route")
+                    logger.debug("CENTRAL_GUARD: redirect to central route")
                     from django.shortcuts import redirect
                     return redirect('control:dashboard')
                 if pre != '/' and (request.path == pre or request.path.startswith(pre + '/')):
-                    logger.info("CENTRAL_GUARD: redirect to central route")
+                    logger.debug("CENTRAL_GUARD: redirect to central route")
                     from django.shortcuts import redirect
                     return redirect('control:dashboard')
         return None
