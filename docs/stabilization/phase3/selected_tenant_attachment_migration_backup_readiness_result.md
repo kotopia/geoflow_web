@@ -30,32 +30,32 @@
 | readiness item | result |
 |---|---|
 | selected_tenant_precheck_passed | yes |
-| backup_ready | not confirmed |
-| restore_readiness | not confirmed |
-| responsible_operator_confirmed | not confirmed |
-| sanitized_backup_reference | not recorded |
-| migration_execution_authorized | no |
+| backup_ready | yes |
+| restore_readiness | yes |
+| responsible_operator_confirmed | yes |
+| sanitized_backup_reference | manual_rds_snapshot_confirmed |
+| migration_execution_authorized | pending_exact_command_review |
+| user_execution_permission_intent | yes |
 
 ## 5. Interpretation
 
-- No evidence was provided in this task that a current recoverable backup exists.
-- No restore procedure or restore verification was confirmed.
-- No responsible operator was confirmed.
-- No sanitized backup reference was available for documentation.
-- The selected tenant may be technically eligible for the migration sequence, but operational recovery readiness is incomplete.
-- Migration execution must remain blocked.
+- The user confirmed that a manual RDS snapshot was created.
+- The user is the confirmed responsible recovery operator.
+- Recovery can proceed by restoring a new RDS instance from the snapshot.
+- The sanitized backup reference is `manual_rds_snapshot_confirmed`.
+- No actual snapshot name, database instance name, host, account, ARN, path, or other identifying backup value is recorded.
+- Backup and restore readiness are confirmed.
+- The user has confirmed intent to permit migration execution, but execution remains pending exact command review as a separate step.
 
-## 6. Requirements to Change Backup Readiness to Ready
+## 6. Confirmed Readiness Basis
 
-All of the following must be confirmed separately:
+The user confirmed the following readiness basis:
 
-- A current backup covering the selected tenant exists.
-- The backup is complete and accessible to the authorized operator.
-- A restore procedure is documented and understood.
-- Restore readiness is verified to the degree required by the operator's recovery policy.
-- A responsible migration and recovery operator is identified.
+- A manual RDS snapshot covering the selected tenant exists.
+- The user is the responsible migration and recovery operator.
+- Recovery can use the snapshot to restore a new RDS instance.
 - A sanitized backup reference is available without revealing an identifying snapshot name, filename, path, account value, or resource identifier.
-- The recovery point and acceptable outage window are agreed.
+- Actual backup and connection identifiers remain local and are not recorded here.
 
 ## 7. Sanitized Backup Reference Rules
 
@@ -67,10 +67,10 @@ All of the following must be confirmed separately:
 
 ## 8. Recommended Next Action
 
-- Confirm backup existence and recoverability through a separately approved operational step.
-- Confirm the restore procedure and responsible operator.
-- Produce a sanitized readiness update containing booleans only.
-- Review the exact selected-tenant-only migration execution command after backup readiness is confirmed.
+- Preserve the confirmed backup and restore readiness through migration execution.
+- Review the exact selected-tenant-only migration execution command.
+- Confirm that the command cannot target other tenants.
+- Confirm explicit stop conditions and postchecks against the exact command.
 - Require separate explicit approval before running any migration.
 - Do not use a broad all-tenant migration command.
 
@@ -84,8 +84,8 @@ All of the following must be confirmed separately:
 
 ## 10. Not Performed
 
-- No backup operation
-- No restore operation
+- No backup operation was performed by this documentation task
+- No restore operation was performed
 - No migration execution
 - No database read or write
 - No table creation, alteration, rename, or deletion
@@ -106,6 +106,8 @@ All of the following must be confirmed separately:
 ## 12. Conclusion
 
 - The selected tenant migration precheck passed.
-- Backup readiness, restore readiness, and responsible operator confirmation remain unconfirmed.
-- No sanitized backup reference is recorded.
-- Migration execution remains unauthorized and blocked until every readiness requirement is confirmed and separately approved.
+- Backup readiness and restore readiness are confirmed.
+- The user is the confirmed responsible recovery operator.
+- The sanitized backup reference is `manual_rds_snapshot_confirmed`.
+- User execution permission intent is confirmed.
+- Migration execution remains pending exact command review and must occur only in a separately approved execution step.
