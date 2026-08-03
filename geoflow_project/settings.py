@@ -24,8 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DOTENV_PATH = BASE_DIR / ".env"
 
 # override=False: OS 환경변수가 있으면 OS 값 우선, .env는 보조
-_loaded = load_dotenv(dotenv_path=DOTENV_PATH, override=False)
-logger.info("ENV: load .env path=%s loaded=%s", str(DOTENV_PATH), bool(_loaded))
+load_dotenv(dotenv_path=DOTENV_PATH, override=False)
+logger.debug("ENV: dotenv loading completed")
 
 
 def get_env_required(name: str) -> str:
@@ -98,49 +98,17 @@ def _check_geodjango_libraries():
     try:
         from django.contrib.gis import gdal
         gdal_ok = True
-    except (ImportError, OSError) as e:
-        logger.warning("GDAL 라이브러리 로드 실패: %s", e)
-        if "WinError 127" in str(e) or "지정된 프로시저" in str(e):
-            logger.warning("  → DLL 파일을 찾을 수 없거나 버전 mismatch (WinError 127)")
+    except (ImportError, OSError):
+        logger.warning("GeoDjango GDAL library unavailable")
 
     try:
         from django.contrib.gis import geos
         geos_ok = True
-    except (ImportError, OSError) as e:
-        logger.warning("GEOS 라이브러리 로드 실패: %s", e)
-        if "WinError 127" in str(e) or "지정된 프로시저" in str(e):
-            logger.warning("  → DLL 파일을 찾을 수 없거나 버전 mismatch (WinError 127)")
+    except (ImportError, OSError):
+        logger.warning("GeoDjango GEOS library unavailable")
 
     if not gdal_ok or not geos_ok:
-        logger.warning("=" * 70)
-        logger.warning("GeoDjango 라이브러리 미설치 또는 DLL mismatch")
-        logger.warning("=" * 70)
-        logger.warning("PostGIS 백엔드를 사용하려면 GDAL/GEOS 설치가 필요합니다.")
-        logger.warning("")
-        logger.warning("현재 환경변수:")
-        logger.warning("  GDAL_LIBRARY_PATH = %s", os.getenv("GDAL_LIBRARY_PATH", "(미설정)"))
-        logger.warning("  GEOS_LIBRARY_PATH = %s", os.getenv("GEOS_LIBRARY_PATH", "(미설정)"))
-        logger.warning("  PROJ_LIB = %s", os.getenv("PROJ_LIB", "(미설정)"))
-
-        # PATH에서 OSGeo4W 관련 경로만 출력
-        path_env = os.getenv("PATH", "")
-        if path_env:
-            osgeo_paths = [p for p in path_env.split(os.pathsep) if "osgeo" in p.lower() or "gdal" in p.lower()]
-            if osgeo_paths:
-                logger.warning("  PATH (OSGeo4W 관련): %s", "; ".join(osgeo_paths[:3]))
-            else:
-                logger.warning("  PATH에 OSGeo4W 관련 경로 없음")
-
-        logger.warning("")
-        logger.warning("해결 방법:")
-        logger.warning("  1. OSGeo4W 설치: https://trac.osgeo.org/osgeo4w/")
-        logger.warning("  2. 환경변수 설정 (예):")
-        logger.warning("       GDAL_LIBRARY_PATH=C:\\OSGeo4W\\bin\\gdal308.dll")
-        logger.warning("       GEOS_LIBRARY_PATH=C:\\OSGeo4W\\bin\\geos_c.dll")
-        logger.warning("       PROJ_LIB=C:\\OSGeo4W\\share\\proj")
-        logger.warning("       PATH에 C:\\OSGeo4W\\bin 추가")
-        logger.warning("  3. 진단: python scripts/check_geodjango.py")
-        logger.warning("=" * 70)
+        logger.warning("GeoDjango runtime libraries require attention")
     else:
         logger.info("GeoDjango 라이브러리 정상 로드 (GDAL: OK, GEOS: OK)")
 
@@ -244,13 +212,13 @@ TENANT_DB_PORT = os.getenv("TENANT_DB_PORT") or os.getenv("PROVISIONER_DB_PORT")
 
 # 경고: 중요 설정이 빈 문자열일 경우
 if not TENANT_DB_USER:
-    logger.warning("TENANT_DB_USER is empty (using fallback: 'postgres')")
+    logger.warning("Tenant database user configuration is unavailable")
 if not TENANT_DB_PASSWORD:
-    logger.warning("TENANT_DB_PASSWORD is empty (using fallback from DB_PASSWORD)")
+    logger.warning("Tenant database password configuration is unavailable")
 if not TENANT_DB_HOST or TENANT_DB_HOST == "localhost":
-    logger.warning("TENANT_DB_HOST is empty or localhost (fallback: %s)", TENANT_DB_HOST)
+    logger.warning("Tenant database host uses local or unavailable configuration")
 if not TENANT_DB_PORT or TENANT_DB_PORT == "5432":
-    logger.info("TENANT_DB_PORT using default: %s", TENANT_DB_PORT)
+    logger.info("Tenant database port uses default configuration")
 
 # 테넌트 DB 프로비저닝/검증용 기본 템플릿(실제 생성/마이그레이션은 별도 로직에서 수행)
 TENANT_DB_TEMPLATE = {
@@ -406,6 +374,8 @@ DEFAULT_FROM_EMAIL = "noreply@geoflow.local"
 
 RRN_SYM_KEY = get_env_required("RRN_SYM_KEY")
 
+APPLICATION_DIAGNOSTIC_LOG_LEVEL = "DEBUG" if DEBUG else "INFO"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -424,8 +394,16 @@ LOGGING = {
         # 세부 모듈 별도 조절도 가능
         "control.middleware": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "control.views_auth": {"handlers": ["console"], "level": "INFO", "propagate": False},
-        "control.db_router": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
-        "geoflow_ops": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
+        "control.db_router": {
+            "handlers": ["console"],
+            "level": APPLICATION_DIAGNOSTIC_LOG_LEVEL,
+            "propagate": False,
+        },
+        "geoflow_ops": {
+            "handlers": ["console"],
+            "level": APPLICATION_DIAGNOSTIC_LOG_LEVEL,
+            "propagate": False,
+        },
     },
     "root": {"handlers": ["console"], "level": "WARNING"},
 }
