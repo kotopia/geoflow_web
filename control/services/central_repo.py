@@ -303,22 +303,56 @@ def resolve_group_db_alias(group_id: Optional[str] = None, group_code: Optional[
     # 5) fallback
     return _default_tenant_alias()
 
-def list_groups_admin() -> List[Tuple[str, str, str, str, Optional[str], Optional[str], str]]:
+def list_groups_admin() -> List[Tuple[str, str, str, str, Optional[str], Optional[str], str, bool]]:
     """
-    템플릿이 7개 언패킹을 기대하므로 반드시 7-튜플로 반환:
-    (id, code, name, status, allowed_domains, owner_email, db_alias)
+    중앙 메타데이터 기반의 관리자 그룹 목록을 반환:
+    (id, code, name, status, allowed_domains, owner_email, db_alias, is_deleted)
+
+    db_alias는 런타임 connection registry fallback이 아니라 group_db_config의
+    read-only 표시값이며, 삭제 metadata가 없는 schema에서는 is_deleted=False이다.
     """
     alias = _central_alias()
     head_sql, _ = _group_owner_join_sql(alias)
+    has_db_config = _table_exists(alias, "group_db_config")
+    has_deleted_at = _column_exists(alias, "groups", "deleted_at")
 
     with connections[alias].cursor() as cur:
         cur.execute(head_sql + " ORDER BY g.created_at DESC NULLS LAST, g.name ASC")
         rows = cur.fetchall()
 
-    result: List[Tuple[str, str, str, str, Optional[str], Optional[str], str]] = []
+        alias_by_group: Dict[str, str] = {}
+        if has_db_config:
+            cur.execute("""
+                SELECT group_id::text, db_alias
+                  FROM group_db_config
+            """)
+            alias_by_group = {
+                str(group_id): (db_alias or "").strip()
+                for group_id, db_alias in cur.fetchall()
+            }
+
+        deleted_group_ids: set[str] = set()
+        if has_deleted_at:
+            cur.execute("""
+                SELECT id::text
+                  FROM groups
+                 WHERE deleted_at IS NOT NULL
+            """)
+            deleted_group_ids = {str(row[0]) for row in cur.fetchall()}
+
+    result: List[Tuple[str, str, str, str, Optional[str], Optional[str], str, bool]] = []
     for rid, code, name, status, domains, owner_email in rows:
-        db_alias = resolve_group_db_alias(group_id=rid, group_code=code)
-        result.append((rid, code, name, status, domains, owner_email, db_alias))
+        group_id = str(rid)
+        result.append((
+            rid,
+            code,
+            name,
+            status,
+            domains,
+            owner_email,
+            alias_by_group.get(group_id, ""),
+            group_id in deleted_group_ids,
+        ))
     return result
 
 def add_or_update_join_request(user_id: str, group_id: str, requested_email: str, role_code: str) -> None:

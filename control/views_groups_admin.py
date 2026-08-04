@@ -40,7 +40,7 @@ def group_select(request, group_id):
 
 @require_central_admin
 def group_list_admin(request):
-    rows = C.list_groups_admin()  # (id, code, name, status, domains, owner_email, db_alias) 7튜플
+    rows = C.list_groups_admin()
     return render(request, "control/group_list_admin.html", {"rows": rows})
 
 
@@ -52,8 +52,6 @@ def group_create_admin(request):
         name = (request.POST.get("name") or "").strip()
         domains = (request.POST.get("allowed_domains") or "").strip()
         owner = (request.POST.get("owner_email") or "").strip().lower()
-        db_alias = (request.POST.get("db_alias") or "").strip()
-
         if not code or not name:
             messages.error(request, "코드/이름은 필수입니다.")
             return render(request, "control/group_form_admin.html")
@@ -78,7 +76,7 @@ def group_create_admin(request):
             """, [code, name, allowed or None, owner_id])
 
         messages.success(request, "그룹이 생성되었습니다.")
-        return redirect("group_list_admin")
+        return redirect("control:group_list_admin")
 
     return render(request, "control/group_form_admin.html", {
         "row": None,
@@ -115,15 +113,21 @@ def group_edit_admin(request, group_id):
             """, [name or None, status, allowed or None, owner_id, group_id])
 
         messages.success(request, "수정되었습니다.")
-        return redirect("group_list_admin")
+        return redirect("control:group_list_admin")
+
+    has_db_config = C._table_exists(_central_alias(), "group_db_config")
+    db_alias_select = "c.db_alias" if has_db_config else "NULL::text"
+    db_alias_join = "LEFT JOIN group_db_config c ON c.group_id = g.id" if has_db_config else ""
 
     with connections[_central_alias()].cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             SELECT g.id::text, g.code, g.name, g.status,
                    ARRAY_TO_STRING(g.allowed_domains, ',') AS domains,
-                   u.email AS owner_email
+                   u.email AS owner_email,
+                   {db_alias_select} AS db_alias
               FROM groups g
               LEFT JOIN users u ON u.id = g.owner_user_id
+              {db_alias_join}
              WHERE g.id=%s
              LIMIT 1
         """, [group_id])

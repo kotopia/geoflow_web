@@ -79,9 +79,9 @@ def users_detail_admin(request, user_id):
         u = cur.fetchone()
         if not u:
             messages.error(request, "사용자를 찾을 수 없습니다.")
-            return redirect("users_list_admin")
+            return redirect("control:users_list_admin")
         cur.execute("""
-          SELECT g.id::text, g.name, r.code, r.name
+          SELECT g.id::text, g.name, g.code, r.code, r.name, ugm.status
             FROM user_group_map ugm
             JOIN groups g ON g.id=ugm.group_id
             JOIN roles  r ON r.id=ugm.role_id
@@ -102,12 +102,32 @@ def users_detail_admin(request, user_id):
 
         requests = cur.fetchall()
 
+        cur.execute("""
+          SELECT g.id::text, g.name, g.code
+            FROM groups g
+           WHERE lower(COALESCE(g.status, ''))='active'
+           ORDER BY g.name
+        """)
+        groups = cur.fetchall()
+
+        cur.execute("""
+          SELECT r.id::text, r.code
+            FROM roles r
+           ORDER BY r.code
+        """)
+        roles = cur.fetchall()
+
     ctx = {
         "user": {"id": u[0], "email": u[1], "is_active": u[2],
                  "email_verified": u[3], "last_login": u[4],
                  "created_at": u[5], "updated_at": u[6]},
-        "memberships": [{"group_id": m[0], "group_name": m[1], "role_code": m[2], "role_name": m[3]} for m in memberships],
+        "memberships": [{"group_id": m[0], "group_name": m[1], "group_code": m[2],
+                         "role_code": m[3], "role_name": m[4], "status": m[5]}
+                        for m in memberships],
         "requests": [{"id": r[0], "group_name": r[1], "role_code": r[2], "status": r[3], "created_at": r[4]} for r in requests],
+        "joins": [{"id": r[0], "group_name": r[1], "role_code": r[2], "status": r[3], "created_at": r[4]} for r in requests],
+        "groups": [{"id": g[0], "name": g[1], "code": g[2]} for g in groups],
+        "roles": [{"id": r[0], "code": r[1]} for r in roles],
     }
     return render(request, "control/users_detail_admin.html", ctx)
 
@@ -116,7 +136,7 @@ def users_detail_admin(request, user_id):
 def users_delete_admin(request, user_id):
     if request.method != "POST":
         messages.error(request, "잘못된 접근입니다.")
-        return redirect("users_detail_admin", user_id=user_id)
+        return redirect("control:users_detail_admin", user_id=user_id)
 
     with transaction.atomic():
         with connections["default"].cursor() as cur:
@@ -149,12 +169,12 @@ def users_delete_admin(request, user_id):
 @require_staff
 def users_assign_group_admin(request, user_id):
     if request.method != "POST":
-        return redirect("users_detail_admin", user_id=user_id)
+        return redirect("control:users_detail_admin", user_id=user_id)
     group_id = request.POST.get("group_id")
     role_id  = request.POST.get("role_id")
     if not group_id or not role_id:
         messages.error(request, "그룹과 역할을 선택하세요.")
-        return redirect("users_detail_admin", user_id=user_id)
+        return redirect("control:users_detail_admin", user_id=user_id)
 
     with connections["default"].cursor() as cur:
         cur.execute("""
@@ -164,7 +184,7 @@ def users_assign_group_admin(request, user_id):
           DO UPDATE SET role_id=EXCLUDED.role_id, status='active', updated_at=now()
         """, [user_id, group_id, role_id])
     messages.success(request, "그룹/역할이 지정되었습니다.")
-    return redirect("users_detail_admin", user_id=user_id)
+    return redirect("control:users_detail_admin", user_id=user_id)
 
 def dashboard(request):
     return render(request, 'control/dashboard.html', {})

@@ -12,11 +12,14 @@
   <table class="table align-middle">
     <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Domains</th><th>Owner</th><th>DB Alias</th><th></th></tr></thead>
     <tbody>
-      {% for id, code, name, status, domains, owner, db_alias in rows %}
+      {% for id, code, name, status, domains, owner, db_alias, is_deleted in rows %}
       <tr>
         <td>{{ code }}</td>
         <td>{{ name }}</td>
-        <td>{{ status }}</td>
+        <td>
+          {% if is_deleted %}<span class="badge bg-danger">deleted</span>{% endif %}
+          <span class="badge {% if status|lower == 'active' %}bg-success{% else %}bg-secondary{% endif %}">{{ status }}</span>
+        </td>
         <td>{{ domains|default:"-" }}</td>
         <td>{{ owner|default:"-" }}</td>
         <td>{{ db_alias|default:"-" }}</td>

@@ -34,11 +34,17 @@
             <label class="form-label">Owner Email</label>
             <input type="email" name="owner_email" class="form-control" value="{{ row.5|default:'' }}">
         </div>
+        {% if row %}
         <div class="mb-3">
             <label class="form-label">DB Alias</label>
-            <input type="text" name="db_alias" class="form-control" value="{{ row.6|default:'' }}" placeholder="cheonan_db">
-            <div class="form-text">settings.DATABASES의 키와 동일해야 합니다.</div>
+            <input type="text" class="form-control" value="{{ row.6|default:'-' }}" readonly aria-readonly="true">
+            <div class="form-text">Read-only central connection metadata.</div>
         </div>
+        {% else %}
+        <div class="alert alert-secondary" role="status">
+            DB Alias metadata is configured separately after group creation.
+        </div>
+        {% endif %}
 
         <div class="d-flex gap-2">
             <button class="btn btn-primary">Save</button>
