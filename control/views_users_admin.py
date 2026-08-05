@@ -2,6 +2,7 @@
 from django.db import connections, transaction
 from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from django.contrib.auth.hashers import make_password
@@ -200,5 +201,6 @@ def users_assign_group_admin(request, user_id):
     messages.success(request, "그룹/역할이 지정되었습니다.")
     return redirect("control:users_detail_admin", user_id=user_id)
 
+@login_required
 def dashboard(request):
     return render(request, 'control/dashboard.html', {})
