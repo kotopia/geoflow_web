@@ -65,6 +65,10 @@ class TenantMembershipFreshnessGuardMiddlewareTests(SimpleTestCase):
         self.assertIn("g.status = 'active'", normalized_sql)
         self.assertIn("cfg.db_alias = %s", normalized_sql)
         self.assertEqual(params[1:], ["group-key", "tenant-key"])
+        for key in ("roles", "perms", "gf_authz_ctx", "gf_roles", "gf_perms"):
+            self.assertNotIn(key, request.session)
+        self.assertEqual(request.session["tenant_db_alias"], "tenant-key")
+        self.assertEqual(request.session["group_id"], "group-key")
 
     def _assert_denied_and_cleared(self, *, membership_row=None, lookup_error=None):
         request = self._request()

@@ -1,5 +1,12 @@
+import logging
+
 from django.utils.deprecation import MiddlewareMixin
+
 from .services import gf_load_user_context
+
+
+logger = logging.getLogger(__name__)
+
 
 class GFAuthzContextMiddleware(MiddlewareMixin):
     """
@@ -14,12 +21,22 @@ class GFAuthzContextMiddleware(MiddlewareMixin):
             return None
 
         if request.user.is_authenticated:
-            ctx = request.session.get("gf_authz_ctx")
-            if not ctx:
+            try:
                 ctx = gf_load_user_context(request)
-                request.session["gf_authz_ctx"] = ctx
-                request.session["gf_perms"] = ctx.get("perms", [])
-                request.session["gf_roles"] = ctx.get("roles", [])
+                if not isinstance(ctx, dict):
+                    raise ValueError("Invalid authorization context")
+            except Exception:
+                logger.warning("Authorization context refresh failed")
+                ctx = {
+                    "tenant_id": None,
+                    "roles": [],
+                    "perms": [],
+                    "project_ids": [],
+                }
+
+            request.session["gf_authz_ctx"] = ctx
+            request.session["gf_perms"] = ctx.get("perms", [])
+            request.session["gf_roles"] = ctx.get("roles", [])
 
             # request 주입 (캐시)
             request.gf_tenant_id = ctx.get("tenant_id")

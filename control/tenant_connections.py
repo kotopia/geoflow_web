@@ -10,6 +10,20 @@ from control.services_identity import ensure_user_from_request
 logger = logging.getLogger(__name__)
 
 
+TENANT_AUTHORIZATION_SESSION_KEYS = (
+    "roles",
+    "perms",
+    "gf_authz_ctx",
+    "gf_roles",
+    "gf_perms",
+)
+
+
+def clear_tenant_authorization_cache(request):
+    for key in TENANT_AUTHORIZATION_SESSION_KEYS:
+        request.session.pop(key, None)
+
+
 def _connection_handler_can_resolve(alias):
     try:
         if alias not in connections.settings:
@@ -27,12 +41,8 @@ def clear_tenant_session_state(request):
     request.session["db_key"] = central_alias
     request.session.pop("group_uuid", None)
     request.session.pop("group_id", None)
-    request.session.pop("roles", None)
-    request.session.pop("perms", None)
     request.session.pop("tenant_candidates", None)
-    request.session.pop("gf_authz_ctx", None)
-    request.session.pop("gf_roles", None)
-    request.session.pop("gf_perms", None)
+    clear_tenant_authorization_cache(request)
 
 
 def ensure_tenant_connection_for_session(request):

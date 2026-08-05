@@ -11,6 +11,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 
 from control.tenant_connections import (
+    clear_tenant_authorization_cache,
     clear_tenant_session_state,
     ensure_tenant_connection_for_session,
 )
@@ -223,6 +224,7 @@ class TenantMembershipFreshnessGuardMiddleware:
             is_current = False
 
         if is_current:
+            clear_tenant_authorization_cache(request)
             return self.get_response(request)
 
         is_api_request = self._is_api_request(request)
