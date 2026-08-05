@@ -116,6 +116,123 @@ class CentralAccountActiveGuardMiddleware:
             return JsonResponse({"detail": "Authentication required."}, status=401)
         return redirect("login")
 
+
+class TenantMembershipFreshnessGuardMiddleware:
+    """Fail closed when a tenant session is no longer centrally authorized."""
+
+    EXEMPT_EXACT_PATHS = {
+        "/login",
+        "/login/",
+        "/signup",
+        "/signup/",
+        "/control/signup",
+        "/control/signup/",
+        "/control/logout",
+        "/control/logout/",
+        "/admin",
+        "/admin/",
+        "/health",
+        "/health/",
+        "/check",
+        "/check/",
+    }
+    EXEMPT_PATH_PREFIXES = (
+        "/admin/",
+        "/control/",
+        "/static/",
+        "/media/",
+        "/health/",
+        "/check/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    @classmethod
+    def _is_exempt_path(cls, path):
+        return path in cls.EXEMPT_EXACT_PATHS or any(
+            path.startswith(prefix) for prefix in cls.EXEMPT_PATH_PREFIXES
+        )
+
+    @staticmethod
+    def _is_api_request(request):
+        accept = request.headers.get("Accept", "").lower()
+        requested_with = request.headers.get("X-Requested-With", "").lower()
+        return (
+            request.path.startswith("/api/")
+            or "application/json" in accept
+            or requested_with == "xmlhttprequest"
+        )
+
+    @staticmethod
+    def _membership_is_current(request, group_id, tenant_alias):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return False
+
+        email = (
+            getattr(user, "email", None)
+            or getattr(user, "username", None)
+            or ""
+        ).strip().lower()
+        if not email:
+            return False
+
+        central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+        with connections[central_alias].cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                  FROM users u
+                  JOIN user_group_map ugm ON ugm.user_id = u.id
+                  JOIN groups g ON g.id = ugm.group_id
+                  JOIN group_db_config cfg ON cfg.group_id = g.id
+                 WHERE lower(u.email) = lower(%s)
+                   AND u.is_active = TRUE
+                   AND ugm.group_id = %s
+                   AND ugm.status = 'active'
+                   AND g.status = 'active'
+                   AND cfg.db_alias = %s
+                 LIMIT 1
+                """,
+                [email, str(group_id), tenant_alias],
+            )
+            return cur.fetchone() is not None
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        path = request.path or "/"
+        if self._is_exempt_path(path):
+            return self.get_response(request)
+
+        central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+        tenant_alias = request.session.get("tenant_db_alias")
+        if not tenant_alias or tenant_alias == central_alias:
+            return self.get_response(request)
+
+        group_id = request.session.get("group_id") or request.session.get(
+            "group_uuid"
+        )
+        try:
+            is_current = bool(group_id) and self._membership_is_current(
+                request,
+                group_id,
+                tenant_alias,
+            )
+        except Exception:
+            logger.warning("Tenant membership freshness lookup failed")
+            is_current = False
+
+        if is_current:
+            return self.get_response(request)
+
+        is_api_request = self._is_api_request(request)
+        clear_tenant_session_state(request)
+        request.session.pop("tenant_db_alias", None)
+        request.session.pop("db_key", None)
+        if is_api_request:
+            return JsonResponse({"detail": "Tenant access denied."}, status=403)
+        return redirect("control:dashboard")
+
 # ── 스레드 로컬에 현재 요청의 테넌트 정보를 보관
 _tlocal = threading.local()
 

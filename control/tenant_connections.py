@@ -28,7 +28,11 @@ def clear_tenant_session_state(request):
     request.session.pop("group_uuid", None)
     request.session.pop("group_id", None)
     request.session.pop("roles", None)
+    request.session.pop("perms", None)
     request.session.pop("tenant_candidates", None)
+    request.session.pop("gf_authz_ctx", None)
+    request.session.pop("gf_roles", None)
+    request.session.pop("gf_perms", None)
 
 
 def ensure_tenant_connection_for_session(request):

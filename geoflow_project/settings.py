@@ -127,6 +127,7 @@ MIDDLEWARE = [
     'control.middleware.CentralAccountActiveGuardMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'control.middleware.TenantMembershipFreshnessGuardMiddleware',
     'control.middleware.TenantMiddleware',           # A. alias/scope 설정
     'control.middleware.CentralGuardMiddleware',     # B. 중앙이면 테넌트 URL 차단  ✅ 추가
     'control.middleware.EnsureTenantAliasMiddleware', # C. 안전망
