@@ -12,7 +12,6 @@ from control.services import central_repo as C
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.middleware.csrf import rotate_token
 
-from control.services_identity import to_group_uuid, ensure_user_from_request
 from control.models import UserGroupMap
 from control.tenant_connections import (
     clear_tenant_session_state,

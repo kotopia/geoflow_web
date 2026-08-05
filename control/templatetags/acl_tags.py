@@ -1,6 +1,6 @@
 from django import template
 from control.services import central_repo as C
-from control.services_identity import ensure_user_from_request
+from control.services_identity import lookup_user_id_from_request
 
 register = template.Library()
 
@@ -23,7 +23,7 @@ def has_perm(context, perm_code: str) -> bool:
     if not req:
         return False
 
-    user_uuid = getattr(req, "_user_uuid", None) or ensure_user_from_request(req)
+    user_uuid = getattr(req, "_user_uuid", None) or lookup_user_id_from_request(req)
     group_id = req.session.get("group_uuid") or req.session.get("group_id")
     if not user_uuid or not group_id:
         return False

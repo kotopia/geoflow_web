@@ -4,7 +4,7 @@ from django.conf import settings
 from django.db import connections
 
 from control.models import GroupDBConfig, UserGroupMap
-from control.services_identity import ensure_user_from_request
+from control.services_identity import lookup_user_id_from_request
 
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def ensure_tenant_connection_for_session(request):
     if alias in active_registry:
         return _connection_handler_can_resolve(alias)
 
-    user_id = ensure_user_from_request(request)
+    user_id = lookup_user_id_from_request(request)
     if not user_id:
         return False
 

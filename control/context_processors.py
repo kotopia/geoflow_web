@@ -1,5 +1,5 @@
 from django.db import connections
-from control.services_identity import ensure_user_from_request
+from control.services_identity import lookup_user_id_from_request
 from control.services import central_repo as C
 from control.middleware import current_db_alias
 
@@ -23,7 +23,7 @@ def perms_context(request):
     roles = request.session.get("roles")
     if roles is None:
         roles = []
-        user_uuid = ensure_user_from_request(request)
+        user_uuid = lookup_user_id_from_request(request)
         group_id  = request.session.get("group_uuid") or request.session.get("group_id")
         if user_uuid and group_id:
             try:

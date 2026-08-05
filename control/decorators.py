@@ -2,7 +2,7 @@
 from functools import wraps
 from django.http import HttpResponseForbidden
 from django.db import connections
-from control.services_identity import ensure_user_from_request
+from control.services_identity import lookup_user_id_from_request
 from control.templatetags.acl_tags import has_perm as _has_perm_tag
 import logging
 logger = logging.getLogger(__name__)
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 def require_central_admin(view_func):
     @wraps(view_func)
     def _wrap(request, *args, **kwargs):
-        uid = ensure_user_from_request(request)
+        uid = lookup_user_id_from_request(request)
         if not uid:
             return HttpResponseForbidden("권한이 없습니다.")
         with connections["default"].cursor() as cur:

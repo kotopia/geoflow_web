@@ -111,7 +111,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         connection_handler.__getitem__.assert_called_once_with("tenant-key")
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_valid_central_config_registers_missing_alias(self, _ensure_user):
         databases = {
             "default": {
@@ -144,7 +144,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         connection_handler.__getitem__.return_value.cursor.assert_not_called()
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_new_registration_is_removed_when_handler_lookup_fails(
         self, _ensure_user
     ):
@@ -195,7 +195,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         self.assertEqual(databases["tenant-key"], original)
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_missing_config_fails_safely(self, _ensure_user):
         databases = {"default": {"ENGINE": "central-engine"}}
         request = self._request(
@@ -216,7 +216,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         self.assertNotIn("tenant-key", databases)
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_incomplete_config_fails_safely(self, _ensure_user):
         databases = {"default": {"ENGINE": "central-engine"}}
         request = self._request(
@@ -239,7 +239,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         self.assertNotIn("tenant-key", databases)
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_inactive_membership_fails_safely(self, _ensure_user):
         databases = {"default": {"ENGINE": "central-engine"}}
         request = self._request(
@@ -262,7 +262,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         self.assertNotIn("tenant-key", databases)
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_inactive_group_config_fails_safely(self, _ensure_user):
         databases = {"default": {"ENGINE": "central-engine"}}
         request = self._request(
@@ -301,7 +301,7 @@ class TenantConnectionRegistrationTests(SimpleTestCase):
         )
 
     @override_settings(CENTRAL_DB_ALIAS="default", DATABASES={"default": {}})
-    @patch("control.tenant_connections.ensure_user_from_request", return_value="user-key")
+    @patch("control.tenant_connections.lookup_user_id_from_request", return_value="user-key")
     def test_alias_mismatch_fails_safely(self, _ensure_user):
         databases = {"default": {"ENGINE": "central-engine"}}
         request = self._request(

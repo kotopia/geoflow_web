@@ -362,7 +362,7 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         self.assertEqual(response.url, reverse("login"))
 
     @patch("control.views_groups.C.list_roles_for_user_in_group", return_value=[])
-    @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
+    @patch("control.views_groups.lookup_user_id_from_request", return_value="user-key")
     @patch("control.views_groups.render")
     def test_rendered_candidate_can_be_selected(
         self, render, _ensure_user, _list_roles
@@ -384,7 +384,7 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("after_login"))
 
-    @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
+    @patch("control.views_groups.lookup_user_id_from_request", return_value="user-key")
     def test_group_select_rejects_candidate_not_in_session(self, _ensure_user):
         request = self._request_with_session()
         request.session["tenant_candidates"] = [
@@ -397,7 +397,7 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         self.assertNotIn("tenant_db_alias", request.session)
 
     @patch("control.views_groups.C.list_roles_for_user_in_group")
-    @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
+    @patch("control.views_groups.lookup_user_id_from_request", return_value="user-key")
     def test_valid_group_select_sets_session_and_redirects_after_login(
         self, _ensure_user, list_roles
     ):
@@ -422,7 +422,7 @@ class GroupSearchLoginFixTests(SimpleTestCase):
         list_roles.assert_called_once_with("user-key", "group-a")
 
     @patch("control.views_groups.C.list_roles_for_user_in_group", return_value=[])
-    @patch("control.views_groups.ensure_user_from_request", return_value="user-key")
+    @patch("control.views_groups.lookup_user_id_from_request", return_value="user-key")
     def test_group_select_does_not_access_tenant_database(
         self, _ensure_user, _list_roles
     ):

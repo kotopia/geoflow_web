@@ -1,5 +1,6 @@
 # control/services_identity.py
 from typing import Optional
+from django.conf import settings
 from django.db import connections
 
 def _fetch_user_id_by_email(email: str) -> Optional[str]:
@@ -18,9 +19,37 @@ def _fetch_user_id_by_legacy_id(legacy_id: str) -> Optional[str]:
         row = cur.fetchone()
         return row[0] if row else None
 
+
+def lookup_user_id_from_request(request) -> Optional[str]:
+    """Return an existing central user id without creating any account."""
+    user = getattr(request, "user", None)
+    if not user or not user.is_authenticated:
+        return None
+
+    identity = (
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or ""
+    ).strip().lower()
+    if not identity:
+        return None
+
+    central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+    with connections[central_alias].cursor() as cur:
+        cur.execute(
+            "SELECT id::text FROM users "
+            "WHERE lower(email)=lower(%s) LIMIT 1",
+            [identity],
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
 def ensure_user_from_request(request) -> Optional[str]:
     """
-    auth_user 로 로그인한 사용자를 users에 연결/생성하고 UUID 반환.
+    Provisioning-capable legacy helper: users를 조회하고 없으면 생성할 수 있다.
+
+    인증/인가 lookup에는 사용하지 말고 lookup_user_id_from_request를 사용한다.
     전략 순서:
       1) auth_user.email이 있으면 email로 매핑/생성
       2) email이 없으면 auth_user.id를 legacy_id로 매핑/생성
