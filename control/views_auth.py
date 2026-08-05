@@ -246,26 +246,6 @@ def post_login_redirect(request):
 
 
 
-@require_http_methods(["GET", "POST"])
-def set_password_view(request, token: str):
-    tok = C.get_valid_token(token, kind="set_password")
-    if not tok:
-        return render(request, "control/set_password_invalid.html", status=400)
-
-    if request.method == "POST":
-        pwd = (request.POST.get("password") or "").strip()
-        pwd2 = (request.POST.get("password2") or "").strip()
-        if len(pwd) < 8:
-            messages.error(request, "비밀번호는 8자 이상이어야 합니다.")
-        elif pwd != pwd2:
-            messages.error(request, "비밀번호 확인이 일치하지 않습니다.")
-        else:
-            C.set_user_password(tok["user_id"], make_password(pwd))
-            C.mark_token_used(token)
-            messages.success(request, "비밀번호가 설정되었습니다. 로그인해 주세요.")
-            return redirect("login")
-    return render(request, "control/set_password.html", {"token": token})
-
 from django.views.decorators.http import require_GET
 
 @require_GET

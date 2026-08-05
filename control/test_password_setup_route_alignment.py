@@ -8,6 +8,7 @@ from django.urls import resolve, reverse
 from django.utils import timezone
 
 from control import urls as control_urls
+from control import views_auth
 from control import views_users_admin
 
 
@@ -61,6 +62,9 @@ class PasswordSetupRouteAlignmentTests(SimpleTestCase):
             views_users_admin.set_password_view,
         )
         self.assertFalse(hasattr(control_urls, "set_password_view"))
+
+    def test_dormant_auth_password_setup_view_is_absent(self):
+        self.assertFalse(hasattr(views_auth, "set_password_view"))
 
     def test_success_updates_password_and_verification_without_activation(self):
         cursor = _RecordingCursor()
