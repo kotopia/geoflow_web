@@ -93,6 +93,39 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
             return None
         return {"id": row[0], "email": row[1]}
 
+
+def get_existing_user_account_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """Lookup an existing central account without provisioning it."""
+    if not email:
+        return None
+    with connections[_central_alias()].cursor() as cur:
+        cur.execute(
+            """
+            SELECT id::text, COALESCE(is_active, FALSE)
+              FROM users
+             WHERE lower(email)=lower(%s)
+             LIMIT 1
+            """,
+            [email],
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "is_active": row[1] is True}
+
+
+def group_is_active(group_id: str) -> bool:
+    """Return whether an existing central group is active."""
+    if not group_id:
+        return False
+    with connections[_central_alias()].cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM groups WHERE id=%s AND status='active' LIMIT 1",
+            [group_id],
+        )
+        return cur.fetchone() is not None
+
+
 def create_user(email: str, name: Optional[str] = None) -> str:
     """최소 필드로 사용자 생성. 이미 있으면 기존 id 반환."""
     with transaction.atomic(using=_central_alias()):

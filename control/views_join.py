@@ -36,7 +36,7 @@ def join_request_decide_view(request, req_id, action):
     중앙 관리자가 권한요청을 승인/거절한다.
     - approve:
         1) 요청 로드
-        2) users get_or_create
+        2) existing active user 확인
         3) user_group_map upsert
         4) 요청 상태 approved (decided_by 기록)
         5) 비밀번호 없으면 set-password 메일 발송
@@ -55,7 +55,8 @@ def join_request_decide_view(request, req_id, action):
 
     # 중앙 관리자 id (결정자 기록)
     admin_email = (getattr(request.user, "email", None) or getattr(request.user, "username", "")).strip().lower()
-    decided_by = C.get_or_create_user_by_email(admin_email) if admin_email else None
+    admin_user = C.get_user_by_email(admin_email) if admin_email else None
+    decided_by = admin_user["id"] if admin_user else None
 
     if action == "reject":
         # 요청 상태만 'rejected'로
@@ -64,12 +65,25 @@ def join_request_decide_view(request, req_id, action):
         return redirect("join_requests_pending")
 
     if action == "approve":
-        # 2) 대상 사용자/역할 준비
-        user_id = C.get_or_create_user_by_email(requested_email)
+        if jr.get("status") != "pending":
+            messages.error(request, "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.")
+            return redirect("join_requests_pending")
+
+        # 2) 역할, 그룹, 기존 active 계정 확인
         role_id = C.get_role_id_by_code(role_code)
         if not role_id:
-            messages.error(request, f"역할 코드가 유효하지 않습니다: {role_code}")
+            messages.error(request, "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.")
             return redirect("join_requests_pending")
+
+        if not C.group_is_active(group_id):
+            messages.error(request, "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.")
+            return redirect("join_requests_pending")
+
+        account = C.get_existing_user_account_by_email(requested_email)
+        if not account or account.get("is_active") is not True:
+            messages.error(request, "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.")
+            return redirect("join_requests_pending")
+        user_id = account["id"]
 
         # 3) 멤버십 upsert (중앙 권한 부여)
         C.upsert_user_group_membership(user_id=user_id, group_id=group_id, role_id=role_id)
