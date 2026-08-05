@@ -33,7 +33,7 @@ class GroupSearchLoginFixTests(SimpleTestCase):
             {"email": "account", "password": "password"},
         )
         cursor = MagicMock()
-        cursor.fetchone.return_value = ("user-key", "password-hash")
+        cursor.fetchone.return_value = ("user-key", "password-hash", True)
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
         user = SimpleNamespace(backend=None)
@@ -57,6 +57,40 @@ class GroupSearchLoginFixTests(SimpleTestCase):
             patch("control.views_auth.C.list_roles_for_user_in_group", return_value=[]),
         )
         return request, patches
+
+    def _login_failure_call(self, account_row, password_valid=True):
+        request = self._request_with_session(
+            "post",
+            {"email": "account", "password": "password"},
+        )
+        cursor = MagicMock()
+        cursor.fetchone.return_value = account_row
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+        mocked_connections = MagicMock()
+        mocked_connections.__getitem__.return_value = connection
+        user_model = MagicMock()
+
+        with (
+            patch("control.views_auth.connections", mocked_connections),
+            patch(
+                "control.views_auth.check_password",
+                return_value=password_valid,
+            ) as check_password,
+            patch("control.views_auth.get_user_model", return_value=user_model),
+            patch("control.views_auth.login") as session_login,
+            patch("control.views_auth.render") as render,
+        ):
+            response = login_view(request)
+
+        return SimpleNamespace(
+            response=response,
+            cursor=cursor,
+            check_password=check_password,
+            user_model=user_model,
+            session_login=session_login,
+            render=render,
+        )
 
     def _call_login(self, tenants, selectable=None):
         request, patches = self._login_request(tenants, selectable)
@@ -191,6 +225,50 @@ class GroupSearchLoginFixTests(SimpleTestCase):
             request.session["tenant_candidates"],
             [valid_a, valid_b],
         )
+
+    def test_active_central_user_keeps_existing_login_flow(self):
+        _, response = self._call_login([], [])
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("after_login"))
+
+    def test_inactive_central_user_is_rejected_before_password_processing(self):
+        for active_state in (False, None):
+            with self.subTest(active_state=active_state):
+                result = self._login_failure_call(
+                    ("user-key", "password-hash", active_state),
+                )
+
+                result.render.assert_called_once()
+                result.check_password.assert_not_called()
+                result.user_model.objects.get_or_create.assert_not_called()
+                result.session_login.assert_not_called()
+                self.assertEqual(result.cursor.execute.call_count, 1)
+
+    def test_missing_and_inactive_users_have_same_public_error_shape(self):
+        missing = self._login_failure_call(None)
+        inactive = self._login_failure_call(
+            ("user-key", "password-hash", False),
+        )
+
+        self.assertEqual(
+            missing.render.call_args.args[2],
+            inactive.render.call_args.args[2],
+        )
+
+    def test_active_central_user_with_wrong_password_is_rejected(self):
+        result = self._login_failure_call(
+            ("user-key", "password-hash", True),
+            password_valid=False,
+        )
+
+        result.check_password.assert_called_once_with(
+            "password",
+            "password-hash",
+        )
+        result.user_model.objects.get_or_create.assert_not_called()
+        result.session_login.assert_not_called()
+        self.assertEqual(result.cursor.execute.call_count, 1)
 
     def test_one_selectable_candidate_keeps_single_tenant_flow(self):
         valid = self._candidate()

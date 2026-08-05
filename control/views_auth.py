@@ -121,20 +121,24 @@ def login_view(request):
 
         central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
 
-        # 1) 중앙 users에서 사용자/해시 조회
+        # 1) 중앙 users에서 사용자/해시/활성 상태 조회
         with connections[central_alias].cursor() as cur:
             cur.execute("""
-                SELECT id::text, password_hash
+                SELECT id::text, password_hash, is_active
                   FROM users
                  WHERE lower(email) = lower(%s)
                  LIMIT 1
             """, [email])
             row = cur.fetchone()
 
+        invalid_account_error = "사용자를 찾을 수 없습니다."
         if not row:
-            return render(request, "control/login.html", {"error": "사용자를 찾을 수 없습니다."})
+            return render(request, "control/login.html", {"error": invalid_account_error})
 
-        user_uuid, pw_hash = row
+        user_uuid, pw_hash, is_active = row
+        if is_active is not True:
+            return render(request, "control/login.html", {"error": invalid_account_error})
+
         if not pw_hash or not str(pw_hash).strip():
             return render(request, "control/login.html", {"error": "비밀번호가 올바르지 않습니다."})
 
