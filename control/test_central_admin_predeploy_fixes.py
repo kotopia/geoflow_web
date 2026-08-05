@@ -55,7 +55,13 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
                     [],
                 )
             if "FROM user_group_map ugm" in sql:
-                return (None, [("group-key", "Group", "group-code", "role-code", "Role", "active")])
+                return (
+                    None,
+                    [
+                        ("group-key", "Group", "group-code", "role-key", "role-code", "Role", "active"),
+                        ("group-key-2", "Group 2", "group-code-2", "role-key-2", "role-code-2", "Role 2", "active"),
+                    ],
+                )
             if "FROM join_requests jr" in sql:
                 return (None, [("request-key", "Group", "role-code", "pending", None)])
             if "FROM groups g" in sql and "COALESCE(g.status" in sql:
@@ -81,8 +87,25 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
         self.assertEqual(captured["groups"][0]["id"], "group-key")
         self.assertEqual(captured["roles"][0]["id"], "role-key")
         self.assertEqual(captured["memberships"][0]["group_code"], "group-code")
+        self.assertEqual(captured["memberships"][0]["role_id"], "role-key")
+        self.assertEqual(captured["memberships"][0]["role_code"], "role-code")
         self.assertEqual(captured["memberships"][0]["status"], "active")
+        self.assertEqual(captured["selected_group_id"], "group-key")
+        self.assertEqual(captured["selected_role_id"], "role-key")
+        self.assertEqual(
+            captured["membership_role_by_group"],
+            {"group-key": "role-key", "group-key-2": "role-key-2"},
+        )
         self.assertEqual(captured["joins"], captured["requests"])
+
+    def test_user_detail_template_selects_membership_role_by_group(self):
+        template_path = Path(__file__).resolve().parent / "templates" / "control" / "users_detail_admin.html"
+        template = template_path.read_text(encoding="utf-8")
+
+        self.assertIn("g.id == selected_group_id", template)
+        self.assertIn("r.id == selected_role_id", template)
+        self.assertIn('membership_role_by_group|json_script:"membership-role-map"', template)
+        self.assertIn("roleByGroup[groupSelect.value]", template)
 
     def test_existing_assignment_upsert_contract_is_preserved(self):
         def handler(sql, params):

@@ -81,7 +81,7 @@ def users_detail_admin(request, user_id):
             messages.error(request, "사용자를 찾을 수 없습니다.")
             return redirect("control:users_list_admin")
         cur.execute("""
-          SELECT g.id::text, g.name, g.code, r.code, r.name, ugm.status
+          SELECT g.id::text, g.name, g.code, r.id::text, r.code, r.name, ugm.status
             FROM user_group_map ugm
             JOIN groups g ON g.id=ugm.group_id
             JOIN roles  r ON r.id=ugm.role_id
@@ -117,17 +117,31 @@ def users_detail_admin(request, user_id):
         """)
         roles = cur.fetchall()
 
+    membership_rows = [
+        {"group_id": m[0], "group_name": m[1], "group_code": m[2],
+         "role_id": m[3], "role_code": m[4], "role_name": m[5], "status": m[6]}
+        for m in memberships
+    ]
+    selected_membership = next(
+        (membership for membership in membership_rows
+         if (membership.get("status") or "").lower() == "active"),
+        membership_rows[0] if membership_rows else None,
+    )
+
     ctx = {
         "user": {"id": u[0], "email": u[1], "is_active": u[2],
                  "email_verified": u[3], "last_login": u[4],
                  "created_at": u[5], "updated_at": u[6]},
-        "memberships": [{"group_id": m[0], "group_name": m[1], "group_code": m[2],
-                         "role_code": m[3], "role_name": m[4], "status": m[5]}
-                        for m in memberships],
+        "memberships": membership_rows,
         "requests": [{"id": r[0], "group_name": r[1], "role_code": r[2], "status": r[3], "created_at": r[4]} for r in requests],
         "joins": [{"id": r[0], "group_name": r[1], "role_code": r[2], "status": r[3], "created_at": r[4]} for r in requests],
         "groups": [{"id": g[0], "name": g[1], "code": g[2]} for g in groups],
         "roles": [{"id": r[0], "code": r[1]} for r in roles],
+        "selected_group_id": selected_membership["group_id"] if selected_membership else None,
+        "selected_role_id": selected_membership["role_id"] if selected_membership else None,
+        "membership_role_by_group": {
+            membership["group_id"]: membership["role_id"] for membership in membership_rows
+        },
     }
     return render(request, "control/users_detail_admin.html", ctx)
 

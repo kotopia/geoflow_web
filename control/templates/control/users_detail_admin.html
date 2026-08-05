@@ -26,13 +26,13 @@
           {% csrf_token %}
           <div class="row g-2">
             <div class="col">
-              <select name="group_id" class="form-select">
-                {% for g in groups %}<option value="{{ g.id }}">{{ g.name }} ({{ g.code }})</option>{% endfor %}
+              <select id="groupSelect" name="group_id" class="form-select">
+                {% for g in groups %}<option value="{{ g.id }}" {% if g.id == selected_group_id %}selected{% endif %}>{{ g.name }} ({{ g.code }})</option>{% endfor %}
               </select>
             </div>
             <div class="col">
-              <select name="role_id" class="form-select">
-                {% for r in roles %}<option value="{{ r.id }}">{{ r.code }}</option>{% endfor %}
+              <select id="roleSelect" name="role_id" class="form-select">
+                {% for r in roles %}<option value="{{ r.id }}" {% if r.id == selected_role_id %}selected{% endif %}>{{ r.code }}</option>{% endfor %}
               </select>
             </div>
             <div class="col-auto"><button class="btn btn-primary">지정</button></div>
@@ -51,4 +51,22 @@
     </ul>
   </div></div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ membership_role_by_group|json_script:"membership-role-map" }}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const groupSelect = document.getElementById("groupSelect");
+  const roleSelect = document.getElementById("roleSelect");
+  const roleMapElement = document.getElementById("membership-role-map");
+  if (!groupSelect || !roleSelect || !roleMapElement) return;
+
+  const roleByGroup = JSON.parse(roleMapElement.textContent);
+  groupSelect.addEventListener("change", function () {
+    const currentRoleId = roleByGroup[groupSelect.value];
+    if (currentRoleId) roleSelect.value = currentRoleId;
+  });
+});
+</script>
 {% endblock %}
