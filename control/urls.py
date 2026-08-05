@@ -1,13 +1,20 @@
 # control/urls.py
 from django.urls import path, include
-from .views_auth import post_login_redirect, set_password_view, logout_view
+from .views_auth import post_login_redirect, logout_view
 from .views_signup import signup_view
 from .views_groups import group_search_view, group_select_view
 from .views_join import my_join_requests_view, join_requests_pending_view, join_request_decide_view
 # from .views_people import people_list, people_detail, change_role, people_invite
 from .views_groups_admin import group_list_admin, group_create_admin, group_edit_admin
 from .views_onboarding import no_tenant_view
-from .views_users_admin import users_list_admin, users_detail_admin, users_assign_group_admin, set_password_view, users_delete_admin, dashboard
+from .views_users_admin import (
+    users_list_admin,
+    users_detail_admin,
+    users_assign_group_admin,
+    set_password_view as admin_set_password_view,
+    users_delete_admin,
+    dashboard,
+)
 from .views_categories import categories_page, category_options
 
 app_name = "control"
@@ -25,7 +32,7 @@ urlpatterns = [
     # 회원가입
     path("signup/", signup_view, name="signup"),
 
-    path("set-password/<uuid:token>/", set_password_view, name="set_password"),
+    path("set-password/<uuid:token>/", admin_set_password_view, name="set_password"),
 
     # 그룹 검색/선택
     path("groups/search/", group_search_view, name="group_search"),
@@ -49,7 +56,7 @@ urlpatterns = [
     path("central/groups/<uuid:group_id>/edit/", group_edit_admin, name="group_edit_admin"),
 
     # password
-    path("account/set-password/<str:token>/", set_password_view, name="account_set_password"),
+    path("account/set-password/<str:token>/", admin_set_password_view, name="account_set_password"),
 
     path("categories/", categories_page, name="ctrl_categories_page"),
     path("categories/options/", category_options, name="ctrl_category_options"),

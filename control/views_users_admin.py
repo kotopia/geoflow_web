@@ -49,7 +49,11 @@ def set_password_view(request, token):
               UPDATE password_reset_tokens SET used=TRUE WHERE token=%s
             """, [str(token)])
 
-    messages.success(request, "비밀번호가 설정되었습니다. 이제 로그인할 수 있습니다.")
+    messages.success(
+        request,
+        "비밀번호가 설정되었습니다. 계정이 승인되어 활성 상태인 경우 로그인할 수 "
+        "있습니다. 승인대기 계정은 관리자 승인 후 로그인할 수 있습니다.",
+    )
     return redirect("login")
 
 @require_staff
