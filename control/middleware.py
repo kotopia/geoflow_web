@@ -5,7 +5,9 @@ import threading
 
 from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.contrib.auth import logout
+from django.db import connections
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 
 from control.tenant_connections import (
@@ -15,6 +17,104 @@ from control.tenant_connections import (
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class CentralAccountActiveGuardMiddleware:
+    """Fail closed when an authenticated central account is not active."""
+
+    PUBLIC_EXACT_PATHS = {
+        "/login",
+        "/login/",
+        "/signup",
+        "/signup/",
+        "/control/signup",
+        "/control/signup/",
+        "/control/logout",
+        "/control/logout/",
+        "/admin",
+        "/admin/",
+        "/health",
+        "/health/",
+        "/check",
+        "/check/",
+    }
+    PUBLIC_PATH_PREFIXES = (
+        "/admin/",
+        "/static/",
+        "/media/",
+        "/health/",
+        "/check/",
+        "/control/set-password/",
+        "/control/account/set-password/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    @classmethod
+    def _is_public_path(cls, path):
+        return path in cls.PUBLIC_EXACT_PATHS or any(
+            path.startswith(prefix) for prefix in cls.PUBLIC_PATH_PREFIXES
+        )
+
+    @staticmethod
+    def _is_api_request(request):
+        accept = request.headers.get("Accept", "").lower()
+        requested_with = request.headers.get("X-Requested-With", "").lower()
+        return (
+            request.path.startswith("/api/")
+            or "application/json" in accept
+            or requested_with == "xmlhttprequest"
+        )
+
+    @staticmethod
+    def _central_account_is_active(request):
+        user = request.user
+        email = (
+            getattr(user, "email", None)
+            or getattr(user, "username", None)
+            or ""
+        ).strip().lower()
+        if not email:
+            return False
+
+        central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+        with connections[central_alias].cursor() as cur:
+            cur.execute(
+                """
+                SELECT is_active
+                  FROM users
+                 WHERE lower(email) = lower(%s)
+                 LIMIT 1
+                """,
+                [email],
+            )
+            row = cur.fetchone()
+        return bool(row and row[0] is True)
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        path = request.path or "/"
+        if self._is_public_path(path):
+            return self.get_response(request)
+
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return self.get_response(request)
+
+        try:
+            is_active = self._central_account_is_active(request)
+        except Exception:
+            logger.warning("Central account active lookup failed")
+            is_active = False
+
+        if is_active:
+            return self.get_response(request)
+
+        is_api_request = self._is_api_request(request)
+        logout(request)
+        if is_api_request:
+            return JsonResponse({"detail": "Authentication required."}, status=401)
+        return redirect("login")
 
 # ── 스레드 로컬에 현재 요청의 테넌트 정보를 보관
 _tlocal = threading.local()
