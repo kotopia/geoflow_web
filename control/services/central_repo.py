@@ -9,6 +9,10 @@ from django.db import connections, transaction
 
 log = logging.getLogger(__name__)
 
+
+class JoinRequestStateConflict(Exception):
+    """Raised when a join request is no longer pending during transition."""
+
 # -------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------
@@ -228,6 +232,83 @@ def mark_join_request_status(req_id: str, status: str, decided_by: Optional[str]
                        updated_at=now()
                  WHERE id=%s
             """, [status, req_id])
+
+
+def approve_join_request_membership(
+    req_id: str,
+    *,
+    user_id: str,
+    group_id: str,
+    role_id: str,
+    decided_by: Optional[str] = None,
+) -> None:
+    """Atomically activate membership and transition a pending request."""
+    alias = _central_alias()
+    with transaction.atomic(using=alias):
+        upsert_user_group_membership(
+            user_id=user_id,
+            group_id=group_id,
+            role_id=role_id,
+        )
+        with connections[alias].cursor() as cur:
+            if _column_exists(alias, "join_requests", "decided_by"):
+                cur.execute(
+                    """
+                    UPDATE join_requests
+                       SET status='approved',
+                           decided_by=%s,
+                           decided_at=now(),
+                           updated_at=now()
+                     WHERE id=%s AND status='pending'
+                    """,
+                    [decided_by, req_id],
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE join_requests
+                       SET status='approved',
+                           updated_at=now()
+                     WHERE id=%s AND status='pending'
+                    """,
+                    [req_id],
+                )
+            if cur.rowcount != 1:
+                raise JoinRequestStateConflict
+
+
+def reject_join_request_if_pending(
+    req_id: str,
+    *,
+    decided_by: Optional[str] = None,
+) -> bool:
+    """Transition one pending request to rejected without provisioning."""
+    alias = _central_alias()
+    with transaction.atomic(using=alias):
+        with connections[alias].cursor() as cur:
+            if _column_exists(alias, "join_requests", "decided_by"):
+                cur.execute(
+                    """
+                    UPDATE join_requests
+                       SET status='rejected',
+                           decided_by=%s,
+                           decided_at=now(),
+                           updated_at=now()
+                     WHERE id=%s AND status='pending'
+                    """,
+                    [decided_by, req_id],
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE join_requests
+                       SET status='rejected',
+                           updated_at=now()
+                     WHERE id=%s AND status='pending'
+                    """,
+                    [req_id],
+                )
+            return cur.rowcount == 1
 
 def list_pending_join_requests() -> List[Dict[str, Any]]:
     with connections[_central_alias()].cursor() as cur:

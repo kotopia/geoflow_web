@@ -43,6 +43,7 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
             "is_active": True,
         }
         services.user_has_password.return_value = True
+        services.reject_join_request_if_pending.return_value = True
         for name, value in overrides.items():
             getattr(services, name).return_value = value
         return services
@@ -66,16 +67,15 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
         self.assertEqual(response, "join_requests_pending")
         services.get_or_create_user_by_email.assert_not_called()
         services.create_user.assert_not_called()
-        services.upsert_user_group_membership.assert_called_once_with(
+        services.approve_join_request_membership.assert_called_once_with(
+            "request-key",
             user_id="user-key",
             group_id="group-key",
             role_id="role-key",
-        )
-        services.mark_join_request_status.assert_called_once_with(
-            "request-key",
-            "approved",
             decided_by="admin-key",
         )
+        services.upsert_user_group_membership.assert_not_called()
+        services.mark_join_request_status.assert_not_called()
         services.create_set_password_token.assert_not_called()
         mail.send_set_password_email.assert_not_called()
         messages.success.assert_called_once()
@@ -88,6 +88,7 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
         services.get_or_create_user_by_email.assert_not_called()
         services.create_user.assert_not_called()
         services.upsert_user_group_membership.assert_not_called()
+        services.approve_join_request_membership.assert_not_called()
         services.create_set_password_token.assert_not_called()
         services.mark_join_request_status.assert_not_called()
         mail.send_set_password_email.assert_not_called()
@@ -147,13 +148,28 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
         services.create_user.assert_not_called()
         services.upsert_user_group_membership.assert_not_called()
         services.create_set_password_token.assert_not_called()
-        services.mark_join_request_status.assert_called_once_with(
+        services.reject_join_request_if_pending.assert_called_once_with(
             "request-key",
-            "rejected",
             decided_by="admin-key",
         )
+        services.mark_join_request_status.assert_not_called()
         mail.send_set_password_email.assert_not_called()
         messages.success.assert_called_once()
+
+    def test_non_pending_reject_is_not_repeated(self):
+        services = self._services()
+        services.get_join_request.return_value = self._join_request(
+            status="rejected"
+        )
+
+        response, messages, mail = self._call(services, action="reject")
+
+        self.assertEqual(response, "join_requests_pending")
+        services.reject_join_request_if_pending.assert_not_called()
+        services.upsert_user_group_membership.assert_not_called()
+        services.create_set_password_token.assert_not_called()
+        mail.send_set_password_email.assert_not_called()
+        messages.error.assert_called_once()
 
     def test_approval_does_not_change_account_activation_state(self):
         services = self._services()

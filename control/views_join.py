@@ -1,5 +1,6 @@
 # control/views_join.py
 from uuid import uuid4
+import logging
 
 from django.conf import settings
 from django.shortcuts import render, redirect
@@ -14,8 +15,10 @@ from control.services import emailer as Mail
 from control.decorators import require_central_admin  # 중앙 전용 보호 데코레이터
 from control.services import central_repo as C
 from control.services import tenant_repo as T
+from control.services.central_repo import JoinRequestStateConflict
 
 CENTRAL = getattr(settings, "CENTRAL_DB_ALIAS", "default")
+logger = logging.getLogger(__name__)
 
 def _central_alias():
     return CENTRAL
@@ -59,8 +62,12 @@ def join_request_decide_view(request, req_id, action):
     decided_by = admin_user["id"] if admin_user else None
 
     if action == "reject":
-        # 요청 상태만 'rejected'로
-        C.mark_join_request_status(req_id, "rejected", decided_by=decided_by)
+        if jr.get("status") != "pending" or not C.reject_join_request_if_pending(
+            req_id,
+            decided_by=decided_by,
+        ):
+            messages.error(request, "요청을 처리할 수 없습니다. 요청 상태를 확인하세요.")
+            return redirect("join_requests_pending")
         messages.success(request, "요청을 거절했습니다.")
         return redirect("join_requests_pending")
 
@@ -85,20 +92,40 @@ def join_request_decide_view(request, req_id, action):
             return redirect("join_requests_pending")
         user_id = account["id"]
 
-        # 3) 멤버십 upsert (중앙 권한 부여)
-        C.upsert_user_group_membership(user_id=user_id, group_id=group_id, role_id=role_id)
+        # 3~4) 멤버십과 pending -> approved 전이를 같은 중앙 transaction에서 처리
+        try:
+            C.approve_join_request_membership(
+                req_id,
+                user_id=user_id,
+                group_id=group_id,
+                role_id=role_id,
+                decided_by=decided_by,
+            )
+        except JoinRequestStateConflict:
+            messages.error(request, "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.")
+            return redirect("join_requests_pending")
+        except Exception:
+            logger.warning("Join approval transaction failed")
+            messages.error(request, "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.")
+            return redirect("join_requests_pending")
 
         # (선택) 테넌트 role_code 동기화가 필요하다면 여기서 tenant_repo를 호출하세요.
         # 예: T.sync_employee_role_by_email(group_id, requested_email, role_code)
 
-        # 4) 요청 상태 'approved'
-        C.mark_join_request_status(req_id, "approved", decided_by=decided_by)
-
-        # 5) 비밀번호 없으면 set-password 메일 발송
-        if not C.user_has_password(user_id):
-            token = C.create_set_password_token(user_id)  # 24시간 유효
-            link = request.build_absolute_uri(reverse("account_set_password", args=[token]))
-            Mail.send_set_password_email(requested_email, link)
+        # 5) DB 승인 commit 이후 비밀번호가 없는 active user에게만 token/mail 처리
+        try:
+            if not C.user_has_password(user_id):
+                token = C.create_set_password_token(user_id)  # 24시간 유효
+                link = request.build_absolute_uri(
+                    reverse("control:account_set_password", args=[token])
+                )
+                Mail.send_set_password_email(requested_email, link)
+        except Exception:
+            logger.warning("Join approval follow-up delivery failed")
+            messages.warning(
+                request,
+                "승인은 완료되었지만 후속 안내 처리가 완료되지 않았습니다.",
+            )
 
         messages.success(request, "승인 완료")
         return redirect("join_requests_pending")
