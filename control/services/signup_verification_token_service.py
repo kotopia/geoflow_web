@@ -228,7 +228,7 @@ def verify_signup_email_with_database_token(
     verifier = DatabaseSignupEmailVerificationTokenVerifier(
         key_ring=key_ring,
         repository=token_repository,
-     )
+    )
     verify_signup_email(
         token,
         token_verifier=verifier,
@@ -262,7 +262,7 @@ def issue_signup_email_verification_token(
     if not isinstance(secret, str) or not _SECRET_RE.fullmatch(secret):
         raise ValueError("token factory returned an invalid URL-safe secret")
 
-    token = f"{SIGNUP_EMAIL_VERIFICATION_TOKEN_VERSION}.{ey_id}.{secret}"
+    token = f"{SIGNUP_EMAIL_VERIFICATION_TOKEN_VERSION}.{key_id}.{secret}"
     digest = _digest_token(key=key_ring.active_key(), token=token)
     with context:
         created = repository.create_digest(
