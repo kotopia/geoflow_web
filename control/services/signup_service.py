@@ -127,6 +127,7 @@ def create_signup_request(
     alias = getattr(repository, "alias", getattr(settings, "CENTRAL_DB_ALIAS", "default"))
     context = atomic_context or transaction.atomic(using=alias)
     now = timezone.now()
+    password_hash = make_password(data.password)
 
     try:
         with context:
@@ -135,7 +136,7 @@ def create_signup_request(
 
             user_id = repository.create_inactive_user(
                 email=data.email,
-                password_hash=make_password(data.password),
+                password_hash=password_hash,
                 name_display=data.name_display,
                 is_active=False,
                 email_verified=False,
