@@ -1,37 +1,38 @@
 # control/views_signup.py
-from django.shortcuts import render, redirect
-from django.views.decorators.csrf import csrf_protect
-from django.db import connections
 from django.contrib import messages
-import bcrypt
+from django.shortcuts import redirect, render
+from django.views.decorators.csrf import csrf_protect
+
+from .forms_signup import SignupRequestForm
+from .services.signup_service import (
+    SignupRequestInput,
+    SignupRequestRejected,
+    create_signup_request,
+)
 
 @csrf_protect
 def signup_view(request):
     if request.method == "POST":
-        email = (request.POST.get("email") or "").strip()
-        password = request.POST.get("password") or ""
-        name = (request.POST.get("name") or "").strip()
+        form = SignupRequestForm(request.POST)
+        if form.is_valid():
+            cleaned = form.cleaned_data
+            try:
+                create_signup_request(
+                    SignupRequestInput(
+                        email=cleaned["email"],
+                        password=cleaned["password"],
+                        name_display=cleaned["name_display"],
+                        contact_phone=cleaned["contact_phone"],
+                        organization_name=cleaned["organization_name"],
+                        signup_purpose=cleaned["signup_purpose"],
+                    )
+                )
+            except SignupRequestRejected as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, "가입 요청이 접수되었습니다. 승인 전에는 로그인할 수 없습니다.")
+                return redirect("/login/")
+    else:
+        form = SignupRequestForm()
 
-        if not email or not password:
-            messages.error(request, "이메일/비밀번호를 입력하세요.")
-            return render(request, "control/signup.html")
-
-        pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-        with connections["default"].cursor() as cur:
-            # 이미 존재하면 에러
-            cur.execute("SELECT 1 FROM users WHERE email=%s", [email])
-            if cur.fetchone():
-                messages.error(request, "이미 가입된 이메일입니다. 로그인 해주세요.")
-                return render(request, "control/signup.html")
-
-            cur.execute("""
-                INSERT INTO users(id, email, password_hash, name_display, is_active, created_at, updated_at)
-                VALUES (gen_random_uuid(), %s, %s, %s, TRUE, now(), now())
-            """, [email, pw_hash, name or None])
-
-        # 가입 완료 → 로그인 페이지로 안내
-        messages.success(request, "가입이 완료되었습니다. 로그인 해주세요.")
-        return redirect("/login/")
-
-    return render(request, "control/signup.html")
+    return render(request, "control/signup.html", {"form": form})

@@ -6,20 +6,62 @@
   {% if messages %}{% for m in messages %}
     <div class="alert alert-{{ m.tags }}">{{ m }}</div>
   {% endfor %}{% endif %}
-  <form method="post">{% csrf_token %}
+  <form method="post" novalidate>{% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
     <div class="mb-3">
       <label class="form-label">이메일</label>
-      <input type="email" name="email" class="form-control" required>
+      <input type="email" name="email" value="{{ form.email.value|default:'' }}" class="form-control" required maxlength="254" autocomplete="email">
+      {{ form.email.errors }}
     </div>
     <div class="mb-3">
       <label class="form-label">비밀번호</label>
-      <input type="password" name="password" class="form-control" required minlength="6">
+      <input type="password" name="password" class="form-control" required autocomplete="new-password">
+      {{ form.password.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">비밀번호 확인</label>
+      <input type="password" name="password_confirm" class="form-control" required autocomplete="new-password">
+      {{ form.password_confirm.errors }}
     </div>
     <div class="mb-3">
       <label class="form-label">이름(표시명)</label>
-      <input type="text" name="name" class="form-control">
+      <input type="text" name="name_display" value="{{ form.name_display.value|default:'' }}" class="form-control" required maxlength="200" autocomplete="name">
+      {{ form.name_display.errors }}
     </div>
-    <button class="btn btn-primary w-100">가입</button>
+    <div class="mb-3">
+      <label class="form-label">연락처 (선택)</label>
+      <input type="text" name="contact_phone" value="{{ form.contact_phone.value|default:'' }}" class="form-control" maxlength="32" autocomplete="tel">
+      {{ form.contact_phone.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">소속 기관</label>
+      <input type="text" name="organization_name" value="{{ form.organization_name.value|default:'' }}" class="form-control" required maxlength="200">
+      {{ form.organization_name.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">가입 목적</label>
+      <textarea name="signup_purpose" class="form-control" required maxlength="1000" rows="4">{{ form.signup_purpose.value|default:'' }}</textarea>
+      {{ form.signup_purpose.errors }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">초대 코드 (선택)</label>
+      <input type="text" name="invitation_code" class="form-control" maxlength="200" autocomplete="off">
+      <div class="form-text">초대 코드는 자동 승인이나 그룹 권한 부여에 사용되지 않습니다.</div>
+      {{ form.invitation_code.errors }}
+    </div>
+    <div class="form-check mb-2">
+      <input type="checkbox" name="terms_agreed" value="1" class="form-check-input" id="terms_agreed" required {% if form.terms_agreed.value %}checked{% endif %}>
+      <label class="form-check-label" for="terms_agreed">이용약관에 동의합니다.</label>
+      {{ form.terms_agreed.errors }}
+    </div>
+    <div class="form-check mb-3">
+      <input type="checkbox" name="privacy_agreed" value="1" class="form-check-input" id="privacy_agreed" required {% if form.privacy_agreed.value %}checked{% endif %}>
+      <label class="form-check-label" for="privacy_agreed">개인정보 처리방침에 동의합니다.</label>
+      {{ form.privacy_agreed.errors }}
+    </div>
+    <button class="btn btn-primary w-100">가입 요청</button>
   </form>
   <div class="text-center mt-3">
     이미 계정이 있으신가요? <a href="/login/">로그인</a>
