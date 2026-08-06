@@ -248,3 +248,79 @@ class SignupRequestEvent(models.Model):
             ),
             models.Index(fields=("created_at",), name="signup_evt_created_idx"),
         ]
+
+SIGNUP_EMAIL_VERIFICATION_TOKEN_PURPOSES = (
+    "signup_email_verification",
+)
+
+SIGNUP_EMAIL_VERIFICATION_DIGEST_ALGORITHMS = (
+    "hmac_sha256",
+)
+
+
+class SignupEmailVerificationToken(models.Model):
+    """Single-use signup email-verification grant; raw tokens must never be stored."""
+
+    class Purpose(models.TextChoices):
+        SIGNUP_EMAIL_VERIFICATION = "signup_email_verification"
+
+    class DigestAlgorithm(models.TextChoices):
+        HMAC_SHA256 = "hmac_sha256"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    signup_request = models.ForeignKey(
+        SignupRequest,
+        on_delete=models.RESTRICT,
+        db_column="signup_request_id",
+        related_name="email_verification_tokens",
+    )
+    purpose = models.CharField(max_length=64, choices=Purpose.choices)
+    token_digest = models.CharField(max_length=64)
+    digest_algorithm = models.CharField(
+        max_length=32,
+        choices=DigestAlgorithm.choices,
+        default=DigestAlgorithm.HMAC_SHA256,
+    )
+    digest_key_id = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "signup_email_verification_tokens"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    purpose__in=SIGNUP_EMAIL_VERIFICATION_TOKEN_PURPOSES
+                ),
+                name="signup_vtoken_purpose_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    digest_algorithm__in=SIGNUP_EMAIL_VERIFICATION_DIGEST_ALGORITHMS
+                ),
+                name="signup_vtoken_digest_alg",
+            ),
+            models.UniqueConstraint(
+                fields=("digest_algorithm", "digest_key_id", "token_digest"),
+                name="signup_vtoken_digest_uq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(expires_at__gt=models.F("created_at")),
+                name="signup_vtoken_expiry_order",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(consumed_at__isnull=True)
+                    | models.Q(consumed_at__gte=models.F("created_at"))
+                ),
+                name="signup_vtoken_used_order",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("signup_request", "purpose", "expires_at"),
+                name="signup_vtoken_req_exp_idx",
+            ),
+            models.Index(fields=("expires_at",), name="signup_vtoken_exp_idx"),
+        ]
