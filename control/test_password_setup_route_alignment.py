@@ -106,6 +106,10 @@ class PasswordSetupRouteAlignmentTests(SimpleTestCase):
         self.assertIn("password_hash=%s", user_updates[0])
         self.assertIn("email_verified=TRUE", user_updates[0])
         self.assertNotIn("is_active", user_updates[0])
+        self.assertFalse(
+            any("signup_requests" in sql for sql in statements),
+            "Password setup must not advance signup approval state.",
+        )
         self.assertTrue(
             any(sql.startswith("UPDATE password_reset_tokens") for sql in statements)
         )
