@@ -15,6 +15,12 @@ import os
 import logging
 from dotenv import load_dotenv
 
+from .env_values import (
+    get_optional_env_int,
+    get_optional_env_text,
+    get_optional_env_text_mapping,
+)
+
 logger = logging.getLogger("geoflow.env")
 
 # Django 표준: BASE_DIR = manage.py가 있는 프로젝트 루트
@@ -373,6 +379,29 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 SITE_ORIGIN = "http://192.168.0.19:8000"
 DEFAULT_FROM_EMAIL = "noreply@geoflow.local"
+
+# Signup verification remains disabled until all runtime values are configured.
+# Key material is supplied only through the environment and is never logged.
+SIGNUP_EMAIL_VERIFICATION_ACTIVE_KEY_ID = get_optional_env_text(
+    os.environ,
+    "SIGNUP_EMAIL_VERIFICATION_ACTIVE_KEY_ID",
+)
+SIGNUP_EMAIL_VERIFICATION_HMAC_KEYS = get_optional_env_text_mapping(
+    os.environ,
+    "SIGNUP_EMAIL_VERIFICATION_HMAC_KEYS_JSON",
+)
+SIGNUP_EMAIL_VERIFICATION_TTL_SECONDS = get_optional_env_int(
+    os.environ,
+    "SIGNUP_EMAIL_VERIFICATION_TTL_SECONDS",
+    minimum=60,
+    maximum=7 * 24 * 60 * 60,
+)
+SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = get_optional_env_int(
+    os.environ,
+    "SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
+    minimum=60,
+    maximum=24 * 60 * 60,
+)
 
 RRN_SYM_KEY = get_env_required("RRN_SYM_KEY")
 
