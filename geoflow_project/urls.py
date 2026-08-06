@@ -28,6 +28,11 @@ urlpatterns = [
 
     # ✅ signup 라우트 (로그인 템플릿에서 {% url 'signup' %} 호출을 만족시키기 위한 최소 엔드포인트)
     path('signup/', views_signup.signup_view, name='signup'),
+    path(
+        'signup/verify/',
+        views_signup.signup_email_verification_view,
+        name='signup_verify',
+    ),
 
     # ✅ 중앙 전용 라우트
     path('control/', include(('control.urls', 'control'), namespace='control')),

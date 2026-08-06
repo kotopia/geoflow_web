@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>GeoFlow 이메일 인증</title>
+</head>
+<body>
+  <main style="max-width:560px;margin:48px auto;padding:0 20px">
+    <h1>이메일 인증</h1>
+
+    {% if verification_failed %}
+      <p role="alert">
+        이메일 인증 요청을 처리할 수 없습니다. 새 인증 안내를 요청해 주세요.
+      </p>
+    {% elif verification_unavailable %}
+      <p role="alert">
+        현재 이메일 인증을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.
+      </p>
+    {% else %}
+      <p id="verification-status" role="status">
+        인증 정보를 확인하고 있습니다.
+      </p>
+    {% endif %}
+
+    {% if auto_submit %}
+      <form id="signup-verification-form" method="post" hidden>
+        {% csrf_token %}
+        <input
+          id="signup-verification-token"
+          type="hidden"
+          name="token"
+          value=""
+          autocomplete="off"
+        >
+      </form>
+      <noscript>
+        <p role="alert">
+          이메일 인증을 완료하려면 브라우저의 JavaScript를 활성화해 주세요.
+        </p>
+      </noscript>
+      <script>
+        (() => {
+          const status = document.getElementById("verification-status");
+          const form = document.getElementById("signup-verification-form");
+          const input = document.getElementById("signup-verification-token");
+          const params = new URLSearchParams(window.location.hash.slice(1));
+          const token = params.get("token");
+
+          window.history.replaceState(
+            null,
+            document.title,
+            window.location.pathname + window.location.search
+          );
+
+          if (!token) {
+            status.textContent =
+              "이메일 인증 요청을 처리할 수 없습니다. 새 인증 안내를 요청해 주세요.";
+            status.setAttribute("role", "alert");
+            return;
+          }
+
+          input.value = token;
+          form.submit();
+        })();
+      </script>
+    {% endif %}
+
+    <p><a href="{% url 'login' %}">로그인 화면으로 이동</a></p>
+  </main>
+</body>
+</html>
