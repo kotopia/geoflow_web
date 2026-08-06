@@ -5,7 +5,7 @@ import hmac
 import re
 import secrets
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Mapping, Protocol
 
@@ -37,7 +37,7 @@ class SignupEmailVerificationTokenIssuanceRejected(Exception):
 
 @dataclass(frozen=True)
 class IssuedSignupEmailVerificationToken:
-    token: str
+    token: str = field(repr=False)
     expires_at: datetime
 
 

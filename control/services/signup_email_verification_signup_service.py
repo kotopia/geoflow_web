@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -26,8 +26,8 @@ from .signup_verification_token_service import (
 class PendingSignupEmailVerification:
     """Raw token returned once to the delivery boundary after atomic persistence."""
 
-    signup_request_id: str
-    token: str
+    signup_request_id: str = field(repr=False)
+    token: str = field(repr=False)
     expires_at: datetime
 
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from django.conf import settings
@@ -24,8 +25,8 @@ class EmailVerificationConfigurationError(RuntimeError):
 class EmailVerificationGrant:
     """Non-secret identity returned after an email-verification token is consumed."""
 
-    user_id: str
-    signup_request_id: str
+    user_id: str = field(repr=False)
+    signup_request_id: str = field(repr=False)
 
 
 class EmailVerificationTokenVerifier(Protocol):
@@ -88,11 +89,11 @@ class CentralSignupVerificationRepository:
                     id, signup_request_id, event_type, from_status,
                     to_status, actor_user_id, created_at
                 ) VALUES (
-                    gen_random_uuid(), %s, 'verified', 'pending_email_verification',
+                    %s, %s, 'verified', 'pending_email_verification',
                     'pending_approval', NULL, %s
                 )
                 """,
-                [signup_request_id, created_at],
+                [uuid.uuid4(), signup_request_id, created_at],
             )
 
 

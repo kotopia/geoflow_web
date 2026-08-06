@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from django.conf import settings
@@ -20,20 +20,20 @@ class SignupRequestRejected(Exception):
 
 @dataclass(frozen=True)
 class SignupRequestInput:
-    email: str
-    password: str
-    name_display: str
-    contact_phone: str
-    organization_name: str
-    signup_purpose: str
+    email: str = field(repr=False)
+    password: str = field(repr=False)
+    name_display: str = field(repr=False)
+    contact_phone: str = field(repr=False)
+    organization_name: str = field(repr=False)
+    signup_purpose: str = field(repr=False)
 
 
 @dataclass(frozen=True)
 class SignupRequestReceipt:
     """Non-secret identifiers produced by a committed signup request."""
 
-    user_id: str
-    signup_request_id: str
+    user_id: str = field(repr=False)
+    signup_request_id: str = field(repr=False)
 
 
 class SignupRepository(Protocol):

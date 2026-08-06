@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
+import uuid
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 from django.conf import settings
@@ -20,12 +21,12 @@ class SignupAccountDecisionRejected(Exception):
 
 @dataclass(frozen=True)
 class SignupAccountDecision:
-    signup_request_id: str
+    signup_request_id: str = field(repr=False)
     expected_version: int
-    actor_user_id: str
+    actor_user_id: str = field(repr=False)
     decision: SignupDecision
     reason_code: str | None = None
-    note: str | None = None
+    note: str | None = field(default=None, repr=False)
 
 
 class SignupAccountDecisionRepository(Protocol):
@@ -127,11 +128,12 @@ class CentralSignupAccountDecisionRepository:
                     id, signup_request_id, event_type, from_status,
                     to_status, actor_user_id, reason_code, note, created_at
                 ) VALUES (
-                    gen_random_uuid(), %s, %s, 'pending_approval',
+                    %s, %s, %s, 'pending_approval',
                     %s, %s, %s, %s, %s
                 )
                 """,
                 [
+                    uuid.uuid4(),
                     signup_request_id,
                     decision,
                     decision,
