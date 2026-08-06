@@ -7,6 +7,7 @@ from control.forms_signup import SignupRequestForm
 from control.services.signup_service import (
     PUBLIC_SIGNUP_ERROR,
     SignupRequestInput,
+    SignupRequestReceipt,
     SignupRequestRejected,
     create_signup_request,
 )
@@ -72,7 +73,21 @@ class SignupRequestServiceTests(SimpleTestCase):
 
     @patch("control.services.signup_service.make_password", return_value="stored-hash")
     def test_valid_flow_creates_inactive_user_request_and_initial_event(self, mocked_hash):
-        create_signup_request(self.data, repository=self.repository, atomic_context=nullcontext())
+        receipt = create_signup_request(
+            self.data,
+            repository=self.repository,
+            atomic_context=nullcontext(),
+        )
+
+        self.assertEqual(
+            receipt,
+            SignupRequestReceipt(
+                user_id="user-id",
+                signup_request_id="request-id",
+            ),
+        )
+        self.assertNotIn("password", receipt.__dict__)
+        self.assertNotIn("email", receipt.__dict__)
 
         user_values = self.repository.create_inactive_user.call_args.kwargs
         self.assertIs(user_values["is_active"], False)

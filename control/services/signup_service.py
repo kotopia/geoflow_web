@@ -28,6 +28,14 @@ class SignupRequestInput:
     signup_purpose: str
 
 
+@dataclass(frozen=True)
+class SignupRequestReceipt:
+    """Non-secret identifiers produced by a committed signup request."""
+
+    user_id: str
+    signup_request_id: str
+
+
 class SignupRepository(Protocol):
     def account_exists(self, email: str) -> bool: ...
     def create_inactive_user(self, **values) -> str: ...
@@ -114,7 +122,7 @@ def create_signup_request(
     *,
     repository: SignupRepository | None = None,
     atomic_context: AbstractContextManager | None = None,
-) -> None:
+) -> SignupRequestReceipt:
     repository = repository or CentralSignupRepository()
     alias = getattr(repository, "alias", getattr(settings, "CENTRAL_DB_ALIAS", "default"))
     context = atomic_context or transaction.atomic(using=alias)
@@ -146,6 +154,11 @@ def create_signup_request(
                 signup_request_id=request_id,
                 created_at=now,
             )
+
+        return SignupRequestReceipt(
+            user_id=user_id,
+            signup_request_id=request_id,
+        )
     except SignupRequestRejected:
         raise
     except IntegrityError as exc:
