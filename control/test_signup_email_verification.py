@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from control.services.signup_verification_service import (
     PUBLIC_VERIFICATION_ERROR,
     CentralSignupVerificationRepository,
+    EmailVerificationConfigurationError,
     EmailVerificationGrant,
     EmailVerificationRejected,
     verify_signup_email,
@@ -127,3 +128,27 @@ class SignupEmailVerificationServiceTests(SimpleTestCase):
         self.assertIn("is_active=false", normalized)
         self.assertNotIn("set is_active", normalized)
         self.assertNotIn("password_hash", normalized)
+
+    def test_database_alias_mismatch_fails_before_token_or_state_writes(self):
+        class AliasBoundVerifier:
+            alias = "tenant"
+
+            def __init__(self):
+                self.consume = MagicMock()
+
+        verifier = AliasBoundVerifier()
+        repository = MagicMock()
+        repository.alias = "central"
+
+        with self.assertRaises(EmailVerificationConfigurationError):
+            verify_signup_email(
+                "opaque-test-token",
+                token_verifier=verifier,
+                repository=repository,
+                atomic_context=nullcontext(),
+            )
+
+        verifier.consume.assert_not_called()
+        repository.transition_request_to_pending_approval.assert_not_called()
+        repository.mark_email_verified.assert_not_called()
+        repository.append_verified_event.assert_not_called()

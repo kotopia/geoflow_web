@@ -13,7 +13,13 @@ from django.conf import settings
 from django.db import connections, transaction
 from django.utils import timezone
 
-from .signup_verification_service import EmailVerificationGrant
+from .signup_verification_service import (
+    CentralSignupVerificationRepository,
+    EmailVerificationConfigurationError,
+    EmailVerificationGrant,
+    SignupVerificationRepository,
+    verify_signup_email,
+)
 
 SIGNUP_EMAIL_VERIFICATION_PURPOSE = "signup_email_verification"
 SIGNUP_EMAIL_VERIFICATION_DIGEST_ALGORITHM = "hmac_sha256"
@@ -171,6 +177,11 @@ class DatabaseSignupEmailVerificationTokenVerifier:
         self.repository = repository or CentralSignupEmailVerificationTokenRepository()
         self.clock = clock
 
+    @property
+    def alias(self) -> str | None:
+        alias = getattr(self.repository, "alias", None)
+        return alias if isinstance(alias, str) else None
+
     def consume(self, token: str) -> EmailVerificationGrant | None:
         parsed = _parse_token(token)
         if parsed is None:
@@ -186,6 +197,44 @@ class DatabaseSignupEmailVerificationTokenVerifier:
             digest_key_id=key_id,
             consumed_at=self.clock(),
         )
+
+
+def verify_signup_email_with_database_token(
+    token: str,
+    *,
+    key_ring: HmacSha256VerificationKeyRing,
+    alias: str | None = None,
+    token_repository: SignupEmailVerificationTokenRepository | None = None,
+    verification_repository: SignupVerificationRepository | None = None,
+    atomic_context=None,
+) -> None:
+    """Consume the digest and transition signup state in one central transaction."""
+
+    resolved_alias = alias or getattr(settings, "CENTRAL_DB_ALIAS", "default")
+    token_repository = token_repository or (
+        CentralSignupEmailVerificationTokenRepository(alias=resolved_alias)
+    )
+    verification_repository = verification_repository or (
+        CentralSignupVerificationRepository(alias=resolved_alias)
+    )
+
+    for repository in (token_repository, verification_repository):
+        repository_alias = getattr(repository, "alias", None)
+        if repository_alias is not None and repository_alias != resolved_alias:
+            raise EmailVerificationConfigurationError(
+                "verification repositories must use the resolved central DB alias"
+            )
+
+    verifier = DatabaseSignupEmailVerificationTokenVerifier(
+        key_ring=key_ring,
+        repository=token_repository,
+     )
+    verify_signup_email(
+        token,
+        token_verifier=verifier,
+        repository=verification_repository,
+        atomic_context=atomic_context,
+    )
 
 
 def issue_signup_email_verification_token(
@@ -213,7 +262,7 @@ def issue_signup_email_verification_token(
     if not isinstance(secret, str) or not _SECRET_RE.fullmatch(secret):
         raise ValueError("token factory returned an invalid URL-safe secret")
 
-    token = f"{SIGNUP_EMAIL_VERIFICATION_TOKEN_VERSION}.{key_id}.{secret}"
+    token = f"{SIGNUP_EMAIL_VERIFICATION_TOKEN_VERSION}.{ey_id}.{secret}"
     digest = _digest_token(key=key_ring.active_key(), token=token)
     with context:
         created = repository.create_digest(

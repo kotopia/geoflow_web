@@ -4,7 +4,10 @@ from inspect import getsource
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-from control.services.signup_verification_service import EmailVerificationGrant
+from control.services.signup_verification_service import (
+    EmailVerificationConfigurationError,
+    EmailVerificationGrant,
+)
 from control.services.signup_verification_token_service import (
     CentralSignupEmailVerificationTokenRepository,
     DatabaseSignupEmailVerificationTokenVerifier,
@@ -13,6 +16,7 @@ from control.services.signup_verification_token_service import (
     SIGNUP_EMAIL_VERIFICATION_PURPOSE,
     SignupEmailVerificationTokenIssuanceRejected,
     issue_signup_email_verification_token,
+    verify_signup_email_with_database_token,
 )
 
 
@@ -212,3 +216,50 @@ class SignupEmailVerificationTokenServiceTests(TestCase):
         self.assertNotIn("raw_token", source)
         self.assertNotIn("token_value", source)
         self.assertNotIn("password_hash", source)
+
+    def test_orchestrator_uses_one_alias_for_token_and_state_writes(self):
+        token_repository = MagicMock()
+        token_repository.alias = "central"
+        token_repository.consume_digest.return_value = EmailVerificationGrant(
+            user_id="user-reference",
+            signup_request_id="request-reference",
+        )
+        verification_repository = MagicMock()
+        verification_repository.alias = "central"
+        verification_repository.transition_request_to_pending_approval.return_value = True
+        verification_repository.mark_email_verified.return_value = True
+
+        verify_signup_email_with_database_token(
+            f"v1.current.{('s' * 43)}",
+            key_ring=self.key_ring,
+            alias="central",
+            token_repository=token_repository,
+            verification_repository=verification_repository,
+            atomic_context=nullcontext(),
+        )
+
+        token_repository.consume_digest.assert_called_once()
+        verification_repository.transition_request_to_pending_approval.assert_called_once()
+        verification_repository.mark_email_verified.assert_called_once()
+        verification_repository.append_verified_event.assert_called_once()
+
+    def test_orchestrator_rejects_alias_mismatch_before_any_write(self):
+        token_repository = MagicMock()
+        token_repository.alias = "tenant"
+        verification_repository = MagicMock()
+        verification_repository.alias = "central"
+
+        with self.assertRaises(EmailVerificationConfigurationError):
+            verify_signup_email_with_database_token(
+                f"v1.current.{('s' * 43)}",
+                key_ring=self.key_ring,
+                alias="central",
+                token_repository=token_repository,
+                verification_repository=verification_repository,
+                atomic_context=nullcontext(),
+            )
+
+        token_repository.consume_digest.assert_not_called()
+        verification_repository.transition_request_to_pending_approval.assert_not_called()
+        verification_repository.mark_email_verified.assert_not_called()
+        verification_repository.append_verified_event.assert_not_called()

@@ -16,6 +16,10 @@ class EmailVerificationRejected(Exception):
     """Fail-closed public error for invalid, expired, replayed, or stale verification."""
 
 
+class EmailVerificationConfigurationError(RuntimeError):
+    """Internal error for cross-database verification configuration."""
+
+
 @dataclass(frozen=True)
 class EmailVerificationGrant:
     """Non-secret identity returned after an email-verification token is consumed."""
@@ -103,6 +107,11 @@ def verify_signup_email(
 
     repository = repository or CentralSignupVerificationRepository()
     alias = getattr(repository, "alias", getattr(settings, "CENTRAL_DB_ALIAS", "default"))
+    verifier_alias = _database_alias(token_verifier)
+    if verifier_alias is not None and verifier_alias != alias:
+        raise EmailVerificationConfigurationError(
+            "verification token and signup state repositories must share one DB alias"
+        )
     context = atomic_context or transaction.atomic(using=alias)
 
     with context:
@@ -128,3 +137,11 @@ def verify_signup_email(
             signup_request_id=grant.signup_request_id,
             created_at=changed_at,
         )
+
+
+def _database_alias(token_verifier: EmailVerificationTokenVerifier) -> str | None:
+    alias_descriptor = getattr(type(token_verifier), "alias", None)
+    if alias_descriptor is None:
+        return None
+    alias = token_verifier.alias
+    return alias if isinstance(alias, str) else None
