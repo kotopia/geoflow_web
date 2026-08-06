@@ -6,13 +6,19 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponseForbidden
 from django.db import connections
 from django.core.exceptions import ObjectDoesNotExist
-from django.contrib.auth.hashers import check_password, make_password, identify_hasher
+from django.contrib.auth.hashers import make_password
 from django.urls import reverse
 from control.services import central_repo as C
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from django.middleware.csrf import rotate_token
 
 from control.models import UserGroupMap
+from control.services.central_login_authentication import (
+    PUBLIC_LOGIN_ERROR,
+    CentralLoginPasswordConfigurationError,
+    burn_central_login_password_check,
+    verify_central_login_password,
+)
 from control.tenant_connections import (
     clear_tenant_session_state,
     ensure_tenant_connection_for_session,
@@ -130,41 +136,34 @@ def login_view(request):
             """, [email])
             row = cur.fetchone()
 
-        invalid_account_error = "사용자를 찾을 수 없습니다."
         if not row:
-            return render(request, "control/login.html", {"error": invalid_account_error})
+            burn_central_login_password_check(pw)
+            return render(request, "control/login.html", {"error": PUBLIC_LOGIN_ERROR})
 
         user_uuid, pw_hash, is_active = row
         if is_active is not True:
-            return render(request, "control/login.html", {"error": invalid_account_error})
-
-        if not pw_hash or not str(pw_hash).strip():
-            return render(request, "control/login.html", {"error": "비밀번호가 올바르지 않습니다."})
+            burn_central_login_password_check(pw)
+            return render(request, "control/login.html", {"error": PUBLIC_LOGIN_ERROR})
 
         # 2) 비밀번호 검증(+구형 bcrypt → pbkdf2로 마이그레이션)
-        migrate_needed = False
         try:
-            if str(pw_hash).startswith(("$2a$", "$2b$", "$2y$")):
-                try:
-                    import bcrypt
-                except Exception:
-                    return render(request, "control/login.html", {"error": "서버 설정 오류(bcrypt 미설치). 관리자에게 문의하세요."})
-                if not bcrypt.checkpw(pw.encode(), pw_hash.encode()):
-                    return render(request, "control/login.html", {"error": "비밀번호가 올바르지 않습니다."})
-                migrate_needed = True
-            else:
-                if not check_password(pw, pw_hash):
-                    return render(request, "control/login.html", {"error": "비밀번호가 올바르지 않습니다."})
-                try:
-                    algo = identify_hasher(pw_hash).algorithm  # 예: 'pbkdf2_sha256'
-                    if algo != "pbkdf2_sha256":
-                        migrate_needed = True
-                except Exception:
-                    pass
-        except Exception:
-            return render(request, "control/login.html", {"error": "비밀번호 검증 중 오류가 발생했습니다."})
+            password_result = verify_central_login_password(pw, pw_hash)
+        except CentralLoginPasswordConfigurationError:
+            logger.error("AUTH: central password verifier unavailable")
+            return render(
+                request,
+                "control/login.html",
+                {"error": PUBLIC_LOGIN_ERROR},
+            )
 
-        if migrate_needed:
+        if not password_result.valid:
+            return render(
+                request,
+                "control/login.html",
+                {"error": PUBLIC_LOGIN_ERROR},
+            )
+
+        if password_result.needs_rehash:
             new_hash = make_password(pw)
             with connections[central_alias].cursor() as cur:
                 cur.execute(
