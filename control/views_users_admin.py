@@ -7,6 +7,10 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from django.contrib.auth.hashers import make_password
 from .decorators import require_staff
+from .services.legacy_password_setup_compatibility import (
+    LegacyPasswordSetupSignupConflict,
+    require_legacy_password_setup_compatible,
+)
 
 @csrf_protect
 def set_password_view(request, token):
@@ -25,6 +29,15 @@ def set_password_view(request, token):
     user_id, email, expires_at, used = row
     if used or expires_at < timezone.now():
         return render(request, "control/set_password.html", {"expired": True, "email": email})
+
+    try:
+        require_legacy_password_setup_compatible(user_id)
+    except LegacyPasswordSetupSignupConflict:
+        return render(
+            request,
+            "control/set_password.html",
+            {"invalid": True},
+        )
 
     if request.method == "GET":
         return render(request, "control/set_password.html", {"email": email})
