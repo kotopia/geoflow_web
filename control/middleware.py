@@ -41,6 +41,7 @@ class CentralAccountActiveGuardMiddleware:
     }
     PUBLIC_PATH_PREFIXES = (
         "/admin/",
+        "/signup/",
         "/static/",
         "/media/",
         "/health/",
@@ -140,6 +141,7 @@ class TenantMembershipFreshnessGuardMiddleware:
     EXEMPT_PATH_PREFIXES = (
         "/admin/",
         "/control/",
+        "/signup/",
         "/static/",
         "/media/",
         "/health/",
@@ -270,7 +272,7 @@ class TenantMiddleware:
         path = request.path or "/"
         central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
 
-        if path.startswith(("/login/", "/static/", "/media/")):
+        if path.startswith(("/login/", "/signup/", "/static/", "/media/")):
             _set_threadlocal(central_alias, True, None)
             request.session["scope"] = "central"
             return self.get_response(request)
@@ -329,7 +331,12 @@ class CentralGuardMiddleware(MiddlewareMixin):
         alias = request.session.get('tenant_db_alias') or central
 
         # 로그인/정적/중앙 경로는 패스
-        if request.path.startswith(('/login', '/logout', '/after-login', '/control/', '/static/', '/media/')):
+        if request.path.startswith(
+            (
+                '/login', '/logout', '/after-login', '/signup',
+                '/control/', '/static/', '/media/',
+            )
+        ):
             return None
 
         # 중앙이면 테넌트 URL로 못 가게
