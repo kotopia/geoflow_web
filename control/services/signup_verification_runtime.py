@@ -4,6 +4,7 @@ from base64 import b64decode
 from collections.abc import Mapping
 
 from django.conf import settings
+from django.views.decorators.debug import sensitive_variables
 
 from .signup_verification_service import EmailVerificationConfigurationError
 from .signup_verification_token_service import (
@@ -12,6 +13,11 @@ from .signup_verification_token_service import (
 )
 
 
+@sensitive_variables(
+    "configured_keys",
+    "decoded_keys",
+    "encoded_key",
+)
 def load_signup_email_verification_key_ring(
     *,
     settings_obj=settings,
@@ -57,6 +63,7 @@ def load_signup_email_verification_key_ring(
         ) from exc
 
 
+@sensitive_variables("token", "key_ring")
 def verify_signup_email_from_runtime_config(
     token: str,
     *,

@@ -8,6 +8,7 @@ from typing import Protocol
 from django.conf import settings
 from django.db import connections, transaction
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_variables
 
 
 PUBLIC_VERIFICATION_ERROR = "이메일 인증 요청을 처리할 수 없습니다. 새 인증 안내를 요청해 주세요."
@@ -97,6 +98,7 @@ class CentralSignupVerificationRepository:
             )
 
 
+@sensitive_variables("token")
 def verify_signup_email(
     token: str,
     *,

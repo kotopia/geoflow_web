@@ -8,6 +8,7 @@ from typing import Callable, Protocol
 from django.conf import settings
 from django.db import connections, transaction
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_variables
 
 from .signup_verification_service import EmailVerificationConfigurationError
 from .signup_verification_token_service import (
@@ -95,6 +96,7 @@ class CentralSignupVerificationResendRepository:
         )
 
 
+@sensitive_variables("email", "key_ring", "issued")
 def prepare_signup_email_verification_resend(
     email: str,
     *,

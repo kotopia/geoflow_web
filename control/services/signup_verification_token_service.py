@@ -12,6 +12,7 @@ from typing import Callable, Mapping, Protocol
 from django.conf import settings
 from django.db import connections, transaction
 from django.utils import timezone
+from django.views.decorators.debug import sensitive_variables
 
 from .signup_verification_service import (
     CentralSignupVerificationRepository,
@@ -182,6 +183,7 @@ class DatabaseSignupEmailVerificationTokenVerifier:
         alias = getattr(self.repository, "alias", None)
         return alias if isinstance(alias, str) else None
 
+    @sensitive_variables("token")
     def consume(self, token: str) -> EmailVerificationGrant | None:
         parsed = _parse_token(token)
         if parsed is None:
@@ -199,6 +201,7 @@ class DatabaseSignupEmailVerificationTokenVerifier:
         )
 
 
+@sensitive_variables("token", "key_ring")
 def verify_signup_email_with_database_token(
     token: str,
     *,
@@ -237,6 +240,7 @@ def verify_signup_email_with_database_token(
     )
 
 
+@sensitive_variables("key_ring", "secret", "token")
 def issue_signup_email_verification_token(
     *,
     signup_request_id: str,

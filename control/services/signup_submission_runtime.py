@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Callable
 
 from django.conf import settings
+from django.views.decorators.debug import sensitive_variables
 
 from .signup_email_verification_signup_service import (
     create_signup_request_with_verification_token,
@@ -13,6 +14,7 @@ from .signup_email_verification_signup_service import (
 from .signup_service import SignupRequestInput
 from .signup_verification_delivery import (
     build_signup_email_verification_link,
+    validate_signup_email_verification_url,
 )
 from .signup_verification_email_delivery import (
     SignupVerificationEmailDeliveryError,
@@ -54,6 +56,12 @@ def load_signup_email_verification_ttl(
     return timedelta(seconds=value)
 
 
+@sensitive_variables(
+    "data",
+    "key_ring",
+    "pending",
+    "verification_link",
+)
 def submit_signup_with_email_verification(
     data: SignupRequestInput,
     *,
@@ -65,6 +73,7 @@ def submit_signup_with_email_verification(
 ) -> SignupSubmissionOutcome:
     """Persist signup and token first, then cross the email delivery boundary."""
 
+    validate_signup_email_verification_url(verification_url)
     key_ring = load_signup_email_verification_key_ring(
         settings_obj=settings_obj,
     )

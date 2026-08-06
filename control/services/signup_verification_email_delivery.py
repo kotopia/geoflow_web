@@ -6,12 +6,19 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.views.decorators.debug import sensitive_variables
 
 
 class SignupVerificationEmailDeliveryError(Exception):
     """Sanitized delivery failure; recipient and token must not be exposed."""
 
 
+@sensitive_variables(
+    "to_email",
+    "verification_link",
+    "recipient",
+    "body",
+)
 def send_signup_email_verification_email(
     *,
     to_email: str,
@@ -33,7 +40,8 @@ def send_signup_email_verification_email(
     subject = "[GeoFlow] 회원가입 이메일 인증 안내"
     body = (
         "안녕하세요.\n\n"
-        "GeoFlow 회원가입 이메일 인증을 완료하려면 아래 링크를 이용해 주세요.\n"
+        "GeoFlow 회원가입 이메일 인증을 완료하려면 "
+        "아래 링크를 이용해 주세요.\n"
         "이 링크는 제한된 시간 동안 한 번만 사용할 수 있습니다.\n\n"
         f"{verification_link}\n\n"
         "본인이 요청하지 않은 경우 이 메일을 무시하셔도 됩니다.\n"
