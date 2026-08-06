@@ -48,7 +48,6 @@ class SignupAccountDecisionRepository(Protocol):
         actor_user_id: str,
         decision: SignupDecision,
         reason_code: str | None,
-        note: str | None,
         created_at,
     ) -> None: ...
 
@@ -118,7 +117,6 @@ class CentralSignupAccountDecisionRepository:
         actor_user_id: str,
         decision: SignupDecision,
         reason_code: str | None,
-        note: str | None,
         created_at,
     ) -> None:
         with connections[self.alias].cursor() as cursor:
@@ -129,7 +127,7 @@ class CentralSignupAccountDecisionRepository:
                     to_status, actor_user_id, reason_code, note, created_at
                 ) VALUES (
                     %s, %s, %s, 'pending_approval',
-                    %s, %s, %s, %s, %s
+                    %s, %s, %s, NULL, %s
                 )
                 """,
                 [
@@ -139,7 +137,6 @@ class CentralSignupAccountDecisionRepository:
                     decision,
                     actor_user_id,
                     reason_code,
-                    note,
                     created_at,
                 ],
             )
@@ -183,7 +180,6 @@ def decide_signup_account(
             actor_user_id=normalized.actor_user_id,
             decision=normalized.decision,
             reason_code=normalized.reason_code,
-            note=normalized.note,
             created_at=decided_at,
         )
 
