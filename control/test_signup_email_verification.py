@@ -25,6 +25,12 @@ class SignupEmailVerificationServiceTests(SimpleTestCase):
         self.repository.transition_request_to_pending_approval.return_value = True
         self.repository.mark_email_verified.return_value = True
 
+    def test_grant_repr_does_not_expose_central_identifiers(self):
+        grant = self.token_verifier.consume.return_value
+
+        self.assertNotIn(grant.user_id, repr(grant))
+        self.assertNotIn(grant.signup_request_id, repr(grant))
+
     def _verify(self):
         verify_signup_email(
             "opaque-test-token",
@@ -152,3 +158,11 @@ class SignupEmailVerificationServiceTests(SimpleTestCase):
         repository.transition_request_to_pending_approval.assert_not_called()
         repository.mark_email_verified.assert_not_called()
         repository.append_verified_event.assert_not_called()
+
+    def test_verified_event_does_not_require_database_uuid_extension(self):
+        source = getsource(
+            CentralSignupVerificationRepository.append_verified_event
+        )
+
+        self.assertIn("uuid.uuid4()", source)
+        self.assertNotIn("gen_random_uuid()", source)

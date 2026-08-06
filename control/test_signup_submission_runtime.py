@@ -108,6 +108,24 @@ class SignupSubmissionRuntimeTests(TestCase):
         self.assertNotIn(self.data.email, repr(logger.mock_calls))
         self.assertNotIn(self.data.password, repr(logger.mock_calls))
 
+    def test_invalid_verification_url_fails_before_signup_persistence(self):
+        create_pending = MagicMock()
+
+        for verification_url in (
+            "/signup/verify/",
+            "https://example.com/signup/verify/#preexisting",
+        ):
+            with self.subTest(verification_url=verification_url):
+                with self.assertRaises(ValueError):
+                    submit_signup_with_email_verification(
+                        self.data,
+                        verification_url=verification_url,
+                        settings_obj=self.settings,
+                        create_pending=create_pending,
+                    )
+
+        create_pending.assert_not_called()
+
     def test_missing_or_out_of_range_ttl_fails_before_signup_persistence(self):
         invalid_values = (None, True, 0, 59, 604_801, "7200")
         create_pending = MagicMock()

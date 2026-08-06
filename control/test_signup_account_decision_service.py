@@ -30,6 +30,13 @@ class SignupAccountDecisionServiceTests(TestCase):
         values.update(overrides)
         return SignupAccountDecision(**values)
 
+    def test_decision_repr_hides_identifiers_and_free_text_note(self):
+        decision = self._decision(note="private reviewer note")
+
+        self.assertNotIn(decision.signup_request_id, repr(decision))
+        self.assertNotIn(decision.actor_user_id, repr(decision))
+        self.assertNotIn("private reviewer note", repr(decision))
+
     def test_approval_transitions_activates_and_appends_event(self):
         decide_signup_account(
             self._decision(),
@@ -40,6 +47,9 @@ class SignupAccountDecisionServiceTests(TestCase):
         self.repository.apply_request_decision.assert_called_once()
         self.repository.activate_verified_user.assert_called_once()
         self.repository.append_decision_event.assert_called_once()
+        event = self.repository.append_decision_event.call_args.kwargs
+        self.assertNotIn("note", event)
+        self.assertEqual(event["reason_code"], "review.accepted")
 
     def test_rejection_never_activates_user(self):
         decide_signup_account(
@@ -122,3 +132,19 @@ class SignupAccountDecisionServiceTests(TestCase):
             "password_hash",
         ):
             self.assertNotIn(forbidden, source)
+
+    def test_event_insert_does_not_depend_on_database_uuid_extension(self):
+        source = getsource(
+            CentralSignupAccountDecisionRepository.append_decision_event
+        )
+
+        self.assertIn("uuid.uuid4()", source)
+        self.assertNotIn("gen_random_uuid()", source)
+
+    def test_event_insert_does_not_duplicate_free_text_decision_note(self):
+        source = getsource(
+            CentralSignupAccountDecisionRepository.append_decision_event
+        )
+
+        self.assertIn("NULL", source)
+        self.assertNotIn("decision.note", source)

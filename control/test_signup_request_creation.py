@@ -79,6 +79,15 @@ class SignupRequestServiceTests(SimpleTestCase):
             atomic_context=nullcontext(),
         )
 
+        input_repr = repr(self.data)
+        for sensitive_value in (
+            self.data.email,
+            self.data.password,
+            self.data.name_display,
+            self.data.signup_purpose,
+        ):
+            self.assertNotIn(sensitive_value, input_repr)
+
         self.assertEqual(
             receipt,
             SignupRequestReceipt(
@@ -88,6 +97,8 @@ class SignupRequestServiceTests(SimpleTestCase):
         )
         self.assertNotIn("password", receipt.__dict__)
         self.assertNotIn("email", receipt.__dict__)
+        self.assertNotIn(receipt.user_id, repr(receipt))
+        self.assertNotIn(receipt.signup_request_id, repr(receipt))
 
         user_values = self.repository.create_inactive_user.call_args.kwargs
         self.assertIs(user_values["is_active"], False)

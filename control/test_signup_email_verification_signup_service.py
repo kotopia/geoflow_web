@@ -63,6 +63,8 @@ class SignupEmailVerificationOrchestrationTests(SimpleTestCase):
         atomic.__exit__.assert_called_once()
         self.assertEqual(pending.signup_request_id, "request-reference")
         self.assertEqual(pending.token, f"v1.current.{('s' * 43)}")
+        self.assertNotIn(pending.token, repr(pending))
+        self.assertNotIn(pending.signup_request_id, repr(pending))
 
         persisted = self.token_repository.create_digest.call_args.kwargs
         self.assertEqual(persisted["signup_request_id"], "request-reference")

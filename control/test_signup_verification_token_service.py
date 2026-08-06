@@ -56,6 +56,7 @@ class SignupEmailVerificationTokenServiceTests(TestCase):
         self.assertEqual(persisted["digest_key_id"], "current")
         self.assertEqual(len(persisted["token_digest"]), 64)
         self.assertNotEqual(persisted["token_digest"], issued.token)
+        self.assertNotIn(issued.token, repr(issued))
         self.assertNotIn("token", persisted)
         self.assertNotIn("raw_token", persisted)
 
