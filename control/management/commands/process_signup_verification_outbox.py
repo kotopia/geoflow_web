@@ -41,6 +41,7 @@ class Command(BaseCommand):
                 lease_for=config.lease_for,
                 retry_delay=config.retry_delay,
                 email_timeout=config.email_timeout,
+                max_attempts=config.max_attempts,
                 key_ring=key_ring,
                 settings_obj=settings,
             )

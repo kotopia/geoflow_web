@@ -36,6 +36,7 @@ def process_next_signup_verification_outbox_item(
     lease_for: timedelta,
     retry_delay: timedelta,
     email_timeout: timedelta,
+    max_attempts: int,
     key_ring: HmacSha256VerificationKeyRing,
     alias: str | None = None,
     outbox_repository: SignupVerificationOutboxRepository | None = None,
@@ -56,6 +57,12 @@ def process_next_signup_verification_outbox_item(
         raise ValueError("email timeout must be positive")
     if lease_for <= email_timeout:
         raise ValueError("outbox lease must exceed email timeout")
+    if (
+        isinstance(max_attempts, bool)
+        or not isinstance(max_attempts, int)
+        or max_attempts <= 0
+    ):
+        raise ValueError("outbox max attempts must be a positive integer")
 
     claim_values = {
         "lease_for": lease_for,
@@ -80,6 +87,7 @@ def process_next_signup_verification_outbox_item(
         "token_repository": token_repository,
         "clock": clock,
         "email_timeout_seconds": int(email_timeout.total_seconds()),
+        "max_attempts": max_attempts,
         "settings_obj": settings_obj,
     }
     if token_factory is not None:

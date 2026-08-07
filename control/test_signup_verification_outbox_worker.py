@@ -160,6 +160,60 @@ class SignupVerificationOutboxWorkerTests(TestCase):
         self.assertNotIn("applicant@example.com", repr(retry))
         self.assertNotIn("v1.current.", repr(retry))
 
+    def test_claim_above_max_attempts_cancels_before_token_or_delivery(self):
+        self.claim = SignupVerificationDeliveryClaim(
+            outbox_id="outbox-reference",
+            signup_request_id="request-reference",
+            email="applicant@example.com",
+            lease_id="lease-reference",
+            attempt_count=4,
+            claim_expires_at=NOW + timedelta(minutes=10),
+        )
+        deliver = MagicMock()
+
+        result = self._process(
+            deliver=deliver,
+            max_attempts=3,
+        )
+
+        self.assertEqual(result.status, "max_attempts_exhausted")
+        self.outbox.mark_cancelled.assert_called_once()
+        self.outbox.lock_current_claim.assert_not_called()
+        self.token_repository.revoke_unconsumed.assert_not_called()
+        self.token_repository.create_digest.assert_not_called()
+        deliver.assert_not_called()
+
+    def test_delivery_failure_at_max_attempts_cancels_without_retry(self):
+        self.claim = SignupVerificationDeliveryClaim(
+            outbox_id="outbox-reference",
+            signup_request_id="request-reference",
+            email="applicant@example.com",
+            lease_id="lease-reference",
+            attempt_count=3,
+            claim_expires_at=NOW + timedelta(minutes=10),
+        )
+        deliver = MagicMock(side_effect=SignupVerificationEmailDeliveryError())
+
+        result = self._process(
+            deliver=deliver,
+            max_attempts=3,
+        )
+
+        self.assertEqual(result.status, "max_attempts_exhausted")
+        cancel = self.outbox.mark_cancelled.call_args.kwargs
+        self.assertEqual(
+            cancel["error_code"],
+            "mail.max_attempts_exceeded",
+        )
+        self.outbox.release_for_retry.assert_not_called()
+
+    def test_invalid_max_attempts_fails_before_database_work(self):
+        for value in (0, -1, True, "3"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    self._process(max_attempts=value)
+        self.outbox.lock_current_claim.assert_not_called()
+
     def test_retry_finalization_reports_stale_lease(self):
         self.outbox.release_for_retry.return_value = False
         deliver = MagicMock(side_effect=SignupVerificationEmailDeliveryError())

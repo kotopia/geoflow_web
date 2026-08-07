@@ -36,6 +36,7 @@ from .signup_verification_token_service import (
 
 
 DELIVERY_ERROR_CODE = "mail.delivery_failed"
+MAX_ATTEMPTS_ERROR_CODE = "mail.max_attempts_exceeded"
 STALE_CLAIM_ERROR_CODE = "outbox.stale_claim"
 
 
@@ -67,6 +68,7 @@ def process_signup_verification_delivery_claim(
     link_builder: Callable = build_signup_email_verification_link,
     deliver: Callable = send_signup_email_verification_email,
     email_timeout_seconds: int | None = None,
+    max_attempts: int | None = None,
     settings_obj=settings,
 ) -> SignupVerificationDeliveryOutcome:
     """Issue a replacement token only for a live lease, then deliver after commit."""
@@ -88,6 +90,29 @@ def process_signup_verification_delivery_claim(
     now = clock()
     if retry_at <= now:
         raise ValueError("outbox retry_at must be in the future")
+    if (
+        max_attempts is not None
+        and (
+            isinstance(max_attempts, bool)
+            or not isinstance(max_attempts, int)
+            or max_attempts <= 0
+        )
+    ):
+        raise ValueError("outbox max attempts must be a positive integer")
+    if max_attempts is not None and claim.attempt_count > max_attempts:
+        cancelled = outbox_repository.mark_cancelled(
+            outbox_id=claim.outbox_id,
+            lease_id=claim.lease_id,
+            cancelled_at=now,
+            error_code=validate_outbox_error_code(MAX_ATTEMPTS_ERROR_CODE),
+        )
+        return SignupVerificationDeliveryOutcome(
+            status=(
+                "max_attempts_exhausted"
+                if cancelled
+                else "stale_after_failure"
+            )
+        )
 
     context = atomic_context or transaction.atomic(using=resolved_alias)
     try:
@@ -140,11 +165,26 @@ def process_signup_verification_delivery_claim(
             settings_obj=settings_obj,
         )
     except SignupVerificationEmailDeliveryError:
+        failed_at = clock()
+        if max_attempts is not None and claim.attempt_count >= max_attempts:
+            cancelled = outbox_repository.mark_cancelled(
+                outbox_id=claim.outbox_id,
+                lease_id=claim.lease_id,
+                cancelled_at=failed_at,
+                error_code=validate_outbox_error_code(MAX_ATTEMPTS_ERROR_CODE),
+            )
+            return SignupVerificationDeliveryOutcome(
+                status=(
+                    "max_attempts_exhausted"
+                    if cancelled
+                    else "stale_after_failure"
+                )
+            )
         released = outbox_repository.release_for_retry(
             outbox_id=claim.outbox_id,
             lease_id=claim.lease_id,
             retry_at=retry_at,
-            failed_at=clock(),
+            failed_at=failed_at,
             error_code=validate_outbox_error_code(DELIVERY_ERROR_CODE),
         )
         return SignupVerificationDeliveryOutcome(

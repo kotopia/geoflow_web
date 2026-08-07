@@ -21,6 +21,7 @@ class SignupVerificationOutboxConfig:
     lease_for: timedelta
     retry_delay: timedelta
     email_timeout: timedelta
+    max_attempts: int
 
 
 def load_signup_verification_outbox_config(
@@ -60,6 +61,11 @@ def load_signup_verification_outbox_config(
         settings_obj,
         environ,
         "EMAIL_TIMEOUT",
+    )
+    max_attempts = _setting_or_env_int(
+        settings_obj,
+        environ,
+        "SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS",
     )
 
     if not isinstance(verification_url, str) or not verification_url.strip():
@@ -101,12 +107,21 @@ def load_signup_verification_outbox_config(
         raise EmailVerificationConfigurationError(
             "signup verification outbox lease must exceed email timeout"
         )
+    if (
+        isinstance(max_attempts, bool)
+        or not isinstance(max_attempts, int)
+        or max_attempts <= 0
+    ):
+        raise EmailVerificationConfigurationError(
+            "signup verification max attempts configuration is invalid"
+        )
     return SignupVerificationOutboxConfig(
         verification_url=verification_url.strip(),
         token_ttl=timedelta(seconds=ttl_seconds),
         lease_for=timedelta(seconds=lease_seconds),
         retry_delay=timedelta(seconds=retry_seconds),
         email_timeout=timedelta(seconds=email_timeout_seconds),
+        max_attempts=max_attempts,
     )
 
 

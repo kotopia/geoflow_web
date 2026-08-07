@@ -38,6 +38,7 @@ class SignupVerificationOutboxConfigTests(TestCase):
                 SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS=120,
                 SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS=600,
                 EMAIL_TIMEOUT=30,
+                SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS=5,
             )
         )
 
@@ -45,6 +46,7 @@ class SignupVerificationOutboxConfigTests(TestCase):
         self.assertEqual(config.lease_for, timedelta(seconds=120))
         self.assertEqual(config.retry_delay, timedelta(seconds=600))
         self.assertEqual(config.email_timeout, timedelta(seconds=30))
+        self.assertEqual(config.max_attempts, 5)
 
     def test_missing_invalid_or_fragment_url_fails_closed(self):
         invalid_settings = (
@@ -84,12 +86,34 @@ class SignupVerificationOutboxConfigTests(TestCase):
             SIGNUP_EMAIL_VERIFICATION_TTL_SECONDS=3600,
             SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS=120,
             SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS=600,
+            SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS=5,
         )
         for timeout in (None, 120, 121):
             with self.subTest(timeout=timeout):
                 values = dict(base)
                 if timeout is not None:
                     values["EMAIL_TIMEOUT"] = timeout
+                with self.assertRaises(EmailVerificationConfigurationError):
+                    load_signup_verification_outbox_config(
+                        settings_obj=SimpleNamespace(**values)
+                    )
+
+    def test_max_attempts_is_required_and_positive(self):
+        base = dict(
+            ENABLE_SIGNUP_EMAIL_VERIFICATION_OUTBOX=True,
+            SIGNUP_EMAIL_VERIFICATION_URL=(
+                "https://example.invalid/signup/verify/"
+            ),
+            SIGNUP_EMAIL_VERIFICATION_TTL_SECONDS=3600,
+            SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS=120,
+            SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS=600,
+            EMAIL_TIMEOUT=30,
+        )
+        for value in (None, 0, -1, True):
+            with self.subTest(value=value):
+                values = dict(base)
+                if value is not None:
+                    values["SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS"] = value
                 with self.assertRaises(EmailVerificationConfigurationError):
                     load_signup_verification_outbox_config(
                         settings_obj=SimpleNamespace(**values)
@@ -132,6 +156,7 @@ class SignupVerificationOutboxRuntimeTests(TestCase):
             lease_for=timedelta(minutes=2),
             retry_delay=timedelta(minutes=10),
             email_timeout=timedelta(seconds=30),
+            max_attempts=5,
             key_ring=self.key_ring,
             clock=lambda: NOW,
         )
@@ -140,6 +165,7 @@ class SignupVerificationOutboxRuntimeTests(TestCase):
         self.assertEqual(result.outcome, "delivered")
         claim_next.assert_called_once()
         process_claim.assert_called_once()
+        self.assertEqual(process_claim.call_args.kwargs["max_attempts"], 5)
 
     @patch(
         "control.services.signup_verification_outbox_runtime."
@@ -153,6 +179,7 @@ class SignupVerificationOutboxRuntimeTests(TestCase):
             lease_for=timedelta(minutes=2),
             retry_delay=timedelta(minutes=10),
             email_timeout=timedelta(seconds=30),
+            max_attempts=5,
             key_ring=self.key_ring,
             clock=lambda: NOW,
         )
@@ -175,6 +202,7 @@ class SignupVerificationOutboxEnvironmentConfigTests(TestCase):
                 "SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS": "120",
                 "SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS": "600",
                 "EMAIL_TIMEOUT": "30",
+                "SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS": "5",
             },
         )
 
@@ -182,3 +210,4 @@ class SignupVerificationOutboxEnvironmentConfigTests(TestCase):
         self.assertEqual(config.lease_for, timedelta(seconds=120))
         self.assertEqual(config.retry_delay, timedelta(seconds=600))
         self.assertEqual(config.email_timeout, timedelta(seconds=30))
+        self.assertEqual(config.max_attempts, 5)
