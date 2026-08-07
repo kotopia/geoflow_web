@@ -163,7 +163,8 @@ class SignupRequest(models.Model):
                         status__in=("approved", "rejected"),
                         decided_at__isnull=False,
                         decided_by_user__isnull=False,
-                    )               | models.Q(
+                    )
+                    | models.Q(
                         status__in=("withdrawn", "expired"),
                         decided_at__isnull=False,
                         decided_by_user__isnull=True,
