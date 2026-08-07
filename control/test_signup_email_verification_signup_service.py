@@ -100,6 +100,7 @@ class SignupEmailVerificationOrchestrationTests(SimpleTestCase):
             SignupEmailVerificationTokenIssuanceRejected,
         )
         self.signup_repository.append_submitted_event.assert_called_once()
+        self.token_repository.revoke_unconsumed.assert_called_once()
         self.token_repository.create_digest.assert_called_once()
 
     def test_contract_excludes_activation_membership_and_invitation_writes(self):
@@ -116,6 +117,7 @@ class SignupEmailVerificationOrchestrationTests(SimpleTestCase):
                 "create_inactive_user",
                 "create_signup_request",
                 "append_submitted_event",
+                "revoke_unconsumed",
                 "create_digest",
             },
         )

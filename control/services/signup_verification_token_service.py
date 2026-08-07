@@ -43,6 +43,8 @@ class IssuedSignupEmailVerificationToken:
 
 
 class SignupEmailVerificationTokenRepository(Protocol):
+    def revoke_unconsumed(self, **kwargs) -> int: ...
+
     def create_digest(self, **kwargs) -> bool: ...
 
     def consume_digest(self, **kwargs) -> EmailVerificationGrant | None: ...
@@ -79,6 +81,27 @@ class CentralSignupEmailVerificationTokenRepository:
     def __init__(self, alias: str | None = None):
         self.alias = alias or getattr(settings, "CENTRAL_DB_ALIAS", "default")
 
+    def revoke_unconsumed(
+        self,
+        *,
+        signup_request_id: str,
+        purpose: str,
+        revoked_at,
+    ) -> int:
+        with connections[self.alias].cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE signup_email_verification_tokens
+                   SET revoked_at=GREATEST(%s, created_at)
+                 WHERE signup_request_id=%s
+                   AND purpose=%s
+                   AND consumed_at IS NULL
+                   AND revoked_at IS NULL
+                """,
+                [revoked_at, signup_request_id, purpose],
+            )
+            return cursor.rowcount
+
     def create_digest(
         self,
         *,
@@ -96,9 +119,10 @@ class CentralSignupEmailVerificationTokenRepository:
                 INSERT INTO signup_email_verification_tokens (
                     id, signup_request_id, purpose, token_digest,
                     digest_algorithm, digest_key_id, expires_at,
-                    consumed_at, created_at
+                    consumed_at, revoked_at, created_at
                 )
-                SELECT %s, signup_request.id, %s, %s, %s, %s, %s, NULL, %s
+                SELECT %s, signup_request.id, %s, %s, %s, %s, %s,
+                       NULL, NULL, %s
                   FROM signup_requests AS signup_request
                   JOIN users AS signup_user ON signup_user.id=signup_request.user_id
                  WHERE signup_request.id=%s
@@ -143,6 +167,7 @@ class CentralSignupEmailVerificationTokenRepository:
                    AND verification_token.digest_key_id=%s
                    AND verification_token.token_digest=%s
                    AND verification_token.consumed_at IS NULL
+                   AND verification_token.revoked_at IS NULL
                    AND verification_token.expires_at > %s
                    AND signup_request.status='pending_email_verification'
                    AND signup_user.email_verified=FALSE
@@ -269,6 +294,11 @@ def issue_signup_email_verification_token(
     token = f"{SIGNUP_EMAIL_VERIFICATION_TOKEN_VERSION}.{key_id}.{secret}"
     digest = _digest_token(key=key_ring.active_key(), token=token)
     with context:
+        repository.revoke_unconsumed(
+            signup_request_id=signup_request_id,
+            purpose=SIGNUP_EMAIL_VERIFICATION_PURPOSE,
+            revoked_at=created_at,
+        )
         created = repository.create_digest(
             signup_request_id=signup_request_id,
             purpose=SIGNUP_EMAIL_VERIFICATION_PURPOSE,
