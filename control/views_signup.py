@@ -60,6 +60,7 @@ def signup_view(request):
         signup_verification_outbox_enabled()
         and signup_terms_url
         and signup_privacy_url
+        and _legal_documents_confirmed()
     )
 
     if request.method == "POST":
@@ -118,6 +119,18 @@ def _public_document_url(setting_name: str) -> str | None:
     if parts.scheme not in ("http", "https") or not parts.netloc:
         return None
     return value
+
+
+def _legal_documents_confirmed() -> bool:
+    configured = getattr(settings, "SIGNUP_LEGAL_DOCUMENTS_CONFIRMED", None)
+    if configured is True:
+        return True
+    if configured is False:
+        return False
+    raw = os.environ.get("SIGNUP_LEGAL_DOCUMENTS_CONFIRMED")
+    if not isinstance(raw, str):
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 @sensitive_post_parameters("token")

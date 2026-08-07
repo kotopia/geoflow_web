@@ -1,0 +1,57 @@
+{% extends "control/base_central.html" %}
+{% block title %}GeoFlow 이용약관{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:900px">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">GeoFlow 이용약관</h1>
+      <div class="text-muted">문서 버전 {{ terms_version }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/signup/">회원가입으로 돌아가기</a>
+  </div>
+
+  {% if is_draft %}
+  <div class="alert alert-warning">
+    <strong>정식 공개 전 초안입니다.</strong>
+    아래 운영정보와 정책이 확정되기 전에는 회원가입 동의 문서로 사용하지 않습니다.
+    <ul class="mb-0 mt-2">
+      {% for item in missing_legal_fields %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h5">제1조 목적</h2>
+    <p>본 약관은 GeoFlow가 제공하는 지도 기반 업무관리 및 관련 서비스의 이용조건, 계정의 생성·승인, 이용자와 운영자 사이의 기본적인 권리와 의무를 정하는 것을 목적으로 합니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">제2조 계정 신청과 승인</h2>
+    <p>회원가입 신청은 이메일 인증과 관리자 심사를 거쳐 승인될 수 있습니다. 이메일 인증만으로 계정이 활성화되거나 특정 조직·프로젝트의 권한이 자동 부여되지는 않습니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">제3조 서비스 이용</h2>
+    <p>이용자는 본인에게 부여된 권한 범위에서 GeoFlow를 이용해야 하며, 타인의 계정·권한을 무단으로 사용하거나 서비스의 안정성 및 보안을 침해해서는 안 됩니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">제4조 이용자의 데이터</h2>
+    <p>이용자가 서비스에 입력하거나 업로드하는 업무자료의 권리와 책임은 해당 권리자에게 있습니다. 운영자는 서비스 제공, 저장, 표시, 백업 및 보안 유지에 필요한 범위에서 해당 데이터를 처리할 수 있습니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">제5조 서비스 변경 및 중단</h2>
+    <p>점검, 장애 대응, 보안 조치, 법령 또는 운영상 필요에 따라 서비스의 전부 또는 일부가 변경되거나 일시 중단될 수 있습니다. 중요한 변경은 합리적인 방법으로 안내합니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">제6조 이용 제한</h2>
+    <p>약관 위반, 보안 위험, 허위 가입정보, 권한 오남용 또는 법령 위반 우려가 확인되는 경우 운영자는 필요한 범위에서 계정 승인 거절, 이용 제한 또는 권한 회수 조치를 할 수 있습니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">제7조 책임과 준거</h2>
+    <p>운영자와 이용자의 책임은 관계 법령 및 개별 계약에 따릅니다. 본 약관에서 정하지 않은 사항은 대한민국 관계 법령과 일반적인 상관례를 따릅니다.</p>
+  </section>
+  <section class="border-top pt-3 text-muted small">
+    <div>서비스 운영자: {{ operator_name|default:"정식 공개 전 확정 필요" }}</div>
+    <div>주소: {{ operator_address|default:"정식 공개 전 확정 필요" }}</div>
+    <div>문의: {{ legal_contact_email|default:"정식 공개 전 확정 필요" }}</div>
+  </section>
+</div>
+{% endblock %}

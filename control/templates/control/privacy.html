@@ -1,0 +1,68 @@
+{% extends "control/base_central.html" %}
+{% block title %}GeoFlow 개인정보 처리방침{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:900px">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">GeoFlow 개인정보 처리방침</h1>
+      <div class="text-muted">문서 버전 {{ privacy_version }}</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/signup/">회원가입으로 돌아가기</a>
+  </div>
+
+  {% if is_draft %}
+  <div class="alert alert-warning">
+    <strong>정식 공개 전 초안입니다.</strong>
+    개인정보 보유기간, 처리위탁 및 운영자 정보를 확정한 뒤 정식 동의 문서로 전환합니다.
+    <ul class="mb-0 mt-2">
+      {% for item in missing_legal_fields %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <section class="mb-4">
+    <h2 class="h5">1. 처리 목적</h2>
+    <p>GeoFlow는 회원가입 신청 접수, 이메일 소유 확인, 관리자 가입 심사, 계정 생성·활성화, 보안 및 감사 기록 관리를 위해 개인정보를 처리합니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">2. 회원가입 단계의 처리 항목</h2>
+    <ul>
+      <li>필수 입력: 이메일, 비밀번호, 표시 이름, 소속 기관, 가입 목적</li>
+      <li>선택 입력: 연락처, 초대 코드</li>
+      <li>동의 기록: 이용약관·개인정보 처리방침 버전 및 동의 시각</li>
+      <li>처리 기록: 가입신청 상태, 이메일 인증 상태, 심사 결과와 관련 감사 이벤트</li>
+    </ul>
+    <p>비밀번호는 원문 그대로 저장하지 않고 서버에서 비밀번호 해시로 변환하여 저장합니다. 초대 코드는 현재 가입 신청 레코드의 권한 자동부여 수단으로 사용되지 않습니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">3. 보유기간 및 파기</h2>
+    {% if signup_retention_policy %}
+      <p>{{ signup_retention_policy }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 가입신청·승인/거절/만료 기록의 보유기간과 파기 기준을 확정해야 합니다. 현재 시스템은 상태 전이와 감사기록을 보존하며 자동 물리 삭제 정책은 아직 확정되지 않았습니다.</p>
+    {% endif %}
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">4. 이메일 인증 발송 처리</h2>
+    {% if email_processor_disclosure %}
+      <p>{{ email_processor_disclosure }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 이메일 발송 사업자, 처리 항목과 필요한 위탁·국외이전 고지 여부를 확인해 공개해야 합니다.</p>
+    {% endif %}
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">5. 개인정보의 안전성 확보</h2>
+    <p>GeoFlow는 가입 전 계정을 비활성 상태로 유지하고, 이메일 인증과 관리자 승인을 분리하며, 인증 토큰의 원문을 데이터베이스에 저장하지 않는 방식 등으로 가입 절차의 오남용을 줄이도록 설계합니다.</p>
+  </section>
+  <section class="mb-4">
+    <h2 class="h5">6. 정보주체의 권리</h2>
+    <p>정보주체는 관계 법령에 따라 개인정보 열람, 정정, 삭제, 처리정지 등 필요한 권리를 행사할 수 있습니다. 구체적인 접수 방법과 담당 연락처는 정식 운영 전에 아래 정보와 함께 확정합니다.</p>
+  </section>
+  <section class="border-top pt-3 text-muted small">
+    <div>개인정보처리자: {{ operator_name|default:"정식 공개 전 확정 필요" }}</div>
+    <div>주소: {{ operator_address|default:"정식 공개 전 확정 필요" }}</div>
+    <div>개인정보 보호책임자: {{ privacy_officer_name|default:"정식 공개 전 확정 필요" }}</div>
+    <div>개인정보 문의: {{ privacy_contact_email|default:"정식 공개 전 확정 필요" }}</div>
+  </section>
+</div>
+{% endblock %}

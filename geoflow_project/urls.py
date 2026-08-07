@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from control import views_auth
 from control import views_signup
+from control import views_legal
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -25,6 +26,10 @@ urlpatterns = [
     # 로그인
     path('login/', views_auth.login_view, name='login'),
     path('after-login/', views_auth.post_login_redirect, name='after_login'),
+
+    # 공개 법적 문서
+    path('terms/', views_legal.terms_view, name='terms'),
+    path('privacy/', views_legal.privacy_view, name='privacy'),
 
     # ✅ signup 라우트 (로그인 템플릿에서 {% url 'signup' %} 호출을 만족시키기 위한 최소 엔드포인트)
     path('signup/', views_signup.signup_view, name='signup'),
