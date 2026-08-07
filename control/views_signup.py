@@ -17,6 +17,12 @@ from .services.signup_service import (
     SignupRequestRejected,
     create_signup_request,
 )
+from .services.signup_verification_signup_outbox_service import (
+    create_signup_request_with_verification_outbox,
+)
+from .services.signup_verification_outbox_feature import (
+    signup_verification_outbox_enabled,
+)
 from .services.signup_verification_runtime import (
     verify_signup_email_from_runtime_config,
 )
@@ -29,23 +35,36 @@ from .services.signup_verification_service import (
 logger = logging.getLogger(__name__)
 
 
+@sensitive_post_parameters(
+    "email",
+    "password",
+    "password_confirm",
+    "name_display",
+    "contact_phone",
+    "organization_name",
+    "signup_purpose",
+    "invitation_code",
+)
+@sensitive_variables("cleaned", "signup_data")
 @csrf_protect
 def signup_view(request):
     if request.method == "POST":
         form = SignupRequestForm(request.POST)
         if form.is_valid():
             cleaned = form.cleaned_data
+            signup_data = SignupRequestInput(
+                email=cleaned["email"],
+                password=cleaned["password"],
+                name_display=cleaned["name_display"],
+                contact_phone=cleaned["contact_phone"],
+                organization_name=cleaned["organization_name"],
+                signup_purpose=cleaned["signup_purpose"],
+            )
             try:
-                create_signup_request(
-                    SignupRequestInput(
-                        email=cleaned["email"],
-                        password=cleaned["password"],
-                        name_display=cleaned["name_display"],
-                        contact_phone=cleaned["contact_phone"],
-                        organization_name=cleaned["organization_name"],
-                        signup_purpose=cleaned["signup_purpose"],
-                    )
-                )
+                if signup_verification_outbox_enabled():
+                    create_signup_request_with_verification_outbox(signup_data)
+                else:
+                    create_signup_request(signup_data)
             except SignupRequestRejected as exc:
                 form.add_error(None, str(exc))
             else:

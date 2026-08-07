@@ -149,6 +149,20 @@ class SignupVerificationResendTests(TestCase):
             self.assertNotIn(forbidden, source)
 
 
+    @patch(
+        "control.services.signup_verification_resend_service."
+        "signup_verification_outbox_enabled",
+        return_value=True,
+    )
+    def test_direct_resend_is_disabled_before_repository_when_outbox_enabled(self, _enabled):
+        with self.assertRaises(EmailVerificationConfigurationError):
+            self._prepare()
+
+        self.resend_repository.lock_eligible_target.assert_not_called()
+        self.token_repository.revoke_unconsumed.assert_not_called()
+        self.token_repository.create_digest.assert_not_called()
+
+
 class SignupVerificationEmailDeliveryTests(TestCase):
     def setUp(self):
         self.token = f"v1.current.{('s' * 43)}"

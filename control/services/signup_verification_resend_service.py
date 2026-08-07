@@ -10,6 +10,9 @@ from django.db import connections, transaction
 from django.utils import timezone
 from django.views.decorators.debug import sensitive_variables
 
+from .signup_verification_outbox_feature import (
+    signup_verification_outbox_enabled,
+)
 from .signup_verification_service import EmailVerificationConfigurationError
 from .signup_verification_token_service import (
     CentralSignupEmailVerificationTokenRepository,
@@ -111,6 +114,11 @@ def prepare_signup_email_verification_resend(
     token_factory: Callable[[int], str] | None = None,
 ) -> PendingSignupVerificationResend | None:
     """Issue a fresh digest only for an eligible, row-locked pending request."""
+
+    if signup_verification_outbox_enabled():
+        raise EmailVerificationConfigurationError(
+            "direct verification resend is disabled while outbox delivery is enabled"
+        )
 
     normalized_email = str(email).strip().lower()
     if not normalized_email:
