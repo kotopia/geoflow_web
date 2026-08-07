@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from typing import Callable
 from urllib.parse import urlsplit
 
@@ -58,10 +59,15 @@ def send_signup_email_verification_email(
         f"{verification_link}\n\n"
         "본인이 요청하지 않은 경우 이 메일을 무시하셔도 됩니다.\n"
     )
-    sender = getattr(
-        settings_obj,
-        "DEFAULT_FROM_EMAIL",
-        "no-reply@geoflow.local",
+    sender = (
+        (os.environ.get("DEFAULT_FROM_EMAIL") or "").strip()
+        or str(
+            getattr(
+                settings_obj,
+                "DEFAULT_FROM_EMAIL",
+                "no-reply@geoflow.local",
+            )
+        ).strip()
     )
 
     connection = None

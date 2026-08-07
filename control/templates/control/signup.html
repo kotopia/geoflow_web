@@ -6,6 +6,12 @@
   {% if messages %}{% for m in messages %}
     <div class="alert alert-{{ m.tags }}">{{ m }}</div>
   {% endfor %}{% endif %}
+
+  {% if not signup_available %}
+    <div class="alert alert-warning" role="alert">
+      현재 회원가입을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.
+    </div>
+  {% else %}
   <form method="post" novalidate>{% csrf_token %}
     {% if form.non_field_errors %}
       <div class="alert alert-danger">{{ form.non_field_errors }}</div>
@@ -53,16 +59,29 @@
     </div>
     <div class="form-check mb-2">
       <input type="checkbox" name="terms_agreed" value="1" class="form-check-input" id="terms_agreed" required {% if form.terms_agreed.value %}checked{% endif %}>
-      <label class="form-check-label" for="terms_agreed">이용약관에 동의합니다.</label>
+      <label class="form-check-label" for="terms_agreed">
+        {% if signup_terms_url %}
+          <a href="{{ signup_terms_url }}" target="_blank" rel="noopener noreferrer">이용약관</a>에 동의합니다.
+        {% else %}
+          이용약관에 동의합니다.
+        {% endif %}
+      </label>
       {{ form.terms_agreed.errors }}
     </div>
     <div class="form-check mb-3">
       <input type="checkbox" name="privacy_agreed" value="1" class="form-check-input" id="privacy_agreed" required {% if form.privacy_agreed.value %}checked{% endif %}>
-      <label class="form-check-label" for="privacy_agreed">개인정보 처리방침에 동의합니다.</label>
+      <label class="form-check-label" for="privacy_agreed">
+        {% if signup_privacy_url %}
+          <a href="{{ signup_privacy_url }}" target="_blank" rel="noopener noreferrer">개인정보 처리방침</a>에 동의합니다.
+        {% else %}
+          개인정보 처리방침에 동의합니다.
+        {% endif %}
+      </label>
       {{ form.privacy_agreed.errors }}
     </div>
     <button class="btn btn-primary w-100">가입 요청</button>
   </form>
+  {% endif %}
   <div class="text-center mt-3">
     이미 계정이 있으신가요? <a href="/login/">로그인</a>
   </div>

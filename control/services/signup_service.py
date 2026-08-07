@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
@@ -152,8 +153,14 @@ def create_signup_request(
                 contact_phone=data.contact_phone,
                 organization_name=data.organization_name,
                 signup_purpose=data.signup_purpose,
-                terms_version=getattr(settings, "SIGNUP_TERMS_VERSION", "phase1-v1"),
-                privacy_version=getattr(settings, "SIGNUP_PRIVACY_VERSION", "phase1-v1"),
+                terms_version=_setting_or_env_text(
+                    "SIGNUP_TERMS_VERSION",
+                    default="phase1-v1",
+                ),
+                privacy_version=_setting_or_env_text(
+                    "SIGNUP_PRIVACY_VERSION",
+                    default="phase1-v1",
+                ),
                 accepted_at=now,
             )
             repository.append_submitted_event(
@@ -169,3 +176,13 @@ def create_signup_request(
         raise
     except IntegrityError as exc:
         raise SignupRequestRejected(PUBLIC_SIGNUP_ERROR) from exc
+
+
+def _setting_or_env_text(name: str, *, default: str) -> str:
+    raw = os.environ.get(name)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    configured = getattr(settings, name, None)
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()
+    return default

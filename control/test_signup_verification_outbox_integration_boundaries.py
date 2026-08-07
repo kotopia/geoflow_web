@@ -11,12 +11,14 @@ CONTROL_DIR = Path(__file__).resolve().parent
 
 
 class SignupVerificationOutboxIntegrationBoundaryTests(TestCase):
-    def test_signup_http_view_uses_server_owned_outbox_feature_gate(self):
+    def test_signup_http_view_fails_closed_without_outbox(self):
         source = (CONTROL_DIR / "views_signup.py").read_text(encoding="utf-8")
 
-        self.assertIn("ENABLE_SIGNUP_EMAIL_VERIFICATION_OUTBOX", source)
+        self.assertIn("signup_verification_outbox_enabled", source)
         self.assertIn("create_signup_request_with_verification_outbox", source)
-        self.assertIn("create_signup_request(signup_data)", source)
+        self.assertNotIn("create_signup_request(signup_data)", source)
+        self.assertIn("if not signup_available:", source)
+        self.assertIn("status=200 if signup_available else 503", source)
         self.assertNotIn("send_mail", source)
         self.assertNotIn("issue_signup_email_verification_token", source)
         self.assertNotIn("submit_signup_with_email_verification", source)
@@ -35,10 +37,9 @@ class SignupVerificationOutboxIntegrationBoundaryTests(TestCase):
             source,
         )
 
-    def test_outbox_enabled_signup_message_mentions_email_verification(self):
+    def test_available_signup_message_mentions_email_verification(self):
         source = (CONTROL_DIR / "views_signup.py").read_text(encoding="utf-8")
 
-        self.assertIn("if outbox_enabled:", source)
         self.assertIn("이메일 인증을 완료한 후", source)
         self.assertIn("관리자 승인을 기다려 주세요", source)
 
