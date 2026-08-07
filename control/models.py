@@ -163,8 +163,7 @@ class SignupRequest(models.Model):
                         status__in=("approved", "rejected"),
                         decided_at__isnull=False,
                         decided_by_user__isnull=False,
-                    )
-                    | models.Q(
+                    )               | models.Q(
                         status__in=("withdrawn", "expired"),
                         decided_at__isnull=False,
                         decided_by_user__isnull=True,
@@ -284,6 +283,7 @@ class SignupEmailVerificationToken(models.Model):
     digest_key_id = models.CharField(max_length=64)
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField()
 
     class Meta:
@@ -316,6 +316,28 @@ class SignupEmailVerificationToken(models.Model):
                 ),
                 name="signup_vtoken_used_order",
             ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(revoked_at__isnull=True)
+                    | models.Q(revoked_at__gte=models.F("created_at"))
+                ),
+                name="signup_vtoken_revoked_order",
+            ),
+            models.CheckConstraint(
+                condition=~(
+                    models.Q(consumed_at__isnull=False)
+                    & models.Q(revoked_at__isnull=False)
+                ),
+                name="signup_vtoken_one_terminal",
+            ),
+            models.UniqueConstraint(
+                fields=("signup_request", "purpose"),
+                condition=models.Q(
+                    consumed_at__isnull=True,
+                    revoked_at__isnull=True,
+                ),
+                name="signup_vtoken_one_live",
+            ),
         ]
         indexes = [
             models.Index(
@@ -323,4 +345,116 @@ class SignupEmailVerificationToken(models.Model):
                 name="signup_vtoken_req_exp_idx",
             ),
             models.Index(fields=("expires_at",), name="signup_vtoken_exp_idx"),
+        ]
+
+
+SIGNUP_VERIFICATION_DELIVERY_OUTBOX_TYPES = (
+    "signup_email_verification",
+)
+
+SIGNUP_VERIFICATION_DELIVERY_OUTBOX_STATUSES = (
+    "pending",
+    "processing",
+    "delivered",
+    "cancelled",
+)
+
+
+class SignupVerificationDeliveryOutbox(models.Model):
+    """Durable delivery intent; recipient and raw token are resolved at claim time."""
+
+    class DeliveryType(models.TextChoices):
+        SIGNUP_EMAIL_VERIFICATION = "signup_email_verification"
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        PROCESSING = "processing"
+        DELIVERED = "delivered"
+        CANCELLED = "cancelled"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    signup_request = models.ForeignKey(
+        SignupRequest,
+        on_delete=models.RESTRICT,
+        db_column="signup_request_id",
+        related_name="verification_delivery_outbox",
+    )
+    delivery_type = models.CharField(max_length=64, choices=DeliveryType.choices)
+    status = models.CharField(max_length=32, choices=Status.choices)
+    available_at = models.DateTimeField()
+    attempt_count = models.PositiveIntegerField(default=0)
+    lease_id = models.UUIDField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_expires_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=64, null=True, blank=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "signup_verification_delivery_outbox"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    delivery_type__in=SIGNUP_VERIFICATION_DELIVERY_OUTBOX_TYPES
+                ),
+                name="signup_outbox_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=SIGNUP_VERIFICATION_DELIVERY_OUTBOX_STATUSES
+                ),
+                name="signup_outbox_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        status="pending",
+                        lease_id__isnull=True,
+                        claimed_at__isnull=True,
+                        claim_expires_at__isnull=True,
+                        delivered_at__isnull=True,
+                    )
+                    | (
+                        models.Q(
+                            status="processing",
+                            lease_id__isnull=False,
+                            claimed_at__isnull=False,
+                            claim_expires_at__isnull=False,
+                            delivered_at__isnull=True,
+                        )
+                        & models.Q(claim_expires_at__gt=models.F("claimed_at"))
+                    )
+                    | models.Q(
+                        status="delivered",
+                        lease_id__isnull=True,
+                        claimed_at__isnull=True,
+                        claim_expires_at__isnull=True,
+                        delivered_at__isnull=False,
+                    )
+                    | models.Q(
+                        status="cancelled",
+                        lease_id__isnull=True,
+                        claimed_at__isnull=True,
+                        claim_expires_at__isnull=True,
+                        delivered_at__isnull=True,
+                    )
+                ),
+                name="signup_outbox_state_valid",
+            ),
+            models.UniqueConstraint(
+                fields=("signup_request", "delivery_type"),
+                condition=models.Q(status__in=("pending", "processing")),
+                name="signup_outbox_one_active",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("status", "available_at"),
+                name="signup_outbox_due_idx",
+            ),
+            models.Index(
+                fields=("signup_request", "delivery_type", "created_at"),
+                name="signup_outbox_req_idx",
+            ),
         ]
