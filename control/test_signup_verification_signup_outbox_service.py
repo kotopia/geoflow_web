@@ -34,6 +34,8 @@ class SignupVerificationSignupOutboxServiceTests(TestCase):
             contact_phone="",
             organization_name="Org",
             signup_purpose="Work",
+            terms_agreed=True,
+            privacy_agreed=True,
         )
 
     @patch(

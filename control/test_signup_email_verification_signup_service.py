@@ -26,6 +26,8 @@ class SignupEmailVerificationOrchestrationTests(SimpleTestCase):
             contact_phone="",
             organization_name="기관",
             signup_purpose="업무 활용",
+            terms_agreed=True,
+            privacy_agreed=True,
         )
         self.key_ring = HmacSha256VerificationKeyRing(
             active_key_id="current",

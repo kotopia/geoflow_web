@@ -26,6 +26,8 @@ class SignupRequestInput:
     contact_phone: str = field(repr=False)
     organization_name: str = field(repr=False)
     signup_purpose: str = field(repr=False)
+    terms_agreed: bool = field(default=False, repr=False)
+    privacy_agreed: bool = field(default=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -125,6 +127,9 @@ def create_signup_request(
 ) -> SignupRequestReceipt:
     repository = repository or CentralSignupRepository()
     alias = getattr(repository, "alias", getattr(settings, "CENTRAL_DB_ALIAS", "default"))
+    if data.terms_agreed is not True or data.privacy_agreed is not True:
+        raise SignupRequestRejected(PUBLIC_SIGNUP_ERROR)
+
     context = atomic_context or transaction.atomic(using=alias)
     now = timezone.now()
     password_hash = make_password(data.password)

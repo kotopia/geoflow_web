@@ -27,6 +27,8 @@ class SignupSubmissionRuntimeTests(TestCase):
             contact_phone="010-0000-0000",
             organization_name="기관",
             signup_purpose="업무 활용",
+            terms_agreed=True,
+            privacy_agreed=True,
         )
         self.raw_key = b"k" * 32
         self.settings = SimpleNamespace(

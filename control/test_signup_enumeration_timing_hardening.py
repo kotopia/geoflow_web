@@ -20,6 +20,8 @@ class SignupEnumerationTimingHardeningTests(SimpleTestCase):
             contact_phone="",
             organization_name="기관",
             signup_purpose="업무 활용",
+            terms_agreed=True,
+            privacy_agreed=True,
         )
         self.repository = MagicMock()
         self.repository.account_exists.return_value = False

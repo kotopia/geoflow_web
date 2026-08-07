@@ -69,6 +69,8 @@ class SignupRequestServiceTests(SimpleTestCase):
             contact_phone="",
             organization_name="기관",
             signup_purpose="업무 활용",
+            terms_agreed=True,
+            privacy_agreed=True,
         )
 
     @patch("control.services.signup_service.make_password", return_value="stored-hash")

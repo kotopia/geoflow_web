@@ -59,6 +59,8 @@ def signup_view(request):
                 contact_phone=cleaned["contact_phone"],
                 organization_name=cleaned["organization_name"],
                 signup_purpose=cleaned["signup_purpose"],
+                terms_agreed=cleaned["terms_agreed"],
+                privacy_agreed=cleaned["privacy_agreed"],
             )
             outbox_enabled = signup_verification_outbox_enabled()
             try:
