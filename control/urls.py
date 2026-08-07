@@ -15,6 +15,11 @@ from .views_users_admin import (
     users_delete_admin,
     dashboard,
 )
+from .views_signup_admin import (
+    signup_reviews_admin,
+    signup_review_detail_admin,
+    signup_review_decide_admin,
+)
 from .views_categories import categories_page, category_options
 
 app_name = "control"
@@ -43,6 +48,19 @@ urlpatterns = [
     path("join-requests/my/", my_join_requests_view, name="my_join_requests"),
     path("mgmt/join-requests/", join_requests_pending_view, name="join_requests_pending"),
     path("mgmt/join-requests/<uuid:req_id>/<str:action>/",   join_request_decide_view, name="join_request_decide"),
+
+    # 중앙 계정 가입 심사
+    path("mgmt/signup-reviews/", signup_reviews_admin, name="signup_reviews_admin"),
+    path(
+        "mgmt/signup-reviews/<uuid:req_id>/",
+        signup_review_detail_admin,
+        name="signup_review_detail_admin",
+    ),
+    path(
+        "mgmt/signup-reviews/<uuid:req_id>/<str:action>/",
+        signup_review_decide_admin,
+        name="signup_review_decide_admin",
+    ),
 
     # (그룹관리자) 대기중 요청 승인/거절
     path("mgmt/users/", users_list_admin, name="users_list_admin"),

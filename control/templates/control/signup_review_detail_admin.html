@@ -1,0 +1,77 @@
+{% extends "control/base_central.html" %}
+{% block title %}가입 심사 상세{% endblock %}
+{% block content %}
+<div class="container-fluid px-4" style="max-width:900px">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">가입 심사 상세</h1>
+    <a class="btn btn-outline-secondary" href="{% url 'control:signup_reviews_admin' %}">
+      목록
+    </a>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-3">이름</dt>
+        <dd class="col-sm-9">{{ item.name_display }}</dd>
+        <dt class="col-sm-3">이메일</dt>
+        <dd class="col-sm-9">{{ item.email }}</dd>
+        <dt class="col-sm-3">연락처</dt>
+        <dd class="col-sm-9">{{ item.contact_phone|default:"-" }}</dd>
+        <dt class="col-sm-3">소속 기관</dt>
+        <dd class="col-sm-9">{{ item.organization_name|default:"-" }}</dd>
+        <dt class="col-sm-3">가입 목적</dt>
+        <dd class="col-sm-9" style="white-space:pre-wrap">{{ item.signup_purpose }}</dd>
+        <dt class="col-sm-3">이용약관</dt>
+        <dd class="col-sm-9">
+          {{ item.terms_version }} / {{ item.terms_accepted_at|date:"Y-m-d H:i:s" }}
+        </dd>
+        <dt class="col-sm-3">개인정보 처리방침</dt>
+        <dd class="col-sm-9">
+          {{ item.privacy_version }} / {{ item.privacy_accepted_at|date:"Y-m-d H:i:s" }}
+        </dd>
+        <dt class="col-sm-3">가입 신청</dt>
+        <dd class="col-sm-9">{{ item.submitted_at|date:"Y-m-d H:i:s" }}</dd>
+        <dt class="col-sm-3">이메일 인증</dt>
+        <dd class="col-sm-9">{{ item.verified_at|date:"Y-m-d H:i:s"|default:"-" }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <form
+        method="post"
+        action="{% url 'control:signup_review_decide_admin' item.signup_request_id 'approve' %}"
+      >
+        {% csrf_token %}
+        <input type="hidden" name="version" value="{{ item.version }}">
+        <label class="form-label" for="decision_note">관리자 메모 (선택)</label>
+        <textarea
+          id="decision_note"
+          name="note"
+          class="form-control mb-3"
+          rows="4"
+          maxlength="1000"
+          placeholder="승인 또는 거절 사유가 필요한 경우 입력하세요."
+        ></textarea>
+        <div class="d-flex gap-2 justify-content-end">
+          <button
+            class="btn btn-outline-danger"
+            type="submit"
+            formaction="{% url 'control:signup_review_decide_admin'
+              item.signup_request_id 'reject' %}"
+          >거절</button>
+          <button class="btn btn-primary" type="submit">승인</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

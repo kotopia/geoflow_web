@@ -1,0 +1,51 @@
+{% extends "control/base_central.html" %}
+{% block title %}가입 심사{% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <h1 class="h3 mb-3">가입 심사</h1>
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+  <div class="card">
+    <div class="card-body table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>이름</th>
+            <th>이메일</th>
+            <th>소속</th>
+            <th>신청시각</th>
+            <th>인증시각</th>
+            <th class="text-end">심사</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.name_display }}</td>
+              <td>{{ item.email }}</td>
+              <td>{{ item.organization_name|default:"-" }}</td>
+              <td>{{ item.submitted_at|date:"Y-m-d H:i" }}</td>
+              <td>{{ item.verified_at|date:"Y-m-d H:i"|default:"-" }}</td>
+              <td class="text-end">
+                <a
+                  class="btn btn-sm btn-primary"
+                  href="{% url 'control:signup_review_detail_admin' item.signup_request_id %}"
+                >상세</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-center text-muted">
+                심사 대기 중인 가입 요청이 없습니다.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

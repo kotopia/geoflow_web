@@ -27,6 +27,11 @@
       <li class="sidebar-item">
         <a class="sidebar-link" href="{% url 'control:join_requests_pending' %}">Join Requests</a>
       </li>
+      {% if central_is_staff %}
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'control:signup_reviews_admin' %}">Signup Reviews</a>
+      </li>
+      {% endif %}
 
       <li class="sidebar-header">Catalog</li>
         <li class="sidebar-item">
