@@ -66,6 +66,7 @@ def process_signup_verification_delivery_claim(
     token_factory=None,
     link_builder: Callable = build_signup_email_verification_link,
     deliver: Callable = send_signup_email_verification_email,
+    email_timeout_seconds: int | None = None,
     settings_obj=settings,
 ) -> SignupVerificationDeliveryOutcome:
     """Issue a replacement token only for a live lease, then deliver after commit."""
@@ -121,8 +122,13 @@ def process_signup_verification_delivery_claim(
             status="cancelled" if cancelled else "stale_after_cancellation"
         )
 
-    if clock() >= claim.claim_expires_at:
+    delivery_started_at = clock()
+    if delivery_started_at >= claim.claim_expires_at:
         return SignupVerificationDeliveryOutcome(status="stale_before_delivery")
+    if email_timeout_seconds is not None:
+        remaining_lease = claim.claim_expires_at - delivery_started_at
+        if remaining_lease <= timedelta(seconds=email_timeout_seconds):
+            return SignupVerificationDeliveryOutcome(status="stale_before_delivery")
 
     verification_link = link_builder(verification_url, issued.token)
     try:
@@ -130,6 +136,7 @@ def process_signup_verification_delivery_claim(
             to_email=locked_target.email,
             verification_link=verification_link,
             expires_at=issued.expires_at,
+            email_timeout_seconds=email_timeout_seconds,
             settings_obj=settings_obj,
         )
     except SignupVerificationEmailDeliveryError:

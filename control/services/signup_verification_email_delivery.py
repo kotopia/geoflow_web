@@ -5,7 +5,7 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import get_connection, send_mail
 from django.views.decorators.debug import sensitive_variables
 
 
@@ -18,6 +18,7 @@ class SignupVerificationEmailDeliveryError(Exception):
     "verification_link",
     "recipient",
     "body",
+    "connection",
 )
 def send_signup_email_verification_email(
     *,
@@ -25,6 +26,8 @@ def send_signup_email_verification_email(
     verification_link: str,
     expires_at: datetime,
     mail_sender: Callable = send_mail,
+    connection_factory: Callable = get_connection,
+    email_timeout_seconds: int | None = None,
     settings_obj=settings,
 ) -> None:
     recipient = str(to_email).strip()
@@ -32,6 +35,15 @@ def send_signup_email_verification_email(
         raise ValueError("recipient email is required")
     if not isinstance(expires_at, datetime):
         raise ValueError("verification expiry is required")
+    if (
+        email_timeout_seconds is not None
+        and (
+            isinstance(email_timeout_seconds, bool)
+            or not isinstance(email_timeout_seconds, int)
+            or email_timeout_seconds <= 0
+        )
+    ):
+        raise ValueError("email timeout must be a positive integer")
 
     parts = urlsplit(str(verification_link))
     if parts.scheme not in ("http", "https") or not parts.netloc:
@@ -52,13 +64,21 @@ def send_signup_email_verification_email(
         "no-reply@geoflow.local",
     )
 
+    connection = None
+    if email_timeout_seconds is not None:
+        connection = connection_factory(timeout=email_timeout_seconds)
+
+    send_kwargs = {"fail_silently": False}
+    if connection is not None:
+        send_kwargs["connection"] = connection
+
     try:
         sent_count = mail_sender(
             subject,
             body,
             sender,
             [recipient],
-            fail_silently=False,
+            **send_kwargs,
         )
     except Exception:
         raise SignupVerificationEmailDeliveryError(

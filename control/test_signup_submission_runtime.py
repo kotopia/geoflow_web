@@ -175,3 +175,22 @@ class SignupSubmissionRuntimeTests(TestCase):
             )
 
         create_pending.assert_not_called()
+
+    def test_synchronous_delivery_fails_before_signup_when_outbox_enabled(self):
+        settings_obj = SimpleNamespace(
+            ENABLE_SIGNUP_EMAIL_VERIFICATION_OUTBOX=True,
+        )
+        create_pending = MagicMock()
+        deliver = MagicMock()
+
+        with self.assertRaises(EmailVerificationConfigurationError):
+            submit_signup_with_email_verification(
+                self.data,
+                verification_url="https://example.invalid/signup/verify/",
+                settings_obj=settings_obj,
+                create_pending=create_pending,
+                deliver=deliver,
+            )
+
+        create_pending.assert_not_called()
+        deliver.assert_not_called()

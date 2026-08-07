@@ -12,6 +12,9 @@ from .signup_email_verification_signup_service import (
     create_signup_request_with_verification_token,
 )
 from .signup_service import SignupRequestInput
+from .signup_verification_outbox_feature import (
+    signup_verification_outbox_enabled,
+)
 from .signup_verification_delivery import (
     build_signup_email_verification_link,
     validate_signup_email_verification_url,
@@ -72,6 +75,11 @@ def submit_signup_with_email_verification(
     deliver: Callable = send_signup_email_verification_email,
 ) -> SignupSubmissionOutcome:
     """Persist signup and token first, then cross the email delivery boundary."""
+
+    if signup_verification_outbox_enabled(settings_obj=settings_obj):
+        raise EmailVerificationConfigurationError(
+            "synchronous signup verification delivery is disabled while outbox is enabled"
+        )
 
     validate_signup_email_verification_url(verification_url)
     key_ring = load_signup_email_verification_key_ring(

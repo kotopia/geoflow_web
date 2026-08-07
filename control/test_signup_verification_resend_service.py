@@ -223,3 +223,25 @@ class SignupVerificationEmailDeliveryTests(TestCase):
                 expires_at=self.expires_at,
                 mail_sender=MagicMock(return_value=0),
             )
+
+
+class SignupVerificationEmailTimeoutTests(TestCase):
+    def test_delivery_uses_bounded_connection_when_timeout_is_supplied(self):
+        sender = MagicMock(return_value=1)
+        connection = object()
+        connection_factory = MagicMock(return_value=connection)
+        expires_at = datetime(2026, 8, 6, 14, 0, tzinfo=timezone.utc)
+
+        send_signup_email_verification_email(
+            to_email="applicant@example.com",
+            verification_link=(
+                "https://example.com/signup/verify/#token=opaque-token"
+            ),
+            expires_at=expires_at,
+            email_timeout_seconds=30,
+            connection_factory=connection_factory,
+            mail_sender=sender,
+        )
+
+        connection_factory.assert_called_once_with(timeout=30)
+        self.assertIs(sender.call_args.kwargs["connection"], connection)

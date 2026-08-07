@@ -118,6 +118,37 @@ class SignupVerificationOutboxWorkerTests(TestCase):
         deliver.assert_not_called()
         self.outbox.mark_delivered.assert_not_called()
 
+
+    def test_insufficient_lease_budget_for_email_timeout_prevents_delivery(self):
+        claim = SignupVerificationDeliveryClaim(
+            outbox_id="outbox-reference",
+            signup_request_id="request-reference",
+            email="applicant@example.com",
+            lease_id="lease-reference",
+            attempt_count=1,
+            claim_expires_at=NOW + timedelta(seconds=30),
+        )
+        deliver = MagicMock()
+
+        result = process_signup_verification_delivery_claim(
+            claim,
+            verification_url="https://example.invalid/signup/verify/",
+            ttl=timedelta(hours=1),
+            retry_at=NOW + timedelta(minutes=10),
+            key_ring=self.key_ring,
+            alias="central",
+            outbox_repository=self.outbox,
+            token_repository=self.token_repository,
+            atomic_context=nullcontext(),
+            clock=lambda: NOW,
+            token_factory=lambda _size: "s" * 43,
+            deliver=deliver,
+            email_timeout_seconds=30,
+        )
+
+        self.assertEqual(result.status, "stale_before_delivery")
+        deliver.assert_not_called()
+
     def test_delivery_failure_requeues_without_exposing_token(self):
         deliver = MagicMock(side_effect=SignupVerificationEmailDeliveryError())
 
