@@ -52,4 +52,3 @@ class SignupActivationSafetyContractTests(TestCase):
         self.assertIn('"SIGNUP_TERMS_VERSION"', source)
         self.assertIn('"SIGNUP_PRIVACY_VERSION"', source)
         self.assertIn('default="phase1-v1"', source)
-
