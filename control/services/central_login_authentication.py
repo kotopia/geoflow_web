@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.contrib.auth.hashers import check_password, identify_hasher, make_password
+from django.views.decorators.debug import sensitive_variables
 
 
 PUBLIC_LOGIN_ERROR = "이메일 또는 비밀번호가 올바르지 않습니다."
@@ -19,12 +20,14 @@ class CentralLoginPasswordResult:
     needs_rehash: bool = False
 
 
+@sensitive_variables("password")
 def burn_central_login_password_check(password: str) -> None:
     """Reduce the timing difference for missing or inactive central accounts."""
 
     check_password(password or "", _DUMMY_PASSWORD_HASH)
 
 
+@sensitive_variables("password", "encoded_password", "encoded")
 def verify_central_login_password(
     password: str,
     encoded_password: str | None,

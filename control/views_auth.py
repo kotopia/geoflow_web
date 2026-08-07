@@ -10,6 +10,10 @@ from django.contrib.auth.hashers import make_password
 from django.urls import reverse
 from control.services import central_repo as C
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from django.views.decorators.debug import (
+    sensitive_post_parameters,
+    sensitive_variables,
+)
 from django.middleware.csrf import rotate_token
 
 from control.models import UserGroupMap
@@ -104,6 +108,8 @@ def _selectable_tenant_candidates(user_id, candidates):
     ]
 
 
+@sensitive_post_parameters("email", "username", "password")
+@sensitive_variables("email", "pw", "pw_hash", "new_hash")
 @require_http_methods(["GET", "POST"])
 @csrf_protect
 @ensure_csrf_cookie

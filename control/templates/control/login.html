@@ -1,21 +1,17 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 
 <head>
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-	<meta name="description" content="Responsive Admin &amp; Dashboard Template based on Bootstrap 5">
-	<meta name="author" content="AdminKit">
-	<meta name="keywords" content="adminkit, bootstrap, bootstrap 5, admin, dashboard, template, responsive, css, sass, html, theme, front-end, ui kit, web">
+	<meta name="description" content="GeoFlow 중앙 로그인">
 
 	<link rel="preconnect" href="https://fonts.gstatic.com">
 	<link rel="shortcut icon" href="{% static 'control/img/icons/icon-48x48.png' %}" />
 
-	<link rel="canonical" href="https://demo.adminkit.io/pages-sign-in.html" />
-
-	<title>Sign In | AdminKit Demo</title>
+	<title>GeoFlow 로그인</title>
 
 	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
 
@@ -71,35 +67,21 @@
 											<hr>
 										</div>
 									</div> -->
-									<form method="post" action="{% url 'login' %}">
+									<form id="loginForm" method="post" action="{% url 'login' %}">
 										{% csrf_token %}
 										<div class="mb-3">
-											<label class="form-label">Email</label>
-											<input class="form-control form-control-lg" type="email" name="email" placeholder="Enter your email" required />
+											<label class="form-label">이메일</label>
+											<input class="form-control form-control-lg" type="email" name="email" placeholder="이메일 입력" autocomplete="username" required />
 										</div>
 										<div class="mb-3">
-											<label class="form-label">Password</label>
-											<input class="form-control form-control-lg" type="password" name="password" placeholder="Enter your password" required />
-											<small>
-											<a href="#">비밀번호 찾기</a>
-											</small>
+											<label class="form-label">비밀번호</label>
+											<input class="form-control form-control-lg" type="password" name="password" placeholder="비밀번호 입력" autocomplete="current-password" required />
 										</div>
 										<div class="d-grid gap-2 mt-3">
 											<button type="submit" class="btn btn-lg btn-primary" id="btnSignIn">로그인</button>
 										</div>
 										{% if error %}
 											<div class="alert alert-danger mt-3" role="alert">{{ error }}</div>
-										{% endif %}
-										<div>
-											<div class="form-check align-items-center">
-											<input id="customControlInline" type="checkbox" class="form-check-input" value="remember-me" name="remember-me" checked>
-											<label class="form-check-label text-small" for="customControlInline">접속정보 저장</label>
-											</div>
-										</div>
-										{% if error %}
-											<div class="alert alert-danger mt-3" role="alert">
-											{{ error }}
-											</div>
 										{% endif %}
 									</form>
 
