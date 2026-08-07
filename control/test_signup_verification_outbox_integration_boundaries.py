@@ -35,6 +35,13 @@ class SignupVerificationOutboxIntegrationBoundaryTests(TestCase):
             source,
         )
 
+    def test_outbox_enabled_signup_message_mentions_email_verification(self):
+        source = (CONTROL_DIR / "views_signup.py").read_text(encoding="utf-8")
+
+        self.assertIn("if outbox_enabled:", source)
+        self.assertIn("이메일 인증을 완료한 후", source)
+        self.assertIn("관리자 승인을 기다려 주세요", source)
+
     def test_signup_orchestrator_does_not_import_mail_or_token_services(self):
         source = getsource(create_signup_request_with_verification_outbox)
 

@@ -60,15 +60,26 @@ def signup_view(request):
                 organization_name=cleaned["organization_name"],
                 signup_purpose=cleaned["signup_purpose"],
             )
+            outbox_enabled = signup_verification_outbox_enabled()
             try:
-                if signup_verification_outbox_enabled():
+                if outbox_enabled:
                     create_signup_request_with_verification_outbox(signup_data)
                 else:
                     create_signup_request(signup_data)
             except SignupRequestRejected as exc:
                 form.add_error(None, str(exc))
             else:
-                messages.success(request, "가입 요청이 접수되었습니다. 승인 전에는 로그인할 수 없습니다.")
+                if outbox_enabled:
+                    success_message = (
+                        "가입 요청이 접수되었습니다. 이메일 인증을 완료한 후 "
+                        "관리자 승인을 기다려 주세요."
+                    )
+                else:
+                    success_message = (
+                        "가입 요청이 접수되었습니다. "
+                        "승인 전에는 로그인할 수 없습니다."
+                    )
+                messages.success(request, success_message)
                 return redirect("/login/")
     else:
         form = SignupRequestForm()
