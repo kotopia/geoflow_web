@@ -267,7 +267,6 @@ if ENABLE_TENANT_PROVISIONING and not PROVISIONING_READY:
     raise RuntimeError(
         "Tenant provisioning is ENABLED but missing env vars: "
         + ", ".join(_missing)
-        + f" (loaded_dotenv={bool(_loaded)} path={DOTENV_PATH})"
     )
 
 if not ENABLE_TENANT_PROVISIONING:
@@ -402,8 +401,6 @@ SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = get_optional_env_int(
     minimum=60,
     maximum=24 * 60 * 60,
 )
-
-RRN_SYM_KEY = get_env_required("RRN_SYM_KEY")
 
 APPLICATION_DIAGNOSTIC_LOG_LEVEL = "DEBUG" if DEBUG else "INFO"
 
