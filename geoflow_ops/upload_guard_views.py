@@ -6,6 +6,7 @@ import logging
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from . import views_uploads
@@ -124,6 +125,7 @@ def commit(request):
     return views_uploads.commit(request)
 
 
+@never_cache
 @login_required
 @require_GET
 def presign_get(request, attachment_id):
