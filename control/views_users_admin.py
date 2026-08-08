@@ -1,11 +1,18 @@
 # control/views_users_admin.py
+from types import SimpleNamespace
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.db import connections, transaction
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
+from django.views.decorators.http import require_http_methods
 
 from .decorators import require_central_admin
 from .services.central_account_erasure_service import (
@@ -17,6 +24,9 @@ from .services.legacy_password_setup_compatibility import (
     require_legacy_password_setup_compatible,
 )
 from .services_identity import lookup_user_id_from_request
+
+
+MAX_LEGACY_PASSWORD_LENGTH = 128
 
 
 def _column_exists(cursor, table: str, column: str) -> bool:
@@ -73,7 +83,11 @@ def _join_request_rows(cursor, *, user_id: str, email: str):
     return cursor.fetchall()
 
 
+@sensitive_post_parameters("password", "password2")
+@sensitive_variables("email", "pw1", "pw2", "hashed")
+@never_cache
 @csrf_protect
+@require_http_methods(["GET", "POST"])
 def set_password_view(request, token):
     with connections["default"].cursor() as cur:
         cur.execute(
@@ -105,9 +119,26 @@ def set_password_view(request, token):
     if request.method == "GET":
         return render(request, "control/set_password.html", {"email": email})
 
-    pw1 = (request.POST.get("password") or "").strip()
-    pw2 = (request.POST.get("password2") or "").strip()
-    if len(pw1) < 8 or pw1 != pw2:
+    pw1 = request.POST.get("password") or ""
+    pw2 = request.POST.get("password2") or ""
+    password_invalid = (
+        not pw1
+        or pw1 != pw2
+        or len(pw1) > MAX_LEGACY_PASSWORD_LENGTH
+    )
+    if not password_invalid:
+        validator_user = SimpleNamespace(
+            username=email,
+            email=email,
+            first_name="",
+            last_name="",
+        )
+        try:
+            validate_password(pw1, user=validator_user)
+        except ValidationError:
+            password_invalid = True
+
+    if password_invalid:
         messages.error(
             request,
             "비밀번호가 조건에 맞지 않거나 일치하지 않습니다.",
