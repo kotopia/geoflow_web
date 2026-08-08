@@ -59,6 +59,7 @@ SIGNUP_UNAVAILABLE_MESSAGE = (
     "invitation_code",
 )
 @sensitive_variables("cleaned", "signup_data")
+@require_http_methods(["GET", "POST"])
 @csrf_protect
 @never_cache
 def signup_view(request):
@@ -69,6 +70,7 @@ def signup_view(request):
         and signup_terms_url
         and signup_privacy_url
         and legal_documents_ready()
+        and _legal_versions_current()
         and _legal_documents_confirmed()
     )
 
@@ -126,6 +128,7 @@ def signup_view(request):
 
 
 @sensitive_post_parameters("email")
+@require_http_methods(["GET", "POST"])
 @csrf_protect
 @never_cache
 def signup_email_verification_resend_view(request):
@@ -176,6 +179,13 @@ def signup_email_verification_resend_view(request):
 
 
 def _public_document_url(setting_name: str) -> str | None:
+    expected_path = {
+        "SIGNUP_TERMS_URL": "/terms/",
+        "SIGNUP_PRIVACY_URL": "/privacy/",
+    }.get(setting_name)
+    if expected_path is None:
+        return None
+
     raw = getattr(settings, setting_name, None)
     if not isinstance(raw, str) or not raw.strip():
         raw = os.environ.get(setting_name)
@@ -185,7 +195,50 @@ def _public_document_url(setting_name: str) -> str | None:
     parts = urlsplit(value)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         return None
+    if parts.path != expected_path or parts.query or parts.fragment:
+        return None
+
+    site_origin = getattr(settings, "SITE_ORIGIN", None)
+    if not isinstance(site_origin, str) or not site_origin.strip():
+        site_origin = os.environ.get("SITE_ORIGIN")
+    site_parts = urlsplit(site_origin.strip() if isinstance(site_origin, str) else "")
+    if site_parts.scheme not in ("http", "https") or not site_parts.netloc:
+        return None
+    if (
+        site_parts.path not in ("", "/")
+        or site_parts.query
+        or site_parts.fragment
+        or site_parts.username
+        or site_parts.password
+        or parts.username
+        or parts.password
+    ):
+        return None
+    if (parts.scheme.lower(), parts.netloc.lower()) != (
+        site_parts.scheme.lower(),
+        site_parts.netloc.lower(),
+    ):
+        return None
+    if not getattr(settings, "DEBUG", False) and (
+        parts.scheme != "https" or site_parts.scheme != "https"
+    ):
+        return None
     return value
+
+
+def _legal_versions_current() -> bool:
+    return (
+        legal_document_version(
+            "SIGNUP_TERMS_VERSION",
+            default=DEFAULT_TERMS_VERSION,
+        )
+        == DEFAULT_TERMS_VERSION
+        and legal_document_version(
+            "SIGNUP_PRIVACY_VERSION",
+            default=DEFAULT_PRIVACY_VERSION,
+        )
+        == DEFAULT_PRIVACY_VERSION
+    )
 
 
 def _legal_documents_confirmed() -> bool:

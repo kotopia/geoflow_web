@@ -4,6 +4,8 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from control.services.signup_runtime_readiness import (
+    NAVER_SMTP_HOST,
+    NAVER_SMTP_PORT,
     SMTP_BACKEND,
     signup_public_runtime_ready,
 )
@@ -13,12 +15,13 @@ class SignupPublicRuntimeReadinessTests(SimpleTestCase):
     def _settings(self, **overrides):
         values = {
             "EMAIL_BACKEND": SMTP_BACKEND,
-            "EMAIL_HOST": "smtp.naver.com",
-            "EMAIL_PORT": 587,
+            "EMAIL_HOST": NAVER_SMTP_HOST,
+            "EMAIL_PORT": NAVER_SMTP_PORT,
             "EMAIL_USE_TLS": True,
             "EMAIL_HOST_USER": "configured-user",
             "EMAIL_HOST_PASSWORD": "configured-secret",
             "DEFAULT_FROM_EMAIL": "service@example.com",
+            "SITE_ORIGIN": "https://example.com",
         }
         values.update(overrides)
         return SimpleNamespace(**values)
@@ -30,6 +33,9 @@ class SignupPublicRuntimeReadinessTests(SimpleTestCase):
         outbox_config,
         key_ring,
     ):
+        outbox_config.return_value = SimpleNamespace(
+            verification_url="https://example.com/signup/verify/"
+        )
         self.assertTrue(
             signup_public_runtime_ready(
                 settings_obj=self._settings(),
@@ -42,9 +48,14 @@ class SignupPublicRuntimeReadinessTests(SimpleTestCase):
     @patch("control.services.signup_runtime_readiness.load_signup_email_verification_key_ring")
     @patch("control.services.signup_runtime_readiness.load_signup_verification_outbox_config")
     def test_placeholder_or_missing_smtp_values_fail_closed(self, outbox_config, key_ring):
+        outbox_config.return_value = SimpleNamespace(
+            verification_url="https://example.com/signup/verify/"
+        )
         invalid = (
             {"EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"},
             {"EMAIL_HOST": "smtp.example.com"},
+            {"EMAIL_HOST": "smtp.gmail.com"},
+            {"EMAIL_PORT": 465},
             {"EMAIL_HOST_USER": ""},
             {"EMAIL_HOST_PASSWORD": ""},
             {"DEFAULT_FROM_EMAIL": "noreply@geoflow.local"},
@@ -69,3 +80,94 @@ class SignupPublicRuntimeReadinessTests(SimpleTestCase):
                 settings_obj=self._settings(),
                 environ={},
             )
+
+
+class SignupMailProcessorAlignmentTests(SimpleTestCase):
+    def test_runtime_provider_matches_disclosed_naver_processor(self):
+        source = __import__(
+            "inspect"
+        ).getsource(signup_public_runtime_ready)
+        self.assertIn("host.lower() != NAVER_SMTP_HOST", source)
+        self.assertIn("port != NAVER_SMTP_PORT", source)
+        self.assertEqual(NAVER_SMTP_HOST, "smtp.naver.com")
+        self.assertEqual(NAVER_SMTP_PORT, 587)
+
+
+class SignupHttpsReadinessTests(SimpleTestCase):
+    @patch("control.services.signup_runtime_readiness.load_signup_email_verification_key_ring")
+    @patch("control.services.signup_runtime_readiness.load_signup_verification_outbox_config")
+    def test_non_debug_verification_url_requires_https(self, outbox_config, key_ring):
+        settings_obj = SimpleNamespace(
+            DEBUG=False,
+            EMAIL_BACKEND=SMTP_BACKEND,
+            EMAIL_HOST=NAVER_SMTP_HOST,
+            EMAIL_PORT=NAVER_SMTP_PORT,
+            EMAIL_USE_TLS=True,
+            EMAIL_HOST_USER="configured-user",
+            EMAIL_HOST_PASSWORD="configured-secret",
+            DEFAULT_FROM_EMAIL="service@example.com",
+            SITE_ORIGIN="https://example.com",
+        )
+        outbox_config.return_value = SimpleNamespace(
+            verification_url="http://example.com/signup/verify/"
+        )
+        self.assertFalse(
+            signup_public_runtime_ready(settings_obj=settings_obj, environ={})
+        )
+
+        settings_obj.DEBUG = True
+        settings_obj.SITE_ORIGIN = "http://example.com"
+        self.assertTrue(
+            signup_public_runtime_ready(settings_obj=settings_obj, environ={})
+        )
+
+class SignupVerificationOriginBoundaryTests(SimpleTestCase):
+    @patch("control.services.signup_runtime_readiness.load_signup_email_verification_key_ring")
+    @patch("control.services.signup_runtime_readiness.load_signup_verification_outbox_config")
+    def test_external_or_wrong_path_verification_url_fails_closed(self, outbox_config, key_ring):
+        settings_obj = SimpleNamespace(
+            DEBUG=False,
+            EMAIL_BACKEND=SMTP_BACKEND,
+            EMAIL_HOST=NAVER_SMTP_HOST,
+            EMAIL_PORT=NAVER_SMTP_PORT,
+            EMAIL_USE_TLS=True,
+            EMAIL_HOST_USER="configured-user",
+            EMAIL_HOST_PASSWORD="configured-secret",
+            DEFAULT_FROM_EMAIL="service@example.com",
+            SITE_ORIGIN="https://example.com",
+        )
+        for url in (
+            "https://attacker.invalid/signup/verify/",
+            "https://example.com/not-verify/",
+            "https://example.com/signup/verify/?next=elsewhere",
+        ):
+            with self.subTest(url=url):
+                outbox_config.return_value = SimpleNamespace(verification_url=url)
+                self.assertFalse(signup_public_runtime_ready(settings_obj=settings_obj, environ={}))
+    @patch("control.services.signup_runtime_readiness.load_signup_email_verification_key_ring")
+    @patch("control.services.signup_runtime_readiness.load_signup_verification_outbox_config")
+    def test_site_origin_must_be_clean_origin_without_path_or_userinfo(self, outbox_config, key_ring):
+        outbox_config.return_value = SimpleNamespace(
+            verification_url="https://example.com/signup/verify/"
+        )
+        base = dict(
+            DEBUG=False,
+            EMAIL_BACKEND=SMTP_BACKEND,
+            EMAIL_HOST=NAVER_SMTP_HOST,
+            EMAIL_PORT=NAVER_SMTP_PORT,
+            EMAIL_USE_TLS=True,
+            EMAIL_HOST_USER="configured-user",
+            EMAIL_HOST_PASSWORD="configured-password",
+            DEFAULT_FROM_EMAIL="service@example.com",
+        )
+        for origin in (
+            "https://example.com/base",
+            "https://user@example.com",
+            "https://example.com/?x=1",
+        ):
+            with self.subTest(origin=origin):
+                settings_obj = SimpleNamespace(**base, SITE_ORIGIN=origin)
+                self.assertFalse(
+                    signup_public_runtime_ready(settings_obj=settings_obj, environ={})
+                )
+

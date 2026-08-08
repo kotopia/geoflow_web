@@ -22,8 +22,8 @@ class PublicLegalDocumentContractTests(TestCase):
         source = (CONTROL_DIR / "legal_policy.py").read_text(encoding="utf-8")
 
         for expected in (
-            'DEFAULT_TERMS_VERSION = "2026-08-08-v1"',
-            'DEFAULT_PRIVACY_VERSION = "2026-08-08-v1"',
+            'DEFAULT_TERMS_VERSION = "2026-08-08-v2"',
+            'DEFAULT_PRIVACY_VERSION = "2026-08-08-v2"',
             '"geoflow-manager/GeoFlow"',
             '"대전광역시"',
             '"peako"',
@@ -69,6 +69,7 @@ class PublicLegalDocumentContractTests(TestCase):
 
         for required_text in (
             "비밀번호 해시",
+            "만 14세 이상 여부",
             "처리 및 보유 기간",
             "파기 절차 및 방법",
             "제3자 제공",
@@ -95,7 +96,7 @@ class PublicLegalDocumentContractTests(TestCase):
         for required_text in (
             "[필수]",
             "개인정보 수집·이용 안내",
-            "필수 개인정보 수집·이용에 동의하지 않은 권리",
+            "필수 개인정보 수집·이용에 동의하지 않을 권리",
             "signup_terms_version",
             "signup_privacy_version",
         ):
@@ -104,3 +105,18 @@ class PublicLegalDocumentContractTests(TestCase):
         self.assertNotIn('name="contact_phone"', signup)
         self.assertNotIn('name="invitation_code"', signup)
         self.assertIn("초기 공개 회원가입에서는 연락처와 초대 코드를 수집하지 않습니다", privacy)
+
+class PublicLegalChildBoundaryTests(TestCase):
+    def test_terms_and_privacy_exclude_under_14_public_signup_without_collecting_birthdate(self):
+        template_dir = Path(__file__).resolve().parent / "templates" / "control"
+        terms = (template_dir / "terms.html").read_text(encoding="utf-8")
+        privacy = (template_dir / "privacy.html").read_text(encoding="utf-8")
+        signup = (template_dir / "signup.html").read_text(encoding="utf-8")
+        self.assertIn("만 14세 미만", terms)
+        self.assertIn("만 14세 미만", privacy)
+        self.assertIn("만 14세 이상", signup)
+        self.assertIn('name="age_14_or_over"', signup)
+        self.assertIn("[필수]</strong> 만 14세 이상입니다", signup)
+        for forbidden in ("birth_date", "birthday", "법정대리인 이메일", "보호자 이메일"):
+            self.assertNotIn(forbidden, signup)
+

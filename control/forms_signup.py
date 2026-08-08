@@ -1,15 +1,29 @@
+from types import SimpleNamespace
+
 from django import forms
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
 
+MAX_SIGNUP_PASSWORD_LENGTH = 128
+
+
 class SignupRequestForm(forms.Form):
     email = forms.EmailField(max_length=254)
-    password = forms.CharField(strip=False, widget=forms.PasswordInput)
-    password_confirm = forms.CharField(strip=False, widget=forms.PasswordInput)
+    password = forms.CharField(
+        strip=False,
+        max_length=MAX_SIGNUP_PASSWORD_LENGTH,
+        widget=forms.PasswordInput,
+    )
+    password_confirm = forms.CharField(
+        strip=False,
+        max_length=MAX_SIGNUP_PASSWORD_LENGTH,
+        widget=forms.PasswordInput,
+    )
     name_display = forms.CharField(max_length=200)
     organization_name = forms.CharField(max_length=200)
     signup_purpose = forms.CharField(max_length=1000, widget=forms.Textarea)
+    age_14_or_over = forms.BooleanField(required=True)
     terms_agreed = forms.BooleanField(required=True)
     privacy_agreed = forms.BooleanField(required=True)
 
@@ -25,8 +39,16 @@ class SignupRequestForm(forms.Form):
             self.add_error("password_confirm", "비밀번호가 일치하지 않습니다.")
 
         if password:
+            email = cleaned.get("email") or ""
+            display_name = cleaned.get("name_display") or ""
+            validator_user = SimpleNamespace(
+                username=email,
+                email=email,
+                first_name=display_name,
+                last_name="",
+            )
             try:
-                validate_password(password)
+                validate_password(password, user=validator_user)
             except ValidationError as exc:
                 self.add_error("password", exc)
 

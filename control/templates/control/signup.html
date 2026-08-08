@@ -12,7 +12,8 @@
       현재 회원가입을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.
     </div>
   {% else %}
-  <form method="post" novalidate>{% csrf_token %}
+  <div class="alert alert-secondary py-2 small">공개 회원가입은 만 14세 이상만 신청할 수 있습니다. 만 14세 미만은 개인정보를 입력하지 마세요.</div>
+<form method="post" novalidate>{% csrf_token %}
     {% if form.non_field_errors %}
       <div class="alert alert-danger">{{ form.non_field_errors }}</div>
     {% endif %}
@@ -23,12 +24,12 @@
     </div>
     <div class="mb-3">
       <label class="form-label">비밀번호</label>
-      <input type="password" name="password" class="form-control" required autocomplete="new-password">
+      <input type="password" name="password" class="form-control" required maxlength="128" autocomplete="new-password">
       {{ form.password.errors }}
     </div>
     <div class="mb-3">
       <label class="form-label">비밀번호 확인</label>
-      <input type="password" name="password_confirm" class="form-control" required autocomplete="new-password">
+      <input type="password" name="password_confirm" class="form-control" required maxlength="128" autocomplete="new-password">
       {{ form.password_confirm.errors }}
     </div>
     <div class="mb-3">
@@ -44,6 +45,7 @@
     <div class="mb-3">
       <label class="form-label">가입 목적</label>
       <textarea name="signup_purpose" class="form-control" required maxlength="1000" rows="4">{{ form.signup_purpose.value|default:'' }}</textarea>
+      <div class="form-text">주민등록번호 등 민감정보·고유식별정보는 입력하지 마세요.</div>
       {{ form.signup_purpose.errors }}
     </div>
     <div class="border rounded p-3 mb-3 bg-body-tertiary small">
@@ -53,12 +55,22 @@
         <dd class="col-8">회원가입 접수, 본인 이메일 확인, 관리자 심사, 계정 생성·보안 및 가입 이력 관리</dd>
         <dt class="col-4">필수 항목</dt>
         <dd class="col-8">이메일, 비밀번호, 표시 이름, 소속 기관, 가입 목적</dd>
+        <dt class="col-4">가입자격 확인</dt>
+        <dd class="col-8">만 14세 이상 여부(가입 신청 레코드에는 별도 저장하지 않음)</dd>
         <dt class="col-4">보유기간</dt>
         <dd class="col-8 mb-0">승인 회원은 탈퇴·계정 종료 시까지, 거절·만료 신청은 거절·만료일로부터 1년(법정 보존 예외 제외)</dd>
       </dl>
       <div class="mt-2 text-muted">
         필수 개인정보 수집·이용에 동의하지 않을 권리가 있으나, 동의하지 않으면 회원가입을 신청할 수 없습니다.
       </div>
+    </div>
+
+    <div class="form-check mb-2">
+      <input type="checkbox" name="age_14_or_over" value="1" class="form-check-input" id="age_14_or_over" required {% if form.age_14_or_over.value %}checked{% endif %}>
+      <label class="form-check-label" for="age_14_or_over">
+        <strong>[필수]</strong> 만 14세 이상입니다.
+      </label>
+      {{ form.age_14_or_over.errors }}
     </div>
 
     <div class="form-check mb-2">

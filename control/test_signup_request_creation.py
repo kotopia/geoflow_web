@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from control.forms_signup import SignupRequestForm
+from control.forms_signup import MAX_SIGNUP_PASSWORD_LENGTH, SignupRequestForm
 from control.legal_policy import DEFAULT_PRIVACY_VERSION, DEFAULT_TERMS_VERSION
 from control.services.signup_service import (
     PUBLIC_SIGNUP_ERROR,
@@ -22,6 +22,7 @@ VALID_FORM = {
     "name_display": "신청자",
     "organization_name": "기관",
     "signup_purpose": "공간정보 업무 활용",
+    "age_14_or_over": "1",
     "terms_agreed": "1",
     "privacy_agreed": "1",
 }
@@ -50,6 +51,36 @@ class SignupRequestFormTests(SimpleTestCase):
         self.assertNotIn("contact_phone", form.fields)
         self.assertNotIn("invitation_code", form.fields)
 
+    def test_password_length_is_bounded_before_hashing(self):
+        oversized = "x" * (MAX_SIGNUP_PASSWORD_LENGTH + 1)
+        values = {
+            **VALID_FORM,
+            "password": oversized,
+            "password_confirm": oversized,
+        }
+        form = SignupRequestForm(values)
+        self.assertFalse(form.is_valid())
+        self.assertIn("password", form.errors)
+        self.assertIn("password_confirm", form.errors)
+
+    @patch("control.forms_signup.validate_password")
+    def test_password_validation_receives_email_and_display_name_context(self, validate):
+        form = SignupRequestForm(VALID_FORM)
+        self.assertTrue(form.is_valid(), form.errors)
+        validate.assert_called_once()
+        self.assertEqual(validate.call_args.args[0], VALID_FORM["password"])
+        user = validate.call_args.kwargs["user"]
+        self.assertEqual(user.email, "applicant@example.com")
+        self.assertEqual(user.username, "applicant@example.com")
+        self.assertEqual(user.first_name, "신청자")
+
+    def test_age_14_or_over_confirmation_is_required(self):
+        values = {**VALID_FORM}
+        values.pop("age_14_or_over")
+        form = SignupRequestForm(values)
+        self.assertFalse(form.is_valid())
+        self.assertIn("age_14_or_over", form.errors)
+
     def test_terms_and_privacy_are_required(self):
         for field in ("terms_agreed", "privacy_agreed"):
             with self.subTest(field=field):
@@ -76,6 +107,29 @@ class SignupRequestServiceTests(SimpleTestCase):
             signup_purpose="업무 활용",
             terms_agreed=True,
             privacy_agreed=True,
+        )
+
+    @patch("control.services.signup_service.make_password", return_value="stored-hash")
+    def test_service_normalizes_email_before_lookup_and_insert(self, mocked_hash):
+        data = SignupRequestInput(
+            email="  Applicant@Example.COM  ",
+            password=self.data.password,
+            name_display=self.data.name_display,
+            contact_phone=self.data.contact_phone,
+            organization_name=self.data.organization_name,
+            signup_purpose=self.data.signup_purpose,
+            terms_agreed=True,
+            privacy_agreed=True,
+        )
+        create_signup_request(
+            data,
+            repository=self.repository,
+            atomic_context=nullcontext(),
+        )
+        self.repository.account_exists.assert_called_once_with("applicant@example.com")
+        self.assertEqual(
+            self.repository.create_inactive_user.call_args.kwargs["email"],
+            "applicant@example.com",
         )
 
     @patch("control.services.signup_service.make_password", return_value="stored-hash")

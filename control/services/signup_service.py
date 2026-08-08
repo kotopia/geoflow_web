@@ -139,14 +139,17 @@ def create_signup_request(
     context = atomic_context or transaction.atomic(using=alias)
     now = timezone.now()
     password_hash = make_password(data.password)
+    normalized_email = str(data.email).strip().lower()
+    if not normalized_email:
+        raise SignupRequestRejected(PUBLIC_SIGNUP_ERROR)
 
     try:
         with context:
-            if repository.account_exists(data.email):
+            if repository.account_exists(normalized_email):
                 raise SignupRequestRejected(PUBLIC_SIGNUP_ERROR)
 
             user_id = repository.create_inactive_user(
-                email=data.email,
+                email=normalized_email,
                 password_hash=password_hash,
                 name_display=data.name_display,
                 is_active=False,
