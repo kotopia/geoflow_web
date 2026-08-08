@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class CentralAccountActiveGuardMiddleware:
-    """Fail closed when an authenticated central account is not active."""
+    """Fail closed when an authenticated central account is not active and verified."""
 
     PUBLIC_EXACT_PATHS = {
         "/login",
@@ -84,9 +84,11 @@ class CentralAccountActiveGuardMiddleware:
         with connections[central_alias].cursor() as cur:
             cur.execute(
                 """
-                SELECT is_active
+                SELECT TRUE
                   FROM users
                  WHERE lower(email) = lower(%s)
+                   AND is_active = TRUE
+                   AND email_verified = TRUE
                  LIMIT 1
                 """,
                 [email],
@@ -192,6 +194,7 @@ class TenantMembershipFreshnessGuardMiddleware:
                   JOIN group_db_config cfg ON cfg.group_id = g.id
                  WHERE lower(u.email) = lower(%s)
                    AND u.is_active = TRUE
+                   AND u.email_verified = TRUE
                    AND ugm.group_id = %s
                    AND ugm.status = 'active'
                    AND g.status = 'active'
