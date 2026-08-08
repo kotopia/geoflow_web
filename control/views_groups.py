@@ -1,10 +1,17 @@
 # control/views_groups.py
-from django.shortcuts import render, redirect
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
+from django.shortcuts import redirect, render
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_GET, require_POST
+
 from control.services import central_repo as C
 from control.services_identity import lookup_user_id_from_request
 
+
+@login_required
+@require_GET
 def group_search_view(request):
     q = (request.GET.get("q") or "").strip()
     candidates = request.session.get("tenant_candidates")
@@ -21,11 +28,13 @@ def group_search_view(request):
     ]
     return render(request, "control/group_search.html", {"rows": rows, "q": q})
 
+
+@login_required
+@require_POST
+@csrf_protect
 def group_select_view(request, group_id):
-    """
-    단순히 세션 group_id만 세팅하고 /after-login 으로 넘김.
-    실제 멤버십/권한은 이후 데코레이터와 템플릿태그에서 서버‑사이드로 검증됨.
-    """
+    """Select one server-issued tenant candidate through a CSRF-protected POST."""
+
     uid = lookup_user_id_from_request(request)
     if not uid:
         messages.error(request, "로그인 후 이용하세요.")
