@@ -46,53 +46,14 @@ def lookup_user_id_from_request(request) -> Optional[str]:
 
 
 def ensure_user_from_request(request) -> Optional[str]:
+    """Disabled legacy helper retained only to fail closed for stale callers.
+
+    Central identities must be created through the explicit signup/admin lifecycle.
+    Authentication or a Django session bridge must never provision or activate a
+    central account implicitly.
     """
-    Provisioning-capable legacy helper: users를 조회하고 없으면 생성할 수 있다.
+    raise RuntimeError("Legacy implicit central account provisioning is disabled")
 
-    인증/인가 lookup에는 사용하지 말고 lookup_user_id_from_request를 사용한다.
-    전략 순서:
-      1) auth_user.email이 있으면 email로 매핑/생성
-      2) email이 없으면 auth_user.id를 legacy_id로 매핑/생성
-      3) email이 없지만 username이 이메일형식이면 그걸로 생성
-    """
-    user = getattr(request, "user", None)
-    if not user or not user.is_authenticated:
-        return None
-
-    # 1) email로 시도
-    email = getattr(user, "email", None) or None
-    if email:
-        uid = _fetch_user_id_by_email(email)
-        if uid: 
-            return uid
-        # 없으면 생성
-        with connections["default"].cursor() as cur:
-            cur.execute(
-                "INSERT INTO users(email, password_hash, is_active, legacy_id) "
-                "VALUES (%s,'!',TRUE,%s) RETURNING id::text",
-                [email, str(getattr(user, 'id', ''))]
-            )
-            return cur.fetchone()[0]
-
-    # 2) legacy_id(auth_user.id)로 시도
-    legacy_id = str(getattr(user, "id", "")) or None
-    if legacy_id:
-        uid = _fetch_user_id_by_legacy_id(legacy_id)
-        if uid:
-            return uid
-
-    # 3) username이 이메일형식이면 생성
-    username = getattr(user, "username", None)
-    if username and "@" in username:
-        with connections["default"].cursor() as cur:
-            cur.execute(
-                "INSERT INTO users(email, password_hash, is_active, legacy_id) "
-                "VALUES (%s,'!',TRUE,%s) RETURNING id::text",
-                [username, str(getattr(user, 'id', ''))]
-            )
-            return cur.fetchone()[0]
-
-    return None
 
 def to_group_uuid(group_any) -> Optional[str]:
     """
@@ -119,6 +80,7 @@ def to_group_uuid(group_any) -> Optional[str]:
         return row[0] if row else None
     
 def get_or_create_user_by_email(email: str):
+    """Legacy invitation helper: create only an inactive, unverified placeholder."""
     with connections["default"].cursor() as cur:
         cur.execute("SELECT id FROM users WHERE email=%s", [email])
         row = cur.fetchone()
@@ -132,27 +94,16 @@ def get_or_create_user_by_email(email: str):
         return cur.fetchone()[0], True
 
 def create_or_pending_membership(user_id, group_id, viewer_role_id):
-    with connections["default"].cursor() as cur:
-        # 허용 도메인 자동승인
-        cur.execute("SELECT allowed_domains FROM groups WHERE id=%s", [group_id])
-        domains = [d.lower() for d in (cur.fetchone() or ([],))[0]]
-        cur.execute("SELECT email FROM users WHERE id=%s", [user_id])
-        email = (cur.fetchone() or [""])[0]
-        dom = email.split("@", 1)[1].lower() if "@" in email else ""
+    """Legacy invitation helper that can only create a pending join request.
 
-        if dom in domains:
-            cur.execute("""
-              INSERT INTO user_group_map(id, user_id, group_id, role_id, status, created_at, updated_at)
-              VALUES (gen_random_uuid(), %s, %s, %s, 'active', now(), now())
-              ON CONFLICT (user_id, group_id)
-              DO UPDATE SET role_id=EXCLUDED.role_id, status='active', updated_at=now()
-            """, [user_id, group_id, viewer_role_id])
-            return "auto_approved"
-        else:
-            cur.execute("""
-              INSERT INTO join_requests(id, user_id, group_id, status, created_at)
-              VALUES (gen_random_uuid(), %s, %s, 'pending', now())
-              ON CONFLICT (user_id, group_id)
-              DO UPDATE SET status='pending', decided_at=NULL, created_at=now()
-            """, [user_id, group_id])
-            return "pending"
+    Domain matching must never activate membership automatically. Live approval is
+    handled by the explicit central join approval service.
+    """
+    with connections["default"].cursor() as cur:
+        cur.execute("""
+          INSERT INTO join_requests(id, user_id, group_id, status, created_at)
+          VALUES (gen_random_uuid(), %s, %s, 'pending', now())
+          ON CONFLICT (user_id, group_id)
+          DO UPDATE SET status='pending', decided_at=NULL, created_at=now()
+        """, [user_id, group_id])
+    return "pending"

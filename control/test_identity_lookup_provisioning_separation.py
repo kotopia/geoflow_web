@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
-from django.urls import reverse
 
 from control.decorators import require_central_admin
 from control.gf_authz.services import gf_load_user_context
@@ -128,5 +127,7 @@ class IdentityLookupProvisioningSeparationTests(SimpleTestCase):
         ensure.assert_not_called()
         create.assert_not_called()
 
-    def test_legacy_ensure_helper_is_explicitly_documented_as_provisioning_capable(self):
-        self.assertIn("Provisioning-capable", ensure_user_from_request.__doc__)
+    def test_legacy_ensure_helper_is_disabled(self):
+        with self.assertRaisesRegex(RuntimeError, "implicit central account provisioning is disabled"):
+            ensure_user_from_request(self._request())
+        self.assertIn("Disabled legacy helper", ensure_user_from_request.__doc__)

@@ -24,11 +24,18 @@ class Phase1LegacyInviteBoundaryTests(TestCase):
         self.assertNotIn("C.create_user(", source)
         self.assertNotIn("C.get_or_create_user_by_email(requested_email", source)
 
-    def test_legacy_auto_approval_code_is_explicitly_dormant(self):
+    def test_legacy_membership_helper_cannot_auto_approve(self):
         source = (CONTROL_DIR / "services_identity.py").read_text(encoding="utf-8")
-        self.assertIn('return "auto_approved"', source)
-        # This legacy helper may remain temporarily for compatibility, but a route
-        # exposure must fail the live-url contract above before public launch.
+        self.assertNotIn('return "auto_approved"', source)
+        self.assertNotIn("allowed_domains", source)
+        self.assertIn("status='pending'", source)
+        self.assertIn('return "pending"', source)
+
+    def test_legacy_implicit_account_provisioning_is_disabled(self):
+        source = (CONTROL_DIR / "services_identity.py").read_text(encoding="utf-8")
+        self.assertIn("Legacy implicit central account provisioning is disabled", source)
+        self.assertNotIn("VALUES (%s,'!',TRUE,%s)", source)
+
     def test_live_join_approval_does_not_create_legacy_raw_password_tokens(self):
         source = (CONTROL_DIR / "views_join.py").read_text(encoding="utf-8")
         for forbidden in (
@@ -37,4 +44,3 @@ class Phase1LegacyInviteBoundaryTests(TestCase):
             "send_invite_email_with_set_password_link",
         ):
             self.assertNotIn(forbidden, source)
-
