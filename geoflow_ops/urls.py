@@ -25,10 +25,10 @@ urlpatterns = [
 
     path("projects/", security_views.project_list, name="project_list"),
     path("projects/<uuid:pk>/", security_views.project_detail, name="project_detail"),
-    path("projects/<uuid:pk>/json/", views_projects.project_json, name="project_detail_json"),
+    path("projects/<uuid:pk>/json/", security_views.project_json, name="project_detail_json"),
 
-    path("projects/<uuid:pk>/summary/", views_projects.project_summary, name="project_summary"),
-    path("projects/<uuid:pk>/summary-save/", views_projects.project_summary_save, name="project_summary_save"),
+    path("projects/<uuid:pk>/summary/", security_views.project_summary, name="project_summary"),
+    path("projects/<uuid:pk>/summary-save/", security_views.project_summary_save, name="project_summary_save"),
 
     path("projects/<uuid:pk>/scope-modal/", security_views.project_scope_modal, name="project_scope_modal"),
     path("projects/<uuid:pk>/scope-save/", security_views.project_scope_save, name="project_scope_save"),

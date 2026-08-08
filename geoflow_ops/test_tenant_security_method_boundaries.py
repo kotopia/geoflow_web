@@ -9,6 +9,8 @@ class TenantSecurityMethodBoundaryTests(SimpleTestCase):
     def test_read_wrappers_are_get_only(self):
         for view in (
             security_views.project_list,
+            security_views.project_json,
+            security_views.project_summary,
             security_views.contract_json,
             security_views.partner_json,
             security_views.catalog_board,
@@ -35,5 +37,10 @@ class TenantSecurityMethodBoundaryTests(SimpleTestCase):
                     getsource(view),
                 )
 
-    def test_scope_save_is_post_only(self):
-        self.assertIn("@require_POST", getsource(security_views.project_scope_save))
+    def test_mutating_project_wrappers_are_post_only(self):
+        for view in (
+            security_views.project_scope_save,
+            security_views.project_summary_save,
+        ):
+            with self.subTest(view=view.__name__):
+                self.assertIn("@require_POST", getsource(view))

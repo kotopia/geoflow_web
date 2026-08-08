@@ -36,6 +36,27 @@ def project_detail(request, pk):
 
 @login_required
 @require_GET
+def project_json(request, pk):
+    _require(request, "projects.view")
+    return views_projects.project_json(request, pk)
+
+
+@login_required
+@require_GET
+def project_summary(request, pk):
+    _require(request, "projects.edit")
+    return views_projects.project_summary(request, pk)
+
+
+@login_required
+@require_POST
+def project_summary_save(request, pk):
+    _require(request, "projects.edit")
+    return views_projects.project_summary_save(request, pk)
+
+
+@login_required
+@require_GET
 def contract_json(request, pk):
     _require(request, "contracts.view")
     return views_contracts.contract_json(request, pk)
