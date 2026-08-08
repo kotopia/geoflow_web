@@ -40,6 +40,18 @@ class SqlCentralAccountErasureRepository:
     def __init__(self, alias: str | None = None):
         self.alias = alias or getattr(settings, "CENTRAL_DB_ALIAS", "default")
 
+    _SIGNUP_TABLES = (
+        "signup_requests",
+        "signup_request_events",
+        "signup_email_verification_tokens",
+        "signup_verification_delivery_outbox",
+    )
+
+    def _table_exists(self, cursor, table: str) -> bool:
+        cursor.execute("SELECT to_regclass(%s)", [f"public.{table}"])
+        row = cursor.fetchone()
+        return bool(row and row[0])
+
     def _column_exists(self, cursor, table: str, column: str) -> bool:
         cursor.execute(
             """
@@ -54,12 +66,111 @@ class SqlCentralAccountErasureRepository:
         )
         return cursor.fetchone() is not None
 
-    def _join_request_email_column(self, cursor) -> str | None:
-        if self._column_exists(cursor, "join_requests", "email"):
-            return "email"
-        if self._column_exists(cursor, "join_requests", "requested_email"):
-            return "requested_email"
-        return None
+    def _signup_schema_mode(self, cursor) -> Literal["absent", "complete"]:
+        presence = {
+            table: self._table_exists(cursor, table)
+            for table in self._SIGNUP_TABLES
+        }
+        if all(presence.values()):
+            return "complete"
+        if not any(presence.values()):
+            return "absent"
+        raise AccountErasureError(
+            "signup schema is partially installed; account erasure is blocked"
+        )
+
+    def _join_request_email_columns(self, cursor) -> tuple[str, ...]:
+        return tuple(
+            column
+            for column in ("requested_email", "email")
+            if self._column_exists(cursor, "join_requests", column)
+        )
+
+    def _join_request_decider_columns(self, cursor) -> tuple[str, ...]:
+        return tuple(
+            column
+            for column in ("decided_by", "decided_by_user_id")
+            if self._column_exists(cursor, "join_requests", column)
+        )
+
+    def _delete_join_requests_for_identity(
+        self,
+        cursor,
+        *,
+        user_id: str,
+        email: str,
+    ) -> None:
+        conditions = ["user_id=%s"]
+        params: list[str] = [user_id]
+        for column in self._join_request_email_columns(cursor):
+            conditions.append(f"lower({column})=lower(%s)")
+            params.append(email)
+        cursor.execute(
+            "DELETE FROM join_requests WHERE " + " OR ".join(conditions),
+            params,
+        )
+
+    def _delete_legacy_password_tokens(self, cursor, *, user_id: str) -> None:
+        for table in ("password_reset_tokens", "user_tokens"):
+            if self._table_exists(cursor, table):
+                cursor.execute(f"DELETE FROM {table} WHERE user_id=%s", [user_id])
+
+    def _anonymize_django_session_bridge(
+        self,
+        cursor,
+        *,
+        email: str,
+        unusable_password_hash: str,
+    ) -> int:
+        """Remove central-account PII from Django's auth_user session bridge.
+
+        The authoritative bridge key created by GeoFlow login is username=email.
+        Fully de-privilege only those rows. For any other legacy Django row that
+        merely carries the same email field, clear that email without changing
+        unrelated credentials or privileges.
+        """
+
+        if not self._table_exists(cursor, "auth_user"):
+            return 0
+        cursor.execute(
+            """
+            SELECT id
+              FROM auth_user
+             WHERE lower(COALESCE(username, ''))=lower(%s)
+             FOR UPDATE
+            """,
+            [email],
+        )
+        bridge_ids = tuple(row[0] for row in cursor.fetchall())
+        for bridge_id in bridge_ids:
+            erased_username = f"erased-session-{uuid.uuid4()}@example.invalid"
+            cursor.execute(
+                """
+                UPDATE auth_user
+                   SET username=%s,
+                       email='',
+                       password=%s,
+                       first_name='',
+                       last_name='',
+                       is_active=FALSE,
+                       is_staff=FALSE,
+                       is_superuser=FALSE,
+                       last_login=NULL
+                 WHERE id=%s
+                """,
+                [erased_username, unusable_password_hash, bridge_id],
+            )
+
+        cursor.execute(
+            """
+            UPDATE auth_user
+               SET email=''
+             WHERE lower(COALESCE(email, ''))=lower(%s)
+               AND lower(COALESCE(username, ''))<>lower(%s)
+            """,
+            [email, email],
+        )
+        return len(bridge_ids)
 
     def _require_no_group_ownership(self, cursor, *, user_id: str) -> None:
         if not self._column_exists(cursor, "groups", "owner_user_id"):
@@ -73,34 +184,42 @@ class SqlCentralAccountErasureRepository:
                 "central account owns a group; transfer ownership before erasure"
             )
 
-    def _has_external_audit_reference(self, cursor, *, user_id: str) -> bool:
-        cursor.execute(
-            """
-            SELECT (
-                EXISTS(
-                    SELECT 1 FROM signup_requests
-                     WHERE decided_by_user_id=%s AND user_id<>%s
-                )
-                OR EXISTS(
-                    SELECT 1
-                      FROM signup_request_events AS event
-                      JOIN signup_requests AS request
-                        ON request.id=event.signup_request_id
-                     WHERE event.actor_user_id=%s
-                       AND request.user_id<>%s
-                )
-            )
-            """,
-            [user_id, user_id, user_id, user_id],
-        )
-        preserve = bool(cursor.fetchone()[0])
-
-        if self._column_exists(cursor, "join_requests", "decided_by"):
+    def _has_external_audit_reference(
+        self,
+        cursor,
+        *,
+        user_id: str,
+        signup_schema_mode: Literal["absent", "complete"],
+    ) -> bool:
+        preserve = False
+        if signup_schema_mode == "complete":
             cursor.execute(
                 """
+                SELECT (
+                    EXISTS(
+                        SELECT 1 FROM signup_requests
+                         WHERE decided_by_user_id=%s AND user_id<>%s
+                    )
+                    OR EXISTS(
+                        SELECT 1
+                          FROM signup_request_events AS event
+                          JOIN signup_requests AS request
+                            ON request.id=event.signup_request_id
+                         WHERE event.actor_user_id=%s
+                           AND request.user_id<>%s
+                    )
+                )
+                """,
+                [user_id, user_id, user_id, user_id],
+            )
+            preserve = bool(cursor.fetchone()[0])
+
+        for decider_column in self._join_request_decider_columns(cursor):
+            cursor.execute(
+                f"""
                 SELECT 1
                   FROM join_requests
-                 WHERE decided_by=%s
+                 WHERE {decider_column}=%s
                    AND COALESCE(user_id::text, '')<>%s
                  LIMIT 1
                 """,
@@ -125,6 +244,7 @@ class SqlCentralAccountErasureRepository:
                    name_display=NULL,
                    is_active=FALSE,
                    email_verified=FALSE,
+                   is_staff=FALSE,
                    mfa_enabled=FALSE,
                    last_login=NULL,
                    updated_at=%s
@@ -147,15 +267,29 @@ class SqlCentralAccountErasureRepository:
                 raise AccountErasureError("central account does not exist")
             email = str(row[0])
 
+            self._anonymize_django_session_bridge(
+                cursor,
+                email=email,
+                unusable_password_hash=unusable_password_hash,
+            )
+
             # Group ownership is a business authority, not merely a login artifact.
             # Require explicit transfer instead of silently orphaning the group.
             self._require_no_group_ownership(cursor, user_id=user_id)
 
-            cursor.execute(
-                "SELECT id::text FROM signup_requests WHERE user_id=%s",
-                [user_id],
-            )
-            own_request_ids = tuple(str(value[0]) for value in cursor.fetchall())
+            # Code may be deployed before the Phase 1 signup migrations are applied.
+            # Treat a fully absent signup schema as legacy-compatible, but block a
+            # partially installed schema because dependency cleanup would be unsafe.
+            signup_schema_mode = self._signup_schema_mode(cursor)
+            own_request_ids: tuple[str, ...] = ()
+            if signup_schema_mode == "complete":
+                cursor.execute(
+                    "SELECT id::text FROM signup_requests WHERE user_id=%s",
+                    [user_id],
+                )
+                own_request_ids = tuple(
+                    str(value[0]) for value in cursor.fetchall()
+                )
 
             if own_request_ids:
                 cursor.execute(
@@ -176,17 +310,18 @@ class SqlCentralAccountErasureRepository:
                 )
 
             cursor.execute("DELETE FROM user_group_map WHERE user_id=%s", [user_id])
-            join_email_column = self._join_request_email_column(cursor)
-            if join_email_column is None:
-                cursor.execute("DELETE FROM join_requests WHERE user_id=%s", [user_id])
-            else:
-                cursor.execute(
-                    f"DELETE FROM join_requests WHERE user_id=%s OR lower({join_email_column})=lower(%s)",
-                    [user_id, email],
-                )
-            cursor.execute("DELETE FROM password_reset_tokens WHERE user_id=%s", [user_id])
+            self._delete_join_requests_for_identity(
+                cursor,
+                user_id=user_id,
+                email=email,
+            )
+            self._delete_legacy_password_tokens(cursor, user_id=user_id)
 
-            if self._has_external_audit_reference(cursor, user_id=user_id):
+            if self._has_external_audit_reference(
+                cursor,
+                user_id=user_id,
+                signup_schema_mode=signup_schema_mode,
+            ):
                 return self._anonymize(
                     cursor,
                     user_id=user_id,

@@ -26,7 +26,10 @@ class _QueryCursor:
     def execute(self, sql, params=None):
         normalized = " ".join(sql.split())
         self.executed.append((normalized, params or []))
-        self.fetchone_result, self.fetchall_result = self.handler(normalized, params or [])
+        self.fetchone_result, self.fetchall_result = self.handler(
+            normalized,
+            params or [],
+        )
 
     def fetchone(self):
         return self.fetchone_result
@@ -51,24 +54,69 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
         def handler(sql, params):
             if "FROM users u" in sql:
                 return (
-                    ("user-key", "masked@example.invalid", True, True, None, None, None),
+                    (
+                        "user-key",
+                        "masked@example.invalid",
+                        True,
+                        True,
+                        None,
+                        None,
+                        None,
+                    ),
                     [],
                 )
             if "FROM user_group_map ugm" in sql:
                 return (
                     None,
                     [
-                        ("group-key", "Group", "group-code", "role-key", "role-code", "Role", "active"),
-                        ("group-key-2", "Group 2", "group-code-2", "role-key-2", "role-code-2", "Role 2", "active"),
+                        (
+                            "group-key",
+                            "Group",
+                            "group-code",
+                            "role-key",
+                            "role-code",
+                            "Role",
+                            "active",
+                        ),
+                        (
+                            "group-key-2",
+                            "Group 2",
+                            "group-code-2",
+                            "role-key-2",
+                            "role-code-2",
+                            "Role 2",
+                            "active",
+                        ),
                     ],
                 )
+            if "information_schema.columns" in sql:
+                table, column = params
+                existing = {
+                    ("join_requests", "requested_email"),
+                    ("join_requests", "requested_role_code"),
+                }
+                return ((1,) if (table, column) in existing else None, [])
             if "FROM join_requests jr" in sql:
-                return (None, [("request-key", "Group", "role-code", "pending", None)])
+                self.assertIn("jr.requested_role_code", sql)
+                self.assertIn("lower(requested_email)=lower(%s)", sql)
+                return (
+                    None,
+                    [
+                        (
+                            "request-key",
+                            "Group",
+                            "group-code",
+                            "role-code",
+                            "pending",
+                            None,
+                        )
+                    ],
+                )
             if "FROM groups g" in sql and "COALESCE(g.status" in sql:
                 return (None, [("group-key", "Group", "group-code")])
             if "FROM roles r" in sql:
                 return (None, [("role-key", "role-code")])
-            raise AssertionError("Unexpected central admin query")
+            raise AssertionError(f"Unexpected central admin query: {sql}")
 
         cursor = _QueryCursor(handler)
         captured = {}
@@ -78,10 +126,15 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
             return HttpResponse("ok")
 
         request = self.factory.get("/control/mgmt/users/detail/")
-        with patch.object(views_users_admin, "connections", {"default": _Connection(cursor)}), patch.object(
-            views_users_admin, "render", side_effect=fake_render
-        ):
-            response = views_users_admin.users_detail_admin.__wrapped__(request, "user-key")
+        with patch.object(
+            views_users_admin,
+            "connections",
+            {"default": _Connection(cursor)},
+        ), patch.object(views_users_admin, "render", side_effect=fake_render):
+            response = views_users_admin.users_detail_admin.__wrapped__(
+                request,
+                "user-key",
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["groups"][0]["id"], "group-key")
@@ -97,19 +150,38 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
             {"group-key": "role-key", "group-key-2": "role-key-2"},
         )
         self.assertEqual(captured["joins"], captured["requests"])
+        self.assertEqual(captured["joins"][0]["group_code"], "group-code")
 
     def test_user_detail_template_selects_membership_role_by_group(self):
-        template_path = Path(__file__).resolve().parent / "templates" / "control" / "users_detail_admin.html"
+        template_path = (
+            Path(__file__).resolve().parent
+            / "templates"
+            / "control"
+            / "users_detail_admin.html"
+        )
         template = template_path.read_text(encoding="utf-8")
 
         self.assertIn("g.id == selected_group_id", template)
         self.assertIn("r.id == selected_role_id", template)
-        self.assertIn('membership_role_by_group|json_script:"membership-role-map"', template)
+        self.assertIn(
+            'membership_role_by_group|json_script:"membership-role-map"',
+            template,
+        )
         self.assertIn("roleByGroup[groupSelect.value]", template)
+        self.assertIn("{% if user.is_active and user.email_verified %}", template)
+        self.assertIn("이메일 인증과 계정 승인이 완료된", template)
 
-    def test_existing_assignment_upsert_contract_is_preserved(self):
+    def test_assignment_upsert_requires_active_account_and_active_group(self):
         def handler(sql, params):
-            return (None, [])
+            if "INSERT INTO user_group_map" in sql:
+                self.assertIn("u.is_active=TRUE", sql)
+                self.assertIn("u.email_verified=TRUE", sql)
+                self.assertIn("u.password_hash IS NOT NULL", sql)
+                self.assertIn("pbkdf2_sha256$%", sql)
+                self.assertIn("COALESCE(g.status", sql)
+                self.assertIn("RETURNING id", sql)
+                return (("membership-key",), [])
+            raise AssertionError(f"Unexpected assignment query: {sql}")
 
         cursor = _QueryCursor(handler)
         request = self.factory.post(
@@ -118,15 +190,47 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
         )
         user_key = UUID(int=1)
 
-        with patch.object(views_users_admin, "connections", {"default": _Connection(cursor)}), patch.object(
-            views_users_admin.messages, "success"
-        ):
-            response = views_users_admin.users_assign_group_admin.__wrapped__(request, user_key)
+        with patch.object(
+            views_users_admin,
+            "connections",
+            {"default": _Connection(cursor)},
+        ), patch.object(views_users_admin.messages, "success"):
+            response = views_users_admin.users_assign_group_admin.__wrapped__(
+                request,
+                user_key,
+            )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(len(cursor.executed), 1)
         self.assertIn("ON CONFLICT (user_id, group_id)", cursor.executed[0][0])
-        self.assertEqual(cursor.executed[0][1], [user_key, "group-key", "role-key"])
+        self.assertEqual(
+            cursor.executed[0][1],
+            ["group-key", "role-key", str(user_key)],
+        )
+
+    def test_assignment_rejects_inactive_or_invalid_target_without_success(self):
+        cursor = _QueryCursor(lambda sql, params: (None, []))
+        request = self.factory.post(
+            "/control/mgmt/users/assign/",
+            {"group_id": "group-key", "role_id": "role-key"},
+        )
+
+        with patch.object(
+            views_users_admin,
+            "connections",
+            {"default": _Connection(cursor)},
+        ), patch.object(views_users_admin.messages, "error") as error, patch.object(
+            views_users_admin.messages,
+            "success",
+        ) as success:
+            response = views_users_admin.users_assign_group_admin.__wrapped__(
+                request,
+                UUID(int=2),
+            )
+
+        self.assertEqual(response.status_code, 302)
+        error.assert_called_once()
+        success.assert_not_called()
 
     def test_group_list_uses_distinct_metadata_aliases_and_deleted_flag(self):
         def handler(sql, params):
@@ -139,7 +243,10 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
                     ],
                 )
             if "FROM group_db_config" in sql:
-                return (None, [("group-a", "metadata-a"), ("group-b", "metadata-b")])
+                return (
+                    None,
+                    [("group-a", "metadata-a"), ("group-b", "metadata-b")],
+                )
             if "WHERE deleted_at IS NOT NULL" in sql:
                 return (None, [("group-b",)])
             raise AssertionError("Unexpected group-list query")
@@ -149,10 +256,18 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
         def column_exists(alias, table, column):
             return column in {"owner_user_id", "deleted_at"}
 
-        with patch.object(central_repo, "connections", {"default": _Connection(cursor)}), patch.object(
-            central_repo, "_central_alias", return_value="default"
+        with patch.object(
+            central_repo,
+            "connections",
+            {"default": _Connection(cursor)},
+        ), patch.object(
+            central_repo,
+            "_central_alias",
+            return_value="default",
         ), patch.object(central_repo, "_table_exists", return_value=True), patch.object(
-            central_repo, "_column_exists", side_effect=column_exists
+            central_repo,
+            "_column_exists",
+            side_effect=column_exists,
         ):
             rows = central_repo.list_groups_admin()
 
@@ -165,7 +280,10 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
     def test_group_edit_reads_alias_from_central_metadata(self):
         def handler(sql, params):
             self.assertIn("LEFT JOIN group_db_config", sql)
-            return (("group-key", "code", "Group", "active", "", None, "metadata-a"), [])
+            return (
+                ("group-key", "code", "Group", "active", "", None, "metadata-a"),
+                [],
+            )
 
         cursor = _QueryCursor(handler)
         captured = {}
@@ -175,18 +293,31 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
             return HttpResponse("ok")
 
         request = self.factory.get("/control/central/groups/edit/")
-        with patch.object(views_groups_admin.C, "_table_exists", return_value=True), patch.object(
-            views_groups_admin, "connections", {"default": _Connection(cursor)}
+        with patch.object(
+            views_groups_admin.C,
+            "_table_exists",
+            return_value=True,
+        ), patch.object(
+            views_groups_admin,
+            "connections",
+            {"default": _Connection(cursor)},
         ), patch.object(views_groups_admin, "render", side_effect=fake_render):
-            response = views_groups_admin.group_edit_admin.__wrapped__(request, "group-key")
+            response = views_groups_admin.group_edit_admin.__wrapped__(
+                request,
+                "group-key",
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(captured["row"][6], "metadata-a")
 
     def test_alias_field_is_read_only_and_destructive_actions_are_absent(self):
         template_dir = Path(__file__).resolve().parent / "templates" / "control"
-        group_form = (template_dir / "group_form_admin.html").read_text(encoding="utf-8")
-        group_list = (template_dir / "group_list_admin.html").read_text(encoding="utf-8")
+        group_form = (template_dir / "group_form_admin.html").read_text(
+            encoding="utf-8"
+        )
+        group_list = (template_dir / "group_list_admin.html").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn('readonly aria-readonly="true"', group_form)
         self.assertNotIn('name="db_alias"', group_form)
@@ -204,5 +335,11 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
             self.assertNotIn(forbidden_name, group_list)
 
     def test_existing_central_admin_url_names_resolve(self):
-        self.assertEqual(reverse("control:group_list_admin"), "/control/central/groups/")
-        self.assertIn("/assign/", reverse("control:users_assign_group_admin", args=[UUID(int=1)]))
+        self.assertEqual(
+            reverse("control:group_list_admin"),
+            "/control/central/groups/",
+        )
+        self.assertIn(
+            "/assign/",
+            reverse("control:users_assign_group_admin", args=[UUID(int=1)]),
+        )

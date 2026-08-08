@@ -65,7 +65,6 @@ class SignupRetentionServiceTests(SimpleTestCase):
         )
         repository.list_candidates.return_value = (candidate,)
 
-        # Avoid a real DB transaction in this unit contract.
         from contextlib import nullcontext
         from unittest.mock import patch
 
@@ -110,7 +109,7 @@ class SignupRetentionRepositorySqlContractTests(SimpleTestCase):
         self.assertIn("owner_user_id", dynamic_source)
 
     def test_join_request_email_schema_compatibility_is_explicit(self):
-        source = getsource(CentralSignupRetentionRepository._join_request_email_column)
+        source = getsource(CentralSignupRetentionRepository._join_request_email_columns)
         self.assertIn('"email"', source)
         self.assertIn('"requested_email"', source)
 
@@ -133,3 +132,54 @@ class SignupRetentionRepositorySqlContractTests(SimpleTestCase):
             "FOR UPDATE OF signup_request, signup_user",
         ):
             self.assertIn(required, source)
+
+
+class SignupRetentionJoinSchemaCompatibilityTests(SimpleTestCase):
+    def test_join_request_safety_supports_both_schema_generations(self):
+        email_source = getsource(
+            CentralSignupRetentionRepository._join_request_email_columns
+        )
+        decider_source = getsource(
+            CentralSignupRetentionRepository._join_request_decider_columns
+        )
+        dynamic_source = getsource(
+            CentralSignupRetentionRepository._dynamic_safety_clauses
+        )
+        self.assertIn('("requested_email", "email")', email_source)
+        self.assertIn('("decided_by_user_id", "decided_by")', decider_source)
+        self.assertIn('for column in self._join_request_email_columns', dynamic_source)
+        self.assertIn('for column in self._join_request_decider_columns', dynamic_source)
+
+    def test_calendar_year_retention_not_fixed_365_days(self):
+        source = getsource(one_year_before)
+        self.assertIn('replace(year=moment.year - 1)', source)
+        self.assertNotIn('timedelta(days=365)', source)
+
+
+class SignupRetentionDjangoBridgeTests(SimpleTestCase):
+    def test_retention_cleans_unexpected_django_session_bridge_identity(self):
+        source = getsource(
+            CentralSignupRetentionRepository._anonymize_django_session_bridge
+        )
+        self.assertIn("auth_user", source)
+        self.assertIn("erased-session-", source)
+        self.assertIn("make_password(None)", source)
+        self.assertIn("is_active=FALSE", source)
+        self.assertIn("last_login=NULL", source)
+
+    def test_bridge_cleanup_precedes_final_central_user_delete(self):
+        source = getsource(CentralSignupRetentionRepository.purge_candidate)
+        self.assertLess(
+            source.index("_anonymize_django_session_bridge"),
+            source.index("DELETE FROM users AS signup_user"),
+        )
+
+
+class SignupRetentionLegacyTokenCleanupTests(SimpleTestCase):
+    def test_retention_cleans_both_legacy_password_token_generations(self):
+        source = getsource(
+            CentralSignupRetentionRepository._delete_legacy_password_tokens
+        )
+        self.assertIn('"password_reset_tokens", "user_tokens"', source)
+        self.assertIn("_table_exists", source)
+        self.assertIn("DELETE FROM {table} WHERE user_id=%s", source)

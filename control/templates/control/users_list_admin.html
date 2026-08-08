@@ -6,7 +6,7 @@
   <div class="card"><div class="card-body table-responsive">
     <table class="table align-middle">
       <thead><tr>
-        <th>이메일</th><th>활성</th><th>인증</th><th>최근 로그인</th><th>그룹수</th><th></th>
+        <th>이메일</th><th>활성</th><th>인증</th><th>최근 로그인</th><th>그룹수</th><th class="text-end">관리</th>
       </tr></thead>
       <tbody>
         {% for u in users %}
@@ -16,12 +16,11 @@
           <td>{{ u.email_verified|yesno:"Y,N" }}</td>
           <td>{{ u.last_login|date:"Y-m-d H:i" }}</td>
           <td>{{ u.groups_count }}</td>
-          <td><a class="btn btn-sm btn-outline-primary" href="{% url 'control:users_detail_admin' u.id %}">상세</a></td>
           <td class="text-end">
             <a class="btn btn-sm btn-outline-primary" href="{% url 'control:users_detail_admin' u.id %}">상세</a>
-            <form method="post" action="{% url 'control:users_delete_admin' u.id %}" class="d-inline" onsubmit="return confirm('정말 삭제?');">
+            <form method="post" action="{% url 'control:users_delete_admin' u.id %}" class="d-inline" onsubmit="return confirm('중앙 계정 개인정보를 삭제하거나 감사 이력 보존을 위해 익명화할 수 있습니다. 계속하시겠습니까?');">
               {% csrf_token %}
-              <button class="btn btn-sm btn-danger">삭제</button>
+              <button class="btn btn-sm btn-danger">개인정보 삭제</button>
             </form>
           </td>
         </tr>

@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events
+from . import views_employee_role_request
 
 app_name = "tenant"
 
@@ -25,11 +26,9 @@ urlpatterns = [
     path("projects/<uuid:pk>/", views_projects.project_detail_page, name="project_detail"),
     path("projects/<uuid:pk>/json/", views_projects.project_json, name="project_detail_json"),
 
-    # 프로젝트 요약/편집 단일 페이지 & 저장
     path("projects/<uuid:pk>/summary/", views_projects.project_summary, name="project_summary"),
     path("projects/<uuid:pk>/summary-save/", views_projects.project_summary_save, name="project_summary_save"),
 
-    # 프로젝트별 업무범위(스코프) 편집 모달/저장**
     path("projects/<uuid:pk>/scope-modal/",   views_catalog.project_scope_modal,   name="project_scope_modal"),
     path("projects/<uuid:pk>/scope-save/",    views_catalog.project_scope_save,    name="project_scope_save"),
     path("projects/<uuid:pk>/scope-summary/", views_catalog.project_scope_summary, name="project_scope_summary"),
@@ -38,9 +37,8 @@ urlpatterns = [
     path("employees/", views_employees.employees_list, name="employees_list"),
     path("employees/new/", views_employees.employees_create, name="employees_create"),
     path("employees/<uuid:emp_id>/", views_employees.employees_detail, name="employees_detail"),
-    path("employees/<uuid:emp_id>/request-role/", views_employees.employees_request_role, name="employees_request_role"),
+    path("employees/<uuid:emp_id>/request-role/", views_employee_role_request.employees_request_role_safe, name="employees_request_role"),
 
-    # ▼ HR 참조 옵션 (로컬 → 이후 중앙으로 대체)
     path("api/hr/options/<str:category>/", views_employees.hr_options, name="hr_options"),
 
     path("myinfo/org-units/", views_myinfo.orgunit_list,  name="myinfo_orgunit_list"),
@@ -48,13 +46,11 @@ urlpatterns = [
     path("myinfo/org-units/<uuid:pk>/", views_myinfo.orgunit_detail, name="myinfo_orgunit_detail"),
     path("myinfo/org-units/<uuid:pk>/edit/", views_myinfo.orgunit_update, name="myinfo_orgunit_update"),
 
-    # ▼ 첨부파일 업로드 API
     path("api/uploads/presign-put/", views_uploads.presign_put, name="upload_presign_put"),
     path("api/uploads/commit/", views_uploads.commit, name="upload_commit"),
     path("api/uploads/presign-get/<uuid:attachment_id>/", views_uploads.presign_get, name="upload_presign_get"),
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
 
-    # ▼ Process Event API
     path("api/events/create/", views_events.create_event, name="event_create"),
     path("api/events/list/", views_events.list_events, name="event_list"),
     path("api/events/update/<uuid:event_id>/", views_events.update_event, name="event_update"),

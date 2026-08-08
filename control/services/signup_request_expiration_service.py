@@ -76,6 +76,13 @@ class CentralSignupRequestExpirationRepository:
                    AND signup_request.{age_column} <= %s
                    AND signup_user.email_verified=%s
                    AND signup_user.is_active=FALSE
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM signup_verification_delivery_outbox AS active_delivery
+                        WHERE active_delivery.signup_request_id=signup_request.id
+                          AND active_delivery.status='processing'
+                          AND active_delivery.claim_expires_at > %s
+                   )
                  ORDER BY signup_request.{age_column}, signup_request.id
                  FOR UPDATE OF signup_request SKIP LOCKED
                  LIMIT %s
@@ -99,6 +106,7 @@ class CentralSignupRequestExpirationRepository:
                     status,
                     cutoff,
                     expected_email_verified,
+                    expired_at,
                     batch_size,
                     expired_at,
                     reason_code,

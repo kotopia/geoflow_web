@@ -22,6 +22,7 @@
     <div class="col-md-6">
       <div class="card"><div class="card-body">
         <h6 class="card-title">그룹/역할 지정</h6>
+        {% if user.is_active and user.email_verified %}
         <form method="post" action="{% url 'control:users_assign_group_admin' user.id %}">
           {% csrf_token %}
           <div class="row g-2">
@@ -38,6 +39,11 @@
             <div class="col-auto"><button class="btn btn-primary">지정</button></div>
           </div>
         </form>
+        {% else %}
+        <div class="alert alert-secondary mb-0">
+          이메일 인증과 계정 승인이 완료된 사용자만 그룹/역할을 지정할 수 있습니다.
+        </div>
+        {% endif %}
       </div></div>
     </div>
   </div>
@@ -46,7 +52,7 @@
     <h6 class="card-title">합류 요청</h6>
     <ul class="list-group list-group-flush">
       {% for j in joins %}
-      <li class="list-group-item">{{ j.group_name }} ({{ j.group_code }}) — {{ j.status }} / {{ j.created_at|date:"Y-m-d H:i" }}</li>
+      <li class="list-group-item">{{ j.group_name }} ({{ j.group_code }}) — {{ j.role_code|default:"-" }} / {{ j.status }} / {{ j.created_at|date:"Y-m-d H:i" }}</li>
       {% empty %}<li class="list-group-item text-muted">없음</li>{% endfor %}
     </ul>
   </div></div>

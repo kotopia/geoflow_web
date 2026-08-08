@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import uuid
 from datetime import datetime
 from typing import Protocol
 
 from django.conf import settings
+from django.contrib.auth.hashers import make_password
 from django.db import connections, transaction
 from django.utils import timezone
 
@@ -52,6 +54,11 @@ class CentralSignupRetentionRepository:
     def __init__(self, alias: str | None = None):
         self.alias = alias or getattr(settings, "CENTRAL_DB_ALIAS", "default")
 
+    def _table_exists(self, cursor, table: str) -> bool:
+        cursor.execute("SELECT to_regclass(%s)", [f"public.{table}"])
+        row = cursor.fetchone()
+        return bool(row and row[0])
+
     def _column_exists(self, cursor, table: str, column: str) -> bool:
         cursor.execute(
             """
@@ -66,29 +73,33 @@ class CentralSignupRetentionRepository:
         )
         return cursor.fetchone() is not None
 
-    def _join_request_email_column(self, cursor) -> str | None:
-        if self._column_exists(cursor, "join_requests", "email"):
-            return "email"
-        if self._column_exists(cursor, "join_requests", "requested_email"):
-            return "requested_email"
-        return None
+    def _join_request_email_columns(self, cursor) -> tuple[str, ...]:
+        return tuple(
+            column
+            for column in ("requested_email", "email")
+            if self._column_exists(cursor, "join_requests", column)
+        )
+
+    def _join_request_decider_columns(self, cursor) -> tuple[str, ...]:
+        return tuple(
+            column
+            for column in ("decided_by_user_id", "decided_by")
+            if self._column_exists(cursor, "join_requests", column)
+        )
 
     def _dynamic_safety_clauses(self, cursor) -> tuple[str, str, str]:
-        join_email_column = self._join_request_email_column(cursor)
-        join_email_clause = (
-            f" OR lower(join_request.{join_email_column})=lower(signup_user.email)"
-            if join_email_column
-            else ""
+        join_email_clause = "".join(
+            f" OR lower(join_request.{column})=lower(signup_user.email)"
+            for column in self._join_request_email_columns(cursor)
         )
-        join_decider_clause = (
-            """
+        join_decider_clause = "".join(
+            f"""
                    AND NOT EXISTS (
                        SELECT 1 FROM join_requests AS decided_join_request
-                        WHERE decided_join_request.decided_by=signup_user.id
+                        WHERE decided_join_request.{column}=signup_user.id
                    )
             """
-            if self._column_exists(cursor, "join_requests", "decided_by")
-            else ""
+            for column in self._join_request_decider_columns(cursor)
         )
         group_owner_clause = (
             """
@@ -101,6 +112,48 @@ class CentralSignupRetentionRepository:
             else ""
         )
         return join_email_clause, join_decider_clause, group_owner_clause
+
+    def _anonymize_django_session_bridge(self, cursor, *, email: str) -> None:
+        if not self._table_exists(cursor, "auth_user"):
+            return
+        cursor.execute(
+            """
+            SELECT id
+              FROM auth_user
+             WHERE lower(COALESCE(username, ''))=lower(%s)
+             FOR UPDATE
+            """,
+            [email],
+        )
+        for (bridge_id,) in cursor.fetchall():
+            cursor.execute(
+                """
+                UPDATE auth_user
+                   SET username=%s, email='', password=%s,
+                       first_name='', last_name='', last_login=NULL,
+                       is_active=FALSE, is_staff=FALSE, is_superuser=FALSE
+                 WHERE id=%s
+                """,
+                [
+                    f"erased-session-{uuid.uuid4()}@example.invalid",
+                    make_password(None),
+                    bridge_id,
+                ],
+            )
+        cursor.execute(
+            """
+            UPDATE auth_user
+               SET email=''
+             WHERE lower(COALESCE(email, ''))=lower(%s)
+               AND lower(COALESCE(username, ''))<>lower(%s)
+            """,
+            [email, email],
+        )
+
+    def _delete_legacy_password_tokens(self, cursor, *, user_id: str) -> None:
+        for table in ("password_reset_tokens", "user_tokens"):
+            if self._table_exists(cursor, table):
+                cursor.execute(f"DELETE FROM {table} WHERE user_id=%s", [user_id])
 
     def list_candidates(
         self,
@@ -180,7 +233,8 @@ class CentralSignupRetentionRepository:
                 """
                 SELECT signup_request.status,
                        COALESCE(signup_request.decided_at, signup_request.updated_at),
-                       signup_user.is_active
+                       signup_user.is_active,
+                       signup_user.email
                   FROM signup_requests AS signup_request
                   JOIN users AS signup_user ON signup_user.id=signup_request.user_id
                  WHERE signup_request.id=%s
@@ -222,9 +276,13 @@ class CentralSignupRetentionRepository:
             if cursor.rowcount != 1:
                 raise RuntimeError("signup retention candidate changed before purge")
 
-            cursor.execute(
-                "DELETE FROM password_reset_tokens WHERE user_id=%s",
-                [candidate.user_id],
+            self._anonymize_django_session_bridge(
+                cursor,
+                email=str(row[3]),
+            )
+            self._delete_legacy_password_tokens(
+                cursor,
+                user_id=candidate.user_id,
             )
             cursor.execute(
                 f"""
