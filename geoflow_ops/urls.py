@@ -48,7 +48,7 @@ urlpatterns = [
 
     path("api/uploads/presign-put/", upload_guard_views.presign_put, name="upload_presign_put"),
     path("api/uploads/commit/", upload_guard_views.commit, name="upload_commit"),
-    path("api/uploads/presign-get/<uuid:attachment_id>/", views_uploads.presign_get, name="upload_presign_get"),
+    path("api/uploads/presign-get/<uuid:attachment_id>/", upload_guard_views.presign_get, name="upload_presign_get"),
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
 
     path("api/events/create/", views_events.create_event, name="event_create"),
