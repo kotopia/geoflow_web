@@ -10,8 +10,9 @@ Primary working path:
 
 Current phase:
 
-- Phase 2
-- Active branch: phase2-clean-base
+- Phase 1 release stabilization
+- Focus: signup, identity, tenant authorization, privacy, and production-readiness hardening
+- Active branch: release/stabilized-deploy
 
 Important related paths:
 
@@ -81,7 +82,7 @@ Forbidden staging pattern:
 - git add .
 - git add -A
 
-Before any commit, report:
+Before any local git commit, report:
 
 - git status --short
 - git diff --cached --name-only
@@ -89,7 +90,9 @@ Before any commit, report:
 
 Do not create commits unless the user explicitly asks.
 
-Do not push.
+Do not push unless the user explicitly approves the current publish action. When the
+GitHub connector is used instead of a local checkout, preserve the same narrow-scope,
+non-force, fast-forward-only intent.
 
 ## 5. Database and Migration Rules
 
@@ -126,7 +129,9 @@ It is allowed to check whether .env exists.
 
 It is allowed to load .env into the current process for validation, but values must not be printed.
 
-RRN_SYM_KEY is actively used for resident-registration-number encryption/decryption and must not be rotated.
+Legacy RRN key material must not be rotated or exposed. Phase 1 application code no
+longer collects, encrypts, decrypts, or displays RRN values; any historical tenant DB
+values require a separately approved inventory/retention decision.
 
 ## 7. GeoFlow Architecture Notes
 
@@ -158,27 +163,28 @@ Important permission concepts:
 
 Do not bypass authorization checks.
 
-## 8. Current Phase 2 Workflow
+## 8. Current Release-Stabilization Workflow
 
-The current Phase 2 task is selective recovery from the original dirty worktree.
+The current task is narrow release stabilization on `release/stabilized-deploy`.
 
 Process:
 
-1. Compare clean files and dirty files.
-2. Save review diffs to C:\GeoFlow\_phase1_archive only when requested.
-3. Analyze risk.
-4. Select minimal safe hunks.
-5. Reconstruct changes manually in the clean branch.
-6. Validate.
-7. Let the user decide whether to commit.
+1. Re-read the current remote branch HEAD before preparing changes.
+2. Inspect the smallest relevant code surface and identify fail-closed behavior.
+3. Prefer minimal repository-only fixes and regression tests over broad refactors.
+4. Validate syntax/static contracts without connecting to live DB/S3/SMTP/server infrastructure.
+5. Before a remote ref update, re-read HEAD and require an exact fast-forward parent.
+6. Never force-update the branch.
+7. Keep migrations, live-data operations, deployment, and activation behind their own explicit approval boundary.
+8. Report what changed, what remains unvalidated, and the exact next operational boundary.
 
-Never copy a dirty file wholesale.
+Do not copy a dirty file wholesale.
 
 Prefer small commits with narrow scope.
 
 ## 9. Validation Rules
 
-For Python/Django changes, run when approved:
+For Python/Django changes, run when approved and when the required runtime is available:
 
 - git diff --check
 - python manage.py check
@@ -196,16 +202,20 @@ For JavaScript/template-only changes, at minimum run:
 
 When a Django check requires environment variables, load .env silently without printing values.
 
+If the current execution environment does not contain Django/GDAL/PostgreSQL runtime
+dependencies, use syntax/static contract validation and state that full Django checks
+were not executed; do not substitute a live production connection for missing local dependencies.
+
 ## 10. Reporting Format
 
 After each task, report:
 
 - files changed
-- commands run
+- commands or connector checks run
 - validation results
-- git status --short
+- branch HEAD / changed-file scope when remote writes were used
 - whether any forbidden action was avoided
-- whether any DB or migration operation was performed
+- whether any DB, migration, S3, SMTP, server, or deployment operation was performed
 
 Use concise Korean explanations for the user.
 
