@@ -1,4 +1,5 @@
 """URL configuration for geoflow_project project."""
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from control import views_auth
@@ -6,8 +7,6 @@ from control import views_signup
 from control import views_legal
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-
     path('login/', views_auth.login_view, name='login'),
     path('after-login/', views_auth.post_login_redirect, name='after_login'),
 
@@ -30,3 +29,9 @@ urlpatterns = [
     path('api/catalog/', include(('control.catalog.urls', 'catalog'), namespace='catalog')),
     path('', include(('geoflow_ops.urls', 'tenant'), namespace='tenant')),
 ]
+
+# Django's stock admin uses the separate auth_user authorization model and can
+# operate on tenant-routed models. Keep it available for local development only;
+# GeoFlow's production administration goes through the guarded control views.
+if settings.DEBUG:
+    urlpatterns.insert(0, path('admin/', admin.site.urls))
