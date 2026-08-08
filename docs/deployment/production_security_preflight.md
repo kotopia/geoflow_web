@@ -7,6 +7,57 @@ from changes that require a real deployment environment, database, S3 bucket,
 mail provider, reverse proxy, or scheduler. Do not treat this document as approval
 to perform any live operation.
 
+## 0. Required execution order
+
+Keep release validation in this order so a later operational action cannot hide an
+earlier repository/configuration failure.
+
+### A. Repository/runtime-shape checks — no live infrastructure access
+
+1. Use an isolated non-production Python environment.
+2. Run `python manage.py check_release_preflight --strict`.
+3. Treat every `FAIL` as a release blocker. `WARN` items for SSL redirect, HSTS, or
+   proxy headers require live proxy verification before they can be resolved safely.
+4. Do not print `.env` or secret values while diagnosing a failed check.
+
+`check_release_preflight --strict` is intentionally limited to configuration shape,
+Django security baseline, and cookie/session policy. It does not query the database,
+send mail, access S3, or probe the network.
+
+The release preflight currently requires the approved Django 5.2 LTS security patch
+baseline of at least Django 5.2.16. The repository still pins Django 5.2.4 until the
+protected `requirements.txt` dependency change receives its own explicit approval.
+See `docs/deployment/django_5_2_security_upgrade_plan.md`.
+
+### B. Dependency validation — isolated environment only
+
+After the dependency pin change is explicitly approved, install the exact requirements
+in an isolated non-production environment and run:
+
+1. `python manage.py check`;
+2. the Phase 1 signup/security regression tests; and
+3. `python manage.py check_release_preflight --strict` again.
+
+Do not combine a framework patch upgrade with a schema migration or production data
+cleanup in the same change window.
+
+### C. Database-backed validation — separate approval required
+
+Only after A and B pass should a specifically approved non-production central DB be
+used for the read-only schema audit:
+
+`python manage.py check_signup_launch_schema --strict`
+
+Despite being SELECT-only, this command is a database access operation and therefore
+is not part of the repository-only preflight. Migration rehearsal comes after the
+read-only audit and has its own approval boundary.
+
+### D. External-service validation — separate approvals required
+
+After schema validation, verify the HTTPS/proxy contract, SMTP/HMAC delivery runtime,
+S3 behavior, worker/scheduler supervision, and finally application deployment. Keep
+public signup closed until every required gate has passed.
+
 ## 1. Repository safeguards already in place
 
 ### Central identity and signup
@@ -27,6 +78,7 @@ to perform any live operation.
 - Legacy password setup uses Django password validators, bounds password length,
   masks sensitive request/local values, disables response caching, and serializes
   token consumption with a row lock.
+- Logout is a CSRF-protected POST rather than a GET side effect.
 
 ### Central administration
 
@@ -40,6 +92,7 @@ to perform any live operation.
 
 ### Tenant authorization and attachments
 
+- The tenant root requires an authenticated, current tenant context.
 - Project, contract, partner, organization-unit, event, employee, and attachment
   paths use tenant context and stored entity scope rather than trusting caller scope.
 - Attachment presign/commit operations enforce supported entity/kind combinations,
@@ -69,14 +122,16 @@ real environment.
 ### Database and schema
 
 1. Confirm the target central database and a non-production validation environment.
-2. Review pending signup migrations and the exact migration plan.
-3. Apply migrations first outside production and run Django/system tests against the
+2. Run the read-only launch schema audit against the specifically approved
+   non-production central DB.
+3. Review pending signup migrations and the exact migration plan.
+4. Apply migrations first outside production and run Django/system tests against the
    migrated schema.
-4. Verify central users, signup requests/events, verification-token/outbox tables,
+5. Verify central users, signup requests/events, verification-token/outbox tables,
    join-request compatibility, and FK behavior.
-5. Inventory historical tenant RRN columns/values and decide lawful retention or
+6. Inventory historical tenant RRN columns/values and decide lawful retention or
    destruction before any deletion.
-6. Validate central account erasure against real FK relationships before enabling
+7. Validate central account erasure against real FK relationships before enabling
    an operational withdrawal/delete procedure.
 
 Do not run migration, DDL, production queries, or tenant-data inventory solely from
@@ -162,11 +217,19 @@ legacy flow is removed:
 - remove both legacy URL aliases together; and
 - confirm the signup verification/outbox lifecycle fully replaces the old flow.
 
+One additional P1 code debt remains in employee detail: a read request can populate
+`hr.employee_profile.central_user_id` when the field is empty. This should be split
+into a read-only lookup plus an explicit `directory.edit` write path when a
+patch-capable checkout is available. Do not rewrite the large employee view wholesale
+solely to remove that hidden write.
+
 ## 4. Go-live stop conditions
 
 Do not enable public signup or deploy the Phase 1 signup/security changes if any of
 these conditions is true:
 
+- `check_release_preflight --strict` fails;
+- runtime Django is below the approved 5.2 LTS security patch baseline;
 - migrations have not been validated against the intended schema;
 - SMTP/HMAC/HTTPS runtime readiness is incomplete;
 - production proxy scheme handling is unknown;
@@ -188,5 +251,6 @@ live environment. The following operations require an explicit, separate approva
 - SMTP live delivery tests or credential configuration;
 - reverse-proxy/ALB/Nginx changes;
 - cron/systemd/worker/scheduler installation or start;
-- EC2 pull/restart or application deployment; and
+- EC2 pull/restart or application deployment;
+- changing protected dependency pins such as `requirements.txt`; and
 - enabling public signup.
