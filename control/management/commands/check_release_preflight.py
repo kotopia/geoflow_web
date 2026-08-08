@@ -3,6 +3,9 @@ from django.core.management.base import BaseCommand, CommandError
 from control.services.dependency_security_preflight import (
     inspect_django_security_baseline,
 )
+from control.services.object_storage_runtime_preflight import (
+    inspect_object_storage_runtime,
+)
 from control.services.production_runtime_preflight import (
     inspect_production_runtime_preflight,
 )
@@ -28,8 +31,15 @@ class Command(BaseCommand):
         runtime = inspect_production_runtime_preflight()
         dependency = inspect_django_security_baseline()
         session_checks = inspect_session_security_baseline()
+        storage_checks = inspect_object_storage_runtime()
         session_ready = all(check.ready for check in session_checks)
-        ready = runtime.ready and dependency.ready and session_ready
+        storage_ready = all(check.ready for check in storage_checks)
+        ready = (
+            runtime.ready
+            and dependency.ready
+            and session_ready
+            and storage_ready
+        )
 
         self.stdout.write(f"release_preflight_ready={'yes' if ready else 'no'}")
         for check in runtime.checks:
@@ -39,6 +49,11 @@ class Command(BaseCommand):
             f"{dependency.code}: {dependency.message}"
         )
         for check in session_checks:
+            self.stdout.write(
+                f"[{'PASS' if check.ready else 'FAIL'}] "
+                f"{check.code}: {check.message}"
+            )
+        for check in storage_checks:
             self.stdout.write(
                 f"[{'PASS' if check.ready else 'FAIL'}] "
                 f"{check.code}: {check.message}"
