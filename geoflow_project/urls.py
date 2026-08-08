@@ -6,9 +6,10 @@ from django.urls import path, include
 from control import views_auth
 from control import views_signup
 from control import views_legal
+from control.views_login_security import login_view
 
 urlpatterns = [
-    path('login/', views_auth.login_view, name='login'),
+    path('login/', login_view, name='login'),
     path('after-login/', login_required(views_auth.post_login_redirect), name='after_login'),
 
     path('terms/', views_legal.terms_view, name='terms'),

@@ -7,6 +7,7 @@ from django.urls import Resolver404, resolve
 
 _UUID = "00000000-0000-0000-0000-000000000001"
 ROUTE_SECURITY_BOUNDARIES = (
+    ("/login/", "login", "control.views_login_security", "login_view"),
     ("/control/logout/", "control:logout", "control.views_session", "logout_view"),
     ("/", "tenant:home", "geoflow_ops.views_home_security", "tenant_home"),
     ("/projects/", "tenant:project_list", "geoflow_ops.security_views", "project_list"),
