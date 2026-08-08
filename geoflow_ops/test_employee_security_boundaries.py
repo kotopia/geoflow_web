@@ -16,6 +16,16 @@ class EmployeeSecurityBoundaryTests(SimpleTestCase):
                 self.assertIn("@login_required", source)
                 self.assertIn("@require_GET", source)
 
+    def test_sensitive_employee_pages_are_never_cached(self):
+        for view in (
+            employee_security_views.employee_list,
+            employee_security_views.employee_create,
+            employee_security_views.employee_detail,
+            employee_security_views.employee_role_request,
+        ):
+            with self.subTest(view=view.__name__):
+                self.assertIn("@never_cache", getsource(view))
+
     def test_employee_create_detail_and_role_request_allow_only_get_post(self):
         for view in (
             employee_security_views.employee_create,

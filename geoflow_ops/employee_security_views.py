@@ -1,5 +1,6 @@
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods
 
 from control.gf_authz.permissions import gf_has_perm
@@ -14,6 +15,7 @@ def _require(request, permission: str) -> None:
         raise PermissionDenied("Permission denied")
 
 
+@never_cache
 @login_required
 @require_GET
 def employee_list(request):
@@ -21,6 +23,7 @@ def employee_list(request):
     return views_employees.employees_list(request)
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 def employee_create(request):
@@ -28,6 +31,7 @@ def employee_create(request):
     return views_employees.employees_create(request)
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 def employee_detail(request, emp_id):
@@ -44,6 +48,7 @@ def hr_options(request, category):
     return views_employees.hr_options(request, category)
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 def employee_role_request(request, emp_id):

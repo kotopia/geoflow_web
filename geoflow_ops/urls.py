@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events
-from . import security_views, upload_guard_views, employee_security_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -52,7 +52,7 @@ urlpatterns = [
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
 
     path("api/events/create/", views_events.create_event, name="event_create"),
-    path("api/events/list/", views_events.list_events, name="event_list"),
+    path("api/events/list/", event_security_views.event_list, name="event_list"),
     path("api/events/update/<uuid:event_id>/", views_events.update_event, name="event_update"),
     path("api/events/delete/<uuid:event_id>/", views_events.delete_event, name="event_delete"),
     path("events/ui/modal/", security_views.event_modal_ui, name="event_modal_ui"),
