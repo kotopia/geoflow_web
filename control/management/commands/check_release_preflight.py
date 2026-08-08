@@ -6,6 +6,9 @@ from control.services.dependency_security_preflight import (
 from control.services.production_runtime_preflight import (
     inspect_production_runtime_preflight,
 )
+from control.services.session_security_preflight import (
+    inspect_session_security_baseline,
+)
 
 
 class Command(BaseCommand):
@@ -24,7 +27,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         runtime = inspect_production_runtime_preflight()
         dependency = inspect_django_security_baseline()
-        ready = runtime.ready and dependency.ready
+        session_checks = inspect_session_security_baseline()
+        session_ready = all(check.ready for check in session_checks)
+        ready = runtime.ready and dependency.ready and session_ready
 
         self.stdout.write(f"release_preflight_ready={'yes' if ready else 'no'}")
         for check in runtime.checks:
@@ -33,6 +38,11 @@ class Command(BaseCommand):
             f"[{'PASS' if dependency.ready else 'FAIL'}] "
             f"{dependency.code}: {dependency.message}"
         )
+        for check in session_checks:
+            self.stdout.write(
+                f"[{'PASS' if check.ready else 'FAIL'}] "
+                f"{check.code}: {check.message}"
+            )
 
         if options["strict"] and not ready:
             raise CommandError("release preflight failed")
