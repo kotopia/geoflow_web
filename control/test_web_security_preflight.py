@@ -44,3 +44,33 @@ class WebSecurityPreflightTests(SimpleTestCase):
                 "frame_options",
             },
         )
+
+    def test_http_wildcard_or_local_trusted_origins_fail(self):
+        for origin in (
+            "http://geoflow.co.kr",
+            "https://*.geoflow.co.kr",
+            "https://localhost",
+            "https://127.0.0.1",
+        ):
+            with self.subTest(origin=origin):
+                checks = inspect_web_security_baseline(
+                    settings_obj=self._settings(
+                        CSRF_TRUSTED_ORIGINS=[
+                            "https://geoflow.co.kr",
+                            origin,
+                        ]
+                    )
+                )
+                failures = {check.code for check in checks if not check.ready}
+                self.assertIn("csrf_canonical_origin", failures)
+
+    def test_additional_explicit_https_origin_can_be_allowed(self):
+        checks = inspect_web_security_baseline(
+            settings_obj=self._settings(
+                CSRF_TRUSTED_ORIGINS=[
+                    "https://geoflow.co.kr",
+                    "https://admin.geoflow.co.kr",
+                ]
+            )
+        )
+        self.assertTrue(all(check.ready for check in checks))

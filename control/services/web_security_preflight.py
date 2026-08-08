@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
 
 CANONICAL_PRODUCTION_ORIGIN = "https://geoflow.co.kr"
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 SAFE_REFERRER_POLICIES = {
     "no-referrer",
     "same-origin",
@@ -25,6 +27,22 @@ class WebSecurityCheck:
     code: str
     ready: bool
     message: str
+
+
+def _safe_trusted_origin(value: str) -> bool:
+    parts = urlsplit(value)
+    hostname = (parts.hostname or "").lower()
+    return bool(
+        parts.scheme == "https"
+        and parts.netloc
+        and hostname not in LOCAL_HOSTS
+        and "*" not in parts.netloc
+        and parts.path in ("", "/")
+        and not parts.query
+        and not parts.fragment
+        and not parts.username
+        and not parts.password
+    )
 
 
 def inspect_web_security_baseline(*, settings_obj=settings) -> tuple[WebSecurityCheck, ...]:
@@ -51,15 +69,19 @@ def inspect_web_security_baseline(*, settings_obj=settings) -> tuple[WebSecurity
         for value in (getattr(settings_obj, "CSRF_TRUSTED_ORIGINS", ()) or ())
         if str(value).strip()
     }
-    csrf_origin_ready = CANONICAL_PRODUCTION_ORIGIN in trusted_origins
+    csrf_origin_ready = bool(
+        CANONICAL_PRODUCTION_ORIGIN in trusted_origins
+        and trusted_origins
+        and all(_safe_trusted_origin(value) for value in trusted_origins)
+    )
     checks.append(
         WebSecurityCheck(
             code="csrf_canonical_origin",
             ready=csrf_origin_ready,
             message=(
-                "Canonical production origin is explicitly trusted for CSRF."
+                "CSRF trusted origins are explicit HTTPS production origins."
                 if csrf_origin_ready
-                else "Add the canonical HTTPS production origin to CSRF_TRUSTED_ORIGINS."
+                else "Use explicit HTTPS, non-wildcard, non-local CSRF trusted origins and include the canonical production origin."
             ),
         )
     )
