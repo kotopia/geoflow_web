@@ -1,198 +1,206 @@
-# geoflow_ops/views_uploads.py
-"""
-첨부파일 업로드 API (S3 Presigned URL 방식)
-- POST /api/uploads/presign-put/
-- POST /api/uploads/commit/
-- GET /api/uploads/presign-get/<attachment_id>/
-"""
+"""Tenant attachment upload/download API."""
+from __future__ import annotations
+
+import json
 import logging
-from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError, connections, transaction
 from django.http import JsonResponse
 from django.utils import timezone
-from django.views.decorators.http import require_POST, require_GET, require_http_methods
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
-from control.middleware import current_db_alias
-from .models import Attachment
+from .models import Attachment, ProcessEvent, ProcessEventAttachment
+from .services.entity_access import (
+    authorize_attachment_read,
+    authorize_attachment_write,
+    require_tenant_context,
+)
 from .services.s3_service import (
+    S3ObjectVerificationError,
     build_object_key,
-    generate_presigned_put_url,
-    generate_presigned_get_url,
     extract_extension,
+    generate_presigned_get_url,
+    generate_presigned_put_url,
+    head_private_object,
 )
 
 logger = logging.getLogger(__name__)
 
-
-def _alias(request):
-    """현재 테넌트 DB alias"""
-    return current_db_alias()
+DIRECT_UPLOAD_PURPOSES = {
+    ("employee", "photo"),
+    ("employee", "photo_thumb"),
+    ("employee", "doc"),
+    ("event", "doc"),
+}
+IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+PDF_EXTENSIONS = {"pdf"}
+PDF_MIME_TYPES = {"application/pdf"}
+ENTITY_FOLDERS = {"employee": "employees", "event": "events"}
 
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"error": message}, status=status)
 
 
-def _resolve_attachment_entity(alias, attachment) -> bool:
-    if attachment.entity_type == "employee":
-        from django.db import connections
+def _parse_json(request):
+    try:
+        value = json.loads(request.body or b"{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
 
+
+def _parse_uuid(value):
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _normalize_mime(value) -> str:
+    return str(value or "").split(";", 1)[0].strip().lower()
+
+
+def _parse_size(value):
+    if value in (None, ""):
+        return None
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return None
+    return size if size >= 0 else None
+
+
+def _validate_upload_combination(entity_type, purpose, filename, mime_type, size_bytes):
+    if (entity_type, purpose) not in DIRECT_UPLOAD_PURPOSES:
+        return "Unsupported upload target"
+    if not filename or len(str(filename)) > 512:
+        return "Invalid filename"
+    if size_bytes is None:
+        return "size_bytes is required"
+    extension = extract_extension(str(filename))
+    mime_type = _normalize_mime(mime_type)
+
+    if (entity_type, purpose) == ("employee", "photo"):
+        if extension not in IMAGE_EXTENSIONS or mime_type not in IMAGE_MIME_TYPES:
+            return "Unsupported employee photo type"
+    elif (entity_type, purpose) == ("employee", "photo_thumb"):
+        if extension not in {"jpg", "jpeg"} or mime_type != "image/jpeg":
+            return "Unsupported employee thumbnail type"
+    elif (entity_type, purpose) == ("employee", "doc"):
+        if extension not in PDF_EXTENSIONS or mime_type not in PDF_MIME_TYPES:
+            return "Unsupported employee document type"
+    elif entity_type == "event" and purpose == "doc":
+        if not extension or extension == "bin" or not mime_type:
+            return "Invalid event document type"
+    return None
+
+
+def _canonical_event_id(entity_type, entity_id, event_id_value):
+    if entity_type != "event":
+        return None, None
+    event_id = _parse_uuid(event_id_value)
+    if event_id is None or event_id != entity_id:
+        return None, "event_id must match entity_id"
+    return event_id, None
+
+
+def _validate_parent(alias, entity_type, entity_id, purpose, parent_id):
+    if purpose == "photo_thumb":
+        if entity_type != "employee" or parent_id is None:
+            return "photo_thumb requires an employee photo parent"
+        parent = Attachment.objects.using(alias).filter(pk=parent_id).first()
+        if (
+            not parent
+            or parent.entity_type != "employee"
+            or parent.entity_id != entity_id
+            or parent.purpose != "photo"
+            or not parent.active
+            or parent.deleted_at is not None
+            or parent.is_deleted
+        ):
+            return "Invalid parent attachment"
+        return None
+    if parent_id is not None:
+        return "parent_attachment_id is not allowed for this purpose"
+    return None
+
+
+def _expected_prefix(alias, entity_type, entity_id, purpose):
+    folder = ENTITY_FOLDERS.get(entity_type)
+    if not folder:
+        return None
+    return f"tenants/{alias}/{folder}/{entity_id}/{purpose}/"
+
+
+def _refresh_avatar_session(request, alias, attachment):
+    if attachment.entity_type != "employee" or attachment.purpose not in {
+        "photo", "photo_thumb"
+    }:
+        return
+    try:
+        user_email = getattr(request.user, "username", "") or getattr(request.user, "email", "")
         with connections[alias].cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM hr.employee_profile WHERE id = %s LIMIT 1",
-                [attachment.entity_id],
+                """
+                SELECT id::text, name
+                  FROM hr.employee_profile
+                 WHERE lower(email) = lower(%s)
+                 LIMIT 1
+                """,
+                [user_email],
             )
-            return cur.fetchone() is not None
-
-    if attachment.entity_type == "contract":
-        from .models import Contract
-
-        return Contract.objects.using(alias).filter(pk=attachment.entity_id).exists()
-
-    if attachment.entity_type == "orgunit":
-        from .models import MyOrgUnit
-
-        return MyOrgUnit.objects.using(alias).filter(pk=attachment.entity_id).exists()
-
-    if attachment.entity_type == "event":
-        from .models import ProcessEvent, ProcessEventAttachment
-
-        event_exists = ProcessEvent.objects.using(alias).filter(
-            pk=attachment.entity_id
-        ).exists()
-        if not event_exists:
-            return False
-        return ProcessEventAttachment.objects.using(alias).filter(
-            event_id=attachment.entity_id,
-            attachment_id=attachment.id,
-        ).exists()
-
-    return False
-
-
-def _request_has_any_perm(request, *codes) -> bool:
-    permission_values = (
-        getattr(request, "_gf_perms_cache", None),
-        request.session.get("gf_perms"),
-        request.session.get("perms"),
-    )
-
-    for value in permission_values:
-        if isinstance(value, dict):
-            if any(bool(value.get(code)) or code in value.values() for code in codes):
-                return True
-        elif isinstance(value, (list, set, tuple)):
-            if any(code in value for code in codes):
-                return True
-        elif isinstance(value, str):
-            if value in codes:
-                return True
-    return False
-
-
-def _authorize_attachment_read(request, alias, attachment) -> bool:
-    if attachment.entity_type == "employee":
-        return _request_has_any_perm(request, "directory.view")
-
-    if attachment.entity_type == "contract":
-        return _request_has_any_perm(request, "contracts.view")
-
-    if attachment.entity_type == "event":
-        from .models import ProcessEvent
-
-        event = ProcessEvent.objects.using(alias).filter(
-            pk=attachment.entity_id
-        ).only("scope_type").first()
-        if not event:
-            return False
-        if event.scope_type == "employee":
-            return _request_has_any_perm(request, "directory.view")
-        if event.scope_type == "contract":
-            return _request_has_any_perm(request, "contracts.view")
-        return False
-
-    return False
-
-
-def _authorize_attachment_delete(request, alias, attachment) -> bool:
-    if attachment.entity_type == "employee":
-        return _request_has_any_perm(request, "directory.edit")
-
-    if attachment.entity_type == "contract":
-        return _request_has_any_perm(request, "contracts.edit")
-
-    if attachment.entity_type == "event":
-        from .models import ProcessEvent
-
-        event = ProcessEvent.objects.using(alias).filter(
-            pk=attachment.entity_id
-        ).only("scope_type").first()
-        if not event:
-            return False
-        if event.scope_type == "employee":
-            return _request_has_any_perm(request, "directory.edit")
-        if event.scope_type == "contract":
-            return _request_has_any_perm(request, "contracts.edit")
-        return False
-
-    return False
+            row = cur.fetchone()
+        if not row or str(row[0]) != str(attachment.entity_id):
+            return
+        if attachment.purpose == "photo_thumb":
+            request.session["avatar_attachment_id"] = str(attachment.id)
+            request.session["topbar_avatar_attachment_id"] = str(attachment.id)
+        elif not request.session.get("avatar_attachment_id"):
+            request.session["avatar_attachment_id"] = str(attachment.id)
+            request.session["topbar_avatar_attachment_id"] = str(attachment.id)
+        request.session["topbar_name"] = row[1] or user_email
+        request.session["topbar_emp_id"] = str(row[0])
+    except Exception:
+        logger.warning("avatar session refresh failed")
 
 
 @login_required
 @require_POST
 def presign_put(request):
-    """
-    POST /api/uploads/presign-put/
-    
-    입력 (JSON):
-      - entity_type: "employee" | "contract" | "orgunit" | "event"
-      - entity_id: UUID string
-      - purpose: "photo" | "attachment" | "logo" | "doc" | ...
-      - filename: "example.jpg"
-      - mime_type: "image/jpeg" (optional)
-      - size_bytes: 12345 (optional)
-      - event_id: UUID string (optional, entity_type="event"일 때 필수)
-    
-    반환:
-      {
-        "object_key": "tenants/.../...",
-        "presigned_url": "https://...",
-        "headers": {...}
-      }
-    """
-    import json
     try:
-        data = json.loads(request.body)
-    except Exception as e:
-        return _json_error(f"Invalid JSON: {e}")
-
-    entity_type = data.get("entity_type")
-    entity_id_str = data.get("entity_id")
-    purpose = data.get("purpose")
-    filename = data.get("filename")
-    mime_type = data.get("mime_type")
-    size_bytes = data.get("size_bytes")
-    event_id_str = data.get("event_id")  # event 타입일 때 사용
-
-    if not all([entity_type, entity_id_str, purpose, filename]):
-        return _json_error("Missing required fields: entity_type, entity_id, purpose, filename")
-
-    if entity_type not in ("employee", "contract", "orgunit", "event"):
-        return _json_error("entity_type must be 'employee', 'contract', 'orgunit', or 'event'")
-
-    # event 타입일 때는 event_id 필수
-    if entity_type == "event" and not event_id_str:
-        return _json_error("event_id is required when entity_type is 'event'")
-
-    try:
-        entity_id = UUID(entity_id_str)
+        alias = require_tenant_context(request)
     except Exception:
-        return _json_error("entity_id must be a valid UUID")
+        return _json_error("Forbidden", status=403)
 
-    alias = _alias(request)
-    extension = extract_extension(filename)
+    data = _parse_json(request)
+    if data is None:
+        return _json_error("Invalid JSON")
+
+    entity_type = str(data.get("entity_type") or "").strip().lower()
+    purpose = str(data.get("purpose") or "").strip().lower()
+    entity_id = _parse_uuid(data.get("entity_id"))
+    filename = str(data.get("filename") or "").strip()
+    mime_type = _normalize_mime(data.get("mime_type"))
+    size_bytes = _parse_size(data.get("size_bytes"))
+    parent_id = _parse_uuid(data.get("parent_attachment_id")) if data.get("parent_attachment_id") else None
+
+    if entity_id is None:
+        return _json_error("Invalid entity_id")
+    event_id, error = _canonical_event_id(entity_type, entity_id, data.get("event_id"))
+    if error:
+        return _json_error(error)
+    error = _validate_upload_combination(entity_type, purpose, filename, mime_type, size_bytes)
+    if error:
+        return _json_error(error)
+    if not authorize_attachment_write(request, alias, entity_type, entity_id):
+        return _json_error("Forbidden", status=403)
+    error = _validate_parent(alias, entity_type, entity_id, purpose, parent_id)
+    if error:
+        return _json_error(error)
 
     try:
         object_key = build_object_key(
@@ -200,401 +208,192 @@ def presign_put(request):
             entity_type=entity_type,
             entity_id=str(entity_id),
             purpose=purpose,
-            extension=extension,
-            event_id=event_id_str,  # event 타입일 때 사용
+            extension=extract_extension(filename),
+            event_id=str(event_id) if event_id else None,
         )
-    except Exception as e:
-        logger.exception("[PRESIGN_PUT] build_object_key failed")
-        return _json_error(f"Failed to build object_key: {e}")
-
-    try:
         presigned = generate_presigned_put_url(
             object_key=object_key,
             mime_type=mime_type,
             expires_in=3600,
         )
-    except Exception as e:
-        logger.exception("[PRESIGN_PUT] generate_presigned_put_url failed")
-        return _json_error(f"Failed to generate presigned URL: {e}")
+    except Exception:
+        logger.exception("presign put failed")
+        return _json_error("Failed to generate upload URL", status=500)
 
-    logger.info("presign-put request processed")
-
-    return JsonResponse({
-        "object_key": object_key,
-        "presigned_url": presigned["presigned_url"],
-        "headers": presigned.get("headers", {}),
-    })
+    return JsonResponse(
+        {
+            "object_key": object_key,
+            "presigned_url": presigned["presigned_url"],
+            "headers": presigned.get("headers", {}),
+        }
+    )
 
 
 @login_required
 @require_POST
 def commit(request):
-    """
-    POST /api/uploads/commit/
-    
-    브라우저가 S3에 PUT 완료 후 호출 → DB에 메타데이터 저장
-    
-    입력 (JSON):
-      - object_key: "tenants/..."
-      - entity_type: "employee" | "contract" | "event"
-      - entity_id: UUID string
-      - purpose: "photo" | "attachment" | "thumb"
-      - original_name: "myfile.jpg"
-      - mime_type: "image/jpeg" (optional)
-      - size_bytes: 12345 (optional)
-      - sha256: "abc..." (optional)
-      - kind: "file" | "image" | "thumb" (optional, default: "file")
-      - parent_attachment_id: UUID string (optional, for thumbnails)
-      - event_id: UUID string (optional, entity_type="event"일 때 자동 링크)
-    
-    반환:
-      {
-        "attachment_id": "<uuid>",
-        "object_key": "...",
-        "event_link_id": "<uuid>" (event 타입일 때만)
-      }
-    """
-    import json
     try:
-        data = json.loads(request.body)
-    except Exception as e:
-        return _json_error(f"Invalid JSON: {e}")
-
-    object_key = data.get("object_key")
-    entity_type = data.get("entity_type")
-    entity_id_str = data.get("entity_id")
-    purpose = data.get("purpose")
-    original_name = data.get("original_name")
-    mime_type = data.get("mime_type")
-    size_bytes = data.get("size_bytes")
-    sha256 = data.get("sha256")
-    kind = data.get("kind", "file")
-    parent_attachment_id_str = data.get("parent_attachment_id")
-    event_id_str = data.get("event_id")  # event 타입일 때 링크용
-
-    if not all([object_key, entity_type, entity_id_str, purpose, original_name]):
-        return _json_error("Missing required fields: object_key, entity_type, entity_id, purpose, original_name")
-
-    entity_folders = {
-        "employee": "employees",
-        "contract": "contracts",
-        "orgunit": "orgunits",
-        "event": "events",
-    }
-    if entity_type not in entity_folders:
-        return _json_error("entity_type must be 'employee', 'contract', 'orgunit', or 'event'")
-
-    try:
-        entity_id = UUID(entity_id_str)
+        alias = require_tenant_context(request)
     except Exception:
-        return _json_error("entity_id must be a valid UUID")
+        return _json_error("Forbidden", status=403)
 
-    # parent_attachment_id 검증
-    parent_attachment_id = None
-    if parent_attachment_id_str:
-        try:
-            parent_attachment_id = UUID(parent_attachment_id_str)
-        except Exception:
-            return _json_error("parent_attachment_id must be a valid UUID")
+    data = _parse_json(request)
+    if data is None:
+        return _json_error("Invalid JSON")
 
-    alias = _alias(request)
-    expected_entity_prefix = (
-        f"tenants/{alias}/{entity_folders[entity_type]}/{entity_id}/"
-    )
-    if not object_key.startswith(expected_entity_prefix):
-        return _json_error("object_key does not match tenant, entity_type, or entity_id")
+    object_key = str(data.get("object_key") or "")
+    entity_type = str(data.get("entity_type") or "").strip().lower()
+    purpose = str(data.get("purpose") or "").strip().lower()
+    entity_id = _parse_uuid(data.get("entity_id"))
+    original_name = str(data.get("original_name") or "").strip()
+    mime_type = _normalize_mime(data.get("mime_type"))
+    declared_size = _parse_size(data.get("size_bytes"))
+    parent_id = _parse_uuid(data.get("parent_attachment_id")) if data.get("parent_attachment_id") else None
+    kind = str(data.get("kind") or "file")[:50]
 
-    expected_purpose_prefix = f"{expected_entity_prefix}{purpose}/"
-    if not object_key.startswith(expected_purpose_prefix):
-        return _json_error("object_key purpose does not match purpose")
+    if not object_key or entity_id is None or not original_name:
+        return _json_error("Missing or invalid upload metadata")
+    event_id, error = _canonical_event_id(entity_type, entity_id, data.get("event_id"))
+    if error:
+        return _json_error(error)
+    error = _validate_upload_combination(entity_type, purpose, original_name, mime_type, declared_size)
+    if error:
+        return _json_error(error)
+    if not authorize_attachment_write(request, alias, entity_type, entity_id):
+        return _json_error("Forbidden", status=403)
+    error = _validate_parent(alias, entity_type, entity_id, purpose, parent_id)
+    if error:
+        return _json_error(error)
+
+    prefix = _expected_prefix(alias, entity_type, entity_id, purpose)
+    if not prefix or not object_key.startswith(prefix):
+        return _json_error("Invalid object key")
 
     try:
-        # 중복 방지: object_key unique constraint
-        attachment = Attachment(
-            entity_type=entity_type,
-            entity_id=entity_id,
-            purpose=purpose,
-            object_key=object_key,
-            original_name=original_name,
-            mime_type=mime_type or "",
-            size_bytes=size_bytes,
-            sha256=sha256,
-            kind=kind,
-            parent_id=parent_attachment_id,
-            active=True,
-            ord=0,
-            meta={},
-        )
-        attachment.save(using=alias)
-    except Exception as e:
-        logger.exception("upload commit failed")
-        return _json_error(f"Failed to save attachment: {e}", status=500)
+        metadata = head_private_object(object_key)
+    except S3ObjectVerificationError:
+        logger.warning("upload commit object verification failed")
+        return _json_error("Uploaded object could not be verified", status=400)
+    except Exception:
+        logger.exception("upload commit object verification error")
+        return _json_error("Uploaded object could not be verified", status=500)
 
-    logger.info("upload commit processed")
+    if metadata.size_bytes != declared_size:
+        return _json_error("Uploaded object size mismatch")
+    if mime_type and metadata.content_type != mime_type:
+        return _json_error("Uploaded object type mismatch")
+    if not metadata.encryption_matches:
+        return _json_error("Uploaded object encryption mismatch")
 
-    # 사용자 자신의 employee 사진 업로드 시 세션의 avatar_attachment_id 갱신
-    if entity_type == "employee" and purpose in ("photo", "thumb", "photo_thumb"):
-        try:
-            # 현재 로그인 사용자의 employee_id 조회
-            from django.db import connections
-            user_email = request.user.username
-            
-            with connections[alias].cursor() as cur:
-                cur.execute("""
-                    SELECT id::text, name
-                    FROM hr.employee_profile
-                    WHERE lower(email) = lower(%s)
-                    LIMIT 1
-                """, [user_email])
-                emp_row = cur.fetchone()
-                
-                if emp_row and str(emp_row[0]) == str(entity_id):
-                    # 본인 사진 업로드인 경우 topbar 세션 캐시 갱신
-                    emp_name = emp_row[1] or user_email
-                    
-                    # photo_thumb 또는 thumb 우선
-                    if purpose in ("photo_thumb", "thumb"):
-                        request.session["avatar_attachment_id"] = str(attachment.id)
-                        request.session["topbar_avatar_attachment_id"] = str(attachment.id)
-                    elif purpose == "photo":
-                        # thumb이 없을 때만 photo로 갱신
-                        if not request.session.get("avatar_attachment_id"):
-                            request.session["avatar_attachment_id"] = str(attachment.id)
-                        if not request.session.get("topbar_avatar_attachment_id"):
-                            request.session["topbar_avatar_attachment_id"] = str(attachment.id)
-                    
-                    # topbar 이름도 갱신
-                    request.session["topbar_name"] = emp_name
-                    request.session["topbar_emp_id"] = str(emp_row[0])
-        except Exception as e:
-            # 세션 갱신 실패해도 업로드 자체는 성공으로 처리
-            logger.warning("upload commit avatar session update failed")
-
-    # entity_type="event"일 때 자동으로 ProcessEventAttachment 링크 생성
-    event_link_id = None
-    if entity_type == "event" and event_id_str:
-        try:
-            from .models import ProcessEvent, ProcessEventAttachment
-            event_id = UUID(event_id_str)
-            
-            # Event 존재 확인
-            event = ProcessEvent.objects.using(alias).get(id=event_id)
-            
-            # 링크 생성 (중복 방지: unique constraint)
-            link, created = ProcessEventAttachment.objects.using(alias).get_or_create(
-                event=event,
-                attachment=attachment,
-                defaults={
-                    "role": "primary",  # 기본값: primary
-                    "ord": 0,
-                }
+    try:
+        with transaction.atomic(using=alias):
+            attachment = Attachment(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                purpose=purpose,
+                object_key=object_key,
+                original_name=original_name,
+                mime_type=metadata.content_type,
+                size_bytes=metadata.size_bytes,
+                sha256=None,
+                kind=kind,
+                parent_id=parent_id,
+                active=True,
+                ord=0,
+                meta={},
             )
-            event_link_id = str(link.id)
-            
-            # Event 상태 업데이트: draft → done (최초 첨부 시)
-            if event.status == 'draft':
-                event.status = 'done'
-                event.save(using=alias)
-                logger.info("upload commit event status updated")
-            
-            logger.info("upload commit event link processed")
-        except ProcessEvent.DoesNotExist:
-            logger.warning("upload commit event not found")
-        except Exception as e:
-            logger.exception("upload commit event link failed")
+            attachment.save(using=alias)
 
-    response_data = {
-        "attachment_id": str(attachment.id),
-        "object_key": object_key,
-    }
-    
+            event_link_id = None
+            if entity_type == "event":
+                event = ProcessEvent.objects.using(alias).select_for_update().get(pk=event_id)
+                link, _ = ProcessEventAttachment.objects.using(alias).get_or_create(
+                    event=event,
+                    attachment=attachment,
+                    defaults={"role": "primary", "ord": 0},
+                )
+                event_link_id = str(link.id)
+                if event.status == "draft":
+                    event.status = "done"
+                    event.save(using=alias, update_fields=["status", "updated_at"])
+    except IntegrityError:
+        logger.warning("duplicate or conflicting upload commit")
+        return _json_error("Attachment already committed", status=409)
+    except Exception:
+        logger.exception("upload commit failed")
+        return _json_error("Failed to commit attachment", status=500)
+
+    _refresh_avatar_session(request, alias, attachment)
+    response = {"attachment_id": str(attachment.id), "object_key": object_key}
     if event_link_id:
-        response_data["event_link_id"] = event_link_id
-
-    return JsonResponse(response_data)
+        response["event_link_id"] = event_link_id
+    return JsonResponse(response)
 
 
 @login_required
 @require_GET
 def presign_get(request, attachment_id):
-    """
-    GET /api/uploads/presign-get/<attachment_id>/
-    
-    반환:
-      {
-        "presigned_url": "https://...",
-        "original_name": "...",
-        "mime_type": "..."
-      }
-    """
-    alias = _alias(request)
-
     try:
-        att = Attachment.objects.using(alias).get(id=attachment_id)
-    except Attachment.DoesNotExist:
-        return _json_error("Attachment not found", status=404)
-
-    # 삭제된 파일은 410 Gone 반환
-    if att.deleted_at:
-        logger.warning("presign-get rejected for deleted attachment")
-        return _json_error("Attachment has been deleted", status=410)
-
-    if not _resolve_attachment_entity(alias, att):
-        return _json_error("Attachment entity not found", status=404)
-
-    if not _authorize_attachment_read(request, alias, att):
+        alias = require_tenant_context(request)
+    except Exception:
         return _json_error("Forbidden", status=403)
 
-    # mode 파라미터 읽기 (inline | download)
-    mode = request.GET.get("mode", "inline")
+    att = Attachment.objects.using(alias).filter(pk=attachment_id).first()
+    if not att:
+        return _json_error("Attachment not found", status=404)
+    if att.deleted_at or att.is_deleted or not att.active:
+        return _json_error("Attachment has been deleted", status=410)
+    if not authorize_attachment_read(request, alias, att):
+        return _json_error("Forbidden", status=403)
 
-    # PDF 여부 판정 (mime_type 또는 확장자 기반)
-    is_pdf = (
-        att.mime_type == "application/pdf" or
-        (att.original_name and att.original_name.lower().endswith(".pdf"))
-    )
-    filename = att.original_name or att.object_key or ""
-    is_excel = filename.lower().endswith((".xls", ".xlsx"))
+    mode = str(request.GET.get("mode") or "inline").strip().lower()
+    if mode not in {"inline", "download"}:
+        return _json_error("Invalid mode")
+    disposition = "attachment" if mode == "download" else "inline"
 
     try:
-        if is_pdf:
-            if mode == "download":
-                presigned_url = generate_presigned_get_url(
-                    att.object_key,
-                    expires_in=3600,
-                    content_type="application/pdf",
-                    disposition="attachment",
-                    filename=att.original_name
-                )
-            else:  # mode == "inline" (기본값)
-                presigned_url = generate_presigned_get_url(
-                    att.object_key,
-                    expires_in=3600,
-                    content_type="application/pdf",
-                    disposition="inline",
-                    filename=att.original_name
-                )
-        elif is_excel or mode == "download":
-            presigned_url = generate_presigned_get_url(
-                att.object_key,
-                expires_in=3600,
-                content_type=att.mime_type or None,
-                disposition="attachment",
-                filename=att.original_name
-            )
-        else:
-            presigned_url = generate_presigned_get_url(
-                att.object_key,
-                expires_in=3600
-            )
-    except Exception as e:
-        logger.exception("presign-get generation failed")
-        return _json_error(f"Failed to generate download URL: {e}", status=500)
-
-    logger.info("presign-get processed")
-
-    return JsonResponse({
-        "presigned_url": presigned_url,
-        "original_name": att.original_name,
-        "mime_type": att.mime_type or "",
-    })
+        url = generate_presigned_get_url(
+            att.object_key,
+            expires_in=3600,
+            content_type=att.mime_type or None,
+            disposition=disposition,
+            filename=att.original_name,
+        )
+    except Exception:
+        logger.exception("presign get failed")
+        return _json_error("Failed to generate download URL", status=500)
+    return JsonResponse(
+        {
+            "presigned_url": url,
+            "original_name": att.original_name,
+            "mime_type": att.mime_type or "",
+        }
+    )
 
 
 @login_required
 @require_http_methods(["DELETE"])
 def delete_attachment(request, attachment_id):
-    """
-    DELETE /api/uploads/delete/<attachment_id>/
-    
-    첨부파일 소프트 삭제 (deleted_at, deleted_by 설정)
-    """
-    alias = _alias(request)
-
     try:
-        att = Attachment.objects.using(alias).get(id=attachment_id)
-    except Attachment.DoesNotExist:
+        alias = require_tenant_context(request)
+    except Exception:
+        return _json_error("Forbidden", status=403)
+
+    att = Attachment.objects.using(alias).filter(pk=attachment_id).first()
+    if not att:
         return _json_error("Attachment not found", status=404)
-
-    # 이미 삭제된 파일
-    if att.deleted_at:
+    if att.deleted_at or att.is_deleted:
         return _json_error("Already deleted", status=410)
-
-    if not _resolve_attachment_entity(alias, att):
-        return _json_error("Attachment entity not found", status=404)
-
-    # 소프트 삭제 처리
-    if not _authorize_attachment_delete(request, alias, att):
+    if not authorize_attachment_write(request, alias, att.entity_type, att.entity_id):
         return _json_error("Forbidden", status=403)
 
     att.deleted_at = timezone.now()
-    att.deleted_by = request.user.username
+    att.deleted_by = getattr(request.user, "username", "") or getattr(request.user, "email", "")
     att.is_deleted = True
-    att.save(using=alias)
+    att.active = False
+    att.save(using=alias, update_fields=["deleted_at", "deleted_by", "is_deleted", "active", "updated_at"])
 
-    logger.info("attachment delete processed")
-
-    # 아바타 삭제 시 세션 갱신
     if str(att.id) == request.session.get("avatar_attachment_id"):
-        try:
-            # 다른 사진이 있는지 조회
-            from django.db import connections
-            user_email = request.user.username
-            
-            with connections[alias].cursor() as cur:
-                cur.execute("""
-                    SELECT id::text, name
-                    FROM hr.employee_profile
-                    WHERE lower(email) = lower(%s)
-                    LIMIT 1
-                """, [user_email])
-                emp_row = cur.fetchone()
-                
-                if emp_row:
-                    employee_id = emp_row[0]
-                    
-                    # 남은 photo_thumb 우선 조회
-                    cur.execute("""
-                        SELECT id::text
-                        FROM ops.attachments
-                        WHERE entity_type = 'employee'
-                        AND entity_id::text = %s
-                        AND purpose IN ('photo_thumb', 'thumb')
-                        AND active = true
-                        AND (deleted_at IS NULL OR is_deleted = false)
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    """, [employee_id])
-                    thumb_row = cur.fetchone()
-                    
-                    if thumb_row:
-                        request.session["avatar_attachment_id"] = thumb_row[0]
-                        request.session["topbar_avatar_attachment_id"] = thumb_row[0]
-                    else:
-                        # thumb 없으면 photo 조회
-                        cur.execute("""
-                            SELECT id::text
-                            FROM ops.attachments
-                            WHERE entity_type = 'employee'
-                            AND entity_id::text = %s
-                            AND purpose = 'photo'
-                            AND active = true
-                            AND (deleted_at IS NULL OR is_deleted = false)
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        """, [employee_id])
-                        photo_row = cur.fetchone()
-                        
-                        if photo_row:
-                            request.session["avatar_attachment_id"] = photo_row[0]
-                            request.session["topbar_avatar_attachment_id"] = photo_row[0]
-                        else:
-                            # 사진이 없으면 None (기본 아바타)
-                            request.session["avatar_attachment_id"] = None
-                            request.session["topbar_avatar_attachment_id"] = None
-        except Exception as e:
-            logger.warning("attachment delete avatar session update failed")
-
-    return JsonResponse({
-        "success": True,
-        "message": "Attachment deleted successfully"
-    })
+        request.session["avatar_attachment_id"] = None
+        request.session["topbar_avatar_attachment_id"] = None
+    return JsonResponse({"success": True})

@@ -1,321 +1,273 @@
-# geoflow_ops/views_events.py
-"""
-Process Event API
-- 업무 타임라인 이벤트 생성/조회/관리
-"""
-import logging
-import json
-from uuid import UUID
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST, require_GET
-from django.utils import timezone
+"""Tenant process-event JSON API."""
+from __future__ import annotations
 
-from control.gf_authz.permissions import gf_has_perm
-from control.middleware import current_db_alias
-from .models import ProcessEvent, ProcessEventAttachment, Attachment
+import json
+import logging
+from uuid import UUID
+
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.http import JsonResponse
+from django.utils.dateparse import parse_date
+from django.views.decorators.http import require_GET, require_POST
+
+from .models import ProcessEvent, ProcessEventAttachment
+from .services.entity_access import (
+    authorize_scope_read,
+    authorize_scope_write,
+    get_event_for_access,
+    has_scope_permission,
+    require_tenant_context,
+)
 
 logger = logging.getLogger(__name__)
 
-
-def _alias(request):
-    """현재 테넌트 DB alias"""
-    return current_db_alias()
+ALLOWED_SCOPE_TYPES = {"contract", "employee", "orgunit"}
+ALLOWED_STATUSES = {"draft", "open", "done", "void"}
+MAX_TITLE_LENGTH = ProcessEvent._meta.get_field("title").max_length or 255
+MAX_STAGE_LENGTH = ProcessEvent._meta.get_field("stage").max_length or 50
+MAX_EVENT_TYPE_LENGTH = ProcessEvent._meta.get_field("event_type").max_length or 50
+MAX_MEMO_LENGTH = 10000
 
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
     return JsonResponse({"error": message}, status=status)
 
 
-def _authorize_event_write(request, scope_type) -> bool:
-    if scope_type == "contract":
-        return gf_has_perm(request, "contracts.edit")
-    return True
+def _parse_json(request):
+    try:
+        value = json.loads(request.body or b"{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _parse_uuid(value):
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _clean_text(value, *, max_length: int, field: str):
+    if value is None:
+        return "", None
+    text = str(value)
+    if len(text) > max_length:
+        return None, f"{field} is too long"
+    return text, None
+
+
+def _clean_date(value, field: str):
+    if value in (None, ""):
+        return None, None
+    parsed = parse_date(str(value))
+    if parsed is None:
+        return None, f"{field} must be YYYY-MM-DD"
+    return parsed, None
+
+
+def _validate_mutable_fields(data, *, creating: bool):
+    cleaned = {}
+    for name, limit in (
+        ("stage", MAX_STAGE_LENGTH),
+        ("event_type", MAX_EVENT_TYPE_LENGTH),
+        ("title", MAX_TITLE_LENGTH),
+        ("memo", MAX_MEMO_LENGTH),
+    ):
+        if creating or name in data:
+            value, error = _clean_text(data.get(name, ""), max_length=limit, field=name)
+            if error:
+                return None, error
+            cleaned[name] = value
+
+    if creating and (not cleaned.get("stage") or not cleaned.get("event_type")):
+        return None, "stage and event_type are required"
+
+    if creating or "status" in data:
+        status = str(data.get("status") or "draft")
+        if status not in ALLOWED_STATUSES:
+            return None, "Invalid status"
+        cleaned["status"] = status
+
+    for name in ("occurred_at", "due_at"):
+        if creating or name in data:
+            value, error = _clean_date(data.get(name), name)
+            if error:
+                return None, error
+            cleaned[name] = value
+
+    return cleaned, None
 
 
 @login_required
-@csrf_exempt
 @require_POST
 def create_event(request):
-    """
-    POST /api/events/create/
-    
-    업무 이벤트 생성 (draft 상태로 시작)
-    
-    입력 (JSON):
-      - scope_type: "contract" | "employee" | "orgunit"
-      - scope_id: UUID string
-      - stage: "pre_contract" | "contract" | "closeout" | "onboarding" 등
-      - event_type: "estimate" | "contract_doc" | "license" 등
-      - title: str (optional)
-      - memo: str (optional)
-      - occurred_at: YYYY-MM-DD (optional)
-      - due_at: YYYY-MM-DD (optional)
-    
-    반환:
-      {
-        "event_id": "<uuid>",
-        "status": "draft",
-        "scope_type": "...",
-        "scope_id": "...",
-        "stage": "...",
-        "event_type": "..."
-      }
-    """
     try:
-        data = json.loads(request.body)
-    except Exception as e:
-        return _json_error(f"Invalid JSON: {e}")
-
-    scope_type = data.get("scope_type")
-    scope_id_str = data.get("scope_id")
-    stage = data.get("stage")
-    event_type = data.get("event_type")
-    title = data.get("title", "")
-    memo = data.get("memo", "")
-    occurred_at = data.get("occurred_at")
-    due_at = data.get("due_at")
-    status = data.get("status")
-
-    # 필수 필드 검증
-    if not all([scope_type, scope_id_str, stage, event_type]):
-        return _json_error("Missing required fields: scope_type, scope_id, stage, event_type")
-
-    # UUID 검증
-    try:
-        scope_id = UUID(scope_id_str)
+        alias = require_tenant_context(request)
     except Exception:
-        return _json_error("scope_id must be a valid UUID")
-
-    # scope_type 검증 (허용 목록)
-    ALLOWED_SCOPE_TYPES = ["contract", "employee", "orgunit"]
-    if scope_type not in ALLOWED_SCOPE_TYPES:
-        return _json_error(f"Invalid scope_type. Allowed: {', '.join(ALLOWED_SCOPE_TYPES)}")
-
-    if not _authorize_event_write(request, scope_type):
         return _json_error("Forbidden", status=403)
 
-    alias = _alias(request)
-    created_by = request.user.username or request.user.email or "unknown"
+    data = _parse_json(request)
+    if data is None:
+        return _json_error("Invalid JSON")
 
-    logger.info("event create request started")
+    scope_type = str(data.get("scope_type") or "").strip().lower()
+    scope_id = _parse_uuid(data.get("scope_id"))
+    if scope_type not in ALLOWED_SCOPE_TYPES or scope_id is None:
+        return _json_error("Invalid scope")
 
+    if not authorize_scope_write(request, alias, scope_type, scope_id):
+        return _json_error("Forbidden", status=403)
+
+    cleaned, error = _validate_mutable_fields(data, creating=True)
+    if error:
+        return _json_error(error)
+
+    user_name = (
+        getattr(request.user, "username", None)
+        or getattr(request.user, "email", None)
+        or "unknown"
+    )
     try:
-        event = ProcessEvent(
+        event = ProcessEvent.objects.using(alias).create(
             scope_type=scope_type,
             scope_id=scope_id,
-            stage=stage,
-            event_type=event_type,
-            title=title,
-            memo=memo,
-            status=status or 'draft',
-            occurred_at=occurred_at,
-            due_at=due_at,
-            created_by=created_by,
+            created_by=user_name,
+            **cleaned,
         )
-        event.save(using=alias)
-    except Exception as e:
-        logger.exception("event create request failed")
-        return _json_error(f"Failed to create event: {e}", status=500)
+    except Exception:
+        logger.exception("event create failed")
+        return _json_error("Failed to create event", status=500)
 
-    logger.info("event create request processed")
-
-    return JsonResponse({
-        "event_id": str(event.id),
+    payload = {
+        "id": str(event.id),
         "status": event.status,
         "scope_type": event.scope_type,
         "scope_id": str(event.scope_id),
         "stage": event.stage,
         "event_type": event.event_type,
         "title": event.title,
-    })
+    }
+    return JsonResponse({"event_id": str(event.id), "event": payload, **payload})
 
 
 @login_required
 @require_GET
 def list_events(request):
-    """
-    GET /api/events/list/?scope_type=<type>&scope_id=<id>
-    
-    특정 scope의 이벤트 목록 조회
-    
-    반환:
-      {
-        "events": [
-          {
-            "id": "<uuid>",
-            "stage": "...",
-            "event_type": "...",
-            "title": "...",
-            "status": "...",
-            "occurred_at": "...",
-            "attachment_count": 2,
-            "attachments": [...]
-          },
-          ...
-        ]
-      }
-    """
-    scope_type = request.GET.get("scope_type")
-    scope_id_str = request.GET.get("scope_id")
-
-    if not scope_type or not scope_id_str:
-        return _json_error("Missing required parameters: scope_type, scope_id")
-
     try:
-        scope_id = UUID(scope_id_str)
+        alias = require_tenant_context(request)
     except Exception:
-        return _json_error("scope_id must be a valid UUID")
+        return _json_error("Forbidden", status=403)
 
-    alias = _alias(request)
+    scope_type = str(request.GET.get("scope_type") or "").strip().lower()
+    scope_id = _parse_uuid(request.GET.get("scope_id"))
+    if scope_type not in ALLOWED_SCOPE_TYPES or scope_id is None:
+        return _json_error("Invalid scope")
+    if not authorize_scope_read(request, alias, scope_type, scope_id):
+        return _json_error("Forbidden", status=403)
 
     try:
-        events = ProcessEvent.objects.using(alias).filter(
-            scope_type=scope_type,
-            scope_id=scope_id
-        ).order_by("stage", "occurred_at", "created_at")
-
-        result_events = []
+        events = list(
+            ProcessEvent.objects.using(alias)
+            .filter(scope_type=scope_type, scope_id=scope_id)
+            .order_by("stage", "occurred_at", "created_at")
+        )
+        result = []
         for event in events:
-            # 첨부 파일 정보 조회
-            links = ProcessEventAttachment.objects.using(alias).filter(
-                event=event
-            ).select_related("attachment").order_by("ord", "created_at")
-
+            links = (
+                ProcessEventAttachment.objects.using(alias)
+                .filter(event=event)
+                .select_related("attachment")
+                .order_by("ord", "created_at")
+            )
             attachments = []
             for link in links:
                 att = link.attachment
-                if not att.deleted_at:  # 삭제되지 않은 것만
-                    attachments.append({
+                if att.deleted_at:
+                    continue
+                attachments.append(
+                    {
                         "id": str(att.id),
                         "original_name": att.original_name,
                         "mime_type": att.mime_type or "",
                         "size_bytes": att.size_bytes,
                         "role": link.role,
-                    })
+                    }
+                )
+            result.append(
+                {
+                    "id": str(event.id),
+                    "scope_type": event.scope_type,
+                    "scope_id": str(event.scope_id),
+                    "stage": event.stage,
+                    "event_type": event.event_type,
+                    "title": event.title,
+                    "memo": event.memo,
+                    "status": event.status,
+                    "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
+                    "due_at": event.due_at.isoformat() if event.due_at else None,
+                    "created_at": event.created_at.isoformat(),
+                    "updated_at": event.updated_at.isoformat() if event.updated_at else None,
+                    "created_by": event.created_by,
+                    "attachment_count": len(attachments),
+                    "attachments": attachments,
+                }
+            )
+    except Exception:
+        logger.exception("event list failed")
+        return _json_error("Failed to list events", status=500)
 
-            result_events.append({
-                "id": str(event.id),
-                "scope_type": event.scope_type,
-                "scope_id": str(event.scope_id),
-                "stage": event.stage,
-                "event_type": event.event_type,
-                "title": event.title,
-                "memo": event.memo,
-                "status": event.status,
-                "occurred_at": event.occurred_at.isoformat() if event.occurred_at else None,
-                "due_at": event.due_at.isoformat() if event.due_at else None,
-                "created_at": event.created_at.isoformat(),
-                "updated_at": event.updated_at.isoformat() if event.updated_at else None,
-                "created_by": event.created_by,
-                "attachment_count": len(attachments),
-                "attachments": attachments,
-            })
-
-    except Exception as e:
-        logger.exception("[LIST_EVENTS] Failed to list events")
-        return _json_error(f"Failed to list events: {e}", status=500)
-
-    return JsonResponse({"events": result_events})
+    can_write = has_scope_permission(request, scope_type, write=True)
+    return JsonResponse({"events": result, "can_write": bool(can_write)})
 
 
 @login_required
-@csrf_exempt
 @require_POST
 def update_event(request, event_id):
-    """
-    POST /api/events/update/<event_id>/
-    
-    이벤트 수정
-    
-    입력 (JSON):
-      - title: str (optional)
-      - memo: str (optional)
-      - occurred_at: YYYY-MM-DD (optional)
-      - status: str (optional)
-    
-    반환:
-      {
-        "success": true,
-        "event_id": "<uuid>"
-      }
-    """
-    alias = _alias(request)
-
     try:
-        event = ProcessEvent.objects.using(alias).get(id=event_id)
-    except ProcessEvent.DoesNotExist:
-        return _json_error("Event not found", status=404)
-
-    if not _authorize_event_write(request, event.scope_type):
+        alias = require_tenant_context(request)
+    except Exception:
         return _json_error("Forbidden", status=403)
 
-    try:
-        data = json.loads(request.body)
-    except Exception as e:
-        return _json_error(f"Invalid JSON: {e}")
+    event = get_event_for_access(request, alias, event_id, write=True)
+    if not event:
+        return _json_error("Forbidden", status=403)
 
-    # 업데이트 가능한 필드만 수정
-    if "stage" in data:
-        event.stage = data["stage"]
-    if "event_type" in data:
-        event.event_type = data["event_type"]
-    if "title" in data:
-        event.title = data["title"]
-    if "memo" in data:
-        event.memo = data["memo"]
-    if "occurred_at" in data:
-        event.occurred_at = data["occurred_at"]
-    if "status" in data:
-        event.status = data["status"]
+    data = _parse_json(request)
+    if data is None:
+        return _json_error("Invalid JSON")
+    cleaned, error = _validate_mutable_fields(data, creating=False)
+    if error:
+        return _json_error(error)
 
+    for key, value in cleaned.items():
+        setattr(event, key, value)
     try:
         event.save(using=alias)
-    except Exception as e:
-        logger.exception("event update request failed")
-        return _json_error(f"Failed to update event: {e}", status=500)
-
-    logger.info("event update request processed")
-
-    return JsonResponse({
-        "success": True,
-        "event_id": str(event.id)
-    })
+    except Exception:
+        logger.exception("event update failed")
+        return _json_error("Failed to update event", status=500)
+    return JsonResponse({"success": True, "event_id": str(event.id)})
 
 
 @login_required
-@csrf_exempt
 @require_POST
 def delete_event(request, event_id):
-    """
-    POST /api/events/delete/<event_id>/
-    
-    이벤트 삭제 (링크된 첨부는 유지, 링크만 제거)
-    """
-    alias = _alias(request)
-
     try:
-        event = ProcessEvent.objects.using(alias).get(id=event_id)
-    except ProcessEvent.DoesNotExist:
-        return _json_error("Event not found", status=404)
+        alias = require_tenant_context(request)
+    except Exception:
+        return _json_error("Forbidden", status=403)
 
-    if not _authorize_event_write(request, event.scope_type):
+    event = get_event_for_access(request, alias, event_id, write=True)
+    if not event:
         return _json_error("Forbidden", status=403)
 
     try:
-        # 링크된 첨부 제거
-        ProcessEventAttachment.objects.using(alias).filter(event=event).delete()
-        
-        # 이벤트 삭제
-        event.delete(using=alias)
-    except Exception as e:
-        logger.exception("event delete request failed")
-        return _json_error(f"Failed to delete event: {e}", status=500)
-
-    logger.info("event delete request processed")
-
-    return JsonResponse({
-        "success": True,
-        "message": "Event deleted successfully"
-    })
+        with transaction.atomic(using=alias):
+            ProcessEventAttachment.objects.using(alias).filter(event=event).delete()
+            event.delete(using=alias)
+    except Exception:
+        logger.exception("event delete failed")
+        return _json_error("Failed to delete event", status=500)
+    return JsonResponse({"success": True})

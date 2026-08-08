@@ -1,376 +1,395 @@
-/* scope-linker.js — preload JSON once, client render, buffer persist */
+/* scope-linker.js — preload JSON once, client render, buffer persist. */
 
-// ===== Global Spinner helper =====
 const GFSpinner = (() => {
-  const el = document.getElementById("globalSpinner");
-  let depth = 0; // 중첩 호출 대비
-  const show = () => { if (!el) return; depth++; el.classList.remove("d-none"); };
-  const hide = () => { if (!el) return; depth = Math.max(0, depth-1); if (depth === 0) el.classList.add("d-none"); };
+  const el = document.getElementById('globalSpinner');
+  let depth = 0;
+  const show = () => { if (el) { depth += 1; el.classList.remove('d-none'); } };
+  const hide = () => { if (el) { depth = Math.max(0, depth - 1); if (depth === 0) el.classList.add('d-none'); } };
   return { show, hide };
 })();
 
-// ===== fetch wrapper with spinner =====
-async function gfFetch(url, opts={}){
+async function gfFetch(url, opts = {}) {
   GFSpinner.show();
-  try{
-    const resp = await fetch(url, opts);
-    return resp;
-  }finally{
-    GFSpinner.hide();
-  }
+  try { return await fetch(url, opts); }
+  finally { GFSpinner.hide(); }
 }
 
-function $(sel, root) { return (root || document).querySelector(sel); }
 async function fetchHtml(url) {
-  const r = await gfFetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } });
-  return await r.text();
+  const response = await gfFetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  return response.text();
 }
+
 function ensureScopeModal() {
-  let el = document.getElementById("scopeModal");
+  let el = document.getElementById('scopeModal');
   if (el) return el;
-  el = document.createElement("div");
-  el.id = "scopeModal";
-  el.className = "modal fade";
+  el = document.createElement('div');
+  el.id = 'scopeModal';
+  el.className = 'modal fade';
   el.tabIndex = -1;
-  el.innerHTML = `
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
-      <div class="modal-content"></div>
-    </div>`;
+  const dialog = document.createElement('div');
+  dialog.className = 'modal-dialog modal-xl modal-dialog-scrollable';
+  const content = document.createElement('div');
+  content.className = 'modal-content';
+  dialog.appendChild(content);
+  el.appendChild(dialog);
   document.body.appendChild(el);
   return el;
 }
+
 function replaceModalContent(html) {
   const modalEl = ensureScopeModal();
-  const content = modalEl.querySelector(".modal-content");
-  if (content) content.innerHTML = html;
+  const content = modalEl.querySelector('.modal-content');
+  if (content) content.innerHTML = html; // trusted server-rendered modal fragment
   return modalEl;
 }
+
 function getCookie(name) {
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop().split(";").shift();
+  return parts.length === 2 ? parts.pop().split(';').shift() : undefined;
 }
 
-/* ---------- buffer ---------- */
 function getScopeBuffer(modalEl) {
   if (!modalEl._scopeBuffer) modalEl._scopeBuffer = {};
   return modalEl._scopeBuffer;
 }
 function makeKey(l2, lv3) { return `${l2}|${lv3}`; }
+
 function seedBufferFromDOM(modalEl) {
-  const buf = getScopeBuffer(modalEl);
-  const rows = modalEl.querySelectorAll("#scope-table tbody tr");
-  rows.forEach(tr => {
-    const lv2 = tr.getAttribute("data-l2-id");
-    const lv3 = tr.getAttribute("data-lv3-id");
+  const buffer = getScopeBuffer(modalEl);
+  modalEl.querySelectorAll('#scope-table tbody tr').forEach((tr) => {
+    const lv2 = tr.dataset.l2Id;
+    const lv3 = tr.dataset.lv3Id;
     if (!lv2 || !lv3) return;
-    const k = makeKey(lv2, lv3);
-    const active = tr.querySelector(".js-scope-active")?.checked || false;
-    const unit = tr.querySelector(".js-scope-unit")?.value || "";
-    const design_qty = tr.querySelector(".js-scope-design")?.value || "";
-    const completed_qty = tr.querySelector(".js-scope-completed")?.value || "";
-    buf[k] = { lv2_id: lv2, lv3_id: lv3, active, unit, design_qty, completed_qty };
+    buffer[makeKey(lv2, lv3)] = {
+      lv2_id: lv2,
+      lv3_id: lv3,
+      active: !!tr.querySelector('.js-scope-active')?.checked,
+      unit: tr.querySelector('.js-scope-unit')?.value || '',
+      design_qty: tr.querySelector('.js-scope-design')?.value || '',
+      completed_qty: tr.querySelector('.js-scope-completed')?.value || '',
+    };
   });
 }
+
 function hydrateDOMFromBuffer(modalEl) {
-  const buf = getScopeBuffer(modalEl);
-  const rows = modalEl.querySelectorAll("#scope-table tbody tr");
-  rows.forEach(tr => {
-    const lv2 = tr.getAttribute("data-l2-id");
-    const lv3 = tr.getAttribute("data-lv3-id");
-    if (!lv2 || !lv3) return;
-    const k = makeKey(lv2, lv3);
-    const cached = buf[k];
-    const chk = tr.querySelector(".js-scope-active");
-    const unitEl = tr.querySelector(".js-scope-unit");
-    const designEl = tr.querySelector(".js-scope-design");
-    const completedEl = tr.querySelector(".js-scope-completed");
+  const buffer = getScopeBuffer(modalEl);
+  modalEl.querySelectorAll('#scope-table tbody tr').forEach((tr) => {
+    const key = makeKey(tr.dataset.l2Id, tr.dataset.lv3Id);
+    const cached = buffer[key];
     if (cached) {
-      if (chk) chk.checked = !!cached.active;
-      if (unitEl) unitEl.value = cached.unit || unitEl.value || tr.getAttribute("data-unit-default") || "";
-      if (designEl) designEl.value = cached.design_qty || designEl.value || "";
-      if (completedEl) completedEl.value = cached.completed_qty || completedEl.value || "";
+      const active = tr.querySelector('.js-scope-active');
+      const unit = tr.querySelector('.js-scope-unit');
+      const design = tr.querySelector('.js-scope-design');
+      const completed = tr.querySelector('.js-scope-completed');
+      if (active) active.checked = !!cached.active;
+      if (unit) unit.value = cached.unit || unit.value || tr.dataset.unitDefault || '';
+      if (design) design.value = cached.design_qty || design.value || '';
+      if (completed) completed.value = cached.completed_qty || completed.value || '';
     }
     applyScopeRowDisabledState(tr);
   });
 }
+
 function attachRowChangeBuffering(modalEl) {
-  const buf = getScopeBuffer(modalEl);
-  modalEl.querySelectorAll("#scope-table tbody tr").forEach(tr => {
-    const lv2 = tr.getAttribute("data-l2-id");
-    const lv3 = tr.getAttribute("data-lv3-id");
+  const buffer = getScopeBuffer(modalEl);
+  modalEl.querySelectorAll('#scope-table tbody tr').forEach((tr) => {
+    const lv2 = tr.dataset.l2Id;
+    const lv3 = tr.dataset.lv3Id;
     if (!lv2 || !lv3) return;
-    const k = makeKey(lv2, lv3);
-    const inputs = tr.querySelectorAll(".js-scope-active, .js-scope-unit, .js-scope-design, .js-scope-completed");
-    inputs.forEach(el => {
-      const evt = el.classList.contains("js-scope-active") ? "change" : "input";
-      el.addEventListener(evt, () => {
-        const active = tr.querySelector(".js-scope-active")?.checked || false;
-        const unit = tr.querySelector(".js-scope-unit")?.value || "";
-        const design_qty = tr.querySelector(".js-scope-design")?.value || "";
-        const completed_qty = tr.querySelector(".js-scope-completed")?.value || "";
-        buf[k] = { lv2_id: lv2, lv3_id: lv3, active, unit, design_qty, completed_qty };
-        if (el.classList.contains("js-scope-active")) applyScopeRowDisabledState(tr);
+    const key = makeKey(lv2, lv3);
+    tr.querySelectorAll('.js-scope-active, .js-scope-unit, .js-scope-design, .js-scope-completed').forEach((el) => {
+      const eventName = el.classList.contains('js-scope-active') ? 'change' : 'input';
+      el.addEventListener(eventName, () => {
+        buffer[key] = {
+          lv2_id: lv2,
+          lv3_id: lv3,
+          active: !!tr.querySelector('.js-scope-active')?.checked,
+          unit: tr.querySelector('.js-scope-unit')?.value || '',
+          design_qty: tr.querySelector('.js-scope-design')?.value || '',
+          completed_qty: tr.querySelector('.js-scope-completed')?.value || '',
+        };
+        if (el.classList.contains('js-scope-active')) applyScopeRowDisabledState(tr);
       });
     });
   });
 }
 
-/* ---------- client render helpers ---------- */
 async function loadCatalogDataOnce(modalEl, projectId) {
   if (modalEl._catalog) return modalEl._catalog;
-  const resp = await gfFetch(`/projects/${projectId}/scope-data/`, {
-    headers: { "X-Requested-With": "XMLHttpRequest" },
-    credentials: "same-origin",
+  const response = await gfFetch(`/projects/${encodeURIComponent(projectId)}/scope-data/`, {
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin'
   });
-  const data = await resp.json();
+  if (!response.ok) throw new Error('HTTP ' + response.status);
+  const data = await response.json();
   modalEl._catalog = data;
   return data;
 }
+
+function buildListLink(item, active, extraData) {
+  const link = document.createElement('a');
+  link.href = '#';
+  link.className = 'list-group-item list-group-item-action ' + extraData.className;
+  if (active) link.classList.add('active');
+  Object.keys(extraData.dataset || {}).forEach((key) => { link.dataset[key] = String(extraData.dataset[key] || ''); });
+  const name = document.createTextNode(String(item.name || ''));
+  const code = document.createElement('span');
+  code.className = 'text-muted small ms-1';
+  code.textContent = String(item.code || '');
+  link.appendChild(name);
+  link.appendChild(code);
+  return link;
+}
+
 function renderL1List(modalEl, data, activeL1) {
-  const pane = modalEl.querySelector("#scope-l1-pane");
-  pane.innerHTML = `<div class="list-group list-group-flush">
-    ${data.l1_list.map(l1 => `
-      <a href="#" class="list-group-item list-group-item-action js-scope-l1-btn ${l1.id===activeL1?'active':''}" data-l1-id="${l1.id}">
-        ${l1.name} <span class="text-muted small">${l1.code||''}</span>
-      </a>`).join("")}
-  </div>`;
+  const pane = modalEl.querySelector('#scope-l1-pane');
+  if (!pane) return;
+  const group = document.createElement('div');
+  group.className = 'list-group list-group-flush';
+  (data.l1_list || []).forEach((l1) => {
+    group.appendChild(buildListLink(l1, String(l1.id) === String(activeL1), {
+      className: 'js-scope-l1-btn', dataset: { l1Id: l1.id }
+    }));
+  });
+  pane.replaceChildren(group);
 }
+
 function renderL2List(modalEl, data, l1Id, activeL2) {
-  const pane = modalEl.querySelector("#scope-l2-pane");
-  const l2s = data.l2_by_l1[l1Id] || [];
-  pane.innerHTML = `<div class="list-group list-group-flush">
-    ${l2s.map(l2 => `
-      <a href="#" class="list-group-item list-group-item-action js-scope-l2-btn ${l2.id===activeL2?'active':''}"
-         data-l1-id="${l1Id}" data-l2-id="${l2.id}">
-        ${l2.name} <span class="text-muted small">${l2.code||''}</span>
-      </a>`).join("")}
-  </div>`;
+  const pane = modalEl.querySelector('#scope-l2-pane');
+  if (!pane) return;
+  const group = document.createElement('div');
+  group.className = 'list-group list-group-flush';
+  (data.l2_by_l1?.[l1Id] || []).forEach((l2) => {
+    group.appendChild(buildListLink(l2, String(l2.id) === String(activeL2), {
+      className: 'js-scope-l2-btn', dataset: { l1Id, l2Id: l2.id }
+    }));
+  });
+  pane.replaceChildren(group);
 }
+
+function makeInput(type, className, value) {
+  const input = document.createElement('input');
+  input.type = type;
+  input.className = className;
+  if (type === 'number') input.step = '0.001';
+  if (value !== undefined && value !== null) input.value = String(value);
+  return input;
+}
+
 function renderTable(modalEl, data, l2Id) {
-  const pane = modalEl.querySelector("#scope-table-pane");
-  const rows = data.l3_by_l2[l2Id] || [];
-  const tr = rows.map(r => {
-    const key = `${l2Id}|${r.id}`;
-    const picked = (getScopeBuffer(modalEl)[key]) || data.project_items[key] || {};
-    const active = picked.active ? 'checked' : '';
-    const unit = picked.unit || r.unit_def || '';
-    const design = picked.design_qty || '';
-    const done = picked.completed_qty || '';
-    return `
-      <tr data-l2-id="${l2Id}" data-lv3-id="${r.id}" data-unit-default="${r.unit_def||''}">
-        <td class="text-center"><input type="checkbox" class="form-check-input js-scope-active" ${active}></td>
-        <td>
-          <div class="fw-semibold">${r.name}</div>
-          <div class="small text-muted">${r.code||''}</div>
-        </td>
-        <td><input type="text" class="form-control form-control-sm js-scope-unit" value="${unit}"></td>
-        <td><input type="number" step="0.001" class="form-control form-control-sm text-end js-scope-design" value="${design}"></td>
-        <td><input type="number" step="0.001" class="form-control form-control-sm text-end js-scope-completed" value="${done}"></td>
-      </tr>`;
-  }).join("");
-  pane.innerHTML = `
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0" id="scope-table">
-        <thead>
-          <tr>
-            <th class="text-center" style="width:70px;">사용</th>
-            <th>업무(L3)</th>
-            <th style="width:120px;">단위</th>
-            <th style="width:160px;" class="text-end">설계 물량</th>
-            <th style="width:160px;" class="text-end">완료 물량</th>
-          </tr>
-        </thead>
-        <tbody>${tr || `<tr><td colspan="5" class="text-center text-muted py-4">항목 없음</td></tr>`}</tbody>
-      </table>
-    </div>`;
+  const pane = modalEl.querySelector('#scope-table-pane');
+  if (!pane) return;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'table-responsive';
+  const table = document.createElement('table');
+  table.className = 'table table-sm align-middle mb-0';
+  table.id = 'scope-table';
+
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  [['사용', 'text-center'], ['업무(L3)', ''], ['단위', ''], ['설계 물량', 'text-end'], ['완료 물량', 'text-end']].forEach(([label, cls]) => {
+    const th = document.createElement('th');
+    th.className = cls;
+    th.textContent = label;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const rows = data.l3_by_l2?.[l2Id] || [];
+  if (!rows.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'text-center text-muted py-4';
+    td.textContent = '항목 없음';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    rows.forEach((row) => {
+      const key = makeKey(l2Id, row.id);
+      const picked = getScopeBuffer(modalEl)[key] || data.project_items?.[key] || {};
+      const tr = document.createElement('tr');
+      tr.dataset.l2Id = String(l2Id || '');
+      tr.dataset.lv3Id = String(row.id || '');
+      tr.dataset.unitDefault = String(row.unit_def || '');
+
+      const activeTd = document.createElement('td');
+      activeTd.className = 'text-center';
+      const active = makeInput('checkbox', 'form-check-input js-scope-active');
+      active.checked = !!picked.active;
+      activeTd.appendChild(active);
+      tr.appendChild(activeTd);
+
+      const nameTd = document.createElement('td');
+      const name = document.createElement('div');
+      name.className = 'fw-semibold';
+      name.textContent = String(row.name || '');
+      const code = document.createElement('div');
+      code.className = 'small text-muted';
+      code.textContent = String(row.code || '');
+      nameTd.appendChild(name);
+      nameTd.appendChild(code);
+      tr.appendChild(nameTd);
+
+      const unitTd = document.createElement('td');
+      unitTd.appendChild(makeInput('text', 'form-control form-control-sm js-scope-unit', picked.unit || row.unit_def || ''));
+      tr.appendChild(unitTd);
+      const designTd = document.createElement('td');
+      designTd.appendChild(makeInput('number', 'form-control form-control-sm text-end js-scope-design', picked.design_qty || ''));
+      tr.appendChild(designTd);
+      const doneTd = document.createElement('td');
+      doneTd.appendChild(makeInput('number', 'form-control form-control-sm text-end js-scope-completed', picked.completed_qty || ''));
+      tr.appendChild(doneTd);
+      tbody.appendChild(tr);
+    });
+  }
+  table.appendChild(tbody);
+  wrapper.appendChild(table);
+  pane.replaceChildren(wrapper);
   hydrateDOMFromBuffer(modalEl);
-  attachScopeRowToggleHandlers();
+  attachScopeRowToggleHandlers(modalEl);
   attachRowChangeBuffering(modalEl);
 }
 
-/* ---------- modal open (preload once) ---------- */
 function initProjectScopeModal() {
-  document.addEventListener("click", async (e) => {
-    const btn = e.target.closest("#btn-scope-modal");
-    if (!btn) return; e.preventDefault();
-
-    const pid = btn.dataset.projectId;
-    const tpl = btn.dataset.modalUrlTpl;
-    if (!pid || !tpl) return;
-
-    const baseUrl = tpl.replace("00000000-0000-0000-0000-000000000000", pid);
-    const html = await fetchHtml(baseUrl);
-    const modalEl = replaceModalContent(html);
-    modalEl.dataset.projectId = pid;
-    modalEl._scopeBuffer = {};
-
-    // JSON 1회 프리로드
-    const data = await loadCatalogDataOnce(modalEl, pid);
-
-    // 초기 선택
-    const firstL1 = (data.l1_list[0] || {}).id;
-    const firstL2 = ((data.l2_by_l1[firstL1] || [])[0] || {}).id;
-
-    renderL1List(modalEl, data, firstL1);
-    renderL2List(modalEl, data, firstL1, firstL2);
-    renderTable(modalEl, data, firstL2);
-
-    // L1/L2 전환(서버 왕복 없음)
-    modalEl.addEventListener("click", (ev) => {
-      const l1a = ev.target.closest(".js-scope-l1-btn");
-      const l2a = ev.target.closest(".js-scope-l2-btn");
-      if (!l1a && !l2a) return;
-      ev.preventDefault();
-
-      // 전환 직전 현재 DOM → 버퍼 반영
-      seedBufferFromDOM(modalEl);
-
-      const cur = modalEl._catalog;
-      if (l1a) {
-        const l1 = l1a.dataset.l1Id;
-        const l2 = ((cur.l2_by_l1[l1] || [])[0] || {}).id;
-        renderL1List(modalEl, cur, l1);
-        renderL2List(modalEl, cur, l1, l2);
-        renderTable(modalEl, cur, l2);
-      } else if (l2a) {
-        const l1 = l2a.dataset.l1Id;
-        const l2 = l2a.dataset.l2Id;
-        renderL2List(modalEl, cur, l1, l2);
-        renderTable(modalEl, cur, l2);
-      }
-    });
-
-    attachScopeSaveHandler(pid, modalEl);
-    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('#btn-scope-modal');
+    if (!button) return;
+    event.preventDefault();
+    const projectId = button.dataset.projectId;
+    const template = button.dataset.modalUrlTpl;
+    if (!projectId || !template) return;
+    try {
+      const html = await fetchHtml(template.replace('00000000-0000-0000-0000-000000000000', projectId));
+      const modalEl = replaceModalContent(html);
+      modalEl.dataset.projectId = projectId;
+      modalEl._scopeBuffer = {};
+      modalEl._catalog = null;
+      const data = await loadCatalogDataOnce(modalEl, projectId);
+      const firstL1 = data.l1_list?.[0]?.id;
+      const firstL2 = data.l2_by_l1?.[firstL1]?.[0]?.id;
+      renderL1List(modalEl, data, firstL1);
+      renderL2List(modalEl, data, firstL1, firstL2);
+      renderTable(modalEl, data, firstL2);
+      modalEl.onclick = (click) => {
+        const l1 = click.target.closest('.js-scope-l1-btn');
+        const l2 = click.target.closest('.js-scope-l2-btn');
+        if (!l1 && !l2) return;
+        click.preventDefault();
+        seedBufferFromDOM(modalEl);
+        if (l1) {
+          const l1Id = l1.dataset.l1Id;
+          const l2Id = modalEl._catalog.l2_by_l1?.[l1Id]?.[0]?.id;
+          renderL1List(modalEl, modalEl._catalog, l1Id);
+          renderL2List(modalEl, modalEl._catalog, l1Id, l2Id);
+          renderTable(modalEl, modalEl._catalog, l2Id);
+        } else {
+          renderL2List(modalEl, modalEl._catalog, l2.dataset.l1Id, l2.dataset.l2Id);
+          renderTable(modalEl, modalEl._catalog, l2.dataset.l2Id);
+        }
+      };
+      attachScopeSaveHandler(projectId, modalEl);
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    } catch (error) {
+      console.error('scope modal failed', error);
+      alert('업무범위를 불러오지 못했습니다.');
+    }
   });
 }
 
-/* ---------- save ---------- */
-function collectItemsFromBuffer(modalEl) {
-  const buf = getScopeBuffer(modalEl);
-  return Object.values(buf || {});
-}
 function attachScopeSaveHandler(projectId, modalEl) {
-  const btn = document.getElementById("btn-scope-save");
-  if (!btn) return;
-  btn.onclick = async () => {
+  const button = modalEl.querySelector('#btn-scope-save');
+  if (!button) return;
+  button.onclick = async () => {
+    seedBufferFromDOM(modalEl);
     try {
-      seedBufferFromDOM(modalEl);
-      const items = collectItemsFromBuffer(modalEl);
-      const csrftoken = getCookie("csrftoken");
-
-      const resp = await gfFetch(`/projects/${projectId}/scope-save/`, {
-        method: "POST",
+      const response = await gfFetch(`/projects/${encodeURIComponent(projectId)}/scope-save/`, {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrftoken,
-          "X-Requested-With": "XMLHttpRequest",
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken'),
+          'X-Requested-With': 'XMLHttpRequest'
         },
-        credentials: "same-origin",
-        body: JSON.stringify({ items }),
+        credentials: 'same-origin',
+        body: JSON.stringify({ items: Object.values(getScopeBuffer(modalEl)) })
       });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || !data.ok) {
-        console.error("scope-save failed:", data);
-        alert("저장 실패: " + (data.error || resp.status));
-        return;
-      }
-      alert("업무범위를 저장했습니다.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error('save failed');
       location.reload();
-    } catch (err) {
-      console.error(err);
-      alert("서버 오류로 저장에 실패했습니다.");
+    } catch (error) {
+      console.error('scope save failed', error);
+      alert('저장에 실패했습니다.');
     }
   };
 }
 
-/* ---------- row enable/disable ---------- */
 function applyScopeRowDisabledState(tr) {
-  const chk = tr.querySelector(".js-scope-active");
-  if (!chk) return;
-  const disabled = !chk.checked;
-
-  const unitEl = tr.querySelector(".js-scope-unit");
-  const designEl = tr.querySelector(".js-scope-design");
-  const completedEl = tr.querySelector(".js-scope-completed");
-
-  if (unitEl) {
-    if (!disabled && !unitEl.value) {
-      const defUnit = tr.getAttribute("data-unit-default");
-      if (defUnit) unitEl.value = defUnit;
-    }
-    unitEl.disabled = disabled;
+  const active = tr.querySelector('.js-scope-active');
+  if (!active) return;
+  const disabled = !active.checked;
+  const unit = tr.querySelector('.js-scope-unit');
+  const design = tr.querySelector('.js-scope-design');
+  const completed = tr.querySelector('.js-scope-completed');
+  if (unit) {
+    if (!disabled && !unit.value && tr.dataset.unitDefault) unit.value = tr.dataset.unitDefault;
+    unit.disabled = disabled;
   }
-  if (designEl) designEl.disabled = disabled;
-  if (completedEl) completedEl.disabled = disabled;
+  if (design) design.disabled = disabled;
+  if (completed) completed.disabled = disabled;
 }
-function attachScopeRowToggleHandlers() {
-  const rows = document.querySelectorAll("#scope-table tbody tr");
-  rows.forEach(tr => {
-    const chk = tr.querySelector(".js-scope-active");
-    if (!chk) return;
+
+function attachScopeRowToggleHandlers(modalEl) {
+  modalEl.querySelectorAll('#scope-table tbody tr').forEach((tr) => {
+    const active = tr.querySelector('.js-scope-active');
+    if (!active) return;
     applyScopeRowDisabledState(tr);
-    chk.addEventListener("change", () => applyScopeRowDisabledState(tr));
+    active.addEventListener('change', () => applyScopeRowDisabledState(tr));
   });
 }
 
-// ▼ 추가: 요약(현재 업무 편집) 모달 오픈
 function initProjectSummaryModal() {
-  document.addEventListener("click", async (e) => {
-    const btn = e.target.closest("#btn-summary-modal");
-    if (!btn) return;
-    e.preventDefault();
-
-    const pid = btn.dataset.projectId;
-    const tpl = btn.dataset.modalUrlTpl;
-    if (!pid || !tpl) return;
-
-    const url = tpl.replace("00000000-0000-0000-0000-000000000000", pid);
-    const html = await fetchHtml(url);                 // 서버에서 project_summary.html 조각 수신
-    const modalEl = replaceModalContent(html);         // #scopeModal .modal-content 교체
-    bootstrap.Modal.getOrCreateInstance(modalEl).show(); // 모달 표시
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('#btn-summary-modal');
+    if (!button) return;
+    event.preventDefault();
+    const projectId = button.dataset.projectId;
+    const template = button.dataset.modalUrlTpl;
+    if (!projectId || !template) return;
+    try {
+      const html = await fetchHtml(template.replace('00000000-0000-0000-0000-000000000000', projectId));
+      const modalEl = replaceModalContent(html);
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    } catch (error) {
+      console.error('summary modal failed', error);
+      alert('요약 화면을 불러오지 못했습니다.');
+    }
   });
 }
 
-// 전역 캡처: 모달 편집 폼(#summaryForm) 제출을 항상 AJAX로 처리
-document.addEventListener("submit", async (e) => {
-  const form = e.target;
-  if (!(form instanceof HTMLFormElement)) return;
-  if (form.id !== "summaryForm") return;
-
-  e.preventDefault(); // ← 브라우저 네비게이션(302 따라가기) 차단
-
+document.addEventListener('submit', async (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.id !== 'summaryForm') return;
+  event.preventDefault();
   try {
-    const fd = new FormData(form);
-    const resp = await gfFetch(form.action, {
-      method: "POST",
-      body: fd,
-      headers: { "X-Requested-With": "XMLHttpRequest" },
-      credentials: "same-origin",
-      redirect: "follow",
+    const response = await gfFetch(form.action, {
+      method: 'POST', body: new FormData(form),
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      credentials: 'same-origin', redirect: 'follow'
     });
-    if (!resp.ok) {
-      alert("저장 실패(" + resp.status + ")");
-      return;
-    }
-  } catch (err) {
-    console.error("summary save error:", err);
-    alert("저장 중 오류가 발생했어요.");
-    return;
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const modalEl = document.querySelector('#projectSummaryModal');
+    if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    location.reload();
+  } catch (error) {
+    console.error('summary save failed', error);
+    alert('저장에 실패했습니다.');
   }
-
-  // 성공: 모달 닫고 화면 새로고침(또는 요약 카드만 갱신)
-  const modalEl = document.querySelector("#projectSummaryModal");
-  if (modalEl) {
-    const inst = bootstrap.Modal.getOrCreateInstance(modalEl);
-    inst.hide();
-  }
-  location.reload(); // 필요하면 여기만 부분갱신으로 바꿔도 됨
 }, true);
 
-/* ---------- init ---------- */
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener('DOMContentLoaded', () => {
   initProjectScopeModal();
   initProjectSummaryModal();
 });
