@@ -17,12 +17,21 @@ NAVER_SMTP_PORT = 587
 EXPECTED_VERIFICATION_PATH = "/signup/verify/"
 
 
-def _setting_or_env_text(settings_obj, environ, name: str) -> str:
+def _environment_or_setting_text(settings_obj, environ, name: str) -> str:
+    """Use an explicit runtime environment value before a settings fallback.
+
+    GeoFlow keeps local-development placeholders in settings.py. Production
+    deployment values are supplied through the environment, so readiness checks
+    must resolve configuration in the same order as the actual mail delivery path.
+    """
+
+    raw = environ.get(name)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
     configured = getattr(settings_obj, name, None)
     if isinstance(configured, str) and configured.strip():
         return configured.strip()
-    raw = environ.get(name)
-    return raw.strip() if isinstance(raw, str) and raw.strip() else ""
+    return ""
 
 
 def _origin(parts) -> tuple[str, str]:
@@ -50,7 +59,11 @@ def signup_public_runtime_ready(
         return False
 
     verification_parts = urlsplit(outbox_config.verification_url)
-    site_origin = _setting_or_env_text(settings_obj, environ, "SITE_ORIGIN")
+    site_origin = _environment_or_setting_text(
+        settings_obj,
+        environ,
+        "SITE_ORIGIN",
+    )
     site_parts = urlsplit(site_origin)
     if site_parts.scheme not in ("http", "https") or not site_parts.netloc:
         return False
@@ -78,7 +91,11 @@ def signup_public_runtime_ready(
     host = str(getattr(settings_obj, "EMAIL_HOST", "")).strip()
     user = str(getattr(settings_obj, "EMAIL_HOST_USER", "")).strip()
     password = str(getattr(settings_obj, "EMAIL_HOST_PASSWORD", "")).strip()
-    sender = str(getattr(settings_obj, "DEFAULT_FROM_EMAIL", "")).strip()
+    sender = _environment_or_setting_text(
+        settings_obj,
+        environ,
+        "DEFAULT_FROM_EMAIL",
+    )
     port = getattr(settings_obj, "EMAIL_PORT", None)
     use_tls = getattr(settings_obj, "EMAIL_USE_TLS", False)
 
