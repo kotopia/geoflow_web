@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from django.test import SimpleTestCase
 
 from control.services.database_runtime_preflight import inspect_database_runtime
@@ -19,15 +21,35 @@ class DatabaseRuntimePreflightTests(SimpleTestCase):
             "ENABLE_TENANT_PROVISIONING": "0",
         }
 
+    def _ready_settings(self, sslmode="require"):
+        return SimpleNamespace(
+            DATABASES={
+                "default": {
+                    "ENGINE": "django.db.backends.postgresql",
+                    "OPTIONS": {"sslmode": sslmode},
+                },
+                "tenant": {
+                    "ENGINE": "django.contrib.gis.db.backends.postgis",
+                    "OPTIONS": {"sslmode": sslmode},
+                },
+            }
+        )
+
     def test_explicit_nonlocal_db_configuration_passes(self):
-        checks = inspect_database_runtime(environ=self._ready_env())
+        checks = inspect_database_runtime(
+            settings_obj=self._ready_settings(),
+            environ=self._ready_env(),
+        )
         self.assertTrue(all(check.ready for check in checks))
 
     def test_tenant_fallback_shape_is_rejected_without_echoing_secrets(self):
         environ = self._ready_env()
         secret = environ.pop("TENANT_DB_PASSWORD")
         environ.pop("TENANT_DB_USER")
-        checks = inspect_database_runtime(environ=environ)
+        checks = inspect_database_runtime(
+            settings_obj=self._ready_settings(),
+            environ=environ,
+        )
         failures = {check.code for check in checks if not check.ready}
         rendered = "\n".join(check.message for check in checks)
         self.assertIn("tenant_db_explicit_credentials", failures)
@@ -38,7 +60,10 @@ class DatabaseRuntimePreflightTests(SimpleTestCase):
         environ["CENTRAL_DB_HOST"] = "localhost"
         environ["TENANT_DB_PORT"] = "invalid"
         environ["ENABLE_TENANT_PROVISIONING"] = "1"
-        checks = inspect_database_runtime(environ=environ)
+        checks = inspect_database_runtime(
+            settings_obj=self._ready_settings(),
+            environ=environ,
+        )
         failures = {check.code for check in checks if not check.ready}
         self.assertEqual(
             failures,
@@ -48,3 +73,11 @@ class DatabaseRuntimePreflightTests(SimpleTestCase):
                 "tenant_provisioning_disabled",
             },
         )
+
+    def test_unencrypted_postgres_sslmode_fails(self):
+        checks = inspect_database_runtime(
+            settings_obj=self._ready_settings(sslmode="disable"),
+            environ=self._ready_env(),
+        )
+        failures = {check.code for check in checks if not check.ready}
+        self.assertEqual(failures, {"database_transport_tls"})

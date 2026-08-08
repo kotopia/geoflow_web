@@ -4,6 +4,11 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from django.conf import settings
+
+
+ENCRYPTED_POSTGRES_SSLMODES = {"require", "verify-ca", "verify-full"}
+
 
 @dataclass(frozen=True)
 class DatabaseRuntimeCheck:
@@ -40,8 +45,31 @@ def _enabled(environ: Mapping[str, str], name: str) -> bool:
     }
 
 
+def _database_transport_ready(settings_obj) -> bool:
+    databases = getattr(settings_obj, "DATABASES", None)
+    if not isinstance(databases, dict) or not databases:
+        return False
+
+    postgres_seen = False
+    for config in databases.values():
+        if not isinstance(config, dict):
+            continue
+        engine = str(config.get("ENGINE") or "").lower()
+        if "postgresql" not in engine and "postgis" not in engine:
+            continue
+        postgres_seen = True
+        options = config.get("OPTIONS")
+        if not isinstance(options, dict):
+            return False
+        sslmode = str(options.get("sslmode") or "").strip().lower()
+        if sslmode not in ENCRYPTED_POSTGRES_SSLMODES:
+            return False
+    return postgres_seen
+
+
 def inspect_database_runtime(
     *,
+    settings_obj=settings,
     environ: Mapping[str, str] = os.environ,
 ) -> tuple[DatabaseRuntimeCheck, ...]:
     """Inspect DB configuration shape only; never open a database connection."""
@@ -98,6 +126,19 @@ def inspect_database_runtime(
                 "Tenant provisioning is disabled in the application runtime."
                 if provisioning_disabled
                 else "Disable tenant provisioning in the public application runtime before release."
+            ),
+        )
+    )
+
+    transport_ready = _database_transport_ready(settings_obj)
+    checks.append(
+        DatabaseRuntimeCheck(
+            code="database_transport_tls",
+            ready=transport_ready,
+            message=(
+                "Configured PostgreSQL/PostGIS connections require encrypted transport."
+                if transport_ready
+                else "Require PostgreSQL/PostGIS sslmode=require, verify-ca, or verify-full for every configured database."
             ),
         )
     )
