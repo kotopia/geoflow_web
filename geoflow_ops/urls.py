@@ -9,17 +9,16 @@ app_name = "tenant"
 urlpatterns = [
     path('', tenant_home, name='home'),
 
-    path('contracts/', views_contracts.contract_list, name='contract_list'),
-    # path("contracts/new/", views_contracts.contract_new, name="contract_new"),
-    path("contracts/new/", views_contracts.contract_create, name="contract_create"),
-    path("contracts/<uuid:pk>/", views_contracts.contract_detail_page, name="contract_detail"),
+    path('contracts/', security_views.contract_list, name='contract_list'),
+    path("contracts/new/", security_views.contract_create, name="contract_create"),
+    path("contracts/<uuid:pk>/", security_views.contract_detail, name="contract_detail"),
     path("contracts/<uuid:pk>/json/", security_views.contract_json, name="contract_json"),
 
-    path('partners/', views_contracts.partner_list, name='partner_list'),
-    path("partners/new/", views_contracts.partner_create, name="partner_create"),
+    path('partners/', security_views.partner_list, name='partner_list'),
+    path("partners/new/", security_views.partner_create, name="partner_create"),
     path('partners/<uuid:pk>/', security_views.partner_detail, name='partner_detail'),
     path('partners/<uuid:pk>/json/', security_views.partner_json, name='partner_detail_json'),
-    path('partners/options/', views_contracts.partners_options, name='partner_options'),
+    path('partners/options/', security_views.partner_options, name='partner_options'),
 
     path("catalog/board/", security_views.catalog_board, name="catalog_board"),
 

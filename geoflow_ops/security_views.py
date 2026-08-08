@@ -20,6 +20,73 @@ def _require(request, code: str) -> None:
 
 @login_required
 @require_GET
+def contract_list(request):
+    _require(request, "contracts.view")
+    return views_contracts.contract_list(request)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def contract_create(request):
+    _require(request, "contracts.create")
+    return views_contracts.contract_create(request)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def contract_detail(request, pk):
+    _require(request, "contracts.view")
+    if request.method == "POST" and not gf_has_perm(request, "contracts.edit"):
+        raise PermissionDenied("Permission denied")
+    return views_contracts.contract_detail_page(request, pk)
+
+
+@login_required
+@require_GET
+def contract_json(request, pk):
+    _require(request, "contracts.view")
+    return views_contracts.contract_json(request, pk)
+
+
+@login_required
+@require_GET
+def partner_list(request):
+    _require(request, "partners.view")
+    return views_contracts.partner_list(request)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def partner_create(request):
+    _require(request, "partners.create")
+    return views_contracts.partner_create(request)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def partner_detail(request, pk):
+    _require(request, "partners.view")
+    if request.method == "POST" and not gf_has_perm(request, "partners.create"):
+        raise PermissionDenied("Permission denied")
+    return views_contracts.partner_detail_page(request, pk)
+
+
+@login_required
+@require_GET
+def partner_json(request, pk):
+    _require(request, "partners.view")
+    return views_contracts.partner_detail_json(request, pk)
+
+
+@login_required
+@require_GET
+def partner_options(request):
+    _require(request, "partners.view")
+    return views_contracts.partners_options(request)
+
+
+@login_required
+@require_GET
 def project_list(request):
     _require(request, "projects.view")
     return views_projects.ProjectListView.as_view()(request)
@@ -53,29 +120,6 @@ def project_summary(request, pk):
 def project_summary_save(request, pk):
     _require(request, "projects.edit")
     return views_projects.project_summary_save(request, pk)
-
-
-@login_required
-@require_GET
-def contract_json(request, pk):
-    _require(request, "contracts.view")
-    return views_contracts.contract_json(request, pk)
-
-
-@login_required
-@require_http_methods(["GET", "POST"])
-def partner_detail(request, pk):
-    _require(request, "partners.view")
-    if request.method == "POST" and not gf_has_perm(request, "partners.create"):
-        raise PermissionDenied("Permission denied")
-    return views_contracts.partner_detail_page(request, pk)
-
-
-@login_required
-@require_GET
-def partner_json(request, pk):
-    _require(request, "partners.view")
-    return views_contracts.partner_detail_json(request, pk)
 
 
 @login_required
