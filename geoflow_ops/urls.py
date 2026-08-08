@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events
-from . import views_employee_role_request, security_views
+from . import views_employee_role_request, security_views, upload_guard_views
 
 app_name = "tenant"
 
@@ -46,8 +46,8 @@ urlpatterns = [
     path("myinfo/org-units/<uuid:pk>/", security_views.orgunit_detail, name="myinfo_orgunit_detail"),
     path("myinfo/org-units/<uuid:pk>/edit/", security_views.orgunit_update, name="myinfo_orgunit_update"),
 
-    path("api/uploads/presign-put/", views_uploads.presign_put, name="upload_presign_put"),
-    path("api/uploads/commit/", views_uploads.commit, name="upload_commit"),
+    path("api/uploads/presign-put/", upload_guard_views.presign_put, name="upload_presign_put"),
+    path("api/uploads/commit/", upload_guard_views.commit, name="upload_commit"),
     path("api/uploads/presign-get/<uuid:attachment_id>/", views_uploads.presign_get, name="upload_presign_get"),
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
 
