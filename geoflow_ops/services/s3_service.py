@@ -148,11 +148,16 @@ def head_private_object(object_key: str) -> UploadedObjectMetadata:
     expected_kms = str(expected.get("SSEKMSKeyId") or "")
     encryption_matches = actual_sse == expected_sse
     if expected_sse == "aws:kms":
-        encryption_matches = encryption_matches and bool(actual_kms) and actual_kms == expected_kms
+        encryption_matches = (
+            encryption_matches and bool(actual_kms) and actual_kms == expected_kms
+        )
 
     return UploadedObjectMetadata(
         size_bytes=int(response.get("ContentLength") or 0),
-        content_type=str(response.get("ContentType") or "").split(";", 1)[0].strip().lower(),
+        content_type=str(response.get("ContentType") or "")
+        .split(";", 1)[0]
+        .strip()
+        .lower(),
         server_side_encryption=actual_sse,
         kms_key_id=actual_kms,
         encryption_matches=encryption_matches,
@@ -160,6 +165,11 @@ def head_private_object(object_key: str) -> UploadedObjectMetadata:
 
 
 def extract_extension(filename: str) -> str:
+    """Return a short safe extension suitable for a private S3 object key."""
+
     if "." not in str(filename or ""):
         return "bin"
-    return str(filename).rsplit(".", 1)[-1].lower()
+    extension = str(filename).rsplit(".", 1)[-1].strip().lower()
+    if not re.fullmatch(r"[a-z0-9]{1,16}", extension):
+        return "bin"
+    return extension
