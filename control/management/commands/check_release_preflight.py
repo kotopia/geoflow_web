@@ -17,6 +17,7 @@ from control.services.route_security_preflight import (
 from control.services.session_security_preflight import (
     inspect_session_security_baseline,
 )
+from control.services.web_security_preflight import inspect_web_security_baseline
 
 
 class Command(BaseCommand):
@@ -39,10 +40,12 @@ class Command(BaseCommand):
         database_checks = inspect_database_runtime()
         session_checks = inspect_session_security_baseline()
         storage_checks = inspect_object_storage_runtime()
+        web_checks = inspect_web_security_baseline()
         route_checks = inspect_route_security_boundaries()
         database_ready = all(check.ready for check in database_checks)
         session_ready = all(check.ready for check in session_checks)
         storage_ready = all(check.ready for check in storage_checks)
+        web_ready = all(check.ready for check in web_checks)
         routes_ready = all(check.ready for check in route_checks)
         ready = (
             runtime.ready
@@ -51,6 +54,7 @@ class Command(BaseCommand):
             and database_ready
             and session_ready
             and storage_ready
+            and web_ready
             and routes_ready
         )
 
@@ -62,7 +66,13 @@ class Command(BaseCommand):
                 f"[{'PASS' if check.ready else 'FAIL'}] "
                 f"{check.code}: {check.message}"
             )
-        for checks in (database_checks, session_checks, storage_checks, route_checks):
+        for checks in (
+            database_checks,
+            session_checks,
+            storage_checks,
+            web_checks,
+            route_checks,
+        ):
             for check in checks:
                 self.stdout.write(
                     f"[{'PASS' if check.ready else 'FAIL'}] "
