@@ -130,6 +130,19 @@ def inspect_database_runtime(
         )
     )
 
+    secret_refs_required = _enabled(environ, "TENANT_DB_REQUIRE_SECRET_REFERENCES")
+    checks.append(
+        DatabaseRuntimeCheck(
+            code="tenant_db_secret_references_required",
+            ready=secret_refs_required,
+            message=(
+                "Dynamic tenant database credentials require external secret references."
+                if secret_refs_required
+                else "Set TENANT_DB_REQUIRE_SECRET_REFERENCES=1 after converting group_db_config credentials to secret references."
+            ),
+        )
+    )
+
     transport_ready = _database_transport_ready(settings_obj)
     checks.append(
         DatabaseRuntimeCheck(
