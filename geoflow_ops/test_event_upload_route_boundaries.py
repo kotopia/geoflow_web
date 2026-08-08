@@ -20,9 +20,13 @@ class EventUploadRouteBoundaryTests(SimpleTestCase):
             views_events.create_event,
             views_events.update_event,
             views_events.delete_event,
-            views_uploads.delete_attachment,
         ):
             with self.subTest(view=view.__name__):
                 source = getsource(view)
                 self.assertIn("@login_required", source)
                 self.assertIn("@require_POST", source)
+
+    def test_attachment_delete_remains_delete_only(self):
+        source = getsource(views_uploads.delete_attachment)
+        self.assertIn("@login_required", source)
+        self.assertIn('@require_http_methods(["DELETE"])', source)
