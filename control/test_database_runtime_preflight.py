@@ -19,6 +19,7 @@ class DatabaseRuntimePreflightTests(SimpleTestCase):
             "TENANT_DB_HOST": "tenant.example.internal",
             "TENANT_DB_PORT": "5432",
             "ENABLE_TENANT_PROVISIONING": "0",
+            "TENANT_DB_REQUIRE_SECRET_REFERENCES": "1",
         }
 
     def _ready_settings(self, sslmode="require"):
@@ -81,3 +82,13 @@ class DatabaseRuntimePreflightTests(SimpleTestCase):
         )
         failures = {check.code for check in checks if not check.ready}
         self.assertEqual(failures, {"database_transport_tls"})
+
+    def test_secret_reference_enforcement_must_be_enabled(self):
+        environ = self._ready_env()
+        environ["TENANT_DB_REQUIRE_SECRET_REFERENCES"] = "0"
+        checks = inspect_database_runtime(
+            settings_obj=self._ready_settings(),
+            environ=environ,
+        )
+        failures = {check.code for check in checks if not check.ready}
+        self.assertEqual(failures, {"tenant_db_secret_references_required"})
