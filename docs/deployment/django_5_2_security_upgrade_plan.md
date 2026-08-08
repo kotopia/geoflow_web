@@ -1,64 +1,58 @@
-# Django 5.2 LTS security upgrade plan
+# Django 5.2 LTS security upgrade result
 
-Status date: 2026-08-08
+Status date: 2026-08-09
 
-## Current repository state
+## Repository state
 
-- `requirements.txt` currently pins Django 5.2.4.
-- GeoFlow is intentionally staying on the Django 5.2 LTS feature series for this release-stabilization phase.
-- The repository-side release preflight requires at least Django 5.2.16 and fails closed on older 5.2 patches or on an unreviewed feature series.
+- `requirements.txt` now pins `Django==5.2.16`.
+- GeoFlow remains on the reviewed Django 5.2 LTS feature series for this release-stabilization phase.
+- `check_release_preflight --strict` requires at least Django 5.2.16 and rejects older 5.2 patches or an unreviewed feature series.
+- No GeoFlow migration file was added or changed as part of the patch-only framework pin update.
 
-## Why this blocks release
+## Security basis
 
-Django 5.2.16 was issued on 2026-07-07 as a security release for the supported 5.2 LTS series. The Django project recommends upgrading supported users to the latest patch release. GeoFlow's current 5.2.4 pin predates multiple 2026 security fixes, so it must not be treated as a production-ready dependency baseline.
+Django 5.2.16 is the current 5.2 LTS patch listed by the official Django 5.2 release documentation as of 2026-08-09. The patch pin was updated independently from schema/data work so application rollback remains separable from migration rollback.
 
 Official references:
 
-- https://www.djangoproject.com/weblog/2026/jul/07/security-releases/
+- https://docs.djangoproject.com/en/5.2/releases/
 - https://www.djangoproject.com/download/
-- https://docs.djangoproject.com/en/5.2/releases/security/
 
-## Exact change boundary
+## Change boundary completed
 
-`requirements.txt` is a protected file under the repository operating rules. This document does not authorize changing it. The dependency pin should be changed only after explicit approval naming the dependency update.
-
-Expected narrow change after approval:
+Only the Django requirement was changed in `requirements.txt`:
 
 ```text
 Django==5.2.4
 ```
 
-to:
+became:
 
 ```text
 Django==5.2.16
 ```
 
-Do not opportunistically upgrade unrelated dependencies in the same change.
+Unrelated dependency pins were left unchanged.
 
-## Validation sequence after approval
+## Validation still requiring an executable GeoFlow runtime
 
-1. Change only the Django patch pin.
-2. Create or use an isolated non-production Python environment.
-3. Install the exact requirements without exposing environment secrets.
-4. Run `python manage.py check` with a non-production configuration.
-5. Run the GeoFlow Django test suite and the Phase 1 security/signup regression tests.
-6. Run `python manage.py check_release_preflight --strict` with secret-safe non-production runtime configuration.
-7. Exercise login, signup-unavailable, signup, verification, central approval, tenant selection, logout, event/attachment upload, and central-admin authorization smoke paths.
-8. Confirm there is no migration requirement caused by the patch-only framework upgrade.
-9. Deploy to a non-production environment first and observe application logs for framework-level regressions.
-10. Only after the above passes should the production application deployment be considered.
+The connected execution container used for repository work does not contain the GeoFlow checkout, Django runtime dependencies, or GeoFlow environment variables, and outbound DNS is unavailable. Therefore package installation and Django execution were not fabricated or replaced by production access.
 
-## Rollback
+When an isolated executable checkout is available, run in this order:
 
-The application package/version rollback must be possible independently from database migration rollback. This Django patch update is not expected to introduce a GeoFlow schema migration, so do not combine it with signup migrations or data cleanup in one production change window.
+1. install the exact `requirements.txt`;
+2. `python manage.py check`;
+3. Phase 1 signup/security regression tests;
+4. `python manage.py check_release_preflight --strict`;
+5. read-only DB audits only after a specifically selected non-production DB is available;
+6. application smoke tests in non-production before production deployment.
 
 ## Stop conditions
 
 Do not proceed to public release when any of the following is true:
 
-- runtime Django is below the approved 5.2 LTS security baseline;
-- an unreviewed Django feature series is installed;
-- `manage.py check` or the security regression suite fails;
+- the installed runtime is not Django 5.2.16 or a later explicitly reviewed 5.2 security patch;
+- `manage.py check`, regression tests, or strict release preflight fail;
 - a framework patch changes behavior in login/session/CSRF/email/upload flows;
-- a production-only secret or database connection is required merely to complete dependency validation.
+- validation depends on exposing a production secret; or
+- application rollback cannot be performed independently from irreversible database work.
