@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events
-from . import views_employee_role_request, security_views, upload_guard_views
+from . import security_views, upload_guard_views, employee_security_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -34,12 +34,12 @@ urlpatterns = [
     path("projects/<uuid:pk>/scope-summary/", security_views.project_scope_summary, name="project_scope_summary"),
     path("projects/<uuid:pk>/scope-data/", security_views.project_scope_data, name="project_scope_data"),
 
-    path("employees/", views_employees.employees_list, name="employees_list"),
-    path("employees/new/", views_employees.employees_create, name="employees_create"),
-    path("employees/<uuid:emp_id>/", views_employees.employees_detail, name="employees_detail"),
-    path("employees/<uuid:emp_id>/request-role/", views_employee_role_request.employees_request_role_safe, name="employees_request_role"),
+    path("employees/", employee_security_views.employee_list, name="employees_list"),
+    path("employees/new/", employee_security_views.employee_create, name="employees_create"),
+    path("employees/<uuid:emp_id>/", employee_security_views.employee_detail, name="employees_detail"),
+    path("employees/<uuid:emp_id>/request-role/", employee_security_views.employee_role_request, name="employees_request_role"),
 
-    path("api/hr/options/<str:category>/", views_employees.hr_options, name="hr_options"),
+    path("api/hr/options/<str:category>/", employee_security_views.hr_options, name="hr_options"),
 
     path("myinfo/org-units/", security_views.orgunit_list,  name="myinfo_orgunit_list"),
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),
