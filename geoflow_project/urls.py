@@ -1,6 +1,7 @@
 """URL configuration for geoflow_project project."""
 from django.conf import settings
 from django.contrib import admin
+from django.contrib.auth.decorators import login_required
 from django.urls import path, include
 from control import views_auth
 from control import views_signup
@@ -8,7 +9,7 @@ from control import views_legal
 
 urlpatterns = [
     path('login/', views_auth.login_view, name='login'),
-    path('after-login/', views_auth.post_login_redirect, name='after_login'),
+    path('after-login/', login_required(views_auth.post_login_redirect), name='after_login'),
 
     path('terms/', views_legal.terms_view, name='terms'),
     path('privacy/', views_legal.privacy_view, name='privacy'),
