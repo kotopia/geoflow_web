@@ -132,12 +132,14 @@ def login_view(request):
 
         central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
 
-        # 1) 중앙 users에서 사용자/해시/활성 상태 조회
+        # 1) 중앙 users에서 검증·승인된 활성 사용자/해시 조회
         with connections[central_alias].cursor() as cur:
             cur.execute("""
                 SELECT id::text, password_hash, is_active
                   FROM users
                  WHERE lower(email) = lower(%s)
+                   AND is_active = TRUE
+                   AND email_verified = TRUE
                  LIMIT 1
             """, [email])
             row = cur.fetchone()
