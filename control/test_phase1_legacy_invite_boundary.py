@@ -44,3 +44,9 @@ class Phase1LegacyInviteBoundaryTests(TestCase):
             "send_invite_email_with_set_password_link",
         ):
             self.assertNotIn(forbidden, source)
+
+    def test_legacy_invitation_mail_service_is_disabled(self):
+        source = (CONTROL_DIR / "services_mail.py").read_text(encoding="utf-8")
+        self.assertIn("Legacy invitation password email is disabled", source)
+        self.assertNotIn("INSERT INTO password_reset_tokens", source)
+        self.assertNotIn("send_mail(", source)
