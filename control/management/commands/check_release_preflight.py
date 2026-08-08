@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
+from control.services.database_runtime_preflight import inspect_database_runtime
 from control.services.dependency_security_preflight import (
     inspect_django_security_baseline,
 )
@@ -35,9 +36,11 @@ class Command(BaseCommand):
         runtime = inspect_production_runtime_preflight()
         dependency = inspect_django_security_baseline()
         secret_key = inspect_django_secret_key()
+        database_checks = inspect_database_runtime()
         session_checks = inspect_session_security_baseline()
         storage_checks = inspect_object_storage_runtime()
         route_checks = inspect_route_security_boundaries()
+        database_ready = all(check.ready for check in database_checks)
         session_ready = all(check.ready for check in session_checks)
         storage_ready = all(check.ready for check in storage_checks)
         routes_ready = all(check.ready for check in route_checks)
@@ -45,6 +48,7 @@ class Command(BaseCommand):
             runtime.ready
             and dependency.ready
             and secret_key.ready
+            and database_ready
             and session_ready
             and storage_ready
             and routes_ready
@@ -58,21 +62,12 @@ class Command(BaseCommand):
                 f"[{'PASS' if check.ready else 'FAIL'}] "
                 f"{check.code}: {check.message}"
             )
-        for check in session_checks:
-            self.stdout.write(
-                f"[{'PASS' if check.ready else 'FAIL'}] "
-                f"{check.code}: {check.message}"
-            )
-        for check in storage_checks:
-            self.stdout.write(
-                f"[{'PASS' if check.ready else 'FAIL'}] "
-                f"{check.code}: {check.message}"
-            )
-        for check in route_checks:
-            self.stdout.write(
-                f"[{'PASS' if check.ready else 'FAIL'}] "
-                f"{check.code}: {check.message}"
-            )
+        for checks in (database_checks, session_checks, storage_checks, route_checks):
+            for check in checks:
+                self.stdout.write(
+                    f"[{'PASS' if check.ready else 'FAIL'}] "
+                    f"{check.code}: {check.message}"
+                )
 
         if options["strict"] and not ready:
             raise CommandError("release preflight failed")
