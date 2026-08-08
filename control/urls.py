@@ -1,6 +1,7 @@
 # control/urls.py
 from django.urls import path, include
-from .views_auth import post_login_redirect, logout_view
+from .views_auth import post_login_redirect
+from .views_session import logout_view
 from .views_signup import signup_view
 from .views_groups import group_search_view, group_select_view
 from .views_join import my_join_requests_view, join_requests_pending_view, join_request_decide_view

@@ -28,7 +28,10 @@
                         <i class="align-middle" data-feather="home"></i>
                         <span class="align-middle">나의기업정보</span>
                     </a>
-                    <a class="dropdown-item" href="{% url 'control:logout' %}">Logout</a>
+                    <form method="post" action="{% url 'control:logout' %}" class="m-0">
+                        {% csrf_token %}
+                        <button type="submit" class="dropdown-item border-0 bg-transparent w-100 text-start">Logout</button>
+                    </form>
                 </div>
             </li>
         </ul>

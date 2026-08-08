@@ -14,7 +14,12 @@
   <a class="sidebar-toggle js-sidebar-toggle"><i class="hamburger align-self-center"></i></a>
   <div class="navbar-collapse collapse">
     <ul class="navbar-nav ms-auto">
-      <li class="nav-item"><a class="nav-link" href="{% url 'control:logout' %}">Logout</a></li>
+      <li class="nav-item">
+        <form method="post" action="{% url 'control:logout' %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="nav-link btn btn-link border-0 bg-transparent">Logout</button>
+        </form>
+      </li>
     </ul>
   </div>
 </nav>
