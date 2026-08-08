@@ -27,8 +27,14 @@ class PublicLegalDocumentContractTests(TestCase):
             "GEOFLOW_LEGAL_CONTACT_EMAIL",
             "GEOFLOW_PRIVACY_OFFICER_NAME",
             "GEOFLOW_PRIVACY_CONTACT_EMAIL",
+            "GEOFLOW_PRIVACY_CONTACT_PHONE",
             "GEOFLOW_SIGNUP_RETENTION_POLICY",
+            "GEOFLOW_DESTRUCTION_POLICY",
+            "GEOFLOW_THIRD_PARTY_DISCLOSURE",
+            "GEOFLOW_PROCESSING_OUTSOURCING_DISCLOSURE",
             "GEOFLOW_EMAIL_PROCESSOR_DISCLOSURE",
+            "GEOFLOW_CROSS_BORDER_DISCLOSURE",
+            "GEOFLOW_COOKIE_DISCLOSURE",
         ):
             self.assertIn(setting_name, source)
         self.assertIn('"is_draft": bool(missing)', source)
@@ -43,7 +49,7 @@ class PublicLegalDocumentContractTests(TestCase):
         self.assertIn("SIGNUP_LEGAL_DOCUMENTS_CONFIRMED", source)
         self.assertIn("return False", source)
 
-    def test_templates_disclose_signup_data_and_unresolved_retention_policy(self):
+    def test_templates_cover_required_privacy_policy_structure(self):
         privacy = (
             CONTROL_DIR / "templates" / "control" / "privacy.html"
         ).read_text(encoding="utf-8")
@@ -51,8 +57,18 @@ class PublicLegalDocumentContractTests(TestCase):
             CONTROL_DIR / "templates" / "control" / "terms.html"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("비밀번호 해시", privacy)
-        self.assertIn("보유기간", privacy)
-        self.assertIn("자동 물리 삭제 정책은 아직 확정되지 않았습니다", privacy)
+        for required_text in (
+            "비밀번호 해시",
+            "처리 및 보유 기간",
+            "파기 절차 및 방법",
+            "제3자 제공",
+            "처리위탁",
+            "국외 이전",
+            "자동수집 장치",
+            "안전성 확보조치",
+            "권리·의무 및 행사방법",
+            "개인정보 문의 전화",
+        ):
+            self.assertIn(required_text, privacy)
         self.assertIn("이메일 인증과 관리자 심사", terms)
         self.assertIn("권한이 자동 부여되지는 않습니다", terms)

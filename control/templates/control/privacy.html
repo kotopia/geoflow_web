@@ -13,7 +13,7 @@
   {% if is_draft %}
   <div class="alert alert-warning">
     <strong>정식 공개 전 초안입니다.</strong>
-    개인정보 보유기간, 처리위탁 및 운영자 정보를 확정한 뒤 정식 동의 문서로 전환합니다.
+    아래 필수 운영정보와 개인정보 처리정책을 확정한 뒤 정식 동의 문서로 전환합니다.
     <ul class="mb-0 mt-2">
       {% for item in missing_legal_fields %}<li>{{ item }}</li>{% endfor %}
     </ul>
@@ -21,11 +21,12 @@
   {% endif %}
 
   <section class="mb-4">
-    <h2 class="h5">1. 처리 목적</h2>
+    <h2 class="h5">1. 개인정보의 처리 목적</h2>
     <p>GeoFlow는 회원가입 신청 접수, 이메일 소유 확인, 관리자 가입 심사, 계정 생성·활성화, 보안 및 감사 기록 관리를 위해 개인정보를 처리합니다.</p>
   </section>
+
   <section class="mb-4">
-    <h2 class="h5">2. 회원가입 단계의 처리 항목</h2>
+    <h2 class="h5">2. 처리하는 개인정보의 항목</h2>
     <ul>
       <li>필수 입력: 이메일, 비밀번호, 표시 이름, 소속 기관, 가입 목적</li>
       <li>선택 입력: 연락처, 초대 코드</li>
@@ -34,35 +35,82 @@
     </ul>
     <p>비밀번호는 원문 그대로 저장하지 않고 서버에서 비밀번호 해시로 변환하여 저장합니다. 초대 코드는 현재 가입 신청 레코드의 권한 자동부여 수단으로 사용되지 않습니다.</p>
   </section>
+
   <section class="mb-4">
-    <h2 class="h5">3. 보유기간 및 파기</h2>
+    <h2 class="h5">3. 개인정보의 처리 및 보유 기간</h2>
     {% if signup_retention_policy %}
       <p>{{ signup_retention_policy }}</p>
     {% else %}
-      <p class="text-danger">정식 운영 전 가입신청·승인/거절/만료 기록의 보유기간과 파기 기준을 확정해야 합니다. 현재 시스템은 상태 전이와 감사기록을 보존하며 자동 물리 삭제 정책은 아직 확정되지 않았습니다.</p>
+      <p class="text-danger">정식 운영 전 가입신청·승인/거절/만료 기록의 보유기간을 확정해야 합니다.</p>
     {% endif %}
   </section>
+
   <section class="mb-4">
-    <h2 class="h5">4. 이메일 인증 발송 처리</h2>
+    <h2 class="h5">4. 개인정보의 파기 절차 및 방법</h2>
+    {% if destruction_policy %}
+      <p>{{ destruction_policy }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 보유기간 종료 또는 처리목적 달성 후의 파기 절차와 방법을 확정해야 합니다.</p>
+    {% endif %}
+  </section>
+
+  <section class="mb-4">
+    <h2 class="h5">5. 개인정보의 제3자 제공</h2>
+    {% if third_party_disclosure %}
+      <p>{{ third_party_disclosure }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 제3자 제공 여부를 확인하고, 해당 없음을 포함하여 처리방침에 명시해야 합니다.</p>
+    {% endif %}
+  </section>
+
+  <section class="mb-4">
+    <h2 class="h5">6. 개인정보 처리위탁</h2>
+    {% if processing_outsourcing_disclosure %}
+      <p>{{ processing_outsourcing_disclosure }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 인프라·메일 등 개인정보 처리위탁 현황을 확인해 공개해야 합니다.</p>
+    {% endif %}
     {% if email_processor_disclosure %}
       <p>{{ email_processor_disclosure }}</p>
     {% else %}
-      <p class="text-danger">정식 운영 전 이메일 발송 사업자, 처리 항목과 필요한 위탁·국외이전 고지 여부를 확인해 공개해야 합니다.</p>
+      <p class="text-danger">정식 운영 전 회원가입 인증메일 발송 사업자와 처리 범위를 확인해 공개해야 합니다.</p>
     {% endif %}
   </section>
+
   <section class="mb-4">
-    <h2 class="h5">5. 개인정보의 안전성 확보</h2>
-    <p>GeoFlow는 가입 전 계정을 비활성 상태로 유지하고, 이메일 인증과 관리자 승인을 분리하며, 인증 토큰의 원문을 데이터베이스에 저장하지 않는 방식 등으로 가입 절차의 오남용을 줄이도록 설계합니다.</p>
+    <h2 class="h5">7. 개인정보의 국외 이전</h2>
+    {% if cross_border_disclosure %}
+      <p>{{ cross_border_disclosure }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 국외 이전 여부를 확인하고, 해당 없음을 포함하여 명시해야 합니다.</p>
+    {% endif %}
   </section>
+
   <section class="mb-4">
-    <h2 class="h5">6. 정보주체의 권리</h2>
-    <p>정보주체는 관계 법령에 따라 개인정보 열람, 정정, 삭제, 처리정지 등 필요한 권리를 행사할 수 있습니다. 구체적인 접수 방법과 담당 연락처는 정식 운영 전에 아래 정보와 함께 확정합니다.</p>
+    <h2 class="h5">8. 쿠키 등 자동수집 장치</h2>
+    {% if cookie_disclosure %}
+      <p>{{ cookie_disclosure }}</p>
+    {% else %}
+      <p class="text-danger">정식 운영 전 로그인 세션·보안 기능에서 사용하는 쿠키 등 자동수집 장치와 거부 방법을 확인해 공개해야 합니다.</p>
+    {% endif %}
   </section>
+
+  <section class="mb-4">
+    <h2 class="h5">9. 개인정보의 안전성 확보조치</h2>
+    <p>GeoFlow는 가입 전 계정을 비활성 상태로 유지하고, 이메일 인증과 관리자 승인을 분리하며, 인증 토큰의 원문을 데이터베이스에 저장하지 않는 방식 등으로 가입 절차의 오남용을 줄이도록 설계합니다. 접근권한 통제, 전송구간 보호, 접속기록 관리 등 필요한 안전조치를 서비스 운영 환경에 맞게 적용합니다.</p>
+  </section>
+
+  <section class="mb-4">
+    <h2 class="h5">10. 정보주체와 법정대리인의 권리·의무 및 행사방법</h2>
+    <p>정보주체는 관계 법령에 따라 개인정보 열람, 정정·삭제, 처리정지 등 필요한 권리를 행사할 수 있습니다. 권리 행사는 아래 개인정보 문의 연락처를 통해 접수할 수 있으며, 정당한 대리인을 통한 행사에 필요한 확인 절차를 적용할 수 있습니다.</p>
+  </section>
+
   <section class="border-top pt-3 text-muted small">
     <div>개인정보처리자: {{ operator_name|default:"정식 공개 전 확정 필요" }}</div>
     <div>주소: {{ operator_address|default:"정식 공개 전 확정 필요" }}</div>
     <div>개인정보 보호책임자: {{ privacy_officer_name|default:"정식 공개 전 확정 필요" }}</div>
-    <div>개인정보 문의: {{ privacy_contact_email|default:"정식 공개 전 확정 필요" }}</div>
+    <div>개인정보 문의 이메일: {{ privacy_contact_email|default:"정식 공개 전 확정 필요" }}</div>
+    <div>개인정보 문의 전화: {{ privacy_contact_phone|default:"정식 공개 전 확정 필요" }}</div>
   </section>
 </div>
 {% endblock %}
