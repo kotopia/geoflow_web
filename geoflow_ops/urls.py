@@ -2,11 +2,12 @@ from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events
 from . import views_employee_role_request, security_views, upload_guard_views
+from .views_home_security import tenant_home
 
 app_name = "tenant"
 
 urlpatterns = [
-    path('', views.home, name='home'),
+    path('', tenant_home, name='home'),
 
     path('contracts/', views_contracts.contract_list, name='contract_list'),
     # path("contracts/new/", views_contracts.contract_new, name="contract_new"),
