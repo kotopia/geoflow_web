@@ -106,29 +106,29 @@ def get_group_profile(user_id, group_id):
 
 def get_or_create_user_by_email(email: str,
                                 *,
-                                is_active: bool = True,
+                                is_active: bool = False,
                                 is_staff: bool = False) -> tuple[str, bool]:
-    """
-    중앙 DB(users)에 email 기준으로 사용자를 조회하고,
-    없으면 stub 계정(비밀번호 없음)으로 생성한다.
-    return: (user_id, created)
+    """Return an existing user or create only an inactive, unverified placeholder.
+
+    Legacy people helpers must never create an active/staff central identity. Account
+    activation belongs to the explicit verification and central approval lifecycle.
     """
     email = (email or "").strip().lower()
     if not email:
         raise ValueError("email required")
+    if is_active or is_staff:
+        raise RuntimeError("Legacy people provisioning cannot activate central accounts")
 
     with connections["default"].cursor() as cur:
-        # 1) 존재 확인 (citext라도 lower 비교로 안전하게)
         cur.execute("SELECT id::text FROM users WHERE lower(email)=lower(%s) LIMIT 1", [email])
         row = cur.fetchone()
         if row:
             return row[0], False
 
-        # 2) 없으면 생성 (비밀번호는 NULL, 이메일 미인증)
         cur.execute("""
             INSERT INTO users (id, email, is_active, is_staff, email_verified, created_at, updated_at)
-            VALUES (gen_random_uuid(), %s, %s, %s, FALSE, now(), now())
+            VALUES (gen_random_uuid(), %s, FALSE, FALSE, FALSE, now(), now())
             RETURNING id::text
-        """, [email, is_active, is_staff])
+        """, [email])
         new_id = cur.fetchone()[0]
         return new_id, True
