@@ -1,0 +1,99 @@
+name: Release preflight
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DJANGO_SECRET_KEY: ci-release-preflight-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: geoflow.co.kr
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://geoflow.co.kr
+      DJANGO_CSRF_COOKIE_SECURE: "1"
+      DJANGO_SESSION_COOKIE_SECURE: "1"
+      CENTRAL_DB_NAME: ci-central
+      CENTRAL_DB_USER: ci-central-user
+      CENTRAL_DB_PASSWORD: ci-nonsecret-placeholder
+      CENTRAL_DB_HOST: central.example.internal
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: ci-tenant
+      TENANT_DB_USER: ci-tenant-user
+      TENANT_DB_PASSWORD: ci-nonsecret-placeholder
+      TENANT_DB_HOST: tenant.example.internal
+      TENANT_DB_PORT: "5432"
+      ENABLE_TENANT_PROVISIONING: "0"
+      TENANT_DB_REQUIRE_SECRET_REFERENCES: "1"
+      USE_SMTP_EMAIL: "1"
+      EMAIL_HOST: smtp.naver.com
+      EMAIL_PORT: "587"
+      EMAIL_USE_TLS: "true"
+      EMAIL_HOST_USER: ci-user
+      EMAIL_HOST_PASSWORD: ci-nonsecret-placeholder
+      DEFAULT_FROM_EMAIL: ci@example.com
+      SITE_ORIGIN: https://geoflow.co.kr
+      SIGNUP_TERMS_URL: https://geoflow.co.kr/terms/
+      SIGNUP_PRIVACY_URL: https://geoflow.co.kr/privacy/
+      SIGNUP_TERMS_VERSION: 2026-08-08-v2
+      SIGNUP_PRIVACY_VERSION: 2026-08-08-v2
+      SIGNUP_LEGAL_DOCUMENTS_CONFIRMED: "1"
+      SIGNUP_EMAIL_VERIFICATION_ACTIVE_KEY_ID: ci
+      SIGNUP_EMAIL_VERIFICATION_HMAC_KEYS_JSON: '{"ci":"QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="}'
+      ENABLE_SIGNUP_EMAIL_VERIFICATION_OUTBOX: "1"
+      SIGNUP_EMAIL_VERIFICATION_URL: https://geoflow.co.kr/signup/verify/
+      SIGNUP_EMAIL_VERIFICATION_TTL_SECONDS: "86400"
+      SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS: "600"
+      SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS: "120"
+      SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS: "300"
+      SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS: "5"
+      EMAIL_TIMEOUT: "30"
+      AWS_REGION: ap-northeast-2
+      AWS_S3_BUCKET: geoflow-ci-nonexistent
+
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
+
+      - name: Install exact Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Django system check
+        run: python manage.py check
+
+      - name: Focused release security regression tests
+        run: |
+          python manage.py test \
+            control.test_tenant_db_secret_resolver \
+            control.test_database_runtime_preflight \
+            control.test_web_security_preflight \
+            control.test_session_security_preflight \
+            control.test_production_runtime_preflight \
+            control.test_route_security_preflight \
+            geoflow_ops.test_employee_security_boundaries \
+            geoflow_ops.test_tenant_security_method_boundaries \
+            geoflow_ops.test_event_upload_route_boundaries
+
+      - name: Strict repository release preflight
+        run: python manage.py check_release_preflight --strict
