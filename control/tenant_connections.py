@@ -4,6 +4,10 @@ from django.conf import settings
 from django.db import connections
 
 from control.models import GroupDBConfig, UserGroupMap
+from control.services.tenant_db_secret_resolver import (
+    TenantDBCredentialError,
+    resolve_tenant_db_password,
+)
 from control.services_identity import lookup_user_id_from_request
 
 
@@ -94,6 +98,12 @@ def ensure_tenant_connection_for_session(request):
     if any(value is None or not str(value).strip() for value in required_values):
         return False
 
+    try:
+        resolved_password = resolve_tenant_db_password(config.db_password)
+    except TenantDBCredentialError:
+        logger.warning("Tenant database credential resolution failed")
+        return False
+
     base_config = active_registry.get(central_alias)
     if not base_config:
         return False
@@ -104,7 +114,7 @@ def ensure_tenant_connection_for_session(request):
             "ENGINE": "django.contrib.gis.db.backends.postgis",
             "NAME": config.db_name,
             "USER": config.db_user,
-            "PASSWORD": config.db_password,
+            "PASSWORD": resolved_password,
             "HOST": config.db_host,
             "PORT": config.db_port,
             "OPTIONS": dict(base_config.get("OPTIONS", {})),
