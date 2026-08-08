@@ -18,6 +18,8 @@ ROUTE_SECURITY_BOUNDARIES = (
     (f"/api/uploads/presign-get/{_UUID}/", "tenant:upload_presign_get", "geoflow_ops.upload_guard_views", "presign_get"),
     ("/api/events/create/", "tenant:event_create", "geoflow_ops.views_events", "create_event"),
     ("/events/ui/modal/", "tenant:event_modal_ui", "geoflow_ops.security_views", "event_modal_ui"),
+    (f"/control/set-password/{_UUID}/", "control:set_password", "control.views_legacy_password_security", "legacy_password_setup_view"),
+    ("/control/account/set-password/legacy-token/", "control:account_set_password", "control.views_legacy_password_security", "legacy_password_setup_view"),
 )
 
 
