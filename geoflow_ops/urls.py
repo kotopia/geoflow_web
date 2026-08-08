@@ -30,10 +30,10 @@ urlpatterns = [
     path("projects/<uuid:pk>/summary/", views_projects.project_summary, name="project_summary"),
     path("projects/<uuid:pk>/summary-save/", views_projects.project_summary_save, name="project_summary_save"),
 
-    path("projects/<uuid:pk>/scope-modal/",   views_catalog.project_scope_modal,   name="project_scope_modal"),
-    path("projects/<uuid:pk>/scope-save/",    views_catalog.project_scope_save,    name="project_scope_save"),
-    path("projects/<uuid:pk>/scope-summary/", views_catalog.project_scope_summary, name="project_scope_summary"),
-    path("projects/<uuid:pk>/scope-data/",    views_catalog.project_scope_data,    name="project_scope_data"),
+    path("projects/<uuid:pk>/scope-modal/", security_views.project_scope_modal, name="project_scope_modal"),
+    path("projects/<uuid:pk>/scope-save/", security_views.project_scope_save, name="project_scope_save"),
+    path("projects/<uuid:pk>/scope-summary/", security_views.project_scope_summary, name="project_scope_summary"),
+    path("projects/<uuid:pk>/scope-data/", security_views.project_scope_data, name="project_scope_data"),
 
     path("employees/", views_employees.employees_list, name="employees_list"),
     path("employees/new/", views_employees.employees_create, name="employees_create"),

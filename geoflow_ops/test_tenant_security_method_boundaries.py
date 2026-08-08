@@ -12,6 +12,9 @@ class TenantSecurityMethodBoundaryTests(SimpleTestCase):
             security_views.contract_json,
             security_views.partner_json,
             security_views.catalog_board,
+            security_views.project_scope_modal,
+            security_views.project_scope_data,
+            security_views.project_scope_summary,
             security_views.orgunit_list,
             security_views.orgunit_detail,
             security_views.event_modal_ui,
@@ -31,3 +34,6 @@ class TenantSecurityMethodBoundaryTests(SimpleTestCase):
                     '@require_http_methods(["GET", "POST"])',
                     getsource(view),
                 )
+
+    def test_scope_save_is_post_only(self):
+        self.assertIn("@require_POST", getsource(security_views.project_scope_save))

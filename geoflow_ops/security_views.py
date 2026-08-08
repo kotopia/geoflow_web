@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from control.gf_authz.permissions import gf_has_perm
 
@@ -70,6 +70,34 @@ def catalog_board(request):
         if not gf_has_perm(request, "projects.view"):
             raise PermissionDenied("Permission denied")
     return views_catalog.catalog_board(request)
+
+
+@login_required
+@require_GET
+def project_scope_modal(request, pk):
+    _require(request, "projects.edit")
+    return views_catalog.project_scope_modal(request, pk)
+
+
+@login_required
+@require_GET
+def project_scope_data(request, pk):
+    _require(request, "projects.edit")
+    return views_catalog.project_scope_data(request, pk)
+
+
+@login_required
+@require_POST
+def project_scope_save(request, pk):
+    _require(request, "projects.edit")
+    return views_catalog.project_scope_save(request, pk)
+
+
+@login_required
+@require_GET
+def project_scope_summary(request, pk):
+    _require(request, "projects.view")
+    return views_catalog.project_scope_summary(request, pk)
 
 
 @login_required
