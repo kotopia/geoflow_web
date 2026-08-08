@@ -4,22 +4,24 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 from django.db import connections
 
-# ⬇️ 프로젝트 내 실제 위치에 맞춰 import 경로 조정하세요.
-#    지시사항: _alias = current_db_alias() 그대로 사용
-# from geoflow_ops.db import current_db_alias  # <- 실제 경로로 변경 필요
+from control.decorators import require_central_admin
 from control.middleware import current_db_alias
+
 
 def _alias(request):
     return current_db_alias()
 
+
+@require_GET
+@require_central_admin
 def categories_page(request):
-    """
-    중앙 > 카테고리: L1 드롭다운, 선택 시 L2 자동 로드
-    """
+    """중앙 > 카테고리: L1 드롭다운, 선택 시 L2 자동 로드."""
     alias = _alias(request)
     return render(request, "control/categories.html", {"db_alias": alias})
 
+
 @require_GET
+@require_central_admin
 def category_options(request):
     """
     AJAX:
