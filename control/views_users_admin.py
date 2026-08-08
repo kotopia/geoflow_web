@@ -146,19 +146,46 @@ def set_password_view(request, token):
         return render(request, "control/set_password.html", {"email": email})
 
     hashed = make_password(pw1)
+    token_invalidated = False
     with transaction.atomic():
         with connections["default"].cursor() as cur:
             cur.execute(
                 """
-              UPDATE users SET password_hash=%s, email_verified=TRUE, updated_at=now()
-               WHERE id=%s
+              SELECT prt.user_id::text, u.email, prt.expires_at, prt.used
+                FROM password_reset_tokens prt
+                JOIN users u ON u.id = prt.user_id
+               WHERE prt.token=%s
+               FOR UPDATE OF prt
             """,
-                [hashed, user_id],
-            )
-            cur.execute(
-                "UPDATE password_reset_tokens SET used=TRUE WHERE token=%s",
                 [str(token)],
             )
+            locked_row = cur.fetchone()
+            if (
+                not locked_row
+                or str(locked_row[0]) != str(user_id)
+                or locked_row[3]
+                or locked_row[2] < timezone.now()
+            ):
+                token_invalidated = True
+            else:
+                cur.execute(
+                    """
+                  UPDATE users SET password_hash=%s, email_verified=TRUE, updated_at=now()
+                   WHERE id=%s
+                """,
+                    [hashed, user_id],
+                )
+                cur.execute(
+                    """
+                  UPDATE password_reset_tokens
+                     SET used=TRUE
+                   WHERE token=%s AND used=FALSE
+                """,
+                    [str(token)],
+                )
+
+    if token_invalidated:
+        return render(request, "control/set_password.html", {"invalid": True})
 
     messages.success(
         request,

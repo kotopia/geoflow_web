@@ -22,6 +22,15 @@ class LegacySetPasswordSecurityContractTests(TestCase):
         self.assertIn('@require_http_methods(["GET", "POST"])', source)
         self.assertIn("@never_cache", source)
 
+    def test_token_is_revalidated_under_row_lock_before_password_write(self):
+        source = (CONTROL_DIR / "views_users_admin.py").read_text(encoding="utf-8")
+
+        self.assertIn("FOR UPDATE OF prt", source)
+        self.assertIn("token_invalidated = False", source)
+        self.assertIn("locked_row[3]", source)
+        self.assertIn("locked_row[2] < timezone.now()", source)
+        self.assertIn("WHERE token=%s AND used=FALSE", source)
+
 
 if __name__ == "__main__":
     unittest.main()
