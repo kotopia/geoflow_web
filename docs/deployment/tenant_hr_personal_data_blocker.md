@@ -1,50 +1,57 @@
 # Tenant HR personal-data public-launch blocker
 
-Status: blocking review item; no tenant database, server, or runtime change has been performed.
+Status: **new RRN collection/processing path disabled in application code; historical-data/governance follow-up remains.**
 
-## Finding
+No tenant database, server, storage, migration, or runtime change was performed as part of the code hardening.
 
-The current tenant employee implementation contains resident-registration-number (RRN) handling:
+## Current code state
 
-- edit/create code accepts `rrn_plain`;
-- values can be encrypted with the configured symmetric key and also hashed/masked;
-- employee detail UI displays a masked RRN and exposes a new-RRN input in edit mode;
-- the template also contains hard-coded demonstration profile/address/social content that should not ship as real employee data.
+The initial-release application no longer exposes the resident-registration-number (RRN) feature in normal employee management:
 
-The current public signup privacy notice intentionally covers signup/account data only. It does not establish a legal basis for tenant HR RRN processing.
+- employee create/edit UI has no RRN field or masked RRN display;
+- a non-empty direct `rrn_plain` POST is rejected with HTTP 400;
+- normal employee detail queries do not select RRN fields;
+- the employee view contains no RRN encryption, deterministic hash, decryption, or mask-building path;
+- the hard-coded demonstration address, license and social-profile content was removed from the employee detail template.
 
-## Legal launch position
+These controls intentionally leave the tenant schema unchanged. The existing `hr.employee_profile` RRN-related columns, and any historical values already stored in them, were **not** inspected, migrated, rewritten, or deleted.
 
-For the initial GeoFlow public release, treat RRN collection/entry as disabled unless a concrete statutory/regulatory processing basis has been identified for the specific customer/use case. Encryption is a required security control when processing is lawfully permitted; it is not a substitute for the legal basis to process an RRN.
+## Initial-release position
 
-Do not treat ordinary consent as sufficient authority for RRN collection.
+Keep RRN processing disabled for the initial GeoFlow release. Re-enabling it is a separate product/legal/security change and must not be accomplished by merely restoring a form field or encryption key.
 
-## Required product/code actions before broad release
+The disabled application path does not establish that historical RRN data is lawful, necessary, or ready for indefinite retention. That question requires an approved data inventory and customer-specific governance review.
 
-1. Remove or disable the editable `rrn_plain` field from the employee UI by default.
-2. Reject/ignore any RRN mutation server-side when the feature is not explicitly lawfully enabled.
-3. Do not expose decrypted RRN values to the template. If legacy stored values exist, review their lawful basis and retention before deciding whether masked display should remain.
-4. Remove hard-coded demo address/social/license content from the employee detail template.
-5. Separate tenant HR/business-data governance from central login/account erasure. Tenant records must not be automatically destroyed merely because a central login account is removed, but their own retention/legal basis must be documented.
-6. If RRN processing is later enabled for a specific lawful purpose, document the precise statutory basis, authorized roles, audit controls, retention period, encryption/key management, access logging, and breach-response requirements before enabling it.
+## Remaining release/governance work
 
-## Scope boundary
+1. In an explicitly approved non-production or controlled database window, determine whether historical RRN values exist and which tenants/records are affected. Do not inspect production-like data merely to complete a code review.
+2. Decide the lawful purpose, retention, deletion or migration treatment for any historical values before broad tenant HR onboarding.
+3. Include backups, snapshots and delayed-delete storage when defining deletion; deleting only the live row is not a complete lifecycle policy.
+4. Review uploaded employee documents/photos separately. Attachments can contain high-risk identifiers even when structured RRN fields are disabled.
+5. Keep central-account deletion separate from tenant business-record lifecycle. Removing a login identity must not silently destroy tenant HR records that belong to a customer-controlled retention process.
+6. Define customer/operator responsibilities, support access, export and termination procedures in the tenant data-processing governance workstream.
 
-This blocker does not require changing the Phase 1 central signup schema. It is a tenant HR/data-governance issue and should be resolved before presenting GeoFlow as broadly production-ready.
+## If RRN is ever re-enabled
 
-## Current recommendation
+Before implementation, approve a concrete lawful use case and a dedicated security design covering at least:
 
-Keep the existing RRN feature OFF for the initial public release and remove the edit field/UI until the lawful-processing basis is established. Continue employee management with ordinary HR fields that have an approved business purpose and privacy notice.
+- precise purpose and authority to process the identifier;
+- authorized roles and least-privilege access;
+- explicit full-value access workflow rather than routine profile decryption;
+- audit logging and incident handling;
+- retention and deletion periods;
+- encryption and key management;
+- a separate keyed comparison mechanism only if stable comparison is genuinely required;
+- key rotation and recovery procedures;
+- customer/data-subject notice obligations applicable to the use case.
 
-## Cryptographic/data-minimization follow-up if RRN is ever lawfully enabled
+Do not restore the previous unkeyed deterministic SHA-256 comparison token or normal-detail full-value decryption pattern.
 
-The current implementation also computes a deterministic plain SHA-256 digest of the RRN and decrypts the stored ciphertext during normal detail rendering in order to build a mask. Do not carry those behaviors forward unchanged into an enabled production design.
+## Release interpretation
 
-If a lawful RRN use case is later approved:
+The **code-level RRN collection/display blocker is closed for the initial release**. The following remain open and must not be conflated with that code fix:
 
-- avoid an unkeyed deterministic hash as a lookup/deduplication surrogate; use a purpose-specific keyed construction (for example HMAC with a separately managed key) if a stable comparison token is genuinely required;
-- do not decrypt the full identifier for ordinary profile rendering merely to display a mask;
-- separate encryption keys from comparison/HMAC keys and from application secrets;
-- restrict any full-value access to an explicit authorized workflow with audit logging and a documented purpose;
-- retain only the minimum masked/non-sensitive derivative required for routine display;
-- establish deletion/rotation procedures before enabling the feature.
+- historical RRN inventory and lifecycle;
+- tenant HR/business-data controller/processor governance;
+- attachment/storage lifecycle;
+- any future lawful RRN feature design.

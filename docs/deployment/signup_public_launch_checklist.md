@@ -1,8 +1,12 @@
 # GeoFlow public signup launch checklist
 
-Status: preparation only. Do not apply to a server or database without explicit approval.
+Status: **repository preparation/hardening only. Public signup remains closed.**
 
-## Legal document baseline
+This checklist distinguishes code-complete work from operational actions that still require a separately approved database/server/runtime change window.
+
+## 1. Legal document baseline
+
+Current repository baseline:
 
 - Terms version: `2026-08-08-v2`
 - Privacy version: `2026-08-08-v2`
@@ -12,18 +16,47 @@ Status: preparation only. Do not apply to a server or database without explicit 
 - Service/privacy email: `kotopia79@naver.com`
 - Privacy phone: `042-822-8636`
 - Rejected/expired signup retention: 1 year
-- Approved account data: destroy without undue delay after withdrawal/account termination, except statutory retention
 - Third-party provision: none at present
 - Infrastructure processor: AWS, primary region `ap-northeast-2`
-- Verification mail processor/service: NAVER
+- Verification-mail processor/service: NAVER
 
-## Minimum-age boundary
+The initial public signup is for users aged 14 or older. The v2 form requires an affirmative `age_14_or_over` confirmation. GeoFlow does not collect date of birth or guardian details merely to enforce this B2B eligibility boundary.
 
-The initial public signup is for users aged 14 or older. The terms/privacy v2 documents state that GeoFlow does not currently provide a legal-representative consent/verification flow for children under 14, so under-14 users must not submit the public signup form. Do not collect birth dates or guardian details merely to enforce this B2B eligibility boundary. If a future product requirement includes under-14 users, design the statutory representative-consent and verification flow first and issue a new legal-document version before enabling it.
+Any material change to operator details, collected items/purposes, retention, processor, third-party/cross-border handling or consent wording requires coordinated legal review and a legal-document version bump. Do not change displayed legal text while persisting the old version.
 
-## NAVER SMTP runtime configuration
+## 2. Code-complete signup safety controls
+
+The repository now contains code for the following controls:
+
+- displayed terms/privacy versions and stored signup consent versions use the same version policy;
+- public signup collects only the approved initial fields; optional contact phone and invitation code are not exposed;
+- signup creates an inactive, unverified central account;
+- email verification advances verification state but does not activate the account;
+- administrator approval is a separate activation/membership boundary;
+- resend responses are generic and do not reveal account existence;
+- signup readiness fails closed when legal/runtime prerequisites are incomplete;
+- public legal/verification URLs are constrained to the canonical same-origin path/transport rules;
+- signup schema has a read-only structural audit command;
+- stale-request expiry, one-year terminal retention cleanup and verification-outbox processing have bounded management commands/services;
+- central account erasure has an FK-aware dedicated service and fails closed for a partially installed signup schema;
+- tenant role requests no longer auto-provision the requesting central identity;
+- live approval does not rely on the legacy raw `user_tokens` set-password path.
+
+These code paths have been statically validated in the preparation environment. Full Django/database integration validation still requires an approved environment with the intended schema state.
+
+## 3. Final legal activation gate
+
+Keep this disabled throughout preparation:
+
+- `SIGNUP_LEGAL_DOCUMENTS_CONFIRMED=0`
+
+Set it to `1` only in the final approved launch window, after the matching legal documents are deployed and verified. Repository hardening alone must not open public signup.
+
+## 4. NAVER SMTP runtime configuration
 
 Configure only in the runtime secret/environment store. Never commit credentials.
+
+Required runtime shape:
 
 - `USE_SMTP_EMAIL=1`
 - `EMAIL_HOST=smtp.naver.com`
@@ -33,11 +66,9 @@ Configure only in the runtime secret/environment store. Never commit credentials
 - `EMAIL_HOST_PASSWORD=<NAVER application password>`
 - `DEFAULT_FROM_EMAIL=kotopia79@naver.com`
 
-NAVER mail must have IMAP/SMTP use enabled. Follow the current NAVER two-step-verification/application-password requirements for external SMTP access; keep that credential only in the runtime secret/environment store.
+NAVER mail must have the applicable external SMTP access enabled. Credentials remain runtime secrets and must never appear in source, logs, screenshots or review output.
 
-## Existing signup runtime gates
-
-Keep public signup closed until the final launch approval. The following must be configured only at launch time:
+## 5. Signup runtime values to set only in the launch window
 
 - `SITE_ORIGIN`
 - `SIGNUP_TERMS_URL`
@@ -45,174 +76,160 @@ Keep public signup closed until the final launch approval. The following must be
 - `SIGNUP_EMAIL_VERIFICATION_ACTIVE_KEY_ID`
 - `SIGNUP_EMAIL_VERIFICATION_HMAC_KEYS_JSON`
 - `ENABLE_SIGNUP_EMAIL_VERIFICATION_OUTBOX=1` only when the mail worker is ready
-- `SIGNUP_EMAIL_VERIFICATION_URL` (absolute HTTPS URL; raw token is appended as a URL fragment by code)
+- `SIGNUP_EMAIL_VERIFICATION_URL`
 - `SIGNUP_EMAIL_VERIFICATION_TTL_SECONDS`
-- `SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS` (proposed: 600 seconds)
+- `SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS`
 - `SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS`
 - `SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS`
 - `SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS`
 - `EMAIL_TIMEOUT`
-- `SIGNUP_LEGAL_DOCUMENTS_CONFIRMED=1` only after final review
+- `SIGNUP_LEGAL_DOCUMENTS_CONFIRMED=1` only at final activation
 
-`SIGNUP_LEGAL_DOCUMENTS_CONFIRMED` is the final explicit legal activation gate and must remain disabled during preparation.
-
-## Pre-launch validation
-
-1. Ensure displayed terms/privacy versions equal versions persisted to `signup_requests`.
-2. Confirm `/terms/` and `/privacy/` are public and return the finalized documents.
-3. Confirm signup is unavailable while the legal confirmation gate is off.
-4. Confirm required consent checkboxes cannot be bypassed server-side.
-5. Confirm signup creates an inactive, unverified account.
-6. Confirm email verification does not activate the account.
-7. Confirm only administrator approval activates a verified account.
-8. Confirm rejected and expired signup data has a tested one-year purge path before promising automatic destruction publicly.
-9. Confirm account withdrawal/deletion handles signup request/event/token/outbox dependencies.
-10. Run the relevant Django tests and `python manage.py check` without running migrations.
-
-## Explicitly prohibited during preparation
-
-- no `.env` output
-- no secret/token/password output
-- no database access
-- no migrations
-- no EC2 pull/restart
-- no server deployment
-- no public signup activation
-
-## Proposed lifecycle defaults for the final approval bundle
-
-These values are not yet applied anywhere. They are conservative operational defaults to approve or change as one bundle:
+Recommended initial lifecycle values remain:
 
 - verification token TTL: 24 hours (`86400`)
-- verification resend cooldown: 10 minutes (`600`)
-- unverified signup request expiry: 7 days after submission
-- verified/pending-approval request expiry: 30 days after verification/update
+- resend cooldown: 10 minutes (`600`)
+- unverified request expiry: 7 days
+- verified/pending-approval expiry: 30 days
 - outbox lease: 120 seconds
-- email send timeout: 30 seconds
+- email timeout: 30 seconds
 - retry delay: 300 seconds
 - maximum delivery attempts: 5
-- terminal rejected/expired retention: 1 calendar year from decision/expiry
+- rejected/expired retention: 1 calendar year from terminal decision/expiry
 
-The repository already has the state-transition service for pending request expiration, but no management command/scheduler currently invokes it. Do not advertise automatic lifecycle enforcement until the expiry and purge jobs are wired and tested.
+Do not claim automatic expiry/purge operation merely because commands exist. A production scheduler has not been approved, installed or observed yet.
 
-## Account withdrawal / erasure integration
+## 6. Public URL/transport invariants
 
-The current repository HEAD still contains the legacy administrator delete path, but this proposal replaces it with the dedicated central erasure service. The proposed service handles signup outbox/token/event/request dependencies in FK-safe order, clears known legacy password-token generations, anonymizes the Django session bridge and falls back to central audit-anchor anonymization when hard deletion would break unrelated audit references. Do not run deletion tests against production-like data; validate the integration in an approved non-production database only after the signup schema state is known.
-
-
-## Central account erasure design
-
-A dedicated central-account erasure service is prepared but not wired to a public/self-service endpoint.
-
-- It removes the account's own signup outbox, verification-token, signup-event and signup-request rows in RESTRICT-safe order.
-- It removes central membership, join-request and legacy password-reset artifacts.
-- If the account is referenced as an approver/audit actor for another applicant, it preserves the foreign-key anchor but irreversibly anonymizes central identifying fields instead of hard-deleting the row.
-- It does not automatically delete tenant operational/business records. Those records may have a separate organizational, contractual or statutory retention basis and require a tenant-scoped lifecycle policy.
-- Do not expose self-service withdrawal until the tenant-side consequences and operator procedure are separately validated.
-
-## Reapplication behavior for initial launch
-
-The existing signup service treats any existing central email as an existing account. Therefore, while a rejected/expired applicant record is retained, the same email cannot create another signup request. The one-year purge eventually releases that email by deleting the signup-only identity. For the initial public launch, keep this conservative behavior rather than silently creating duplicate central identities; design an explicit reapplication/reopen policy later if needed.
-
-
-## Initial public signup data minimization
-
-The public signup UI should initially collect only email, password, display name, organization and signup purpose. The nullable `contact_phone` schema field remains unused, and invitation-code intake is deferred until there is a verified purpose, validation flow and appropriate consent/notice design. This avoids collecting optional personal data before the feature has an operational need.
-
-
-## Legal version governance
-
-- Before the first public launch, replace the effective-date label with the actual public-signup effective date if a concrete date is known.
-- Any material change to operator details, collection purpose/items, retention, processor, third-party/cross-border handling, or the consent notice must be reviewed together with a version bump.
-- Do not edit the displayed legal text while continuing to persist the same terms/privacy version.
-- Keep `SIGNUP_LEGAL_DOCUMENTS_CONFIRMED` off while legal text/version changes are under review; re-enable it only after the matching public documents are deployed and verified.
-
-## Additional pre-launch structural gate
-
-Before public signup is activated, and only after the signup migrations have been applied in an approved non-production/production change window, run the read-only structural audit:
-
-```text
-python manage.py check_signup_launch_schema --strict
-```
-
-This command must remain read-only. It verifies the modern central signup/join-request columns plus the named integrity constraints and indexes required by the Phase 1 signup state machine. In particular, public launch requires `join_requests.requested_email`, `join_requests.requested_role_code`, `join_requests.decided_at`, and the canonical `join_requests.decided_by` audit column; legacy `email` / `role_id` compatibility in administrator display code is not sufficient for launch readiness. It also verifies the full signup token/outbox lease columns and the Django `auth_user` bridge fields used by account erasure.
-
-Do not run the command against an operating database until DB access has been separately approved.
-
-## Mail processor/runtime alignment
-
-The initial legal disclosure names NAVER as the signup verification-mail processor. The signup runtime readiness gate must therefore reject a non-NAVER SMTP host or the wrong submission port/TLS profile. Changing the mail processor later requires a coordinated legal-document review/version bump and runtime configuration/code change; do not silently switch providers under the same privacy-policy version.
-
-## Central user-admin integration status
-
-The prepared user-admin hardening replaces the legacy manual account-delete SQL with the dedicated central erasure service and blocks manual active membership assignment to inactive accounts. The erasure service is migration-order tolerant only in two safe states:
-
-- all Phase 1 signup tables absent: legacy-compatible central cleanup may proceed;
-- all Phase 1 signup tables present: signup dependencies are removed in FK-safe order.
-
-If only part of the signup schema exists, erasure fails closed. This prevents an intermediate migration state from silently deleting an identity while leaving signup dependencies behind.
-
-The user-admin detail query may read both legacy and modern join-request column generations for operator visibility, but launch readiness remains strict on the modern schema used by live approval/request flows.
-
-## Background-job status
-
-The repository has bounded management commands for signup verification outbox processing, stale-request expiration, and one-year terminal retention. No production scheduler has been enabled yet. Public signup must not be described as automatically enforcing lifecycle expiry/purge until the scheduler is separately reviewed, approved, installed, and observed with safe dry-run/reconciliation checks.
-
-## Public-endpoint abuse controls
-
-Before enabling public signup, configure an ingress/application rate limit for at least:
-
-- `POST /signup/`
-- `POST /signup/resend/`
-- repeated failed verification POSTs to `/signup/verify/`
-
-Prefer infrastructure/server-side throttling (for example the deployment's Nginx/ALB/WAF standard) so it applies before expensive password hashing/database/email work. Keep application responses generic so throttling does not introduce account/email enumeration. Start with observable conservative limits and adjust from real traffic; CAPTCHA is not required as the first control unless abuse pressure justifies it.
-
-Do not log submitted email addresses, passwords, raw verification tokens, or HMAC key material in rate-limit/audit logs.
-
-## Verification URL transport requirement
-
-Production public document URLs and signup verification URLs must use HTTPS. Local `DEBUG` development may use HTTP, but the non-debug signup readiness gate must fail closed for an HTTP verification URL and the public document URL resolver must reject non-HTTPS URLs.
-
-## Django auth-user bridge erasure
-
-Account privacy erasure must include the standard Django `auth_user` session-bridge row because login mirrors the central email into that row. The prepared erasure path anonymizes and de-privileges the bridge instead of leaving the original email behind or blindly deleting possible Django audit anchors.
-
-## Tenant role-request requester identity boundary
-
-The live tenant employee role-request route must never provision the requesting administrator's central identity as a side effect of an authorization-sensitive action. The prepared safe route no longer delegates POST handling to the legacy `get_or_create_user_by_email` path. A dedicated central transaction rechecks the existing requester account, email verification/login credential, active group and requested role before it can UPSERT a pending `join_requests` row. Target employees are not auto-provisioned by this request path; account and membership approval remain separate.
-## Legacy set-password compatibility boundary
-
-The live join-approval path must not issue the legacy raw `user_tokens` set-password flow. Phase 1 public signup accounts already set a password during signup, and membership approval now requires the target active account to carry a login-compatible PBKDF2/Django-bcrypt or legacy bcrypt password hash inside the atomic approval predicate. If a legacy active account has no compatible password credential, resolve that account through a separately reviewed password-recovery/migration procedure before approving tenant membership. Do not create a membership first and then rely on the broken legacy follow-up mail path.
-
-Account erasure and one-year signup-only retention cleanup defensively delete both known legacy token-table generations (`password_reset_tokens` and `user_tokens`) when those tables exist, so stale raw legacy tokens do not survive identity erasure.
-## Separate tenant-HR privacy blocker
-
-Central signup readiness does not make the whole product privacy-ready. The current tenant employee implementation contains an actively exposed resident-registration-number input/display path. Treat `docs/deployment/tenant_hr_personal_data_blocker.md` as a separate release blocker: keep RRN collection/processing disabled for the initial release unless a concrete lawful basis and dedicated controls are approved, and remove the demo-profile content before broad production use.
-
-
-## Public endpoint origin and transport invariants
-
-For non-debug/public operation, all signup-owned browser URLs must stay on the canonical GeoFlow HTTPS origin:
+For non-debug public operation:
 
 - `SITE_ORIGIN` must be a clean HTTPS origin with no path, query, fragment or userinfo;
 - `SIGNUP_TERMS_URL` must be the same origin and exact `/terms/` path;
 - `SIGNUP_PRIVACY_URL` must be the same origin and exact `/privacy/` path;
 - `SIGNUP_EMAIL_VERIFICATION_URL` must be the same origin and exact `/signup/verify/` path;
-- none of those URLs may contain userinfo, query strings or fragments in configuration.
+- configuration URLs must not contain userinfo, query strings or fragments.
 
-The raw verification token is appended by application code as a URL fragment only after those checks. Do not configure an external verification host.
+The raw verification token is appended by application code as a URL fragment after those checks. Do not configure an external verification host.
 
-## Public abuse and request-size controls
+## 7. Database/schema validation boundary
 
-Before enabling public signup, configure bounded ingress/application controls for unauthenticated endpoints. At minimum cover POST `/signup/`, POST `/signup/resend/`, and repeated failed POST `/signup/verify/` attempts. Keep public failure messages generic and do not log submitted email addresses or tokens merely for rate-limit telemetry.
+Only after migrations are approved and applied in the intended environment, run the read-only structural audit:
 
-Also set a conservative HTTP request-body limit at the ingress/web-server layer. The signup form contains only short text fields; multi-megabyte request bodies are not a valid signup use case. Do not rely on Django form `maxlength` alone as a transport-level abuse control.
+```text
+python manage.py check_signup_launch_schema --strict
+```
 
-## Explicit minimum-age confirmation
+The command must remain read-only. It verifies the modern signup/join-request schema and integrity objects required by the Phase 1 state machine, including the modern join-request audit fields and the Django `auth_user` bridge used by account erasure.
 
-The v2 public form requires an affirmative `age_14_or_over` checkbox. GeoFlow does not collect date of birth or guardian details for this B2B boundary. The versioned v2 terms state the minimum-age rule, and the existing terms acceptance version/timestamp remains the durable record of the governing terms.
+Do **not** run this command against an operating database until database access is separately approved.
 
-## Tenant data-processing governance remains separate
+## 8. Pre-launch functional validation
 
-Passing the central signup launch gates does not by itself resolve customer-tenant personal-data governance. Review `tenant_data_processing_governance_blocker.md` and `tenant_hr_personal_data_blocker.md` before broad tenant HR/business personal-data onboarding. Customer contract/DPA responsibilities, tenant lifecycle/export, subprocessor inventory and the RRN blocker remain separate product/legal workstreams.
+In an approved non-production environment, without introducing unreviewed migrations during the test itself:
+
+1. Run `python manage.py check`.
+2. Run the relevant Django test suite.
+3. Confirm `/terms/` and `/privacy/` are public and show the exact approved versions.
+4. Confirm signup remains unavailable with the legal confirmation gate off.
+5. Confirm required consent and minimum-age confirmation cannot be bypassed server-side.
+6. Confirm signup creates an inactive/unverified account.
+7. Confirm verification does not activate it.
+8. Confirm only an approved administrator flow activates/assigns membership.
+9. Confirm resend and failed-verification responses do not enumerate email/account existence.
+10. Exercise expiry, purge and account-erasure flows against disposable test records and verify their audit/FK behavior.
+11. Exercise the verification-outbox worker using a non-production NAVER configuration without exposing raw tokens or credentials.
+12. Confirm partially installed signup schema states fail closed.
+
+## 9. Public-endpoint abuse controls
+
+Before activation, configure ingress/application throttling for at least:
+
+- `POST /signup/`
+- `POST /signup/resend/`
+- repeated failed verification POSTs to `/signup/verify/`
+
+Also configure a conservative HTTP request-body limit for public signup endpoints. The signup form contains only short text fields; large request bodies are not a valid use case.
+
+Do not log submitted passwords, raw verification tokens, HMAC key material or unnecessary email values in rate-limit/audit logs.
+
+## 10. Tenant event/attachment security status
+
+Tenant event and attachment APIs have been hardened in code:
+
+- event writes are CSRF-protected;
+- event and attachment access is derived from current tenant membership and scope permissions;
+- event/attachment JSON renderers avoid injecting user/API values through HTML parsing sinks;
+- direct upload combinations are fail-closed to the currently used employee/event purposes;
+- upload commit verifies the S3 object's actual size, MIME and expected server-side-encryption metadata before creating attachment metadata;
+- direct upload declarations are bounded by default application limits: employee photo 15 MiB, thumbnail 2 MiB, employee PDF 25 MiB, event document 100 MiB;
+- download disposition values and filenames are constrained before presign generation.
+
+Residual storage risk: the current presigned PUT design cannot cryptographically enforce `content-length-range` before the object reaches S3. A malicious client could upload an oversized orphan object and then fail commit verification. Strong pre-upload size enforcement requires a presigned-POST/content-length-range or equivalent upload/ingress redesign. Storage orphan cleanup/lifecycle must therefore be reviewed separately before broad attachment use.
+
+Soft-deleting attachment metadata also does not by itself prove physical S3 object deletion. Define the storage deletion/retention lifecycle separately.
+
+## 11. Tenant HR RRN status
+
+The initial-release employee application now has the RRN path disabled:
+
+- no RRN input/display in the employee UI;
+- non-empty direct `rrn_plain` POST is rejected;
+- normal employee detail does not select/decrypt RRN values;
+- legacy RRN encryption/hash/decryption code was removed from the active employee view;
+- hard-coded demo address/license/social content was removed.
+
+No tenant database was inspected or modified. Historical `hr.employee_profile` RRN-related columns/values may therefore still exist. Inventory, retention and deletion of historical values remain a separately approved database/governance task. See `tenant_hr_personal_data_blocker.md`.
+
+## 12. Tenant data-processing governance remains separate
+
+Passing central signup gates does not make GeoFlow fully privacy-ready for unrestricted customer HR/business personal-data processing.
+
+Before broad tenant onboarding, complete the work in `tenant_data_processing_governance_blocker.md`, including:
+
+- customer/GeoFlow controller-processor responsibility model;
+- customer contract/DPA terms;
+- subprocessor inventory based on actual runtime flows;
+- support/operator access controls and logging;
+- tenant export, correction, deletion and contract-termination procedures;
+- attachment/photo storage lifecycle;
+- historical high-risk identifier treatment.
+
+Central account erasure must not silently delete customer tenant records without a defined tenant data-lifecycle procedure.
+
+## 13. Reapplication behavior
+
+The initial signup service conservatively treats any existing central email as an existing account. A rejected/expired applicant therefore cannot create a new central identity with the same email while that retained signup-only identity remains.
+
+Keep this behavior for the initial launch rather than silently creating duplicates. Design an explicit reapplication/reopen policy later if required.
+
+## 14. Explicitly prohibited during preparation
+
+Until a separate operational approval is given:
+
+- no `.env` or secret output;
+- no password/token/key output;
+- no database access;
+- no migrations or DDL;
+- no S3 runtime inspection/mutation;
+- no EC2 pull/restart;
+- no server deployment;
+- no SMTP production send test;
+- no scheduler installation;
+- no public signup activation.
+
+## 15. Final launch sequence
+
+A final approved launch should be treated as an ordered change window, not a collection of independent toggles:
+
+1. approve the final legal text/version and effective date;
+2. approve and apply the intended database migrations;
+3. run the strict read-only schema audit;
+4. run application checks/tests in the approved environment;
+5. configure runtime secrets/URLs/mail without exposing them;
+6. configure public abuse/request-size controls;
+7. validate worker/scheduler behavior and reconciliation on non-production records;
+8. deploy the reviewed code;
+9. verify public legal pages and the closed signup gate;
+10. enable the mail/outbox/runtime prerequisites;
+11. enable the final legal confirmation gate only after all preceding checks pass;
+12. observe signup/verification/approval behavior and rollback if invariants fail.

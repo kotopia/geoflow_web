@@ -1,64 +1,82 @@
 # Tenant data-processing governance blocker
 
-Status: product/legal operations design item. This document does not itself create a customer contract or change runtime processing.
+Status: **product/legal/operations design item.** The initial-release RRN application path is disabled, but customer tenant-data governance is not complete.
 
-## Why this is separate from public-signup privacy
+This document does not create a customer contract, inspect tenant data, or change runtime processing.
+
+## Why this remains separate from public-signup privacy
 
 GeoFlow has two materially different personal-data roles:
 
-1. **Central account/signup data**: GeoFlow directly determines the signup, authentication, approval, security and account-management purposes described in the public privacy notice.
+1. **Central account/signup data**: GeoFlow determines the signup, authentication, approval, security and account-management purposes described in the public privacy notice.
 2. **Tenant business/personnel data**: customer organizations may place employee profiles, contact data, project photos/files and other operational records into their tenant database/storage for the customer's business purposes.
 
-The public signup privacy notice should not be treated as a blanket legal basis for all tenant-held business/personnel data. Before broad customer onboarding, the customer/GeoFlow allocation of controller/processor responsibilities must be made explicit in the customer contract and tenant-facing privacy materials.
+The public signup privacy notice is not a substitute for customer-specific tenant data governance. Before broad customer onboarding, the allocation of customer/GeoFlow responsibilities must be explicit in the customer contract and tenant-facing materials.
+
+## Current technical position
+
+Recent application hardening materially improves the tenant boundary:
+
+- tenant event/attachment APIs derive access from current tenant context and scope permissions;
+- tenant route read/write permissions have been aligned for the reviewed project/contract/partner/org-unit surfaces;
+- JSON-driven event and project-scope renderers no longer insert user/API values through the reviewed unsafe HTML sinks;
+- employee RRN collection, normal decryption/display and crypto write paths are disabled in code;
+- direct employee/event upload combinations and declared sizes are bounded and commit performs S3 metadata verification.
+
+These changes reduce application risk but do not decide the legal/contractual data-processing role, historical-data lifecycle or storage lifecycle.
 
 ## Contract / DPA checklist
 
-Where the customer is the personal-information controller and GeoFlow processes tenant data on the customer's behalf, the written customer terms/DPA should cover at least:
+Where the customer controls the purpose of tenant personal data and GeoFlow processes that data on the customer's behalf, the written customer terms/DPA should address at least:
 
 - documented processing purpose and scope;
-- prohibition on processing tenant personal data outside the delegated purpose/instructions;
+- processing only within the delegated purpose/instructions;
 - technical and administrative safeguards;
-- confidentiality and access-control duties;
-- permitted personnel and least-privilege administration;
+- confidentiality and least-privilege duties;
 - storage locations and approved infrastructure/subprocessors;
-- customer instructions for correction, deletion, export and return of data;
+- customer instructions for correction, deletion, export and return;
 - incident/breach notification and cooperation procedures;
 - retention and deletion at contract termination, including backups and delayed-delete windows;
 - audit/inspection and evidence responsibilities;
-- rules for subcontracting/re-subprocessing and processor changes;
+- subcontracting/re-processing provider changes;
 - data portability/export format at termination;
-- tenant responsibilities for having a lawful basis and giving its own employee/data-subject notices where required.
+- customer responsibility for the lawful basis and notices applicable to its employee/business data.
 
-This checklist should be mapped to the then-current Korean Personal Information Protection Act and customer-specific requirements before contractual use.
+Map these items to the law and each customer/use case during the contractual review rather than treating this engineering checklist as legal approval.
 
-## GeoFlow subprocessor inventory to maintain
+## Subprocessor inventory
 
-At minimum maintain a versioned inventory for services that can process tenant personal data, not only signup data. Current architecture may include:
+Maintain a versioned inventory based on actual runtime data flows. Potentially relevant services include:
 
 - AWS compute/database/storage in the configured region;
-- email services where tenant data is actually sent through mail;
-- any future monitoring, support, analytics, document-processing or backup provider that can access tenant personal data.
+- email services when tenant data is actually transmitted through email;
+- future monitoring, support, analytics, document-processing or backup providers that can access tenant personal data.
 
-Do not automatically classify a provider as a subprocessor merely because the software dependency exists; base the inventory on actual runtime data flow.
+Do not classify a software dependency as a subprocessor solely because it exists in source code; base the inventory on actual processing/access.
 
-## Product controls required alongside the contract
+## Product/operations controls still required
 
-- Tenant isolation must be enforced by server-side DB routing and authorization, not only by hidden UI.
-- Support/operator access to tenant data needs an explicit operational purpose, least privilege and logging.
-- Tenant export/delete workflows need a defined ownership boundary before self-service account deletion is advertised as deleting tenant business records.
-- Attachments/photos require their own lifecycle and access controls because they may contain personal information even when no structured personal-data field exists.
-- Production logs must not contain passwords, verification tokens, RRN values or unnecessary email/phone/file-content data.
+1. **Tenant export**: define who can request/export tenant data, supported formats, authorization and audit evidence.
+2. **Tenant deletion/termination**: define live-data, attachment, backup/snapshot and delayed-delete treatment when a customer terminates service.
+3. **Support/operator access**: define the purpose, approval, least privilege, time bounds and logging for operator access to customer tenant data.
+4. **Attachment lifecycle**: soft-deleting attachment metadata is not the same as physically deleting the S3 object. Define retention and physical deletion behavior.
+5. **Upload orphans**: the current presigned PUT workflow verifies actual size/MIME/encryption at commit, but a failed or malicious upload can leave an uncommitted S3 object. Define orphan reconciliation/lifecycle or move to an upload mechanism that enforces stronger conditions before object creation.
+6. **Logging**: production logs must not contain passwords, verification tokens, RRN values or unnecessary email/phone/file-content data.
+7. **Central-vs-tenant deletion**: central account erasure must not automatically destroy customer business records without an explicit tenant lifecycle rule.
 
-## Separate high-risk identifier blocker
+## High-risk identifier status
 
-Resident-registration-number processing is not covered merely by a customer DPA or ordinary consent. Keep the dedicated `tenant_hr_personal_data_blocker.md` as a separate launch blocker and do not enable RRN processing without a concrete lawful basis and dedicated safeguards.
+The initial-release employee code no longer collects/displays/decrypts RRN values in normal operation and rejects a non-empty direct `rrn_plain` POST. This closes the **new application processing path**, not the historical-data question.
+
+No tenant database was inspected or changed during this hardening. Historical RRN-related columns/values may still exist. Their inventory, lawful purpose, retention and deletion require a separately approved database/governance process. See `tenant_hr_personal_data_blocker.md`.
 
 ## Launch position
 
-Central public signup can be reviewed independently, but GeoFlow should not be represented as fully privacy-ready for unrestricted tenant HR/business personal-data processing until:
+Central public signup can be reviewed independently, but GeoFlow should not be represented as fully ready for unrestricted tenant HR/business personal-data onboarding until at least:
 
 1. the customer/GeoFlow processing-role model is decided;
-2. customer contract/DPA clauses are approved;
-3. subprocessor inventory is accurate for actual runtime flows;
-4. tenant deletion/export/support-access procedures are documented; and
-5. the RRN blocker is resolved.
+2. customer contract/DPA terms are approved;
+3. the subprocessor inventory matches actual runtime flows;
+4. tenant export/delete/termination and support-access procedures are documented;
+5. attachment/orphan storage lifecycle is defined; and
+6. historical high-risk identifier treatment is resolved where applicable.
