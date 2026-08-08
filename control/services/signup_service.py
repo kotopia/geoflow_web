@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
@@ -10,6 +9,12 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError, connections, transaction
 from django.utils import timezone
+
+from control.legal_policy import (
+    DEFAULT_PRIVACY_VERSION,
+    DEFAULT_TERMS_VERSION,
+    legal_document_version,
+)
 
 
 PUBLIC_SIGNUP_ERROR = "가입 요청을 처리할 수 없습니다. 입력 내용을 확인하거나 관리자에게 문의하세요."
@@ -153,13 +158,13 @@ def create_signup_request(
                 contact_phone=data.contact_phone,
                 organization_name=data.organization_name,
                 signup_purpose=data.signup_purpose,
-                terms_version=_setting_or_env_text(
+                terms_version=legal_document_version(
                     "SIGNUP_TERMS_VERSION",
-                    default="phase1-v1",
+                    default=DEFAULT_TERMS_VERSION,
                 ),
-                privacy_version=_setting_or_env_text(
+                privacy_version=legal_document_version(
                     "SIGNUP_PRIVACY_VERSION",
-                    default="phase1-v1",
+                    default=DEFAULT_PRIVACY_VERSION,
                 ),
                 accepted_at=now,
             )
@@ -176,13 +181,3 @@ def create_signup_request(
         raise
     except IntegrityError as exc:
         raise SignupRequestRejected(PUBLIC_SIGNUP_ERROR) from exc
-
-
-def _setting_or_env_text(name: str, *, default: str) -> str:
-    raw = os.environ.get(name)
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    configured = getattr(settings, name, None)
-    if isinstance(configured, str) and configured.strip():
-        return configured.strip()
-    return default

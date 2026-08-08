@@ -1,50 +1,33 @@
 from __future__ import annotations
 
-import os
-
-from django.conf import settings
 from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET
 
-
-_REQUIRED_LEGAL_FIELDS = (
-    ("GEOFLOW_LEGAL_OPERATOR_NAME", "서비스 운영자 명칭"),
-    ("GEOFLOW_LEGAL_ADDRESS", "운영자 주소"),
-    ("GEOFLOW_LEGAL_CONTACT_EMAIL", "서비스 문의 이메일"),
-    ("GEOFLOW_PRIVACY_OFFICER_NAME", "개인정보 보호책임자"),
-    ("GEOFLOW_PRIVACY_CONTACT_EMAIL", "개인정보 문의 이메일"),
-    ("GEOFLOW_PRIVACY_CONTACT_PHONE", "개인정보 문의 전화번호"),
-    ("GEOFLOW_SIGNUP_RETENTION_POLICY", "가입정보 보유·파기 기준"),
-    ("GEOFLOW_DESTRUCTION_POLICY", "개인정보 파기 절차·방법"),
-    ("GEOFLOW_THIRD_PARTY_DISCLOSURE", "개인정보 제3자 제공 고지"),
-    ("GEOFLOW_PROCESSING_OUTSOURCING_DISCLOSURE", "개인정보 처리위탁 고지"),
-    ("GEOFLOW_EMAIL_PROCESSOR_DISCLOSURE", "이메일 발송 처리 고지"),
-    ("GEOFLOW_CROSS_BORDER_DISCLOSURE", "개인정보 국외이전 여부·고지"),
-    ("GEOFLOW_COOKIE_DISCLOSURE", "쿠키·자동수집 장치 고지"),
+from .legal_policy import (
+    DEFAULT_PRIVACY_VERSION,
+    DEFAULT_TERMS_VERSION,
+    LEGAL_EFFECTIVE_DATE_LABEL,
+    LEGAL_ESTABLISHED_DATE,
+    REQUIRED_LEGAL_FIELDS,
+    legal_document_version,
+    setting_or_env_text,
 )
 
 
-def _setting_or_env_text(name: str, *, default: str = "") -> str:
-    configured = getattr(settings, name, None)
-    if isinstance(configured, str) and configured.strip():
-        return configured.strip()
-    raw = os.environ.get(name)
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    return default
+_REQUIRED_LEGAL_FIELDS = REQUIRED_LEGAL_FIELDS
 
 
 def legal_documents_ready() -> bool:
     return all(
-        _setting_or_env_text(name)
+        setting_or_env_text(name)
         for name, _label in _REQUIRED_LEGAL_FIELDS
     )
 
 
 def _legal_context() -> dict[str, object]:
     values = {
-        name: _setting_or_env_text(name)
+        name: setting_or_env_text(name)
         for name, _label in _REQUIRED_LEGAL_FIELDS
     }
     missing = [
@@ -70,14 +53,16 @@ def _legal_context() -> dict[str, object]:
         "email_processor_disclosure": values["GEOFLOW_EMAIL_PROCESSOR_DISCLOSURE"],
         "cross_border_disclosure": values["GEOFLOW_CROSS_BORDER_DISCLOSURE"],
         "cookie_disclosure": values["GEOFLOW_COOKIE_DISCLOSURE"],
-        "terms_version": _setting_or_env_text(
+        "terms_version": legal_document_version(
             "SIGNUP_TERMS_VERSION",
-            default="2026-08-draft1",
+            default=DEFAULT_TERMS_VERSION,
         ),
-        "privacy_version": _setting_or_env_text(
+        "privacy_version": legal_document_version(
             "SIGNUP_PRIVACY_VERSION",
-            default="2026-08-draft1",
+            default=DEFAULT_PRIVACY_VERSION,
         ),
+        "legal_established_date": LEGAL_ESTABLISHED_DATE,
+        "legal_effective_date_label": LEGAL_EFFECTIVE_DATE_LABEL,
     }
 
 

@@ -8,12 +8,10 @@ class SignupRequestForm(forms.Form):
     password = forms.CharField(strip=False, widget=forms.PasswordInput)
     password_confirm = forms.CharField(strip=False, widget=forms.PasswordInput)
     name_display = forms.CharField(max_length=200)
-    contact_phone = forms.CharField(max_length=32, required=False)
     organization_name = forms.CharField(max_length=200)
     signup_purpose = forms.CharField(max_length=1000, widget=forms.Textarea)
     terms_agreed = forms.BooleanField(required=True)
     privacy_agreed = forms.BooleanField(required=True)
-    invitation_code = forms.CharField(max_length=200, required=False, strip=True)
 
     def clean_email(self):
         return self.cleaned_data["email"].strip().lower()
@@ -33,3 +31,10 @@ class SignupRequestForm(forms.Form):
                 self.add_error("password", exc)
 
         return cleaned
+
+
+class SignupVerificationResendForm(forms.Form):
+    email = forms.EmailField(max_length=254)
+
+    def clean_email(self):
+        return self.cleaned_data["email"].strip().lower()

@@ -1,9 +1,11 @@
+import os
 from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from control.forms_signup import SignupRequestForm
+from control.legal_policy import DEFAULT_PRIVACY_VERSION, DEFAULT_TERMS_VERSION
 from control.services.signup_service import (
     PUBLIC_SIGNUP_ERROR,
     SignupRequestInput,
@@ -18,12 +20,10 @@ VALID_FORM = {
     "password": "a-long-uncommon-password-42!",
     "password_confirm": "a-long-uncommon-password-42!",
     "name_display": "신청자",
-    "contact_phone": "",
     "organization_name": "기관",
     "signup_purpose": "공간정보 업무 활용",
     "terms_agreed": "1",
     "privacy_agreed": "1",
-    "invitation_code": "optional-secret-value",
 }
 
 
@@ -44,6 +44,11 @@ class SignupRequestFormTests(SimpleTestCase):
         form = SignupRequestForm(values)
         self.assertFalse(form.is_valid())
         self.assertIn("password", form.errors)
+
+    def test_initial_public_form_does_not_collect_deferred_optional_fields(self):
+        form = SignupRequestForm()
+        self.assertNotIn("contact_phone", form.fields)
+        self.assertNotIn("invitation_code", form.fields)
 
     def test_terms_and_privacy_are_required(self):
         for field in ("terms_agreed", "privacy_agreed"):
@@ -151,3 +156,39 @@ class SignupRequestServiceTests(SimpleTestCase):
             called_methods,
             {"account_exists", "create_inactive_user", "create_signup_request", "append_submitted_event"},
         )
+
+
+class SignupLegalVersionFallbackTests(SimpleTestCase):
+    def setUp(self):
+        self.repository = MagicMock()
+        self.repository.account_exists.return_value = False
+        self.repository.create_inactive_user.return_value = "user-id"
+        self.repository.create_signup_request.return_value = "request-id"
+        self.data = SignupRequestInput(
+            email="applicant@example.com",
+            password="not-asserted-raw",
+            name_display="신청자",
+            contact_phone="",
+            organization_name="기관",
+            signup_purpose="업무 활용",
+            terms_agreed=True,
+            privacy_agreed=True,
+        )
+
+    @override_settings(SIGNUP_TERMS_VERSION="", SIGNUP_PRIVACY_VERSION="")
+    @patch.dict(
+        os.environ,
+        {"SIGNUP_TERMS_VERSION": "", "SIGNUP_PRIVACY_VERSION": ""},
+        clear=False,
+    )
+    @patch("control.services.signup_service.make_password", return_value="stored-hash")
+    def test_final_display_versions_are_the_signup_record_fallbacks(self, mocked_hash):
+        create_signup_request(
+            self.data,
+            repository=self.repository,
+            atomic_context=nullcontext(),
+        )
+
+        request_values = self.repository.create_signup_request.call_args.kwargs
+        self.assertEqual(request_values["terms_version"], DEFAULT_TERMS_VERSION)
+        self.assertEqual(request_values["privacy_version"], DEFAULT_PRIVACY_VERSION)

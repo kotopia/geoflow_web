@@ -1,6 +1,7 @@
 # control/views_signup.py
 import logging
 import os
+from datetime import timedelta
 from urllib.parse import urlsplit
 
 from django.conf import settings
@@ -14,7 +15,12 @@ from django.views.decorators.debug import (
 )
 from django.views.decorators.http import require_http_methods
 
-from .forms_signup import SignupRequestForm
+from .forms_signup import SignupRequestForm, SignupVerificationResendForm
+from .legal_policy import (
+    DEFAULT_PRIVACY_VERSION,
+    DEFAULT_TERMS_VERSION,
+    legal_document_version,
+)
 from .services.signup_service import (
     SignupRequestInput,
     SignupRequestRejected,
@@ -22,11 +28,12 @@ from .services.signup_service import (
 from .services.signup_verification_signup_outbox_service import (
     create_signup_request_with_verification_outbox,
 )
-from .services.signup_verification_outbox_feature import (
-    signup_verification_outbox_enabled,
-)
+from .services.signup_runtime_readiness import signup_public_runtime_ready
 from .services.signup_verification_runtime import (
     verify_signup_email_from_runtime_config,
+)
+from .services.signup_verification_resend_outbox_service import (
+    queue_signup_email_verification_resend,
 )
 from .services.signup_verification_service import (
     EmailVerificationConfigurationError,
@@ -58,7 +65,7 @@ def signup_view(request):
     signup_terms_url = _public_document_url("SIGNUP_TERMS_URL")
     signup_privacy_url = _public_document_url("SIGNUP_PRIVACY_URL")
     signup_available = bool(
-        signup_verification_outbox_enabled()
+        signup_public_runtime_ready()
         and signup_terms_url
         and signup_privacy_url
         and legal_documents_ready()
@@ -75,7 +82,7 @@ def signup_view(request):
                 email=cleaned["email"],
                 password=cleaned["password"],
                 name_display=cleaned["name_display"],
-                contact_phone=cleaned["contact_phone"],
+                contact_phone="",
                 organization_name=cleaned["organization_name"],
                 signup_purpose=cleaned["signup_purpose"],
                 terms_agreed=cleaned["terms_agreed"],
@@ -105,8 +112,66 @@ def signup_view(request):
             "signup_available": signup_available,
             "signup_terms_url": signup_terms_url,
             "signup_privacy_url": signup_privacy_url,
+            "signup_terms_version": legal_document_version(
+                "SIGNUP_TERMS_VERSION",
+                default=DEFAULT_TERMS_VERSION,
+            ),
+            "signup_privacy_version": legal_document_version(
+                "SIGNUP_PRIVACY_VERSION",
+                default=DEFAULT_PRIVACY_VERSION,
+            ),
         },
         status=200 if signup_available else 503,
+    )
+
+
+@sensitive_post_parameters("email")
+@csrf_protect
+@never_cache
+def signup_email_verification_resend_view(request):
+    form = SignupVerificationResendForm(request.POST or None)
+    resend_available = signup_public_runtime_ready()
+    cooldown_seconds = getattr(
+        settings,
+        "SIGNUP_EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
+        None,
+    )
+    resend_available = bool(
+        resend_available
+        and isinstance(cooldown_seconds, int)
+        and not isinstance(cooldown_seconds, bool)
+        and cooldown_seconds > 0
+    )
+
+    if request.method == "POST":
+        if not resend_available:
+            form.add_error(None, SIGNUP_UNAVAILABLE_MESSAGE)
+        elif form.is_valid():
+            try:
+                queue_signup_email_verification_resend(
+                    form.cleaned_data["email"],
+                    cooldown=timedelta(seconds=cooldown_seconds),
+                )
+            except Exception:
+                # Do not expose whether the email exists or why queueing failed.
+                logger.error("SIGNUP-RESEND: resend queue operation failed")
+            messages.success(
+                request,
+                (
+                    "인증메일 재전송 요청을 처리했습니다. 가입 인증 대상이고 "
+                    "재전송 가능 시간이 지난 경우 메일이 발송됩니다."
+                ),
+            )
+            return redirect("signup_resend")
+
+    return render(
+        request,
+        "control/signup_email_verification_resend.html",
+        {
+            "form": form,
+            "resend_available": resend_available,
+        },
+        status=200 if resend_available else 503,
     )
 
 

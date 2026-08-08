@@ -18,43 +18,53 @@ class PublicLegalDocumentContractTests(TestCase):
         self.assertIn("views_legal.terms_view", source)
         self.assertIn("views_legal.privacy_view", source)
 
-    def test_legal_pages_are_explicitly_draft_until_required_policy_is_configured(self):
+    def test_final_legal_policy_has_public_defaults_and_stable_versions(self):
+        source = (CONTROL_DIR / "legal_policy.py").read_text(encoding="utf-8")
+
+        for expected in (
+            'DEFAULT_TERMS_VERSION = "2026-08-08-v1"',
+            'DEFAULT_PRIVACY_VERSION = "2026-08-08-v1"',
+            '"geoflow-manager/GeoFlow"',
+            '"대전광역시"',
+            '"peako"',
+            '"042-822-8636"',
+            '"kotopia79@naver.com"',
+            '"ap-northeast-2"',
+            '"NAVER',
+            '"1년간 보관한 후 "',
+        ):
+            self.assertIn(expected, source)
+
+    def test_legal_pages_resolve_policy_from_single_policy_module(self):
         source = (CONTROL_DIR / "views_legal.py").read_text(encoding="utf-8")
 
-        for setting_name in (
-            "GEOFLOW_LEGAL_OPERATOR_NAME",
-            "GEOFLOW_LEGAL_ADDRESS",
-            "GEOFLOW_LEGAL_CONTACT_EMAIL",
-            "GEOFLOW_PRIVACY_OFFICER_NAME",
-            "GEOFLOW_PRIVACY_CONTACT_EMAIL",
-            "GEOFLOW_PRIVACY_CONTACT_PHONE",
-            "GEOFLOW_SIGNUP_RETENTION_POLICY",
-            "GEOFLOW_DESTRUCTION_POLICY",
-            "GEOFLOW_THIRD_PARTY_DISCLOSURE",
-            "GEOFLOW_PROCESSING_OUTSOURCING_DISCLOSURE",
-            "GEOFLOW_EMAIL_PROCESSOR_DISCLOSURE",
-            "GEOFLOW_CROSS_BORDER_DISCLOSURE",
-            "GEOFLOW_COOKIE_DISCLOSURE",
-        ):
-            self.assertIn(setting_name, source)
+        self.assertIn("REQUIRED_LEGAL_FIELDS", source)
+        self.assertIn("DEFAULT_TERMS_VERSION", source)
+        self.assertIn("DEFAULT_PRIVACY_VERSION", source)
+        self.assertIn("legal_document_version", source)
         self.assertIn('"is_draft": bool(missing)', source)
         self.assertIn("def legal_documents_ready()", source)
-        self.assertIn("return all(", source)
+        self.assertIn("LEGAL_ESTABLISHED_DATE", source)
+        self.assertIn("LEGAL_EFFECTIVE_DATE_LABEL", source)
 
-    def test_signup_remains_closed_until_legal_documents_are_ready_and_confirmed(self):
+    def test_signup_remains_closed_until_legal_documents_are_explicitly_confirmed(self):
         source = (CONTROL_DIR / "views_signup.py").read_text(encoding="utf-8")
 
         self.assertIn("and legal_documents_ready()", source)
         self.assertIn("and _legal_documents_confirmed()", source)
         self.assertIn("SIGNUP_LEGAL_DOCUMENTS_CONFIRMED", source)
         self.assertIn("return False", source)
+        self.assertNotIn("SIGNUP_LEGAL_DOCUMENTS_CONFIRMED = True", source)
 
-    def test_templates_cover_required_privacy_policy_structure(self):
+    def test_templates_cover_final_privacy_and_terms_structure(self):
         privacy = (
             CONTROL_DIR / "templates" / "control" / "privacy.html"
         ).read_text(encoding="utf-8")
         terms = (
             CONTROL_DIR / "templates" / "control" / "terms.html"
+        ).read_text(encoding="utf-8")
+        signup = (
+            CONTROL_DIR / "templates" / "control" / "signup.html"
         ).read_text(encoding="utf-8")
 
         for required_text in (
@@ -67,8 +77,30 @@ class PublicLegalDocumentContractTests(TestCase):
             "자동수집 장치",
             "안전성 확보조치",
             "권리·의무 및 행사방법",
-            "개인정보 문의 전화",
+            "개인정보 보호책임자 및 문의처",
+            "개인정보 처리방침의 변경",
         ):
             self.assertIn(required_text, privacy)
-        self.assertIn("이메일 인증과 관리자 심사", terms)
-        self.assertIn("권한이 자동 부여되지는 않습니다", terms)
+
+        for required_text in (
+            "회원가입 신청 및 승인",
+            "권한이 자동 부여되지는",
+            "이용자가 등록하는 업무자료",
+            "개인정보 보호",
+            "약관의 변경",
+            "준거법",
+        ):
+            self.assertIn(required_text, terms)
+
+        for required_text in (
+            "[필수]",
+            "개인정보 수집·이용 안내",
+            "필수 개인정보 수집·이용에 동의하지 않은 권리",
+            "signup_terms_version",
+            "signup_privacy_version",
+        ):
+            self.assertIn(required_text, signup)
+
+        self.assertNotIn('name="contact_phone"', signup)
+        self.assertNotIn('name="invitation_code"', signup)
+        self.assertIn("초기 공개 회원가입에서는 연락처와 초대 코드를 수집하지 않습니다", privacy)
