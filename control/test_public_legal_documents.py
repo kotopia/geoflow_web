@@ -32,10 +32,13 @@ class PublicLegalDocumentContractTests(TestCase):
         ):
             self.assertIn(setting_name, source)
         self.assertIn('"is_draft": bool(missing)', source)
+        self.assertIn("def legal_documents_ready()", source)
+        self.assertIn("return all(", source)
 
-    def test_signup_remains_closed_until_legal_documents_are_confirmed(self):
+    def test_signup_remains_closed_until_legal_documents_are_ready_and_confirmed(self):
         source = (CONTROL_DIR / "views_signup.py").read_text(encoding="utf-8")
 
+        self.assertIn("and legal_documents_ready()", source)
         self.assertIn("and _legal_documents_confirmed()", source)
         self.assertIn("SIGNUP_LEGAL_DOCUMENTS_CONFIRMED", source)
         self.assertIn("return False", source)

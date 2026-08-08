@@ -29,6 +29,13 @@ def _setting_or_env_text(name: str, *, default: str = "") -> str:
     return default
 
 
+def legal_documents_ready() -> bool:
+    return all(
+        _setting_or_env_text(name)
+        for name, _label in _REQUIRED_LEGAL_FIELDS
+    )
+
+
 def _legal_context() -> dict[str, object]:
     values = {
         name: _setting_or_env_text(name)

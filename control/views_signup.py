@@ -32,6 +32,7 @@ from .services.signup_verification_service import (
     EmailVerificationConfigurationError,
     EmailVerificationRejected,
 )
+from .views_legal import legal_documents_ready
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ def signup_view(request):
         signup_verification_outbox_enabled()
         and signup_terms_url
         and signup_privacy_url
+        and legal_documents_ready()
         and _legal_documents_confirmed()
     )
 
