@@ -28,6 +28,8 @@ jobs:
       SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
+      SMTP_USER: ${{ secrets.GEOFLOW_SMTP_USER }}
+      SMTP_APP_PASSWORD: ${{ secrets.GEOFLOW_SMTP_APP_PASSWORD }}
 
     steps:
       - name: Checkout reviewed release branch
@@ -43,7 +45,72 @@ jobs:
           test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
           test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
           test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          test -n "$SMTP_USER" || { echo 'missing_secret=GEOFLOW_SMTP_USER'; exit 2; }
+          test -n "$SMTP_APP_PASSWORD" || { echo 'missing_secret=GEOFLOW_SMTP_APP_PASSWORD'; exit 2; }
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Validate desired SMTP secrets without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import smtplib
+          import socket
+          import ssl
+
+          user = os.environ.get('SMTP_USER', '').strip()
+          password = os.environ.get('SMTP_APP_PASSWORD', '')
+
+          print(f"github_smtp_user_present={'yes' if bool(user) else 'no'}")
+          print(f"github_smtp_password_present={'yes' if bool(password) else 'no'}")
+          print(f"github_smtp_user_has_domain={'yes' if '@' in user else 'no'}")
+
+          if not user:
+              print('github_smtp_diagnostic_result=missing_user')
+              raise SystemExit(2)
+          if not password:
+              print('github_smtp_diagnostic_result=missing_password')
+              raise SystemExit(2)
+
+          try:
+              with smtplib.SMTP('smtp.naver.com', 587, timeout=20) as client:
+                  client.ehlo()
+                  client.starttls(context=ssl.create_default_context())
+                  client.ehlo()
+                  client.login(user, password)
+          except smtplib.SMTPAuthenticationError as exc:
+              print(f"github_smtp_diagnostic_smtp_code={getattr(exc, 'smtp_code', 'unknown')}")
+              print('github_smtp_diagnostic_result=authentication_failed')
+              raise SystemExit(2)
+          except smtplib.SMTPNotSupportedError:
+              print('github_smtp_diagnostic_result=starttls_not_supported')
+              raise SystemExit(2)
+          except smtplib.SMTPConnectError as exc:
+              print(f"github_smtp_diagnostic_smtp_code={getattr(exc, 'smtp_code', 'unknown')}")
+              print('github_smtp_diagnostic_result=smtp_connect_failed')
+              raise SystemExit(2)
+          except ssl.SSLError:
+              print('github_smtp_diagnostic_result=tls_failed')
+              raise SystemExit(2)
+          except socket.gaierror:
+              print('github_smtp_diagnostic_result=dns_failed')
+              raise SystemExit(2)
+          except (socket.timeout, TimeoutError):
+              print('github_smtp_diagnostic_result=timeout')
+              raise SystemExit(2)
+          except OSError as exc:
+              safe_errno = getattr(exc, 'errno', None)
+              if isinstance(safe_errno, int):
+                  print(f'github_smtp_diagnostic_errno={safe_errno}')
+              print('github_smtp_diagnostic_result=network_or_os_error')
+              raise SystemExit(2)
+          except smtplib.SMTPException:
+              print('github_smtp_diagnostic_result=smtp_protocol_error')
+              raise SystemExit(2)
+
+          print('github_smtp_diagnostic_result=ready')
+          PY
 
       - name: Configure strict SSH trust
         shell: bash
@@ -56,7 +123,7 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Diagnose production SMTP without mutation
+      - name: Diagnose current server SMTP without mutation
         shell: bash
         run: |
           set -euo pipefail
@@ -110,27 +177,28 @@ jobs:
           password = values.get('EMAIL_HOST_PASSWORD')
           use_tls = str(values.get('EMAIL_USE_TLS') or 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 
-          print('smtp_diagnostic_env_present=yes')
-          print(f"smtp_diagnostic_host_is_naver={'yes' if host.lower() == 'smtp.naver.com' else 'no'}")
-          print(f"smtp_diagnostic_tls_enabled={'yes' if use_tls else 'no'}")
+          print('server_smtp_env_present=yes')
+          print(f"server_smtp_host_is_naver={'yes' if host.lower() == 'smtp.naver.com' else 'no'}")
+          print(f"server_smtp_tls_enabled={'yes' if use_tls else 'no'}")
 
           try:
               port = int(raw_port)
               if not 1 <= port <= 65535:
                   raise ValueError
           except ValueError:
-              print('smtp_diagnostic_result=invalid_port')
+              print('server_smtp_diagnostic_result=invalid_port')
               raise SystemExit(2)
 
-          print(f"smtp_diagnostic_port={port}")
-          print(f"smtp_diagnostic_user_present={'yes' if isinstance(user, str) and bool(user.strip()) else 'no'}")
-          print(f"smtp_diagnostic_password_present={'yes' if isinstance(password, str) and bool(password.strip()) else 'no'}")
+          print(f"server_smtp_port={port}")
+          print(f"server_smtp_user_present={'yes' if isinstance(user, str) and bool(user.strip()) else 'no'}")
+          print(f"server_smtp_password_present={'yes' if isinstance(password, str) and bool(password.strip()) else 'no'}")
+          print(f"server_smtp_user_has_domain={'yes' if isinstance(user, str) and '@' in user else 'no'}")
 
           if not isinstance(user, str) or not user.strip():
-              print('smtp_diagnostic_result=missing_user')
+              print('server_smtp_diagnostic_result=missing_user')
               raise SystemExit(2)
           if not isinstance(password, str) or not password.strip():
-              print('smtp_diagnostic_result=missing_password')
+              print('server_smtp_diagnostic_result=missing_password')
               raise SystemExit(2)
 
           try:
@@ -141,37 +209,35 @@ jobs:
                       client.ehlo()
                   client.login(user.strip(), password)
           except smtplib.SMTPAuthenticationError as exc:
-              code = getattr(exc, 'smtp_code', 'unknown')
-              print(f'smtp_diagnostic_smtp_code={code}')
-              print('smtp_diagnostic_result=authentication_failed')
+              print(f"server_smtp_diagnostic_smtp_code={getattr(exc, 'smtp_code', 'unknown')}")
+              print('server_smtp_diagnostic_result=authentication_failed')
               raise SystemExit(2)
           except smtplib.SMTPNotSupportedError:
-              print('smtp_diagnostic_result=starttls_not_supported')
+              print('server_smtp_diagnostic_result=starttls_not_supported')
               raise SystemExit(2)
           except smtplib.SMTPConnectError as exc:
-              code = getattr(exc, 'smtp_code', 'unknown')
-              print(f'smtp_diagnostic_smtp_code={code}')
-              print('smtp_diagnostic_result=smtp_connect_failed')
+              print(f"server_smtp_diagnostic_smtp_code={getattr(exc, 'smtp_code', 'unknown')}")
+              print('server_smtp_diagnostic_result=smtp_connect_failed')
               raise SystemExit(2)
           except ssl.SSLError:
-              print('smtp_diagnostic_result=tls_failed')
+              print('server_smtp_diagnostic_result=tls_failed')
               raise SystemExit(2)
           except socket.gaierror:
-              print('smtp_diagnostic_result=dns_failed')
+              print('server_smtp_diagnostic_result=dns_failed')
               raise SystemExit(2)
           except (socket.timeout, TimeoutError):
-              print('smtp_diagnostic_result=timeout')
+              print('server_smtp_diagnostic_result=timeout')
               raise SystemExit(2)
           except OSError as exc:
               safe_errno = getattr(exc, 'errno', None)
               if isinstance(safe_errno, int):
-                  print(f'smtp_diagnostic_errno={safe_errno}')
-              print('smtp_diagnostic_result=network_or_os_error')
+                  print(f'server_smtp_diagnostic_errno={safe_errno}')
+              print('server_smtp_diagnostic_result=network_or_os_error')
               raise SystemExit(2)
           except smtplib.SMTPException:
-              print('smtp_diagnostic_result=smtp_protocol_error')
+              print('server_smtp_diagnostic_result=smtp_protocol_error')
               raise SystemExit(2)
 
-          print('smtp_diagnostic_result=ready')
+          print('server_smtp_diagnostic_result=ready')
           PY
           REMOTE
