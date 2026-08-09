@@ -30,9 +30,18 @@ The release preflight must always execute `control.test_tenant_db_secret_ref_aud
 
 Historical transition workflows v1, v2, and v3 must remain non-mutating/blocked. The supported production verification path after Phase 1 is `.github/workflows/phase1-tenant-runtime-audit.yml`.
 
+The default branch contains only a safe workflow-registration placeholder for the runtime audit and blocked placeholders for the retired mutation workflows. Registry commit: `ecb2674925c13c4d92a991b1327bac8561f33627`. The real read-only audit implementation remains on `release/stabilized-deploy`.
+
 ## Runtime audit procedure
 
 The runtime audit is read-only but uses the protected `production` environment because it connects to the reviewed host and reads production configuration.
+
+To run it from GitHub Actions:
+
+1. Open **Actions → Phase 1 tenant runtime audit**.
+2. Choose **Run workflow**.
+3. Select branch **`release/stabilized-deploy`**. Do not run the registry placeholder on `main` as the production verification.
+4. Start the workflow and approve the protected **`production`** environment when the final Phase 1 operational verification is authorized.
 
 Expected invariants:
 
@@ -57,5 +66,7 @@ If strict reference mode causes an application-start failure in a future change,
 Repository-only changes, tests, documentation, and non-production CI may proceed without a production approval.
 
 The following remain explicit production gates: central/tenant DB mutation, `.env` modification, service restart, credential rotation, Secrets Manager mutation, RDS mutation, or any workflow that can perform those actions.
+
+The read-only runtime audit does not mutate production, but its protected `production` environment approval is still intentionally retained as the final operational review gate.
 
 Phase 1 closure requires a successful release preflight on the hardening commit and, when requested, one successful read-only tenant runtime audit on that same reviewed branch.
