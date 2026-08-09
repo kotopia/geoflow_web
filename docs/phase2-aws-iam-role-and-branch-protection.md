@@ -1,5 +1,21 @@
 # GeoFlow Phase 2: AWS IAM role and release-branch hardening
 
+## Current status — 2026-08-10
+
+Confirmed without exposing production identifiers or credentials:
+
+- Secrets Manager client construction uses the standard boto3 credential provider chain; static AWS credentials are not passed directly to boto3.
+- S3 client construction uses the standard boto3 credential provider chain; static AWS credentials are not passed directly to boto3.
+- A real pull request targeting `release/stabilized-deploy` emitted and passed all three release checks: `release-preflight`, `migration-rehearsal`, and `public-https-smoke`.
+- Repository rulesets are currently absent, so Stage B protection is not yet enforced through a repository ruleset.
+- The existing read-only IAM-role readiness diagnostic previously failed with `phase2_role_diag_blocker=no_role_credentials` after static/profile AWS credential sources were removed only inside the diagnostic process. This confirms the next AWS infrastructure dependency is an EC2 instance profile/runtime role credential source; it does not indicate an application credential-chain defect.
+
+Next infrastructure action before role cutover:
+
+1. Attach the minimum-permission EC2 instance profile to the production GeoFlow instance.
+2. Re-run `.github/workflows/phase2-aws-role-readiness-diagnostic.yml`.
+3. Continue only when it reports role credentials, active tenant secret resolution, and S3 read readiness as successful.
+
 ## Scope
 
 This plan removes the application's dependency on long-lived AWS access keys and prepares `release/stabilized-deploy` for enforced CI-based protection. It intentionally contains no credential values, tenant identifiers, account IDs, ARNs, endpoints, database identifiers, or secret identifiers.
