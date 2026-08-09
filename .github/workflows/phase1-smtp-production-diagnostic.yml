@@ -1,6 +1,11 @@
 name: Phase 1 SMTP production diagnostic
 
 on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-smtp-production-diagnostic.yml
   workflow_dispatch:
     inputs:
       ssh_port:
@@ -89,7 +94,6 @@ jobs:
           [ -x "$python" ] || fail 'stabilized_venv_python_missing'
 
           "$python" - "$repo/.env" <<'PY'
-          import errno
           import smtplib
           import socket
           import ssl
