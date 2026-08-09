@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import RequestFactory, SimpleTestCase
+from django.test import Client, RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
 from control import views_signup
@@ -70,6 +70,29 @@ class SignupEmailVerificationRouteTests(SimpleTestCase):
         success.assert_called_once()
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("login"))
+
+    @patch.object(views_signup.messages, "success")
+    @patch.object(views_signup, "verify_signup_email_from_runtime_config")
+    def test_only_verification_post_is_exempt_from_csrf(
+        self,
+        verify,
+        success,
+    ):
+        client = Client(enforce_csrf_checks=True)
+
+        verify_response = client.post(
+            reverse("signup_verify"),
+            {"token": "opaque-test-token"},
+        )
+
+        self.assertEqual(verify_response.status_code, 302)
+        verify.assert_called_once_with("opaque-test-token")
+        success.assert_called_once()
+
+        for route_name in ("signup", "signup_resend"):
+            with self.subTest(route_name=route_name):
+                response = client.post(reverse(route_name), {})
+                self.assertEqual(response.status_code, 403)
 
     @patch.object(views_signup, "render")
     @patch.object(
