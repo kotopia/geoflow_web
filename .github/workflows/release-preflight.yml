@@ -97,3 +97,35 @@ jobs:
 
       - name: Strict repository release preflight
         run: python manage.py check_release_preflight --strict
+
+  public-https-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public HTTPS and legal endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          check_url() {
+            label="$1"
+            url="$2"
+            code="$(curl \
+              --proto '=https' \
+              --proto-redir '=https' \
+              --location \
+              --max-redirs 5 \
+              --silent \
+              --show-error \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              --connect-timeout 10 \
+              --max-time 20 \
+              "$url")"
+            case "$code" in
+              2??|3??) echo "$label=$code" ;;
+              *) echo "$label=unhealthy"; exit 1 ;;
+            esac
+          }
+          check_url root https://geoflow.co.kr/
+          check_url terms https://geoflow.co.kr/terms/
+          check_url privacy https://geoflow.co.kr/privacy/
