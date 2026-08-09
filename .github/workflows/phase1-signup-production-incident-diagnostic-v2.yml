@@ -1,0 +1,149 @@
+name: Phase 1 signup production incident diagnostic v2
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-signup-production-incident-diagnostic-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signup-incident-diagnostic-v2:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      TARGET_EMAIL_SHA256: e1b8b40b9a712fb8de657d6adc788db895f0487543b1b22a22bd3b0005458035
+
+    steps:
+      - name: Checkout reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Diagnose corrected signup state without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p 22 \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" \
+            "TARGET_EMAIL_SHA256='$TARGET_EMAIL_SHA256' bash -s" <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          python="$repo/.venv/bin/python"
+          cd "$repo"
+          TARGET_EMAIL_SHA256="$TARGET_EMAIL_SHA256" DJANGO_SETTINGS_MODULE=geoflow_project.settings "$python" - <<'PY'
+          import hashlib, os
+          import django
+          django.setup()
+          from django.db import connections
+          from django.utils import timezone
+
+          target = os.environ['TARGET_EMAIL_SHA256']
+          conn = connections['default']
+          yn = lambda v: 'yes' if bool(v) else 'no'
+          age = lambda dt: 'none' if dt is None else str(max(0, int((timezone.now()-dt).total_seconds()//60)))
+
+          with conn.cursor() as cur:
+              cur.execute('BEGIN READ ONLY')
+              try:
+                  cur.execute("""
+                      SELECT id::text,email,is_active,email_verified,created_at,
+                             password_hash IS NOT NULL AND length(trim(password_hash))>0
+                      FROM users
+                      WHERE created_at >= now() - interval '7 days'
+                      ORDER BY created_at DESC LIMIT 1000
+                  """)
+                  matches=[]
+                  for row in cur.fetchall():
+                      digest=hashlib.sha256((row[1] or '').strip().lower().encode()).hexdigest()
+                      if digest==target:
+                          matches.append(row)
+                  print(f'signup_incident_v2_user_match_count={len(matches)}')
+                  if len(matches)!=1:
+                      raise SystemExit(3)
+
+                  uid,_email,active,verified,created,password_present=matches[0]
+                  print(f'signup_incident_v2_user_created_age_minutes={age(created)}')
+                  print(f'signup_incident_v2_user_active={yn(active)}')
+                  print(f'signup_incident_v2_user_verified={yn(verified)}')
+                  print(f'signup_incident_v2_password_hash_present={yn(password_present)}')
+
+                  cur.execute("""
+                      SELECT id::text,status,created_at,version
+                      FROM signup_requests WHERE user_id=%s
+                      ORDER BY created_at DESC,id DESC
+                  """, [uid])
+                  reqs=cur.fetchall()
+                  print(f'signup_incident_v2_signup_request_count={len(reqs)}')
+                  if reqs:
+                      rid,status,rcreated,version=reqs[0]
+                      print(f'signup_incident_v2_latest_request_status={status}')
+                      print(f'signup_incident_v2_request_created_age_minutes={age(rcreated)}')
+                      print(f'signup_incident_v2_request_version={version}')
+
+                      cur.execute("SELECT event_type,count(*) FROM signup_request_events WHERE signup_request_id=%s GROUP BY event_type ORDER BY event_type", [rid])
+                      events=cur.fetchall()
+                      print('signup_incident_v2_event_types=' + (','.join(f'{k}:{n}' for k,n in events) if events else 'none'))
+
+                      cur.execute("""
+                          SELECT status,attempt_count,last_error_code,created_at,delivered_at IS NOT NULL
+                          FROM signup_verification_delivery_outbox
+                          WHERE signup_request_id=%s ORDER BY created_at DESC,id DESC
+                      """, [rid])
+                      outs=cur.fetchall()
+                      print(f'signup_incident_v2_outbox_count={len(outs)}')
+                      if outs:
+                          st,attempts,err,ocreated,delivered=outs[0]
+                          print(f'signup_incident_v2_latest_outbox_status={st}')
+                          print(f'signup_incident_v2_outbox_attempt_count={attempts}')
+                          print(f'signup_incident_v2_outbox_error_code={err or "none"}')
+                          print(f'signup_incident_v2_outbox_created_age_minutes={age(ocreated)}')
+                          print(f'signup_incident_v2_outbox_delivered={yn(delivered)}')
+
+                      cur.execute("""
+                          SELECT count(*), count(*) FILTER (
+                              WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at>now()
+                          ) FROM signup_email_verification_tokens WHERE signup_request_id=%s
+                      """, [rid])
+                      total,live=cur.fetchone()
+                      print(f'signup_incident_v2_token_count={total}')
+                      print(f'signup_incident_v2_live_token_count={live}')
+                  else:
+                      print('signup_incident_v2_event_types=none')
+                      print('signup_incident_v2_outbox_count=0')
+                      print('signup_incident_v2_token_count=0')
+                      print('signup_incident_v2_live_token_count=0')
+
+                  cur.execute('SELECT count(*) FROM user_group_map WHERE user_id=%s',[uid])
+                  print(f'signup_incident_v2_membership_count={cur.fetchone()[0]}')
+                  print('signup_incident_v2_read_only_complete=yes')
+              finally:
+                  cur.execute('ROLLBACK')
+          PY
+          REMOTE
