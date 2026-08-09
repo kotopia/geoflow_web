@@ -118,13 +118,10 @@ jobs:
           echo "previous_sha=$previous_sha"
           echo "candidate_sha=$candidate_sha"
 
-          # Fetch the exact reviewed release candidate before touching the DB.
           git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
           fetched_sha="$(git -C "$repo" rev-parse FETCH_HEAD)"
           [ "$fetched_sha" = "$candidate_sha" ] || fail 'candidate_sha_not_current_release_head'
 
-          # Create an RDS manual snapshot using the host's existing AWS identity.
-          # Neither the DB endpoint nor credentials are printed.
           snapshot_id="$($python - "$repo" <<'PY'
           import os
           import sys
@@ -145,8 +142,7 @@ jobs:
 
           client = boto3.client("rds", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
           matches = []
-          paginator = client.get_paginator("describe_db_instances")
-          for page in paginator.paginate():
+          for page in client.get_paginator("describe_db_instances").paginate():
               for item in page.get("DBInstances", []):
                   address = str((item.get("Endpoint") or {}).get("Address") or "").strip().lower()
                   if address == host:
@@ -181,8 +177,7 @@ jobs:
 
           snapshot = sys.argv[1]
           client = boto3.client("rds", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
-          waiter = client.get_waiter("db_snapshot_available")
-          waiter.wait(
+          client.get_waiter("db_snapshot_available").wait(
               DBSnapshotIdentifier=snapshot,
               WaiterConfig={"Delay": 15, "MaxAttempts": 80},
           )
