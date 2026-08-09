@@ -1,3 +1,4 @@
+# SMTP readiness verified by Phase 1 production sync before this activation trigger.
 name: Phase 1 signup production activation
 
 on:
