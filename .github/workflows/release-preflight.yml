@@ -88,6 +88,7 @@ jobs:
       - name: Focused release security regression tests
         run: |
           python manage.py test \
+            control.test_users_assign_group_compat \
             control.test_tenant_db_secret_resolver \
             control.test_tenant_db_secret_ref_audit \
             control.test_database_runtime_preflight \
