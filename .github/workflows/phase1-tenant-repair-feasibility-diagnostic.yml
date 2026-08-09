@@ -1,0 +1,398 @@
+name: Phase 1 tenant repair feasibility diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-tenant-repair-feasibility-diagnostic.yml
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  tenant-repair-feasibility-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout reviewed release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only repair feasibility classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          service='geoflow-stabilized.service'
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || { echo 'repair_feasibility_blocker=stabilized_service_not_running'; exit 2; }
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || { echo 'repair_feasibility_blocker=service_working_directory_missing'; exit 2; }
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || { echo 'repair_feasibility_blocker=service_repo_missing'; exit 2; }
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'repair_feasibility_blocker=stabilized_venv_python_missing'; exit 2; }
+
+          # Never print hostnames, DB names/users/passwords, aliases, group/user IDs or names,
+          # secret identifiers/values, AWS account IDs/ARNs, or candidate credential values.
+          "$python" - "$repo" <<'PY'
+          import os
+          import socket
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          import psycopg2
+          from django.conf import settings
+          from django.db import connections
+
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import (
+              is_tenant_db_secret_reference,
+              resolve_tenant_db_password,
+          )
+
+          def text(value):
+              return str(value or "").strip()
+
+          def yes(value):
+              return "yes" if bool(value) else "no"
+
+          def dns_resolves(host, port):
+              try:
+                  socket.getaddrinfo(text(host), int(port), type=socket.SOCK_STREAM)
+                  return True
+              except Exception:
+                  return False
+
+          def password_for(row):
+              raw = text(row.db_password)
+              if not raw:
+                  return ""
+              if is_tenant_db_secret_reference(raw):
+                  try:
+                      return resolve_tenant_db_password(raw)
+                  except Exception:
+                      return ""
+              return raw
+
+          def can_connect(row, password, host, port):
+              if not password:
+                  return False
+              try:
+                  conn = psycopg2.connect(
+                      dbname=row.db_name,
+                      user=row.db_user,
+                      password=password,
+                      host=host,
+                      port=int(port),
+                      sslmode="require",
+                      connect_timeout=6,
+                  )
+                  try:
+                      with conn.cursor() as cursor:
+                          cursor.execute("SELECT 1")
+                          result = cursor.fetchone()
+                          return bool(result and result[0] == 1)
+                  finally:
+                      conn.close()
+              except Exception:
+                  return False
+
+          def table_exists(cursor, name):
+              cursor.execute("SELECT to_regclass(%s)", [f"public.{name}"])
+              return cursor.fetchone()[0] is not None
+
+          def column_exists(cursor, table, column):
+              cursor.execute(
+                  """
+                  SELECT EXISTS (
+                      SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name=%s AND column_name=%s
+                  )
+                  """,
+                  [table, column],
+              )
+              return bool(cursor.fetchone()[0])
+
+          rows = list(
+              GroupDBConfig.objects.using("default")
+              .select_related("group")
+              .order_by("group_id")
+          )
+          active_rows = [row for row in rows if text(row.group.status).lower() == "active"]
+          failed_rows = [row for row in active_rows if not dns_resolves(row.db_host, row.db_port)]
+          if len(failed_rows) != 2:
+              raise SystemExit("repair_feasibility_blocker=unexpected_failed_tenant_count")
+
+          central_cfg = settings.DATABASES["default"]
+          central_host = text(central_cfg.get("HOST"))
+          central_port = int(central_cfg.get("PORT") or 5432)
+          central_name = text(central_cfg.get("NAME"))
+          central_user = text(central_cfg.get("USER"))
+          central_password = text(central_cfg.get("PASSWORD"))
+
+          serving = {}
+          db_exists = {}
+          role_exists = {}
+          with connections["default"].cursor() as cursor:
+              for row in failed_rows:
+                  gid = str(row.group_id)
+                  cursor.execute(
+                      """
+                      SELECT COUNT(*) FILTER (
+                                 WHERE ugm.status='active'
+                                   AND u.is_active=TRUE
+                                   AND u.email_verified=TRUE
+                             )::int
+                        FROM user_group_map ugm
+                        JOIN users u ON u.id=ugm.user_id
+                       WHERE ugm.group_id=%s
+                      """,
+                      [gid],
+                  )
+                  serving[gid] = int(cursor.fetchone()[0] or 0)
+                  cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname=%s)", [row.db_name])
+                  db_exists[gid] = bool(cursor.fetchone()[0])
+                  cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=%s)", [row.db_user])
+                  role_exists[gid] = bool(cursor.fetchone()[0])
+
+          a_candidates = [
+              row for row in failed_rows
+              if serving[str(row.group_id)] > 0
+              and db_exists[str(row.group_id)]
+              and role_exists[str(row.group_id)]
+          ]
+          b_candidates = [row for row in failed_rows if row not in a_candidates]
+          if len(a_candidates) != 1 or len(b_candidates) != 1:
+              raise SystemExit("repair_feasibility_blocker=unable_to_classify_A_B")
+          A = a_candidates[0]
+          B = b_candidates[0]
+
+          # Candidate password reuse check for A. Values never leave process memory.
+          candidate_values = {}
+          for source in ("TENANT_DB_PASSWORD", "PROVISIONER_DB_PASSWORD", "CENTRAL_DB_PASSWORD"):
+              value = text(os.environ.get(source))
+              if value:
+                  candidate_values.setdefault(value, set()).add("env")
+          for peer in rows:
+              if str(peer.group_id) == str(A.group_id):
+                  continue
+              value = password_for(peer)
+              if value:
+                  candidate_values.setdefault(value, set()).add("peer")
+
+          successful_values = []
+          env_success = 0
+          peer_success = 0
+          for value, sources in candidate_values.items():
+              if can_connect(A, value, central_host, central_port):
+                  successful_values.append(value)
+                  if "env" in sources:
+                      env_success += 1
+                  if "peer" in sources:
+                      peer_success += 1
+
+          a_role_shared_configs = sum(1 for row in rows if text(row.db_user) == text(A.db_user))
+          a_dbname_shared_configs = sum(1 for row in rows if text(row.db_name) == text(A.db_name))
+
+          # Cluster-level role/database safety facts through the existing central connection.
+          current_can_rotate = False
+          target_canlogin = False
+          target_privileged = False
+          target_active_sessions = -1
+          target_owned_db_count = -1
+          target_is_db_owner = False
+          role_membership_edges = -1
+          with connections["default"].cursor() as cursor:
+              cursor.execute(
+                  "SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname=current_user"
+              )
+              current = cursor.fetchone()
+              current_can_rotate = bool(current and (current[0] or current[1]))
+              cursor.execute(
+                  """
+                  SELECT rolcanlogin, rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, oid
+                    FROM pg_roles WHERE rolname=%s
+                  """,
+                  [A.db_user],
+              )
+              target = cursor.fetchone()
+              if target:
+                  target_canlogin = bool(target[0])
+                  target_privileged = any(bool(v) for v in target[1:6])
+                  target_oid = target[6]
+                  cursor.execute("SELECT COUNT(*)::int FROM pg_stat_activity WHERE usename=%s", [A.db_user])
+                  target_active_sessions = int(cursor.fetchone()[0] or 0)
+                  cursor.execute("SELECT COUNT(*)::int FROM pg_database WHERE datdba=%s", [target_oid])
+                  target_owned_db_count = int(cursor.fetchone()[0] or 0)
+                  cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname=%s AND datdba=%s)", [A.db_name, target_oid])
+                  target_is_db_owner = bool(cursor.fetchone()[0])
+                  cursor.execute(
+                      "SELECT COUNT(*)::int FROM pg_auth_members WHERE roleid=%s OR member=%s",
+                      [target_oid, target_oid],
+                  )
+                  role_membership_edges = int(cursor.fetchone()[0] or 0)
+
+          # Check that the central/provisioner account can inspect A's target DB without changing it.
+          admin_target_db_access = False
+          owned_schema_count = -1
+          owned_relation_count = -1
+          try:
+              admin_conn = psycopg2.connect(
+                  dbname=A.db_name,
+                  user=central_user,
+                  password=central_password,
+                  host=central_host,
+                  port=central_port,
+                  sslmode="require",
+                  connect_timeout=6,
+              )
+              try:
+                  with admin_conn.cursor() as cursor:
+                      cursor.execute("SELECT 1")
+                      admin_target_db_access = bool(cursor.fetchone()[0] == 1)
+                      cursor.execute(
+                          "SELECT COUNT(*)::int FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE r.rolname=%s",
+                          [A.db_user],
+                      )
+                      owned_schema_count = int(cursor.fetchone()[0] or 0)
+                      cursor.execute(
+                          "SELECT COUNT(*)::int FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE r.rolname=%s",
+                          [A.db_user],
+                      )
+                      owned_relation_count = int(cursor.fetchone()[0] or 0)
+              finally:
+                  admin_conn.close()
+          except Exception:
+              pass
+
+          # B quarantine safety: preserve metadata; inspect only memberships, joins and owner state.
+          b_membership_total = 0
+          b_membership_active = 0
+          b_user_active = 0
+          b_user_verified = 0
+          b_pending_joins = 0
+          b_approved_joins = 0
+          b_owner_active_verified = False
+          with connections["default"].cursor() as cursor:
+              cursor.execute(
+                  """
+                  SELECT COUNT(*)::int,
+                         COUNT(*) FILTER (WHERE ugm.status='active')::int,
+                         COUNT(*) FILTER (WHERE u.is_active=TRUE)::int,
+                         COUNT(*) FILTER (WHERE u.email_verified=TRUE)::int
+                    FROM user_group_map ugm
+                    JOIN users u ON u.id=ugm.user_id
+                   WHERE ugm.group_id=%s
+                  """,
+                  [str(B.group_id)],
+              )
+              vals = cursor.fetchone()
+              b_membership_total, b_membership_active, b_user_active, b_user_verified = [int(v or 0) for v in vals]
+
+              if table_exists(cursor, "join_requests"):
+                  cursor.execute(
+                      """
+                      SELECT COUNT(*) FILTER (WHERE status IN ('pending','pending_approval','pending_email_verification'))::int,
+                             COUNT(*) FILTER (WHERE status='approved')::int
+                        FROM join_requests WHERE group_id=%s
+                      """,
+                      [str(B.group_id)],
+                  )
+                  vals = cursor.fetchone()
+                  b_pending_joins, b_approved_joins = [int(v or 0) for v in vals]
+
+              if column_exists(cursor, "groups", "owner_user_id"):
+                  cursor.execute(
+                      """
+                      SELECT COALESCE(u.is_active,FALSE) AND COALESCE(u.email_verified,FALSE)
+                        FROM groups g LEFT JOIN users u ON u.id=g.owner_user_id
+                       WHERE g.id=%s
+                      """,
+                      [str(B.group_id)],
+                  )
+                  owner = cursor.fetchone()
+                  b_owner_active_verified = bool(owner and owner[0])
+
+          print("repair_feasibility_A_classified=yes")
+          print(f"repair_feasibility_A_existing_password_candidate_successes={len(successful_values)}")
+          print(f"repair_feasibility_A_env_candidate_successes={env_success}")
+          print(f"repair_feasibility_A_peer_candidate_successes={peer_success}")
+          print(f"repair_feasibility_A_role_shared_config_count={a_role_shared_configs}")
+          print(f"repair_feasibility_A_dbname_shared_config_count={a_dbname_shared_configs}")
+          print(f"repair_feasibility_A_admin_can_rotate_role={yes(current_can_rotate)}")
+          print(f"repair_feasibility_A_target_role_canlogin={yes(target_canlogin)}")
+          print(f"repair_feasibility_A_target_role_privileged={yes(target_privileged)}")
+          print(f"repair_feasibility_A_target_active_sessions={target_active_sessions}")
+          print(f"repair_feasibility_A_target_owned_db_count={target_owned_db_count}")
+          print(f"repair_feasibility_A_target_is_db_owner={yes(target_is_db_owner)}")
+          print(f"repair_feasibility_A_role_membership_edges={role_membership_edges}")
+          print(f"repair_feasibility_A_admin_target_db_access={yes(admin_target_db_access)}")
+          print(f"repair_feasibility_A_owned_schema_count={owned_schema_count}")
+          print(f"repair_feasibility_A_owned_relation_count={owned_relation_count}")
+
+          print("repair_feasibility_B_classified=yes")
+          print(f"repair_feasibility_B_membership_total={b_membership_total}")
+          print(f"repair_feasibility_B_membership_active={b_membership_active}")
+          print(f"repair_feasibility_B_user_active={b_user_active}")
+          print(f"repair_feasibility_B_user_verified={b_user_verified}")
+          print(f"repair_feasibility_B_pending_joins={b_pending_joins}")
+          print(f"repair_feasibility_B_approved_joins={b_approved_joins}")
+          print(f"repair_feasibility_B_owner_active_verified={yes(b_owner_active_verified)}")
+          print("phase1_tenant_repair_feasibility_diagnostic_complete=yes")
+          PY
+          REMOTE
