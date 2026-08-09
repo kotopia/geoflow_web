@@ -1,0 +1,184 @@
+name: Phase 1 serving path discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  serving-path-discovery:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port }}
+
+    steps:
+      - name: Checkout reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate reviewed candidate and connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          candidate_sha="$(git rev-parse HEAD)"
+          test "$candidate_sha" = "$GITHUB_SHA"
+          printf 'candidate_sha=%s\n' "$candidate_sha"
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only serving path discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -u
+
+          echo 'serving_path_discovery_started=yes'
+          printf 'kernel='; uname -srm
+
+          can_sudo=no
+          if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            can_sudo=yes
+          fi
+          echo "passwordless_sudo=$can_sudo"
+
+          echo '--- geoflow service snapshot ---'
+          for prop in LoadState ActiveState SubState Result ExecMainCode ExecMainStatus NRestarts FragmentPath WorkingDirectory; do
+            value="$(systemctl show geoflow -p "$prop" --value 2>/dev/null || true)"
+            key="$(printf '%s' "$prop" | tr '[:upper:]' '[:lower:]')"
+            echo "geoflow_${key}=${value:-unknown}"
+          done
+
+          exec_raw="$(systemctl show geoflow -p ExecStart --value 2>/dev/null || true)"
+          exec_path="$(printf '%s\n' "$exec_raw" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -n 1)"
+          wsgi_target="$(printf '%s\n' "$exec_raw" | grep -oE '[A-Za-z_][A-Za-z0-9_.]*:(application|app)' | head -n 1 || true)"
+          echo "geoflow_exec_path=${exec_path:-unknown}"
+          echo "geoflow_wsgi_target=${wsgi_target:-unknown}"
+
+          workdir="$(systemctl show geoflow -p WorkingDirectory --value 2>/dev/null || true)"
+          if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+            echo 'geoflow_workdir_present=yes'
+            if repo_root="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null)"; then
+              echo "geoflow_repo_root=$repo_root"
+              printf 'geoflow_repo_sha='; git -C "$repo_root" rev-parse HEAD 2>/dev/null || true
+              printf 'geoflow_repo_branch='; git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true
+              dirty_count="$(git -C "$repo_root" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+              echo "geoflow_repo_dirty_count=$dirty_count"
+              origin="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+              normalized_origin="$(printf '%s' "$origin" | sed -E 's#https://[^/@]+@github.com/#https://github.com/#; s#https://[^/@]+:[^/@]+@#https://#')"
+              case "$normalized_origin" in
+                https://github.com/*|git@github.com:*) echo "geoflow_origin=$normalized_origin" ;;
+                '') echo 'geoflow_origin=none' ;;
+                *) echo 'geoflow_origin=non_github_or_unrecognized' ;;
+              esac
+            else
+              echo 'geoflow_repo_present=no'
+            fi
+          else
+            echo 'geoflow_workdir_present=no'
+          fi
+
+          echo '--- nginx routing directives ---'
+          if [ "$can_sudo" = yes ]; then
+            nginx_dump="$(sudo -n nginx -T 2>/dev/null || true)"
+          else
+            nginx_dump="$(nginx -T 2>/dev/null || true)"
+          fi
+          printf '%s\n' "$nginx_dump" \
+            | grep -E '^[[:space:]]*(server_name|proxy_pass|uwsgi_pass|fastcgi_pass)[[:space:]]+' \
+            | sed -E 's#(https?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1***:***@#g' \
+            | sed -E 's/^[[:space:]]+//' \
+            | sort -u \
+            | head -n 80 || true
+
+          echo '--- candidate application services ---'
+          service_files=''
+          if [ "$can_sudo" = yes ]; then
+            service_files="$(sudo -n grep -RIlE 'gunicorn|uvicorn|daphne|uwsgi|webgisproject|geoflow' /etc/systemd/system /lib/systemd/system 2>/dev/null | head -n 40 || true)"
+          else
+            service_files="$(grep -RIlE 'gunicorn|uvicorn|daphne|uwsgi|webgisproject|geoflow' /etc/systemd/system /lib/systemd/system 2>/dev/null | head -n 40 || true)"
+          fi
+          printf '%s\n' "$service_files" | while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            unit="$(basename "$path")"
+            case "$unit" in
+              *.service)
+                active="$(systemctl show "$unit" -p ActiveState --value 2>/dev/null || true)"
+                sub="$(systemctl show "$unit" -p SubState --value 2>/dev/null || true)"
+                wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
+                raw="$(systemctl show "$unit" -p ExecStart --value 2>/dev/null || true)"
+                path_exec="$(printf '%s\n' "$raw" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -n 1)"
+                target="$(printf '%s\n' "$raw" | grep -oE '[A-Za-z_][A-Za-z0-9_.]*:(application|app)' | head -n 1 || true)"
+                echo "candidate_service=$unit active=${active:-unknown} sub=${sub:-unknown} workdir=${wd:-none} exec=${path_exec:-unknown} target=${target:-unknown}"
+                ;;
+            esac
+          done
+
+          echo '--- running application processes ---'
+          pids="$(pgrep -f 'gunicorn|uvicorn|daphne|uwsgi' 2>/dev/null || true)"
+          if [ -z "$pids" ]; then
+            echo 'running_app_processes=none'
+          else
+            for pid in $pids; do
+              [ -d "/proc/$pid" ] || continue
+              exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+              cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+              proc_user="$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+              cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+              target="$(printf '%s\n' "$cmdline" | grep -oE '[A-Za-z_][A-Za-z0-9_.]*:(application|app)' | head -n 1 || true)"
+              echo "app_process pid=$pid user=${proc_user:-unknown} exe=${exe:-unknown} cwd=${cwd:-unknown} target=${target:-unknown}"
+            done
+          fi
+
+          echo '--- application listening sockets ---'
+          if [ "$can_sudo" = yes ]; then
+            sudo -n ss -ltnp 2>/dev/null | grep -Ei 'gunicorn|python|uvicorn|daphne|uwsgi' | head -n 40 || true
+            sudo -n ss -lxnp 2>/dev/null | grep -Ei 'gunicorn|python|uvicorn|daphne|uwsgi' | head -n 40 || true
+          else
+            ss -ltnp 2>/dev/null | grep -Ei 'gunicorn|python|uvicorn|daphne|uwsgi' | head -n 40 || true
+            ss -lxnp 2>/dev/null | grep -Ei 'gunicorn|python|uvicorn|daphne|uwsgi' | head -n 40 || true
+          fi
+
+          echo '--- local nginx reachability ---'
+          if command -v curl >/dev/null 2>&1; then
+            curl -sS -o /dev/null -w 'localhost_http_status=%{http_code}\n' -H 'Host: geoflow.co.kr' http://127.0.0.1/ || echo 'localhost_http_status=connection_failed'
+          else
+            echo 'curl_present=no'
+          fi
+
+          echo 'serving_path_discovery_completed=yes'
+          REMOTE
