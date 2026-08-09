@@ -92,7 +92,11 @@ class UsersAdminSignupBoundaryTests(SimpleTestCase):
         self.assertIn("u.password_hash IS NOT NULL", source)
         self.assertIn("pbkdf2_sha256$%", source)
         self.assertIn("lower(COALESCE(g.status, ''))='active'", source)
+        self.assertIn("FOR UPDATE OF u, g, r", source)
+        self.assertIn("UPDATE user_group_map AS ugm", source)
+        self.assertIn("WHERE NOT EXISTS (SELECT 1 FROM updated)", source)
         self.assertIn("RETURNING id", source)
+        self.assertNotIn("ON CONFLICT (user_id, group_id)", source)
         self.assertNotIn("get_or_create_user_by_email", source)
 
     def test_join_request_detail_supports_both_schema_generations(self):
