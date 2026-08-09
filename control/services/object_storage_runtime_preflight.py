@@ -15,6 +15,16 @@ class ObjectStorageRuntimeCheck:
     message: str
 
 
+def _enabled(environ: Mapping[str, str], name: str) -> bool:
+    return str(environ.get(name) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
+
+
 def inspect_object_storage_runtime(
     *,
     environ: Mapping[str, str] = os.environ,
@@ -63,6 +73,35 @@ def inspect_object_storage_runtime(
                 "AWS static credentials are either paired or omitted for the runtime role."
                 if credential_pair_ready
                 else "Do not configure only one half of an AWS static credential pair."
+            ),
+        )
+    )
+
+    role_only_required = _enabled(environ, "AWS_REQUIRE_ROLE_CREDENTIALS")
+    static_or_profile_source_present = any(
+        bool(str(environ.get(name) or "").strip())
+        for name in (
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "AWS_PROFILE",
+            "AWS_DEFAULT_PROFILE",
+            "AWS_SHARED_CREDENTIALS_FILE",
+        )
+    )
+    role_only_ready = not role_only_required or not static_or_profile_source_present
+    checks.append(
+        ObjectStorageRuntimeCheck(
+            code="aws_role_only_runtime",
+            ready=role_only_ready,
+            message=(
+                "Role-only AWS runtime guard is enabled and no static/profile credential source is configured."
+                if role_only_required and role_only_ready
+                else (
+                    "Remove static/profile AWS credential sources before enabling role-only runtime."
+                    if role_only_required
+                    else "Role-only AWS runtime guard is not enabled yet; compatibility mode remains active."
+                )
             ),
         )
     )
