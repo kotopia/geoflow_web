@@ -1,0 +1,284 @@
+name: Phase 1 central DB migrate v2
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-central-db-migrate-v2.yml
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  central-db-migrate-v2:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout reviewed release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate reviewed candidate and connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          candidate_sha="$(git rev-parse HEAD)"
+          test "$candidate_sha" = "$GITHUB_SHA"
+          printf 'candidate_sha=%s\n' "$candidate_sha"
+          test -f control/migrations/0005_join_request_decision_audit_columns.py
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Reuse snapshot and apply exact central migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+
+          candidate_sha="$1"
+          service='geoflow-stabilized.service'
+          expected_branch='release/stabilized-deploy'
+
+          fail() {
+            echo "central_migration_blocker=$1"
+            exit 2
+          }
+
+          command -v git >/dev/null 2>&1 || fail 'git_missing'
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          command -v curl >/dev/null 2>&1 || fail 'curl_missing'
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'stabilized_service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+
+          origin="$(git -C "$repo" remote get-url origin 2>/dev/null || true)"
+          case "$origin" in
+            https://github.com/kotopia/geoflow_web|https://github.com/kotopia/geoflow_web.git|git@github.com:kotopia/geoflow_web.git) ;;
+            *) fail 'unexpected_repository_origin' ;;
+          esac
+
+          dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+          [ "$dirty_count" = '0' ] || fail 'production_worktree_dirty'
+
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'stabilized_venv_python_missing'
+
+          before_code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://127.0.0.1:8011/ || true)"
+          case "$before_code" in 2??|3??) ;; *) fail 'port_8011_not_healthy_before_migration' ;; esac
+
+          previous_sha="$(git -C "$repo" rev-parse HEAD)"
+          previous_branch="$(git -C "$repo" symbolic-ref --short -q HEAD || true)"
+          echo "previous_sha=$previous_sha"
+          echo "candidate_sha=$candidate_sha"
+
+          git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
+          fetched_sha="$(git -C "$repo" rev-parse FETCH_HEAD)"
+          [ "$fetched_sha" = "$candidate_sha" ] || fail 'candidate_sha_not_current_release_head'
+
+          # RDS safety gate. Django loads the production .env once, and the same
+          # Python process performs discovery, snapshot reuse/create, and waiter calls.
+          "$python" - "$repo" <<'PY'
+          import os
+          import sys
+          from datetime import datetime, timezone, timedelta
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+          from django.conf import settings
+          import boto3
+
+          host = str(settings.DATABASES["default"].get("HOST") or "").strip().lower()
+          if not host:
+              raise SystemExit("central_migration_blocker=central_db_host_missing")
+
+          client = boto3.client("rds", region_name=os.environ.get("AWS_REGION", "ap-northeast-2"))
+          matches = []
+          for page in client.get_paginator("describe_db_instances").paginate():
+              for item in page.get("DBInstances", []):
+                  address = str((item.get("Endpoint") or {}).get("Address") or "").strip().lower()
+                  if address == host:
+                      matches.append(item)
+
+          if len(matches) != 1:
+              raise SystemExit("central_migration_blocker=rds_instance_resolution_failed")
+
+          instance = matches[0]
+          if instance.get("DBInstanceStatus") != "available":
+              raise SystemExit("central_migration_blocker=rds_instance_not_available")
+          if int(instance.get("BackupRetentionPeriod") or 0) <= 0:
+              raise SystemExit("central_migration_blocker=rds_automated_backup_disabled")
+          if not instance.get("LatestRestorableTime"):
+              raise SystemExit("central_migration_blocker=rds_latest_restorable_time_missing")
+
+          identifier = instance["DBInstanceIdentifier"]
+          prefix = "geoflow-phase1-pre0005-"
+          cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+          recent = []
+
+          for page in client.get_paginator("describe_db_snapshots").paginate(
+              DBInstanceIdentifier=identifier,
+              SnapshotType="manual",
+          ):
+              for item in page.get("DBSnapshots", []):
+                  sid = str(item.get("DBSnapshotIdentifier") or "")
+                  created = item.get("SnapshotCreateTime")
+                  if sid.startswith(prefix) and created and created >= cutoff:
+                      recent.append(item)
+
+          recent.sort(key=lambda item: item.get("SnapshotCreateTime"), reverse=True)
+          if recent:
+              snapshot = recent[0]["DBSnapshotIdentifier"]
+              print("rds_snapshot_reused=yes")
+          else:
+              stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+              snapshot = f"{prefix}{stamp}"
+              client.create_db_snapshot(
+                  DBSnapshotIdentifier=snapshot,
+                  DBInstanceIdentifier=identifier,
+              )
+              print("rds_snapshot_created=yes")
+
+          client.get_waiter("db_snapshot_available").wait(
+              DBSnapshotIdentifier=snapshot,
+              WaiterConfig={"Delay": 15, "MaxAttempts": 80},
+          )
+          response = client.describe_db_snapshots(DBSnapshotIdentifier=snapshot)
+          items = response.get("DBSnapshots", [])
+          if len(items) != 1 or items[0].get("Status") != "available":
+              raise SystemExit("central_migration_blocker=rds_snapshot_not_available")
+          print("rds_snapshot_available=yes")
+          PY
+
+          rollback_needed=0
+          rollback_app() {
+            set +e
+            if [ "$rollback_needed" -eq 1 ]; then
+              echo 'application_rollback_started=yes'
+              if [ -n "$previous_branch" ]; then
+                git -C "$repo" checkout -B "$previous_branch" "$previous_sha" >/dev/null 2>&1
+              else
+                git -C "$repo" checkout --detach "$previous_sha" >/dev/null 2>&1
+              fi
+              "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt" >/dev/null 2>&1
+              "$python" "$repo/manage.py" collectstatic --noinput >/dev/null 2>&1
+              sudo -n systemctl restart "$service"
+              echo 'application_rollback_completed=yes'
+            fi
+          }
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              rollback_app
+            fi
+            exit "$rc"
+          }
+          trap on_exit EXIT
+
+          rollback_needed=1
+          git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
+          [ "$(git -C "$repo" rev-parse HEAD)" = "$candidate_sha" ] || fail 'candidate_checkout_failed'
+          [ -f "$repo/control/migrations/0005_join_request_decision_audit_columns.py" ] || fail 'migration_0005_missing'
+
+          "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
+          "$python" -m pip check
+          "$python" "$repo/manage.py" check
+
+          audit_before="$($python "$repo/manage.py" check_signup_launch_schema 2>&1 || true)"
+          migration_state="$($python "$repo/manage.py" showmigrations control)"
+
+          if printf '%s\n' "$audit_before" | grep -Fq 'signup_schema_ready=yes'; then
+            printf '%s\n' "$migration_state" | grep -Fq '[X] 0005_join_request_decision_audit_columns' || fail 'schema_ready_but_migration_0005_not_applied'
+            echo 'central_migration_already_applied=yes'
+          else
+            printf '%s\n' "$audit_before" | grep -Fq 'signup_schema_ready=no' || fail 'unexpected_pre_migration_schema_state'
+            issue_count="$(printf '%s\n' "$audit_before" | grep -c '^issue=' || true)"
+            [ "$issue_count" = '1' ] || fail 'unexpected_pre_migration_issue_count'
+            printf '%s\n' "$audit_before" | grep -Fxq 'issue=missing_column:join_requests.decided_by' || fail 'unexpected_pre_migration_schema_drift'
+            printf '%s\n' "$migration_state" | grep -Fq '[ ] 0005_join_request_decision_audit_columns' || fail 'migration_0005_not_pending'
+
+            plan="$($python "$repo/manage.py" migrate control --plan --database=default)"
+            printf '%s\n' "$plan" | grep -Fq 'control.0005_join_request_decision_audit_columns' || fail 'migration_0005_not_in_plan'
+            echo 'migration_0005_plan_verified=yes'
+            "$python" "$repo/manage.py" migrate control 0005 --database=default --noinput
+          fi
+
+          "$python" "$repo/manage.py" migrate --check --database=default
+          "$python" "$repo/manage.py" check_signup_launch_schema --strict
+          echo 'central_signup_schema_ready=yes'
+
+          "$python" "$repo/manage.py" collectstatic --noinput
+          sudo -n systemctl restart "$service"
+
+          ready=no
+          for _ in $(seq 1 30); do
+            active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+            sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/ || true)"
+            if [ "$active" = 'active' ] && [ "$sub" = 'running' ]; then
+              case "$code" in 2??|3??) ready=yes; break ;; esac
+            fi
+            sleep 2
+          done
+          [ "$ready" = yes ] || fail 'service_failed_after_central_migration'
+
+          terms_code="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/terms/ || true)"
+          privacy_code="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/privacy/ || true)"
+          [ "$terms_code" = '200' ] || fail 'public_terms_not_200_after_central_migration'
+          [ "$privacy_code" = '200' ] || fail 'public_privacy_not_200_after_central_migration'
+
+          rollback_needed=0
+          trap - EXIT
+          echo "deployed_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo 'phase1_central_db_migration_ready=yes'
+          REMOTE
