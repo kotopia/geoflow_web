@@ -1,3 +1,5 @@
+> **Superseded checkpoint notice (2026-08-09):** This file preserves an earlier stabilization checkpoint and must not be used as the current GeoFlow Phase 1 status. The authoritative current records are `collaboration/05_Phase1_Account_Signup/13_phase1_status_2026-08-09.md` and `collaboration/05_Phase1_Account_Signup/14_phase1_closure_2026-08-09.md`.
+
 # Stabilization Current State Checkpoint
 
 ## 1. Phase 3 Tenant Repair State
