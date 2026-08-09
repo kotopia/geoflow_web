@@ -1,0 +1,132 @@
+name: Phase 1 signup verification CSRF diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-signup-csrf-incident-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signup-csrf-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+
+    steps:
+      - name: Checkout reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Inspect recent CSRF failure reason without sensitive values
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p 22 \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          echo 'signup_csrf_diag_service_active='"$(systemctl is-active "$service" 2>/dev/null || true)"
+          logs="$(journalctl -u "$service" --since '45 minutes ago' --no-pager 2>/dev/null || true)"
+          # Verification token is carried in URL fragment and is never sent to the server.
+          # Emit only normalized CSRF reason categories, never full request/log lines.
+          if printf '%s\n' "$logs" | grep -qi 'CSRF cookie not set'; then
+            echo 'signup_csrf_diag_recent_reason=cookie_not_set'
+          elif printf '%s\n' "$logs" | grep -qi 'CSRF token.*incorrect'; then
+            echo 'signup_csrf_diag_recent_reason=token_incorrect'
+          elif printf '%s\n' "$logs" | grep -qi 'Origin checking failed'; then
+            echo 'signup_csrf_diag_recent_reason=origin_failed'
+          elif printf '%s\n' "$logs" | grep -qi 'Referer checking failed'; then
+            echo 'signup_csrf_diag_recent_reason=referer_failed'
+          elif printf '%s\n' "$logs" | grep -qi 'Forbidden.*CSRF'; then
+            echo 'signup_csrf_diag_recent_reason=csrf_forbidden_other'
+          else
+            echo 'signup_csrf_diag_recent_reason=not_found'
+          fi
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          python="$repo/.venv/bin/python"
+          cd "$repo"
+          DJANGO_SETTINGS_MODULE=geoflow_project.settings "$python" - <<'PY'
+          import django
+          django.setup()
+          from django.conf import settings
+          print('signup_csrf_diag_cookie_secure=' + ('yes' if settings.CSRF_COOKIE_SECURE else 'no'))
+          print('signup_csrf_diag_cookie_httponly=' + ('yes' if settings.CSRF_COOKIE_HTTPONLY else 'no'))
+          print('signup_csrf_diag_cookie_samesite=' + str(settings.CSRF_COOKIE_SAMESITE))
+          print('signup_csrf_diag_cookie_domain_present=' + ('yes' if bool(settings.CSRF_COOKIE_DOMAIN) else 'no'))
+          print('signup_csrf_diag_use_sessions=' + ('yes' if settings.CSRF_USE_SESSIONS else 'no'))
+          print('signup_csrf_diag_proxy_ssl_header_present=' + ('yes' if bool(getattr(settings, 'SECURE_PROXY_SSL_HEADER', None)) else 'no'))
+          print('signup_csrf_diag_trusted_origins_count=' + str(len(settings.CSRF_TRUSTED_ORIGINS)))
+          PY
+          REMOTE
+
+      - name: Reproduce public GET to POST CSRF handshake with fake token
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import html
+          import re
+          import urllib.parse
+          import urllib.request
+          import http.cookiejar
+
+          base = 'https://geoflow.co.kr/signup/verify/'
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          req = urllib.request.Request(base, headers={'User-Agent':'GeoFlow-CSRF-Diagnostic/1.0'})
+          with opener.open(req, timeout=20) as resp:
+              body = resp.read().decode('utf-8', errors='replace')
+              print('signup_csrf_diag_public_get_status=' + str(resp.status))
+              print('signup_csrf_diag_public_final_https=' + ('yes' if resp.geturl().startswith('https://') else 'no'))
+          m = re.search(r'name=["\']csrfmiddlewaretoken["\'][^>]*value=["\']([^"\']+)', body)
+          if not m:
+              print('signup_csrf_diag_form_token_present=no')
+              raise SystemExit(2)
+          csrf = html.unescape(m.group(1))
+          print('signup_csrf_diag_form_token_present=yes')
+          cookie_names = {c.name for c in jar}
+          print('signup_csrf_diag_cookie_present=' + ('yes' if 'csrftoken' in cookie_names else 'no'))
+          data = urllib.parse.urlencode({'csrfmiddlewaretoken': csrf, 'token': 'diagnostic-invalid-token'}).encode()
+          post = urllib.request.Request(base, data=data, method='POST', headers={
+              'User-Agent':'GeoFlow-CSRF-Diagnostic/1.0',
+              'Content-Type':'application/x-www-form-urlencoded',
+              'Referer':base,
+              'Origin':'https://geoflow.co.kr',
+          })
+          try:
+              with opener.open(post, timeout=20) as resp:
+                  status = resp.status
+          except urllib.error.HTTPError as exc:
+              status = exc.code
+          print('signup_csrf_diag_fake_post_status=' + str(status))
+          # 400 means CSRF passed and the deliberately invalid verification token was rejected by app logic.
+          print('signup_csrf_diag_handshake_passed=' + ('yes' if status == 400 else 'no'))
+          PY
