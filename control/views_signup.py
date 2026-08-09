@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.debug import (
     sensitive_post_parameters,
     sensitive_variables,
@@ -260,13 +260,13 @@ def _legal_documents_confirmed() -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+@csrf_exempt
 @sensitive_post_parameters("token")
 @sensitive_variables("token")
 @require_http_methods(["GET", "POST"])
-@csrf_protect
 @never_cache
 def signup_email_verification_view(request):
-    """Bridge a URL fragment token into a protected POST without URL logging."""
+    """Bridge a one-time capability token from the URL fragment into POST."""
 
     if request.method == "GET":
         return _render_signup_verification(request, auto_submit=True)
