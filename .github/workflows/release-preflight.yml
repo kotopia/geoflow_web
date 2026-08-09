@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - release/stabilized-deploy
+  pull_request:
+    branches:
+      - release/stabilized-deploy
   workflow_dispatch:
 
 permissions:
@@ -94,7 +97,8 @@ jobs:
             control.test_route_security_preflight \
             geoflow_ops.test_employee_security_boundaries \
             geoflow_ops.test_tenant_security_method_boundaries \
-            geoflow_ops.test_event_upload_route_boundaries
+            geoflow_ops.test_event_upload_route_boundaries \
+            geoflow_ops.test_s3_default_credential_chain
 
       - name: Strict repository release preflight
         run: python manage.py check_release_preflight --strict
