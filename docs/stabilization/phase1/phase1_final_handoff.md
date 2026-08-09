@@ -1,3 +1,5 @@
+> **Superseded status notice (2026-08-09):** This document is a historical handoff for the earlier clean-branch/S3-event stabilization slice. It is not the current Phase 1 closure baseline. The authoritative closure record is `collaboration/05_Phase1_Account_Signup/14_phase1_closure_2026-08-09.md`, and the current Phase 1 status is `collaboration/05_Phase1_Account_Signup/13_phase1_status_2026-08-09.md`.
+
 # Phase 1 Final Handoff
 
 ## 1. 기준 작업본
