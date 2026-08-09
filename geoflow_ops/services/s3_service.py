@@ -27,10 +27,10 @@ class UploadedObjectMetadata:
 
 
 def get_s3_client():
+    """Build an S3 client using the standard boto3 credential provider chain."""
+
     return boto3.client(
         "s3",
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
         region_name=os.environ.get("AWS_REGION", "ap-northeast-2"),
         config=Config(signature_version="s3v4"),
     )
