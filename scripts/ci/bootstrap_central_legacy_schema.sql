@@ -70,7 +70,6 @@ CREATE TABLE IF NOT EXISTS join_requests (
     requested_role_code text NULL,
     status text NOT NULL,
     decided_at timestamptz NULL,
-    decided_by uuid NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (user_id, group_id, requested_email)
