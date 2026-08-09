@@ -60,6 +60,13 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Install GeoDjango system libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
+
       - name: Install focused test dependencies
         shell: bash
         run: |
