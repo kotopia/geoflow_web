@@ -371,6 +371,70 @@ def users_delete_admin(request, user_id):
     return redirect("control:users_list_admin")
 
 
+def _assign_user_group_membership(cursor, *, user_id: str, group_id: str, role_id: str) -> bool:
+    """Assign a membership without depending on a legacy DB unique constraint.
+
+    Some production-era `user_group_map` tables predate the model-level
+    `(user_id, group_id)` uniqueness declaration.  `ON CONFLICT` cannot name
+    columns that are not backed by a real unique/exclusion constraint, so lock
+    the eligible user row and use update-then-insert instead.
+    """
+
+    cursor.execute(
+        """
+        SELECT u.id::text
+          FROM users u
+          JOIN groups g
+            ON g.id=%s
+           AND lower(COALESCE(g.status, ''))='active'
+          JOIN roles r ON r.id=%s
+         WHERE u.id=%s
+           AND u.is_active=TRUE
+           AND u.email_verified=TRUE
+           AND u.password_hash IS NOT NULL
+           AND length(trim(u.password_hash)) > 0
+           AND (
+               u.password_hash LIKE 'pbkdf2_sha256$%'
+               OR u.password_hash LIKE 'bcrypt_sha256$%'
+               OR u.password_hash LIKE '$2a$%'
+               OR u.password_hash LIKE '$2b$%'
+               OR u.password_hash LIKE '$2y$%'
+           )
+         FOR UPDATE OF u
+        """,
+        [group_id, role_id, user_id],
+    )
+    if cursor.fetchone() is None:
+        return False
+
+    cursor.execute(
+        """
+        UPDATE user_group_map
+           SET role_id=%s,
+               status='active',
+               updated_at=now()
+         WHERE user_id=%s
+           AND group_id=%s
+        RETURNING id
+        """,
+        [role_id, user_id, group_id],
+    )
+    if cursor.fetchone() is not None:
+        return True
+
+    cursor.execute(
+        """
+        INSERT INTO user_group_map(
+            id, user_id, group_id, role_id, status, created_at, updated_at
+        )
+        VALUES (gen_random_uuid(), %s, %s, %s, 'active', now(), now())
+        RETURNING id
+        """,
+        [user_id, group_id, role_id],
+    )
+    return cursor.fetchone() is not None
+
+
 @require_central_admin
 @csrf_protect
 def users_assign_group_admin(request, user_id):
@@ -382,39 +446,14 @@ def users_assign_group_admin(request, user_id):
         messages.error(request, "그룹과 역할을 선택하세요.")
         return redirect("control:users_detail_admin", user_id=user_id)
 
-    with connections["default"].cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO user_group_map(
-                id, user_id, group_id, role_id, status, created_at, updated_at
+    with transaction.atomic():
+        with connections["default"].cursor() as cur:
+            assigned = _assign_user_group_membership(
+                cur,
+                user_id=str(user_id),
+                group_id=group_id,
+                role_id=role_id,
             )
-            SELECT gen_random_uuid(), u.id, g.id, r.id, 'active', now(), now()
-              FROM users u
-              JOIN groups g
-                ON g.id=%s
-               AND lower(COALESCE(g.status, ''))='active'
-              JOIN roles r ON r.id=%s
-             WHERE u.id=%s
-               AND u.is_active=TRUE
-               AND u.email_verified=TRUE
-               AND u.password_hash IS NOT NULL
-               AND length(trim(u.password_hash)) > 0
-               AND (
-                   u.password_hash LIKE 'pbkdf2_sha256$%'
-                   OR u.password_hash LIKE 'bcrypt_sha256$%'
-                   OR u.password_hash LIKE '$2a$%'
-                   OR u.password_hash LIKE '$2b$%'
-                   OR u.password_hash LIKE '$2y$%'
-               )
-            ON CONFLICT (user_id, group_id)
-            DO UPDATE SET role_id=EXCLUDED.role_id,
-                          status='active',
-                          updated_at=now()
-            RETURNING id
-            """,
-            [group_id, role_id, str(user_id)],
-        )
-        assigned = cur.fetchone() is not None
 
     if not assigned:
         messages.error(
