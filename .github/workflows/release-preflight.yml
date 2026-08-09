@@ -95,6 +95,7 @@ jobs:
             control.test_session_security_preflight \
             control.test_production_runtime_preflight \
             control.test_route_security_preflight \
+            control.test_users_admin_signup_boundary \
             geoflow_ops.test_employee_security_boundaries \
             geoflow_ops.test_tenant_security_method_boundaries \
             geoflow_ops.test_event_upload_route_boundaries \
