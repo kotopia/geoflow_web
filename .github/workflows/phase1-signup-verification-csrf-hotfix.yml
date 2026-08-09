@@ -6,6 +6,8 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/phase1-signup-verification-csrf-hotfix.yml
+      - control/views_signup.py
+      - control/test_signup_email_verification_route.py
   workflow_dispatch:
 
 permissions:
