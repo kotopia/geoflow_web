@@ -382,39 +382,57 @@ def users_assign_group_admin(request, user_id):
         messages.error(request, "그룹과 역할을 선택하세요.")
         return redirect("control:users_detail_admin", user_id=user_id)
 
-    with connections["default"].cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO user_group_map(
-                id, user_id, group_id, role_id, status, created_at, updated_at
+    with transaction.atomic(using="default"):
+        with connections["default"].cursor() as cur:
+            cur.execute(
+                """
+                WITH eligible AS (
+                    SELECT u.id AS user_id, g.id AS group_id, r.id AS role_id
+                      FROM users u
+                      JOIN groups g
+                        ON g.id=%s
+                       AND lower(COALESCE(g.status, ''))='active'
+                      JOIN roles r ON r.id=%s
+                     WHERE u.id=%s
+                       AND u.is_active=TRUE
+                       AND u.email_verified=TRUE
+                       AND u.password_hash IS NOT NULL
+                       AND length(trim(u.password_hash)) > 0
+                       AND (
+                           u.password_hash LIKE 'pbkdf2_sha256$%'
+                           OR u.password_hash LIKE 'bcrypt_sha256$%'
+                           OR u.password_hash LIKE '$2a$%'
+                           OR u.password_hash LIKE '$2b$%'
+                           OR u.password_hash LIKE '$2y$%'
+                       )
+                     FOR UPDATE OF u, g, r
+                ), updated AS (
+                    UPDATE user_group_map AS ugm
+                       SET role_id=eligible.role_id,
+                           status='active',
+                           updated_at=now()
+                      FROM eligible
+                     WHERE ugm.user_id=eligible.user_id
+                       AND ugm.group_id=eligible.group_id
+                    RETURNING ugm.id
+                ), inserted AS (
+                    INSERT INTO user_group_map(
+                        id, user_id, group_id, role_id, status, created_at, updated_at
+                    )
+                    SELECT gen_random_uuid(), eligible.user_id, eligible.group_id,
+                           eligible.role_id, 'active', now(), now()
+                      FROM eligible
+                     WHERE NOT EXISTS (SELECT 1 FROM updated)
+                    RETURNING id
+                )
+                SELECT id FROM updated
+                UNION ALL
+                SELECT id FROM inserted
+                LIMIT 1
+                """,
+                [group_id, role_id, str(user_id)],
             )
-            SELECT gen_random_uuid(), u.id, g.id, r.id, 'active', now(), now()
-              FROM users u
-              JOIN groups g
-                ON g.id=%s
-               AND lower(COALESCE(g.status, ''))='active'
-              JOIN roles r ON r.id=%s
-             WHERE u.id=%s
-               AND u.is_active=TRUE
-               AND u.email_verified=TRUE
-               AND u.password_hash IS NOT NULL
-               AND length(trim(u.password_hash)) > 0
-               AND (
-                   u.password_hash LIKE 'pbkdf2_sha256$%'
-                   OR u.password_hash LIKE 'bcrypt_sha256$%'
-                   OR u.password_hash LIKE '$2a$%'
-                   OR u.password_hash LIKE '$2b$%'
-                   OR u.password_hash LIKE '$2y$%'
-               )
-            ON CONFLICT (user_id, group_id)
-            DO UPDATE SET role_id=EXCLUDED.role_id,
-                          status='active',
-                          updated_at=now()
-            RETURNING id
-            """,
-            [group_id, role_id, str(user_id)],
-        )
-        assigned = cur.fetchone() is not None
+            assigned = cur.fetchone() is not None
 
     if not assigned:
         messages.error(
