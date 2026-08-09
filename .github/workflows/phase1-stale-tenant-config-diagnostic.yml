@@ -1,0 +1,294 @@
+name: Phase 1 stale tenant config diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-stale-tenant-config-diagnostic.yml
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  stale-tenant-config-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout reviewed release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only stale tenant configuration classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          service='geoflow-stabilized.service'
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || { echo 'stale_tenant_diag_blocker=stabilized_service_not_running'; exit 2; }
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || { echo 'stale_tenant_diag_blocker=service_working_directory_missing'; exit 2; }
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || { echo 'stale_tenant_diag_blocker=service_repo_missing'; exit 2; }
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'stale_tenant_diag_blocker=stabilized_venv_python_missing'; exit 2; }
+
+          # Intentionally never print hostnames, DB names/users/passwords, aliases,
+          # group/user identifiers or names, secret values, AWS account IDs or ARNs.
+          "$python" - "$repo" <<'PY'
+          import ipaddress
+          import os
+          import re
+          import socket
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          import psycopg2
+          from django.conf import settings
+          from django.db import connections
+
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import (
+              is_tenant_db_secret_reference,
+              resolve_tenant_db_password,
+          )
+
+          TESTISH = re.compile(r"(^|[^a-z0-9])(test|demo|sample|dev|dummy|temp|legacy|old)([^a-z0-9]|$)", re.I)
+
+          def text(value):
+              return str(value or "").strip()
+
+          def yes(value):
+              return "yes" if bool(value) else "no"
+
+          def is_active(row):
+              return text(getattr(row.group, "status", "")).lower() == "active"
+
+          def dns_resolves(host, port):
+              try:
+                  socket.getaddrinfo(text(host), int(port), type=socket.SOCK_STREAM)
+                  return True
+              except Exception:
+                  return False
+
+          def password_for(row):
+              raw = text(row.db_password)
+              if not raw:
+                  return ""
+              if is_tenant_db_secret_reference(raw):
+                  try:
+                      return resolve_tenant_db_password(raw)
+                  except Exception:
+                      return ""
+              return raw
+
+          def host_class(host):
+              value = text(host).lower().rstrip(".")
+              if not value:
+                  return "empty"
+              if value in {"localhost", "localhost.localdomain"}:
+                  return "localhost"
+              try:
+                  ipaddress.ip_address(value)
+                  return "ip_literal"
+              except ValueError:
+                  pass
+              if value.endswith(".rds.amazonaws.com"):
+                  if ".ap-northeast-2.rds.amazonaws.com" in value:
+                      return "rds_same_region"
+                  return "rds_other_region"
+              if value.endswith(".amazonaws.com"):
+                  return "aws_other"
+              if "." not in value:
+                  return "short_hostname"
+              return "custom_dns"
+
+          def age_bucket(created_at):
+              if not created_at:
+                  return "unknown"
+              from django.utils import timezone
+              days = max(0, (timezone.now() - created_at).days)
+              if days < 30:
+                  return "lt30d"
+              if days < 180:
+                  return "30to179d"
+              if days < 365:
+                  return "180to364d"
+              return "ge365d"
+
+          def classify_connect(row, host, port):
+              password = password_for(row)
+              if not password:
+                  return "password_unavailable"
+              try:
+                  conn = psycopg2.connect(
+                      dbname=row.db_name,
+                      user=row.db_user,
+                      password=password,
+                      host=host,
+                      port=int(port),
+                      sslmode="require",
+                      connect_timeout=6,
+                  )
+                  try:
+                      with conn.cursor() as cursor:
+                          cursor.execute("SELECT 1")
+                          value = cursor.fetchone()
+                          return "success" if value and value[0] == 1 else "query_failed"
+                  finally:
+                      conn.close()
+              except Exception as exc:
+                  code = text(getattr(exc, "pgcode", ""))
+                  msg = text(exc).lower()
+                  if code == "28P01" or "password authentication failed" in msg:
+                      return "authentication_failed"
+                  if code == "3D000" or ("database" in msg and "does not exist" in msg):
+                      return "database_missing"
+                  if code == "28000" or ("role" in msg and "does not exist" in msg):
+                      return "role_missing_or_auth"
+                  if "no pg_hba.conf entry" in msg:
+                      return "pg_hba"
+                  if "timeout" in msg or "timed out" in msg:
+                      return "timeout"
+                  if "connection refused" in msg:
+                      return "connection_refused"
+                  if "could not translate host name" in msg or "name or service not known" in msg:
+                      return "dns"
+                  if "ssl" in msg:
+                      return "ssl"
+                  return "other"
+
+          rows = list(
+              GroupDBConfig.objects.using("default")
+              .select_related("group")
+              .order_by("group_id")
+          )
+          active_rows = [row for row in rows if is_active(row)]
+          healthy_rows = [row for row in active_rows if dns_resolves(row.db_host, row.db_port)]
+          failed_rows = [row for row in active_rows if not dns_resolves(row.db_host, row.db_port)]
+
+          central_host = text(settings.DATABASES["default"].get("HOST"))
+          central_port = int(settings.DATABASES["default"].get("PORT") or 5432)
+
+          # Server catalog visibility is read-only. We only emit booleans/counts.
+          catalog_ok = True
+          db_exists = {}
+          role_exists = {}
+          membership = {}
+          verified_membership = {}
+          try:
+              with connections["default"].cursor() as cursor:
+                  for row in failed_rows:
+                      cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname=%s)", [row.db_name])
+                      db_exists[str(row.group_id)] = bool(cursor.fetchone()[0])
+                      cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=%s)", [row.db_user])
+                      role_exists[str(row.group_id)] = bool(cursor.fetchone()[0])
+                      cursor.execute(
+                          """
+                          SELECT COUNT(*)::int,
+                                 COUNT(*) FILTER (
+                                     WHERE ugm.status='active'
+                                       AND u.is_active=TRUE
+                                       AND u.email_verified=TRUE
+                                 )::int
+                            FROM user_group_map ugm
+                            JOIN users u ON u.id=ugm.user_id
+                           WHERE ugm.group_id=%s
+                          """,
+                          [str(row.group_id)],
+                      )
+                      total, verified = cursor.fetchone()
+                      membership[str(row.group_id)] = int(total or 0)
+                      verified_membership[str(row.group_id)] = int(verified or 0)
+          except Exception:
+              catalog_ok = False
+
+          print(f"stale_tenant_diag_active_configs={len(active_rows)}")
+          print(f"stale_tenant_diag_healthy_dns_configs={len(healthy_rows)}")
+          print(f"stale_tenant_diag_failed_dns_configs={len(failed_rows)}")
+          print(f"stale_tenant_diag_catalog_probe={ 'ok' if catalog_ok else 'error' }")
+          print(f"stale_tenant_diag_central_host_used_by_healthy={sum(1 for row in healthy_rows if text(row.db_host).lower() == central_host.lower())}")
+
+          for index, row in enumerate(failed_rows):
+              label = chr(ord('A') + index)
+              gid = str(row.group_id)
+              peer_same_db_name = sum(1 for peer in healthy_rows if text(peer.db_name) == text(row.db_name))
+              peer_same_db_user = sum(1 for peer in healthy_rows if text(peer.db_user) == text(row.db_user))
+              peer_same_identity = sum(
+                  1 for peer in healthy_rows
+                  if text(peer.db_name) == text(row.db_name) and text(peer.db_user) == text(row.db_user)
+              )
+              group_text = f"{text(row.group.code)} {text(row.group.name)}"
+              config_text = f"{text(row.db_alias)} {text(row.db_name)} {text(row.db_user)}"
+              connect_class = classify_connect(row, central_host, central_port)
+
+              print(f"stale_tenant_diag_{label}_host_class={host_class(row.db_host)}")
+              print(f"stale_tenant_diag_{label}_group_age={age_bucket(getattr(row.group, 'created_at', None))}")
+              print(f"stale_tenant_diag_{label}_group_testish={yes(TESTISH.search(group_text))}")
+              print(f"stale_tenant_diag_{label}_config_testish={yes(TESTISH.search(config_text))}")
+              print(f"stale_tenant_diag_{label}_membership_total={membership.get(gid, -1)}")
+              print(f"stale_tenant_diag_{label}_verified_active_membership={verified_membership.get(gid, -1)}")
+              print(f"stale_tenant_diag_{label}_db_exists_on_central_server={yes(db_exists.get(gid, False)) if catalog_ok else 'unknown'}")
+              print(f"stale_tenant_diag_{label}_role_exists_on_central_server={yes(role_exists.get(gid, False)) if catalog_ok else 'unknown'}")
+              print(f"stale_tenant_diag_{label}_healthy_peer_same_db_name={peer_same_db_name}")
+              print(f"stale_tenant_diag_{label}_healthy_peer_same_db_user={peer_same_db_user}")
+              print(f"stale_tenant_diag_{label}_healthy_peer_same_identity={peer_same_identity}")
+              print(f"stale_tenant_diag_{label}_central_host_connection={connect_class}")
+
+          print("phase1_stale_tenant_config_diagnostic_complete=yes")
+          PY
+          REMOTE
