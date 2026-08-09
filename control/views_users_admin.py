@@ -400,11 +400,11 @@ def users_assign_group_admin(request, user_id):
                AND u.password_hash IS NOT NULL
                AND length(trim(u.password_hash)) > 0
                AND (
-                   u.password_hash LIKE 'pbkdf2_sha256$%'
-                   OR u.password_hash LIKE 'bcrypt_sha256$%'
-                   OR u.password_hash LIKE '$2a$%'
-                   OR u.password_hash LIKE '$2b$%'
-                   OR u.password_hash LIKE '$2y$%'
+                   u.password_hash LIKE 'pbkdf2_sha256$%%'
+                   OR u.password_hash LIKE 'bcrypt_sha256$%%'
+                   OR u.password_hash LIKE '$2a$%%'
+                   OR u.password_hash LIKE '$2b$%%'
+                   OR u.password_hash LIKE '$2y$%%'
                )
             ON CONFLICT (user_id, group_id)
             DO UPDATE SET role_id=EXCLUDED.role_id,
