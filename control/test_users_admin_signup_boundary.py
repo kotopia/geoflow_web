@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,34 @@ from control.services.central_account_erasure_service import (
 
 
 CONTROL_DIR = Path(__file__).resolve().parent
+
+
+class _RoleAssignmentCursor:
+    def __init__(self, fetch_results):
+        self.fetch_results = list(fetch_results)
+        self.executions = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql, params=None):
+        self.executions.append((sql, list(params or [])))
+
+    def fetchone(self):
+        if not self.fetch_results:
+            return None
+        return self.fetch_results.pop(0)
+
+
+class _RoleAssignmentConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
 
 
 class UsersAdminSignupBoundaryTests(SimpleTestCase):
@@ -90,10 +119,109 @@ class UsersAdminSignupBoundaryTests(SimpleTestCase):
         self.assertIn("u.is_active=TRUE", source)
         self.assertIn("u.email_verified=TRUE", source)
         self.assertIn("u.password_hash IS NOT NULL", source)
-        self.assertIn("pbkdf2_sha256$%", source)
+        self.assertIn("pbkdf2_sha256$%%", source)
         self.assertIn("lower(COALESCE(g.status, ''))='active'", source)
+        self.assertIn("FOR UPDATE OF u", source)
         self.assertIn("RETURNING id", source)
         self.assertNotIn("get_or_create_user_by_email", source)
+
+    def test_manual_assignment_does_not_require_legacy_unique_constraint_or_pgcrypto(self):
+        source = (CONTROL_DIR / "views_users_admin.py").read_text(encoding="utf-8")
+        assignment_source = source.split("def users_assign_group_admin", 1)[1]
+        self.assertNotIn("ON CONFLICT", assignment_source)
+        self.assertNotIn("gen_random_uuid()", assignment_source)
+        self.assertIn("UPDATE user_group_map", assignment_source)
+        self.assertIn("INSERT INTO user_group_map", assignment_source)
+        self.assertIn("str(uuid4())", assignment_source)
+
+    def test_manual_assignment_inserts_when_membership_does_not_exist(self):
+        request = self.factory.post(
+            "/control/mgmt/users/assign/",
+            {"group_id": "group-1", "role_id": "role-1"},
+        )
+        cursor = _RoleAssignmentCursor(
+            [("eligible-user",), None, ("new-membership",)]
+        )
+        connection = _RoleAssignmentConnection(cursor)
+
+        with patch.object(
+            views_users_admin,
+            "connections",
+            {"default": connection},
+        ), patch.object(
+            views_users_admin.transaction,
+            "atomic",
+            return_value=nullcontext(),
+        ), patch.object(views_users_admin.messages, "success") as success:
+            response = unwrap(views_users_admin.users_assign_group_admin)(
+                request,
+                UUID(int=31),
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(cursor.executions), 3)
+        self.assertIn("FOR UPDATE OF u", cursor.executions[0][0])
+        self.assertIn("UPDATE user_group_map", cursor.executions[1][0])
+        self.assertIn("INSERT INTO user_group_map", cursor.executions[2][0])
+        success.assert_called_once()
+
+    def test_manual_assignment_updates_existing_membership_without_insert(self):
+        request = self.factory.post(
+            "/control/mgmt/users/assign/",
+            {"group_id": "group-1", "role_id": "role-2"},
+        )
+        cursor = _RoleAssignmentCursor(
+            [("eligible-user",), ("existing-membership",)]
+        )
+        connection = _RoleAssignmentConnection(cursor)
+
+        with patch.object(
+            views_users_admin,
+            "connections",
+            {"default": connection},
+        ), patch.object(
+            views_users_admin.transaction,
+            "atomic",
+            return_value=nullcontext(),
+        ), patch.object(views_users_admin.messages, "success"):
+            response = unwrap(views_users_admin.users_assign_group_admin)(
+                request,
+                UUID(int=32),
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(cursor.executions), 2)
+        self.assertIn("UPDATE user_group_map", cursor.executions[1][0])
+        self.assertNotIn(
+            "INSERT INTO user_group_map",
+            "\n".join(sql for sql, _ in cursor.executions),
+        )
+
+    def test_manual_assignment_fails_closed_when_account_is_ineligible(self):
+        request = self.factory.post(
+            "/control/mgmt/users/assign/",
+            {"group_id": "group-1", "role_id": "role-1"},
+        )
+        cursor = _RoleAssignmentCursor([None])
+        connection = _RoleAssignmentConnection(cursor)
+
+        with patch.object(
+            views_users_admin,
+            "connections",
+            {"default": connection},
+        ), patch.object(
+            views_users_admin.transaction,
+            "atomic",
+            return_value=nullcontext(),
+        ), patch.object(views_users_admin.messages, "error") as error:
+            response = unwrap(views_users_admin.users_assign_group_admin)(
+                request,
+                UUID(int=33),
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(cursor.executions), 1)
+        self.assertIn("유효한 그룹/역할", error.call_args.args[1])
 
     def test_join_request_detail_supports_both_schema_generations(self):
         source = (CONTROL_DIR / "views_users_admin.py").read_text(encoding="utf-8")
