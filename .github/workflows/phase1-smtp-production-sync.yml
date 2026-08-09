@@ -55,7 +55,10 @@ jobs:
           password = os.environ['SMTP_APP_PASSWORD']
           try:
               with smtplib.SMTP('smtp.naver.com', 587, timeout=20) as c:
-                  c.ehlo(); c.starttls(context=ssl.create_default_context()); c.ehlo(); c.login(user, password)
+                  c.ehlo()
+                  c.starttls(context=ssl.create_default_context())
+                  c.ehlo()
+                  c.login(user, password)
           except smtplib.SMTPAuthenticationError as exc:
               print(f"desired_smtp_code={getattr(exc, 'smtp_code', 'unknown')}")
               print('desired_smtp_result=authentication_failed')
@@ -88,19 +91,11 @@ jobs:
           printf '%s' "$SMTP_APP_PASSWORD" > "$tmpdir/password"
           chmod 600 "$tmpdir/user" "$tmpdir/password"
           remote_base="/tmp/geoflow-smtp-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          scp -q \
-            -i "$HOME/.ssh/geoflow_deploy_key" \
-            -P "$SSH_PORT" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
+          scp -q -i "$HOME/.ssh/geoflow_deploy_key" -P "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$tmpdir/user" "$SSH_USER@$SSH_HOST:${remote_base}.user"
-          scp -q \
-            -i "$HOME/.ssh/geoflow_deploy_key" \
-            -P "$SSH_PORT" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
+          scp -q -i "$HOME/.ssh/geoflow_deploy_key" -P "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$tmpdir/password" "$SSH_USER@$SSH_HOST:${remote_base}.password"
           echo "REMOTE_SECRET_BASE=$remote_base" >> "$GITHUB_ENV"
 
@@ -118,18 +113,22 @@ jobs:
             "$SSH_USER@$SSH_HOST" "REMOTE_SECRET_BASE='$REMOTE_SECRET_BASE' bash -s" <<'REMOTE'
           set -euo pipefail
           umask 077
+
           web_service='geoflow-stabilized.service'
           user_file="${REMOTE_SECRET_BASE}.user"
           password_file="${REMOTE_SECRET_BASE}.password"
           cleanup() { rm -f "$user_file" "$password_file"; }
-          trap cleanup EXIT
-
           fail() { echo "smtp_sync_blocker=$1"; exit 2; }
+
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
           [ -s "$user_file" ] || fail 'staged_user_missing'
           [ -s "$password_file" ] || fail 'staged_password_missing'
+
           active="$(systemctl show "$web_service" -p ActiveState --value 2>/dev/null || true)"
           sub="$(systemctl show "$web_service" -p SubState --value 2>/dev/null || true)"
           [ "$active" = active ] && [ "$sub" = running ] || fail 'web_service_not_running_before_sync'
+
           workdir="$(systemctl show "$web_service" -p WorkingDirectory --value 2>/dev/null || true)"
           [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
           repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -137,24 +136,46 @@ jobs:
           python="$repo/.venv/bin/python"
           [ -x "$python" ] || fail 'stabilized_venv_python_missing'
 
-          backup="$repo/.env.smtp-sync.${GITHUB_RUN_ID:-manual}.${GITHUB_RUN_ATTEMPT:-1}.bak"
+          backup="$(mktemp "$repo/.env.smtp-sync-backup.XXXXXX")"
           cp -p "$repo/.env" "$backup"
-          chmod 600 "$backup" || true
+          mutation_started=0
+
           rollback() {
-            cp -p "$backup" "$repo/.env"
-            systemctl restart "$web_service" >/dev/null 2>&1 || true
+            set +e
+            if [ "$mutation_started" -eq 1 ] && [ -f "$backup" ]; then
+              cp -p "$backup" "$repo/.env"
+              sudo -n systemctl restart "$web_service" >/dev/null 2>&1 || true
+              sleep 2
+            fi
+            rm -f "$backup"
+            cleanup
             echo 'smtp_sync_rollback_completed=yes'
           }
-          trap 'rc=$?; cleanup; if [ $rc -ne 0 ]; then rollback; fi; exit $rc' EXIT
 
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              rollback
+            else
+              rm -f "$backup"
+              cleanup
+            fi
+            exit "$rc"
+          }
+          trap on_exit EXIT
+
+          mutation_started=1
           "$python" - "$repo/.env" "$user_file" "$password_file" <<'PY'
           import os, sys
           from pathlib import Path
+
           env_path = Path(sys.argv[1])
           user = Path(sys.argv[2]).read_text().strip()
           password = Path(sys.argv[3]).read_text()
-          if not user or not password:
+          if not user or not password or '\n' in user or '\r' in user or '\n' in password or '\r' in password:
+              print('smtp_sync_server_config_valid=no')
               raise SystemExit(2)
+
           updates = {
               'EMAIL_HOST': 'smtp.naver.com',
               'EMAIL_PORT': '587',
@@ -168,7 +189,8 @@ jobs:
           for line in lines:
               stripped = line.lstrip()
               if not stripped or stripped.startswith('#') or '=' not in line:
-                  out.append(line); continue
+                  out.append(line)
+                  continue
               key = line.split('=', 1)[0].strip()
               if key in updates:
                   out.append(f'{key}={updates[key]}')
@@ -188,6 +210,7 @@ jobs:
           "$python" - "$repo/.env" <<'PY'
           import smtplib, ssl, sys
           from dotenv import dotenv_values
+
           values = dotenv_values(sys.argv[1])
           host = (values.get('EMAIL_HOST') or '').strip()
           port = int(values.get('EMAIL_PORT') or '0')
@@ -195,10 +218,14 @@ jobs:
           password = values.get('EMAIL_HOST_PASSWORD') or ''
           tls = str(values.get('EMAIL_USE_TLS') or '').strip().lower() in {'1','true','yes','on'}
           if host != 'smtp.naver.com' or port != 587 or not user or not password or not tls:
-              print('smtp_sync_server_config_valid=no'); raise SystemExit(2)
+              print('smtp_sync_server_config_valid=no')
+              raise SystemExit(2)
           try:
               with smtplib.SMTP(host, port, timeout=20) as c:
-                  c.ehlo(); c.starttls(context=ssl.create_default_context()); c.ehlo(); c.login(user, password)
+                  c.ehlo()
+                  c.starttls(context=ssl.create_default_context())
+                  c.ehlo()
+                  c.login(user, password)
           except smtplib.SMTPAuthenticationError as exc:
               print(f"smtp_sync_smtp_code={getattr(exc, 'smtp_code', 'unknown')}")
               print('smtp_sync_result=authentication_failed')
@@ -206,11 +233,13 @@ jobs:
           print('smtp_sync_result=ready')
           PY
 
-          systemctl restart "$web_service"
+          sudo -n systemctl restart "$web_service"
           sleep 2
           active="$(systemctl show "$web_service" -p ActiveState --value 2>/dev/null || true)"
           sub="$(systemctl show "$web_service" -p SubState --value 2>/dev/null || true)"
           [ "$active" = active ] && [ "$sub" = running ] || fail 'web_service_not_running_after_restart'
+
+          mutation_started=0
           rm -f "$backup"
           trap - EXIT
           cleanup
