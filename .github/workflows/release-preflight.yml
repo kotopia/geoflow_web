@@ -102,11 +102,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify public HTTPS and legal endpoints
+      - name: Verify public HTTPS, redirect, headers, and legal endpoints
         shell: bash
         run: |
           set -uo pipefail
           failures=0
+
           check_url() {
             label="$1"
             url="$2"
@@ -131,9 +132,67 @@ jobs:
               *) failures=$((failures + 1)) ;;
             esac
           }
-          check_url root https://geoflow.co.kr/
+
+          http_headers="$(mktemp)"
+          https_headers="$(mktemp)"
+          trap 'rm -f "$http_headers" "$https_headers"' EXIT
+
+          http_code="000"
+          if ! http_code="$(curl \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --dump-header "$http_headers" \
+            --write-out '%{http_code}' \
+            --connect-timeout 10 \
+            --max-time 20 \
+            http://geoflow.co.kr/)"; then
+            http_code="000"
+          fi
+          echo "http_root=$http_code"
+          case "$http_code" in
+            301|302|307|308) ;;
+            *) failures=$((failures + 1)) ;;
+          esac
+
+          if grep -Eqi '^location:[[:space:]]*https://geoflow\.co\.kr(/|[[:space:]]*$)' "$http_headers"; then
+            echo "http_redirect_https=yes"
+          else
+            echo "http_redirect_https=no"
+            failures=$((failures + 1))
+          fi
+
+          https_code="000"
+          if ! https_code="$(curl \
+            --proto '=https' \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --dump-header "$https_headers" \
+            --write-out '%{http_code}' \
+            --connect-timeout 10 \
+            --max-time 20 \
+            https://geoflow.co.kr/)"; then
+            https_code="000"
+          fi
+          echo "https_root=$https_code"
+          case "$https_code" in
+            2??|3??) ;;
+            *) failures=$((failures + 1)) ;;
+          esac
+
+          for header in strict-transport-security x-content-type-options x-frame-options referrer-policy; do
+            label="${header//-/_}"
+            if grep -qi "^${header}:" "$https_headers"; then
+              echo "${label}=present"
+            else
+              echo "${label}=missing"
+            fi
+          done
+
           check_url terms https://geoflow.co.kr/terms/
           check_url privacy https://geoflow.co.kr/privacy/
+
           if (( failures > 0 )); then
             echo "public_https_smoke_ready=no"
             exit 1
