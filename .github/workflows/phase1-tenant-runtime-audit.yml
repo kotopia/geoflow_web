@@ -1,6 +1,11 @@
 name: Phase 1 tenant runtime audit
 
 on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-tenant-runtime-audit.yml
   workflow_dispatch:
     inputs:
       ssh_port:
