@@ -1,0 +1,56 @@
+# GeoFlow Nginx application proxy example.
+# Review this against the actual TLS topology before installation.
+# This file assumes Nginx is the trusted public TLS terminator. If TLS terminates
+# at an ALB or another edge, do not copy the X-Forwarded-Proto handling blindly.
+
+map $request_uri $geoflow_access_loggable {
+    default 1;
+    ~^/control/set-password/ 0;
+    ~^/control/account/set-password/legacy-token/ 0;
+}
+
+upstream geoflow_app {
+    server unix:/run/geoflow/gunicorn.sock;
+}
+
+server {
+    listen 80;
+    server_name geoflow.co.kr;
+    return 301 https://geoflow.co.kr$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name geoflow.co.kr;
+
+    # Supply certificate configuration from the reviewed host/edge configuration.
+    # Never place private key material in this repository.
+
+    # Start with a short HSTS duration after HTTPS validation. Increase only after
+    # rollback and subdomain impact are understood.
+    add_header Strict-Transport-Security "max-age=300" always;
+
+    client_max_body_size 25m;
+
+    access_log /var/log/nginx/geoflow.access.log combined if=$geoflow_access_loggable;
+    error_log /var/log/nginx/geoflow.error.log warn;
+
+    location /static/ {
+        alias /srv/geoflow/current/staticfiles/;
+        access_log off;
+        expires 1h;
+    }
+
+    location / {
+        proxy_pass http://geoflow_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_redirect off;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 65s;
+    }
+}
