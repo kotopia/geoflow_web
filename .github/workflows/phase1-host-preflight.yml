@@ -1,0 +1,135 @@
+name: Phase 1 host preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  host-preflight:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port }}
+
+    steps:
+      - name: Checkout reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate reviewed candidate and connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          candidate_sha="$(git rev-parse HEAD)"
+          test "$candidate_sha" = "$GITHUB_SHA"
+          printf 'candidate_sha=%s\n' "$candidate_sha"
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only host discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          repo=/srv/geoflow/current
+          venv=/srv/geoflow/venv
+          env_file=/etc/geoflow/geoflow.env
+          layout_ok=1
+
+          echo 'host_preflight=yes'
+          printf 'kernel='; uname -srm
+
+          for cmd in git python3 systemctl nginx; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+              echo "command_${cmd}=yes"
+            else
+              echo "command_${cmd}=no"
+            fi
+          done
+
+          if [ -d "$repo/.git" ]; then
+            echo 'repo_present=yes'
+            printf 'deployed_sha='; git -C "$repo" rev-parse HEAD
+            printf 'deployed_branch='; git -C "$repo" rev-parse --abbrev-ref HEAD
+            dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+            echo "deployed_worktree_dirty_count=$dirty_count"
+          else
+            echo 'repo_present=no'
+            layout_ok=0
+          fi
+
+          if [ -x "$venv/bin/python" ]; then
+            echo 'venv_python_present=yes'
+            printf 'venv_python_version='; "$venv/bin/python" -c 'import platform; print(platform.python_version())'
+          else
+            echo 'venv_python_present=no'
+            layout_ok=0
+          fi
+
+          if [ -f "$env_file" ]; then
+            echo 'runtime_env_file_present=yes'
+          else
+            echo 'runtime_env_file_present=no'
+            layout_ok=0
+          fi
+
+          if command -v systemctl >/dev/null 2>&1; then
+            printf 'geoflow_service_load_state='; systemctl show geoflow -p LoadState --value 2>/dev/null || true
+            printf 'geoflow_service_active_state='; systemctl show geoflow -p ActiveState --value 2>/dev/null || true
+            printf 'geoflow_service_sub_state='; systemctl show geoflow -p SubState --value 2>/dev/null || true
+            printf 'geoflow_service_fragment='; systemctl show geoflow -p FragmentPath --value 2>/dev/null || true
+            printf 'geoflow_service_working_directory='; systemctl show geoflow -p WorkingDirectory --value 2>/dev/null || true
+          fi
+
+          if command -v nginx >/dev/null 2>&1; then
+            nginx -v 2>&1 || true
+            if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+              sudo -n nginx -t
+            else
+              nginx -t 2>&1 || echo 'nginx_config_test=permission_or_config_attention'
+            fi
+          fi
+
+          if [ "$layout_ok" -eq 1 ]; then
+            echo 'expected_host_layout=yes'
+          else
+            echo 'expected_host_layout=no'
+            exit 2
+          fi
+          REMOTE
