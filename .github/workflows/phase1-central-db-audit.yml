@@ -1,0 +1,126 @@
+name: Phase 1 central DB audit
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase1-central-db-audit.yml
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  central-db-audit:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout audit definition
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only central database audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          service='geoflow-stabilized.service'
+          fail() {
+            echo "central_db_audit_blocker=$1"
+            exit 2
+          }
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'stabilized_service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'stabilized_venv_python_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+
+          dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+          [ "$dirty_count" = '0' ] || fail 'production_worktree_dirty'
+
+          echo "deployed_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo "deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
+          echo 'central_db_audit_mode=read_only'
+
+          cd "$repo"
+
+          echo '--- control migration state ---'
+          "$python" manage.py showmigrations control --list --database=default
+
+          echo '--- control migration plan ---'
+          "$python" manage.py migrate control --plan --database=default
+
+          echo '--- signup launch schema audit ---'
+          signup_output="$("$python" manage.py check_signup_launch_schema 2>&1)" || fail 'signup_schema_audit_command_failed'
+          printf '%s\n' "$signup_output"
+
+          echo '--- tenant DB secret-reference audit ---'
+          tenant_secret_output="$("$python" manage.py check_tenant_db_secret_refs 2>&1)" || fail 'tenant_secret_ref_audit_command_failed'
+          printf '%s\n' "$tenant_secret_output"
+
+          if printf '%s\n' "$signup_output" | grep -Fq 'signup_schema_ready=yes'; then
+            echo 'b_signup_schema_ready=yes'
+          else
+            echo 'b_signup_schema_ready=no'
+          fi
+
+          if printf '%s\n' "$tenant_secret_output" | grep -Fq 'tenant_db_secret_refs_ready=yes'; then
+            echo 'b_tenant_secret_refs_ready=yes'
+          else
+            echo 'b_tenant_secret_refs_ready=no'
+          fi
+
+          echo 'phase1_b_central_db_audit_completed=yes'
+          REMOTE
