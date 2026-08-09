@@ -1,0 +1,173 @@
+name: Phase 1 SMTP production diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  smtp-production-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST" || { echo 'missing_secret=GEOFLOW_DEPLOY_HOST'; exit 2; }
+          test -n "$SSH_USER" || { echo 'missing_secret=GEOFLOW_DEPLOY_USER'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Diagnose production SMTP without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+
+          web_service='geoflow-stabilized.service'
+
+          fail() {
+            echo "smtp_diagnostic_blocker=$1"
+            exit 2
+          }
+
+          command -v git >/dev/null 2>&1 || fail 'git_missing'
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+
+          active="$(systemctl show "$web_service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$web_service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'web_service_not_running'
+
+          workdir="$(systemctl show "$web_service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'stabilized_venv_python_missing'
+
+          "$python" - "$repo/.env" <<'PY'
+          import errno
+          import smtplib
+          import socket
+          import ssl
+          import sys
+          from pathlib import Path
+          from dotenv import dotenv_values
+
+          env_path = Path(sys.argv[1])
+          values = dotenv_values(env_path)
+
+          host = (values.get('EMAIL_HOST') or 'smtp.naver.com').strip()
+          raw_port = (values.get('EMAIL_PORT') or '587').strip()
+          user = values.get('EMAIL_HOST_USER')
+          password = values.get('EMAIL_HOST_PASSWORD')
+          use_tls = str(values.get('EMAIL_USE_TLS') or 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+          print('smtp_diagnostic_env_present=yes')
+          print(f"smtp_diagnostic_host_is_naver={'yes' if host.lower() == 'smtp.naver.com' else 'no'}")
+          print(f"smtp_diagnostic_tls_enabled={'yes' if use_tls else 'no'}")
+
+          try:
+              port = int(raw_port)
+              if not 1 <= port <= 65535:
+                  raise ValueError
+          except ValueError:
+              print('smtp_diagnostic_result=invalid_port')
+              raise SystemExit(2)
+
+          print(f"smtp_diagnostic_port={port}")
+          print(f"smtp_diagnostic_user_present={'yes' if isinstance(user, str) and bool(user.strip()) else 'no'}")
+          print(f"smtp_diagnostic_password_present={'yes' if isinstance(password, str) and bool(password.strip()) else 'no'}")
+
+          if not isinstance(user, str) or not user.strip():
+              print('smtp_diagnostic_result=missing_user')
+              raise SystemExit(2)
+          if not isinstance(password, str) or not password.strip():
+              print('smtp_diagnostic_result=missing_password')
+              raise SystemExit(2)
+
+          try:
+              with smtplib.SMTP(host, port, timeout=20) as client:
+                  client.ehlo()
+                  if use_tls:
+                      client.starttls(context=ssl.create_default_context())
+                      client.ehlo()
+                  client.login(user.strip(), password)
+          except smtplib.SMTPAuthenticationError as exc:
+              code = getattr(exc, 'smtp_code', 'unknown')
+              print(f'smtp_diagnostic_smtp_code={code}')
+              print('smtp_diagnostic_result=authentication_failed')
+              raise SystemExit(2)
+          except smtplib.SMTPNotSupportedError:
+              print('smtp_diagnostic_result=starttls_not_supported')
+              raise SystemExit(2)
+          except smtplib.SMTPConnectError as exc:
+              code = getattr(exc, 'smtp_code', 'unknown')
+              print(f'smtp_diagnostic_smtp_code={code}')
+              print('smtp_diagnostic_result=smtp_connect_failed')
+              raise SystemExit(2)
+          except ssl.SSLError:
+              print('smtp_diagnostic_result=tls_failed')
+              raise SystemExit(2)
+          except socket.gaierror:
+              print('smtp_diagnostic_result=dns_failed')
+              raise SystemExit(2)
+          except (socket.timeout, TimeoutError):
+              print('smtp_diagnostic_result=timeout')
+              raise SystemExit(2)
+          except OSError as exc:
+              safe_errno = getattr(exc, 'errno', None)
+              if isinstance(safe_errno, int):
+                  print(f'smtp_diagnostic_errno={safe_errno}')
+              print('smtp_diagnostic_result=network_or_os_error')
+              raise SystemExit(2)
+          except smtplib.SMTPException:
+              print('smtp_diagnostic_result=smtp_protocol_error')
+              raise SystemExit(2)
+
+          print('smtp_diagnostic_result=ready')
+          PY
+          REMOTE
