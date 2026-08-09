@@ -98,6 +98,82 @@ jobs:
       - name: Strict repository release preflight
         run: python manage.py check_release_preflight --strict
 
+  migration-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: geoflow_ci
+          POSTGRES_PASSWORD: ci-postgres-placeholder
+          POSTGRES_DB: geoflow_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geoflow_ci -d geoflow_control"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DJANGO_SETTINGS_MODULE: geoflow_project.ci_migration_settings
+      DJANGO_SECRET_KEY: ci-migration-rehearsal-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
+      DJANGO_DEBUG: "0"
+      CENTRAL_DB_NAME: geoflow_control
+      CENTRAL_DB_USER: geoflow_ci
+      CENTRAL_DB_PASSWORD: ci-postgres-placeholder
+      CENTRAL_DB_HOST: 127.0.0.1
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: cheonan_db
+      TENANT_DB_USER: geoflow_ci
+      TENANT_DB_PASSWORD: ci-postgres-placeholder
+      TENANT_DB_HOST: 127.0.0.1
+      TENANT_DB_PORT: "5432"
+      ENABLE_TENANT_PROVISIONING: "0"
+
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install migration rehearsal dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev postgresql-client
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Bootstrap disposable legacy central and tenant databases
+        env:
+          PGPASSWORD: ci-postgres-placeholder
+        run: |
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U geoflow_ci -d geoflow_control \
+            -f scripts/ci/bootstrap_central_legacy_schema.sql
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U geoflow_ci -d postgres \
+            -c 'CREATE DATABASE cheonan_db;'
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U geoflow_ci -d cheonan_db \
+            -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
+
+      - name: Rehearse central migrations and launch schema audit
+        run: |
+          python manage.py migrate --plan --database=default
+          python manage.py migrate --database=default --noinput
+          python manage.py migrate --check --database=default
+          python manage.py check_signup_launch_schema --strict
+          python manage.py check_tenant_db_secret_refs --strict
+
+      - name: Rehearse tenant migrations
+        run: |
+          python manage.py migrate --plan --database=cheonan_db
+          python manage.py migrate --database=cheonan_db --noinput
+          python manage.py migrate --check --database=cheonan_db
+
   public-https-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 5
