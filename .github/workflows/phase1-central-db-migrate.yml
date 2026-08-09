@@ -1,0 +1,22 @@
+name: Phase 1 central DB migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  registration-only:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require reviewed release branch
+        run: |
+          echo 'This workflow is registered on main only so it stays visible in the Actions UI.'
+          echo 'Run it from release/stabilized-deploy to execute the protected Phase 1 central DB migration workflow.'
