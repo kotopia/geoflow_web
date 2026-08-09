@@ -4,9 +4,18 @@
 
 This repository is the clean working tree for the GeoFlow project.
 
-Primary working path:
+Canonical working location:
+
+- the repository root containing this `AGENTS.md`; do not assume one machine-specific absolute path
+
+Historical prior-workstation paths (context only, not canonical):
 
 - C:\GeoFlow\geoflow_web_commitA_clean
+- C:\GeoFlow\geoflow_web
+- C:\GeoFlow\_phase1_archive
+- C:\GeoFlow\backups
+
+A new workstation may use a different local clone path. Do not recreate historical dirty/archive paths merely to match an older PC.
 
 Current phase:
 
@@ -14,13 +23,7 @@ Current phase:
 - Focus: signup, identity, tenant authorization, privacy, and production-readiness hardening
 - Active branch: release/stabilized-deploy
 
-Important related paths:
-
-- Original dirty archive worktree: C:\GeoFlow\geoflow_web
-- Phase 1 archive: C:\GeoFlow\_phase1_archive
-- DB backups: C:\GeoFlow\backups
-
-Do not modify the original dirty worktree unless the user explicitly asks for it.
+Do not modify a historical/original dirty worktree unless the user explicitly asks for it.
 
 ## 2. Role of Codex
 
@@ -59,7 +62,7 @@ Never do any of the following unless the user explicitly approves that exact act
 - database DDL
 - schema changes
 - destructive file operations
-- modifying C:\GeoFlow\geoflow_web
+- modifying a historical/original dirty worktree
 - copying dirty files wholesale into the clean branch
 - printing .env
 - printing secrets
@@ -172,7 +175,7 @@ Process:
 1. Re-read the current remote branch HEAD before preparing changes.
 2. Inspect the smallest relevant code surface and identify fail-closed behavior.
 3. Prefer minimal repository-only fixes and regression tests over broad refactors.
-4. Validate syntax/static contracts without connecting to live DB/S3/SMTP/server infrastructure.
+4. Validate syntax/static contracts without connecting to live DB/S3/SMTP/server infrastructure unless the user explicitly approves that operational boundary.
 5. Before a remote ref update, re-read HEAD and require an exact fast-forward parent.
 6. Never force-update the branch.
 7. Keep migrations, live-data operations, deployment, and activation behind their own explicit approval boundary.
@@ -218,29 +221,3 @@ After each task, report:
 - whether any DB, migration, S3, SMTP, server, or deployment operation was performed
 
 Use concise Korean explanations for the user.
-
-## 11. Current Forbidden Areas Unless Explicitly Approved
-
-Do not modify these unless specifically included in the task scope:
-
-- control/
-- geoflow_project/settings.py
-- geoflow_project/asgi.py
-- geoflow_project/wsgi.py
-- manage.py
-- requirements.txt
-- migrations
-- .env
-- C:\GeoFlow\geoflow_web
-
-## 12. Current Deferred Items
-
-These items are deferred and must not be implemented unless explicitly approved:
-
-- employee_create.html address fields
-- orgunit logo/photo/document attachment feature
-- base_tenant.html global overlay cleanup
-- topbar avatar S3 presigned URL feature
-- tenant provisioning/deprovisioning
-- migration chain changes
-- DB schema changes
