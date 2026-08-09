@@ -35,3 +35,48 @@ class ObjectStorageRuntimePreflightTests(SimpleTestCase):
         )
         failures = {check.code for check in checks if not check.ready}
         self.assertEqual(failures, {"s3_bucket_configured", "s3_region"})
+
+    def test_role_only_guard_rejects_static_credentials_without_echoing_values(self):
+        access_key = "DO_NOT_PRINT_ACCESS_KEY"
+        secret_key = "DO_NOT_PRINT_SECRET_KEY"
+        checks = inspect_object_storage_runtime(
+            environ={
+                "AWS_S3_BUCKET": "private-geoflow-bucket",
+                "AWS_REGION": "ap-northeast-2",
+                "AWS_REQUIRE_ROLE_CREDENTIALS": "1",
+                "AWS_ACCESS_KEY_ID": access_key,
+                "AWS_SECRET_ACCESS_KEY": secret_key,
+            }
+        )
+        failures = {check.code for check in checks if not check.ready}
+        rendered = "\n".join(check.message for check in checks)
+        self.assertEqual(failures, {"aws_role_only_runtime"})
+        self.assertNotIn(access_key, rendered)
+        self.assertNotIn(secret_key, rendered)
+
+    def test_role_only_guard_passes_when_static_and_profile_sources_are_absent(self):
+        checks = inspect_object_storage_runtime(
+            environ={
+                "AWS_S3_BUCKET": "private-geoflow-bucket",
+                "AWS_REGION": "ap-northeast-2",
+                "AWS_REQUIRE_ROLE_CREDENTIALS": "true",
+            }
+        )
+        failures = {check.code for check in checks if not check.ready}
+        self.assertEqual(failures, set())
+        messages = {check.code: check.message for check in checks}
+        self.assertIn("enabled", messages["aws_role_only_runtime"].lower())
+
+    def test_role_only_guard_rejects_profile_source(self):
+        checks = inspect_object_storage_runtime(
+            environ={
+                "AWS_S3_BUCKET": "private-geoflow-bucket",
+                "AWS_REGION": "ap-northeast-2",
+                "AWS_REQUIRE_ROLE_CREDENTIALS": "yes",
+                "AWS_PROFILE": "legacy-profile",
+            }
+        )
+        failures = {check.code for check in checks if not check.ready}
+        rendered = "\n".join(check.message for check in checks)
+        self.assertEqual(failures, {"aws_role_only_runtime"})
+        self.assertNotIn("legacy-profile", rendered)
