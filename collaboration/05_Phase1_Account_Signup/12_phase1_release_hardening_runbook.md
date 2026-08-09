@@ -1,0 +1,61 @@
+# GeoFlow Phase 1 release hardening runbook
+
+Updated: 2026-08-09  
+Branch: `release/stabilized-deploy`
+
+## Purpose
+
+This runbook closes Phase 1 after the signup/security migration and tenant database credential transition. It separates repository-safe work from production-changing work and preserves a fail-closed path for tenant database credentials.
+
+## Current production baseline
+
+The guarded `Phase 1 tenant repair and secret transition v3` workflow completed successfully on run `31303140714` for commit `3c7097805cee9e3c37cf584b5581614282252f57`.
+
+Safe aggregate post-transition evidence from that run:
+
+- 5 tenant DB config rows were audited.
+- 3 groups are active and 2 are inactive/quarantined.
+- All 3 active configs use Secrets Manager references.
+- Both inactive configs have empty stored DB credentials.
+- Plaintext tenant DB credentials remaining in central config: 0.
+- All 3 active tenant database connections passed `SELECT 1` after restart.
+- `TENANT_DB_REQUIRE_SECRET_REFERENCES=1` was enforced.
+- The stabilized service recovered after restart and the post-restart audit passed.
+
+Do not re-run the historical transition workflows. They are one-shot mutation paths and are retained only as blocked historical entry points.
+
+## Repository hardening
+
+The release preflight must always execute `control.test_tenant_db_secret_ref_audit` together with the existing resolver and runtime security regression suite.
+
+Historical transition workflows v1, v2, and v3 must remain non-mutating/blocked. The supported production verification path after Phase 1 is `.github/workflows/phase1-tenant-runtime-audit.yml`.
+
+## Runtime audit procedure
+
+The runtime audit is read-only but uses the protected `production` environment because it connects to the reviewed host and reads production configuration.
+
+Expected invariants:
+
+1. Stabilized service is active and the internal HTTP health endpoint responds.
+2. `TENANT_DB_REQUIRE_SECRET_REFERENCES` is enabled.
+3. No active config has an empty password field.
+4. No non-empty tenant credential is plaintext.
+5. Every stored secret reference parses and resolves.
+6. Every active tenant database accepts the resolved credential and returns `SELECT 1`.
+7. Public terms and privacy endpoints return HTTP 200.
+
+The audit logs aggregate counters only. Do not add tenant IDs, group/user IDs, DB names, users, hosts, secret IDs, ARNs, account IDs, credentials, or exception text to workflow output.
+
+## Failure handling
+
+If the runtime audit fails, stop before any mutation. Diagnose only the failed invariant and prepare a separate reviewed remediation. Never make the audit self-healing.
+
+If strict reference mode causes an application-start failure in a future change, do not silently fall back to plaintext. Restore only through a separately reviewed production procedure after confirming the central DB credential-reference state and Secrets Manager availability.
+
+## Approval boundaries
+
+Repository-only changes, tests, documentation, and non-production CI may proceed without a production approval.
+
+The following remain explicit production gates: central/tenant DB mutation, `.env` modification, service restart, credential rotation, Secrets Manager mutation, RDS mutation, or any workflow that can perform those actions.
+
+Phase 1 closure requires a successful release preflight on the hardening commit and, when requested, one successful read-only tenant runtime audit on that same reviewed branch.

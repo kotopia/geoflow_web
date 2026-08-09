@@ -86,6 +86,7 @@ jobs:
         run: |
           python manage.py test \
             control.test_tenant_db_secret_resolver \
+            control.test_tenant_db_secret_ref_audit \
             control.test_database_runtime_preflight \
             control.test_web_security_preflight \
             control.test_session_security_preflight \
