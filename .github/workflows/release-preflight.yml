@@ -91,6 +91,7 @@ jobs:
             control.test_tenant_db_secret_resolver \
             control.test_tenant_db_secret_ref_audit \
             control.test_database_runtime_preflight \
+            control.test_object_storage_runtime_preflight \
             control.test_web_security_preflight \
             control.test_session_security_preflight \
             control.test_production_runtime_preflight \
