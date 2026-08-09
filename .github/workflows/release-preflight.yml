@@ -105,11 +105,13 @@ jobs:
       - name: Verify public HTTPS and legal endpoints
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          failures=0
           check_url() {
             label="$1"
             url="$2"
-            code="$(curl \
+            code="000"
+            if ! code="$(curl \
               --proto '=https' \
               --proto-redir '=https' \
               --location \
@@ -120,12 +122,20 @@ jobs:
               --write-out '%{http_code}' \
               --connect-timeout 10 \
               --max-time 20 \
-              "$url")"
+              "$url")"; then
+              code="000"
+            fi
+            echo "$label=$code"
             case "$code" in
-              2??|3??) echo "$label=$code" ;;
-              *) echo "$label=unhealthy"; exit 1 ;;
+              2??|3??) ;;
+              *) failures=$((failures + 1)) ;;
             esac
           }
           check_url root https://geoflow.co.kr/
           check_url terms https://geoflow.co.kr/terms/
           check_url privacy https://geoflow.co.kr/privacy/
+          if (( failures > 0 )); then
+            echo "public_https_smoke_ready=no"
+            exit 1
+          fi
+          echo "public_https_smoke_ready=yes"
