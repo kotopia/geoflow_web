@@ -53,7 +53,7 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Read-only host discovery
+      - name: Read-only adaptive host discovery
         shell: bash
         run: |
           set -euo pipefail
@@ -67,10 +67,8 @@ jobs:
             "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
 
-          repo=/srv/geoflow/current
-          venv=/srv/geoflow/venv
-          env_file=/etc/geoflow/geoflow.env
-          layout_ok=1
+          service=geoflow
+          discovery_ok=1
 
           echo 'host_preflight=yes'
           printf 'kernel='; uname -srm
@@ -80,56 +78,150 @@ jobs:
               echo "command_${cmd}=yes"
             else
               echo "command_${cmd}=no"
+              discovery_ok=0
             fi
           done
 
-          if [ -d "$repo/.git" ]; then
+          load_state="$(systemctl show "$service" -p LoadState --value 2>/dev/null || true)"
+          active_state="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub_state="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          result_state="$(systemctl show "$service" -p Result --value 2>/dev/null || true)"
+          exec_main_code="$(systemctl show "$service" -p ExecMainCode --value 2>/dev/null || true)"
+          exec_main_status="$(systemctl show "$service" -p ExecMainStatus --value 2>/dev/null || true)"
+          restart_count="$(systemctl show "$service" -p NRestarts --value 2>/dev/null || true)"
+          fragment="$(systemctl show "$service" -p FragmentPath --value 2>/dev/null || true)"
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          env_files="$(systemctl show "$service" -p EnvironmentFiles --value 2>/dev/null || true)"
+
+          echo "geoflow_service_load_state=${load_state:-unknown}"
+          echo "geoflow_service_active_state=${active_state:-unknown}"
+          echo "geoflow_service_sub_state=${sub_state:-unknown}"
+          echo "geoflow_service_result=${result_state:-unknown}"
+          echo "geoflow_service_exec_main_code=${exec_main_code:-unknown}"
+          echo "geoflow_service_exec_main_status=${exec_main_status:-unknown}"
+          echo "geoflow_service_restart_count=${restart_count:-unknown}"
+          echo "geoflow_service_fragment=${fragment:-unknown}"
+          echo "geoflow_service_working_directory=${workdir:-unknown}"
+
+          if [ "$load_state" != "loaded" ]; then
+            echo 'geoflow_service_loaded=no'
+            discovery_ok=0
+          else
+            echo 'geoflow_service_loaded=yes'
+          fi
+
+          if [ "$active_state" = "active" ] && [ "$sub_state" = "running" ]; then
+            echo 'geoflow_service_stable=yes'
+          else
+            echo 'geoflow_service_stable=no'
+            discovery_ok=0
+          fi
+
+          if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+            echo 'service_working_directory_present=yes'
+          else
+            echo 'service_working_directory_present=no'
+            discovery_ok=0
+          fi
+
+          repo_root=''
+          if [ -n "$workdir" ] && repo_root="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null)"; then
             echo 'repo_present=yes'
-            printf 'deployed_sha='; git -C "$repo" rev-parse HEAD
-            printf 'deployed_branch='; git -C "$repo" rev-parse --abbrev-ref HEAD
-            dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+            echo "repo_root=$repo_root"
+            printf 'deployed_sha='; git -C "$repo_root" rev-parse HEAD
+            printf 'deployed_branch='; git -C "$repo_root" rev-parse --abbrev-ref HEAD
+            dirty_count="$(git -C "$repo_root" status --porcelain | wc -l | tr -d ' ')"
             echo "deployed_worktree_dirty_count=$dirty_count"
+
+            origin="$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)"
+            case "$origin" in
+              https://github.com/kotopia/geoflow_web*|git@github.com:kotopia/geoflow_web*)
+                echo 'origin_matches_geoflow_repo=yes'
+                ;;
+              *)
+                echo 'origin_matches_geoflow_repo=no'
+                discovery_ok=0
+                ;;
+            esac
+
+            if [ -f "$repo_root/manage.py" ]; then
+              echo 'manage_py_present=yes'
+            else
+              echo 'manage_py_present=no'
+              discovery_ok=0
+            fi
           else
             echo 'repo_present=no'
-            layout_ok=0
+            discovery_ok=0
           fi
 
-          if [ -x "$venv/bin/python" ]; then
+          exec_raw="$(systemctl show "$service" -p ExecStart --value 2>/dev/null || true)"
+          exec_path="$(printf '%s\n' "$exec_raw" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -n 1)"
+          if [ -n "$exec_path" ]; then
+            echo "service_exec_path=$exec_path"
+          else
+            echo 'service_exec_path=unknown'
+          fi
+
+          venv_python=''
+          if [ -n "$exec_path" ] && printf '%s' "$exec_path" | grep -q '/bin/'; then
+            exec_venv="${exec_path%/bin/*}"
+            if [ -x "$exec_venv/bin/python" ]; then
+              venv_python="$exec_venv/bin/python"
+            fi
+          fi
+
+          if [ -z "$venv_python" ] && [ -n "$workdir" ]; then
+            parent_dir="$(dirname "$workdir")"
+            for candidate in \
+              "$workdir/.venv/bin/python" \
+              "$workdir/venv/bin/python" \
+              "$parent_dir/.venv/bin/python" \
+              "$parent_dir/venv/bin/python"; do
+              if [ -x "$candidate" ]; then
+                venv_python="$candidate"
+                break
+              fi
+            done
+          fi
+
+          if [ -n "$venv_python" ]; then
             echo 'venv_python_present=yes'
-            printf 'venv_python_version='; "$venv/bin/python" -c 'import platform; print(platform.python_version())'
+            echo "venv_python_path=$venv_python"
+            printf 'venv_python_version='; "$venv_python" -c 'import platform; print(platform.python_version())'
           else
             echo 'venv_python_present=no'
-            layout_ok=0
+            discovery_ok=0
           fi
 
-          if [ -f "$env_file" ]; then
-            echo 'runtime_env_file_present=yes'
+          if [ -n "$env_files" ]; then
+            echo 'service_environment_files_configured=yes'
           else
-            echo 'runtime_env_file_present=no'
-            layout_ok=0
+            echo 'service_environment_files_configured=no'
           fi
 
-          if command -v systemctl >/dev/null 2>&1; then
-            printf 'geoflow_service_load_state='; systemctl show geoflow -p LoadState --value 2>/dev/null || true
-            printf 'geoflow_service_active_state='; systemctl show geoflow -p ActiveState --value 2>/dev/null || true
-            printf 'geoflow_service_sub_state='; systemctl show geoflow -p SubState --value 2>/dev/null || true
-            printf 'geoflow_service_fragment='; systemctl show geoflow -p FragmentPath --value 2>/dev/null || true
-            printf 'geoflow_service_working_directory='; systemctl show geoflow -p WorkingDirectory --value 2>/dev/null || true
+          if [ -n "$workdir" ] && [ -f "$workdir/.env" ]; then
+            echo 'working_directory_dotenv_present=yes'
+          else
+            echo 'working_directory_dotenv_present=no'
           fi
 
           if command -v nginx >/dev/null 2>&1; then
             nginx -v 2>&1 || true
             if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
               sudo -n nginx -t
+              echo 'nginx_config_test=yes'
+            elif nginx -t >/dev/null 2>&1; then
+              echo 'nginx_config_test=yes'
             else
-              nginx -t 2>&1 || echo 'nginx_config_test=permission_or_config_attention'
+              echo 'nginx_config_test=permission_or_config_attention'
             fi
           fi
 
-          if [ "$layout_ok" -eq 1 ]; then
-            echo 'expected_host_layout=yes'
+          if [ "$discovery_ok" -eq 1 ]; then
+            echo 'adaptive_host_discovery_ready=yes'
           else
-            echo 'expected_host_layout=no'
+            echo 'adaptive_host_discovery_ready=no'
             exit 2
           fi
           REMOTE
