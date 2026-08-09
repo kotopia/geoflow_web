@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.http import HttpResponse
-from django.test import Client, RequestFactory, SimpleTestCase
+from django.test import Client, RequestFactory, SimpleTestCase, override_settings
 from django.urls import resolve, reverse
 
 from control import views_signup
@@ -69,6 +69,7 @@ class SignupEmailVerificationRouteTests(SimpleTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("login"))
 
+    @override_settings(SESSION_ENGINE="django.contrib.sessions.backends.signed_cookies")
     @patch.object(
         views_signup,
         "verify_signup_email_from_runtime_config",
