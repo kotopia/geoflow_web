@@ -12,10 +12,10 @@ from .views_legacy_password_security import legacy_password_setup_view
 from .views_users_admin import (
     users_list_admin,
     users_detail_admin,
-    users_assign_group_admin,
     users_delete_admin,
     dashboard,
 )
+from .views_user_assignment import users_assign_group_admin
 from .views_signup_admin import (
     signup_reviews_admin,
     signup_review_detail_admin,
