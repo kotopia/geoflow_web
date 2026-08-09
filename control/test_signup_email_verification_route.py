@@ -1,9 +1,10 @@
 from base64 import urlsafe_b64encode
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.conf import settings
+from django.http import HttpResponse
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
 
@@ -37,19 +38,16 @@ class SignupEmailVerificationRouteTests(SimpleTestCase):
 
     @patch.object(views_signup, "render")
     def test_get_renders_fragment_bridge_without_receiving_token(self, render):
-        response = MagicMock()
-        render.return_value = response
+        rendered_response = HttpResponse()
+        render.return_value = rendered_response
         request = self.factory.get("/signup/verify/#token=browser-only")
 
-        views_signup.signup_email_verification_view(request)
+        response = views_signup.signup_email_verification_view(request)
 
         context = render.call_args.args[2]
         self.assertEqual(context, {"auto_submit": True})
         self.assertNotIn("token", context)
-        response.__setitem__.assert_any_call(
-            "Referrer-Policy",
-            "no-referrer",
-        )
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
 
     @patch.object(views_signup.messages, "success")
     @patch.object(views_signup, "verify_signup_email_from_runtime_config")
@@ -71,13 +69,12 @@ class SignupEmailVerificationRouteTests(SimpleTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("login"))
 
-    @patch.object(views_signup.messages, "success")
-    @patch.object(views_signup, "verify_signup_email_from_runtime_config")
-    def test_only_verification_post_is_exempt_from_csrf(
-        self,
-        verify,
-        success,
-    ):
+    @patch.object(
+        views_signup,
+        "verify_signup_email_from_runtime_config",
+        side_effect=EmailVerificationRejected(),
+    )
+    def test_only_verification_post_is_exempt_from_csrf(self, verify):
         client = Client(enforce_csrf_checks=True)
 
         verify_response = client.post(
@@ -85,9 +82,8 @@ class SignupEmailVerificationRouteTests(SimpleTestCase):
             {"token": "opaque-test-token"},
         )
 
-        self.assertEqual(verify_response.status_code, 302)
+        self.assertEqual(verify_response.status_code, 400)
         verify.assert_called_once_with("opaque-test-token")
-        success.assert_called_once()
 
         for route_name in ("signup", "signup_resend"):
             with self.subTest(route_name=route_name):
@@ -105,8 +101,7 @@ class SignupEmailVerificationRouteTests(SimpleTestCase):
         verify,
         render,
     ):
-        response = MagicMock()
-        render.return_value = response
+        render.return_value = HttpResponse(status=400)
         request = self.factory.post(
             "/signup/verify/",
             {"token": "opaque-test-token"},
