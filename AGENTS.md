@@ -221,3 +221,29 @@ After each task, report:
 - whether any DB, migration, S3, SMTP, server, or deployment operation was performed
 
 Use concise Korean explanations for the user.
+
+## 11. Current Forbidden Areas Unless Explicitly Approved
+
+Do not modify these unless specifically included in the task scope:
+
+- control/
+- geoflow_project/settings.py
+- geoflow_project/asgi.py
+- geoflow_project/wsgi.py
+- manage.py
+- requirements.txt
+- migrations
+- .env
+- any historical/original dirty worktree
+
+## 12. Current Deferred Items
+
+These items are deferred and must not be implemented unless explicitly approved:
+
+- employee_create.html address fields
+- orgunit logo/photo/document attachment feature
+- base_tenant.html global overlay cleanup
+- topbar avatar S3 presigned URL feature
+- tenant provisioning/deprovisioning
+- migration chain changes
+- DB schema changes
