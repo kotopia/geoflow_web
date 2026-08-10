@@ -53,8 +53,8 @@ class AccountSecurityRolloutContractTests(unittest.TestCase):
         )
         self.assertIn("release_sha: ${{ github.sha }}", launcher)
         self.assertIn('ssh_port: "22"', launcher)
+        self.assertIn("secrets: inherit", launcher)
         self.assertNotIn("environment: production", launcher)
-        self.assertNotIn("secrets:", launcher)
 
     def test_rollout_reconciles_only_reviewed_dirty_shapes(self):
         script = self._script()
