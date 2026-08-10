@@ -87,18 +87,22 @@ def inspect_object_storage_runtime(
             "AWS_PROFILE",
             "AWS_DEFAULT_PROFILE",
             "AWS_SHARED_CREDENTIALS_FILE",
+            "AWS_CONFIG_FILE",
         )
     )
-    role_only_ready = not role_only_required or not static_or_profile_source_present
+    metadata_disabled = _enabled(environ, "AWS_EC2_METADATA_DISABLED")
+    role_only_ready = not role_only_required or (
+        not static_or_profile_source_present and not metadata_disabled
+    )
     checks.append(
         ObjectStorageRuntimeCheck(
             code="aws_role_only_runtime",
             ready=role_only_ready,
             message=(
-                "Role-only AWS runtime guard is enabled and no static/profile credential source is configured."
+                "Role-only AWS runtime guard is enabled with no static/profile credential source and EC2 metadata available."
                 if role_only_required and role_only_ready
                 else (
-                    "Remove static/profile AWS credential sources before enabling role-only runtime."
+                    "Remove static/profile AWS credential sources and do not disable EC2 metadata before enabling role-only runtime."
                     if role_only_required
                     else "Role-only AWS runtime guard is not enabled yet; compatibility mode remains active."
                 )
