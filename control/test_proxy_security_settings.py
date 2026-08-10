@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest import TestCase
 
 from geoflow_project.proxy_security_settings import (
@@ -5,6 +6,10 @@ from geoflow_project.proxy_security_settings import (
     PRELOAD_MINIMUM_SECONDS,
     load_proxy_security_settings,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DJANGO_SETTINGS = ROOT / "geoflow_project" / "settings.py"
 
 
 class ProxySecuritySettingsTests(TestCase):
@@ -84,3 +89,23 @@ class ProxySecuritySettingsTests(TestCase):
         )
         self.assertTrue(config.hsts_include_subdomains)
         self.assertTrue(config.hsts_preload)
+
+    def test_django_settings_wires_loader_and_runtime_mail_origin_from_environment(self):
+        text = DJANGO_SETTINGS.read_text()
+        self.assertIn("load_proxy_security_settings(os.environ)", text)
+        self.assertIn("SECURE_PROXY_SSL_HEADER = _PROXY_SECURITY.proxy_ssl_header", text)
+        self.assertIn("SECURE_SSL_REDIRECT = _PROXY_SECURITY.ssl_redirect", text)
+        self.assertIn("SECURE_HSTS_SECONDS = _PROXY_SECURITY.hsts_seconds", text)
+        self.assertIn(
+            "SECURE_HSTS_INCLUDE_SUBDOMAINS = _PROXY_SECURITY.hsts_include_subdomains",
+            text,
+        )
+        self.assertIn("SECURE_HSTS_PRELOAD = _PROXY_SECURITY.hsts_preload", text)
+        self.assertIn(
+            'SITE_ORIGIN = os.getenv("SITE_ORIGIN", "http://192.168.0.19:8000")',
+            text,
+        )
+        self.assertIn(
+            'DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@geoflow.local")',
+            text,
+        )
