@@ -109,12 +109,14 @@ def change_authenticated_central_password(
     current_password: str,
     new_password: str,
 ) -> CentralPasswordChangeResult:
-    """Change an active verified central user's password and invalidate bridge sessions.
+    """Change an active verified central user's password and invalidate security state.
 
     The central user row is locked for the current-password check and hash update.
-    Legacy reset/setup tokens, when that compatibility table exists, are consumed.
-    The authenticated Django bridge account must exist and receives a fresh unusable
-    password so sessions authenticated with its previous auth hash become invalid.
+    Outstanding secure reset tokens are revoked so links issued before the password
+    change cannot be replayed afterward. Legacy reset/setup tokens, when that
+    compatibility table exists, are consumed. The authenticated Django bridge
+    account must exist and receives a fresh unusable password so sessions
+    authenticated with its previous auth hash become invalid.
     """
 
     normalized_user_id = str(user_id or "").strip()
@@ -177,6 +179,19 @@ def change_authenticated_central_password(
             )
             if cursor.rowcount != 1:
                 raise CentralPasswordChangeError("central password update failed")
+
+            if _table_exists(cursor, "account_password_reset_tokens"):
+                cursor.execute(
+                    """
+                    UPDATE account_password_reset_tokens
+                       SET revoked_at=now()
+                     WHERE user_id=%s
+                       AND purpose='account_password_reset'
+                       AND consumed_at IS NULL
+                       AND revoked_at IS NULL
+                    """,
+                    [locked_user_id],
+                )
 
             if _table_exists(cursor, "password_reset_tokens"):
                 cursor.execute(
