@@ -43,6 +43,19 @@ class AccountPasswordResetDeliveryTests(TestCase):
         self.assertEqual(int(config.request_cooldown.total_seconds()), 600)
         self.assertGreater(config.lease_for, config.email_timeout)
 
+    def test_site_origin_environment_overrides_stale_setting_fallback(self):
+        settings_obj = SimpleNamespace(
+            SITE_ORIGIN="http://192.168.0.19:8000",
+            SIGNUP_EMAIL_VERIFICATION_OUTBOX_LEASE_SECONDS=120,
+            SIGNUP_EMAIL_VERIFICATION_OUTBOX_RETRY_SECONDS=300,
+            SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS=5,
+        )
+        config = load_account_password_reset_delivery_config(
+            settings_obj=settings_obj,
+            environ={"SITE_ORIGIN": "https://geoflow.co.kr"},
+        )
+        self.assertEqual(config.reset_url, "https://geoflow.co.kr/password/reset/")
+
     def test_config_rejects_non_http_reset_url(self):
         settings_obj = SimpleNamespace(SITE_ORIGIN="javascript:bad")
         with self.assertRaises(AccountPasswordResetConfigurationError):
