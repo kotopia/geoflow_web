@@ -56,4 +56,4 @@ jobs:
         run: |
           python manage.py test \
             control.test_static_tenant_alias_selection \
-            control.test_group_search_login_fix
+            control.test_tenant_connection_registration
