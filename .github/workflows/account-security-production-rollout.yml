@@ -1,0 +1,164 @@
+name: Account security production rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact reviewed release/stabilized-deploy commit to deploy
+        required: true
+        type: string
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DJANGO_SECRET_KEY: ci-account-rollout-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: testserver,geoflow.co.kr
+      CENTRAL_DB_NAME: ci-central
+      CENTRAL_DB_USER: ci-central-user
+      CENTRAL_DB_PASSWORD: ci-nonsecret-placeholder
+      CENTRAL_DB_HOST: central.example.internal
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: ci-tenant
+      TENANT_DB_USER: ci-tenant-user
+      TENANT_DB_PASSWORD: ci-nonsecret-placeholder
+      TENANT_DB_HOST: tenant.example.internal
+      TENANT_DB_PORT: "5432"
+      ENABLE_TENANT_PROVISIONING: "0"
+      AWS_REGION: ap-northeast-2
+      SITE_ORIGIN: https://geoflow.co.kr
+
+    steps:
+      - name: Checkout exact reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: release/stabilized-deploy
+          fetch-depth: 0
+
+      - name: Validate exact release commit and rollout script
+        shell: bash
+        env:
+          REQUESTED_RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          actual_sha="$(git rev-parse HEAD)"
+          test -n "$REQUESTED_RELEASE_SHA"
+          test "$actual_sha" = "$REQUESTED_RELEASE_SHA" || {
+            echo 'account_rollout_blocker=release_sha_not_current_head'
+            exit 2
+          }
+          bash -n scripts/ops/account_security_production_rollout.sh
+          echo "account_rollout_reviewed_sha=$actual_sha"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Validate account security code and rollout contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python manage.py check
+          python manage.py test \
+            control.test_account_password_change \
+            control.test_account_password_reset \
+            control.test_account_password_reset_token_service \
+            control.test_account_password_reset_delivery \
+            control.test_account_password_reset_schema_readiness \
+            control.test_account_security_rollout_contract
+
+  deploy-production:
+    needs: validate-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+      REQUESTED_RELEASE_SHA: ${{ inputs.release_sha }}
+
+    steps:
+      - name: Checkout exact reviewed release branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: release/stabilized-deploy
+          fetch-depth: 0
+
+      - name: Validate reviewed head and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$REQUESTED_RELEASE_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+          bash -n scripts/ops/account_security_production_rollout.sh
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Stage reviewed rollout script
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_stage="/tmp/geoflow-account-rollout-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sh"
+          scp -q \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/ops/account_security_production_rollout.sh \
+            "$SSH_USER@$SSH_HOST:$remote_stage"
+          echo "REMOTE_STAGE=$remote_stage" >> "$GITHUB_ENV"
+
+      - name: Reconcile reviewed hotfixes, migrate account schema, and deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" \
+            "chmod 700 '$REMOTE_STAGE' && bash '$REMOTE_STAGE' '$REQUESTED_RELEASE_SHA'; rc=\$?; rm -f '$REMOTE_STAGE'; exit \$rc"
