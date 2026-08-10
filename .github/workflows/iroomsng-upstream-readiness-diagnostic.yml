@@ -1,0 +1,134 @@
+name: iroomsng upstream readiness diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed host
+        required: false
+        default: "22"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-upstream-readiness:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout reviewed release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate reviewed branch and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST" || { echo 'iroomsng_diag_blocker=missing_ssh_host'; exit 2; }
+          test -n "$SSH_USER" || { echo 'iroomsng_diag_blocker=missing_ssh_user'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'iroomsng_diag_blocker=missing_ssh_key'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'iroomsng_diag_blocker=missing_known_hosts'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'iroomsng_diag_blocker=invalid_ssh_port'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Inspect iroomsng Nginx upstream and listener read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          command -v nginx >/dev/null 2>&1 || { echo 'iroomsng_diag_blocker=nginx_missing'; exit 2; }
+          command -v ss >/dev/null 2>&1 || { echo 'iroomsng_diag_blocker=ss_missing'; exit 2; }
+          sudo -n true >/dev/null 2>&1 || { echo 'iroomsng_diag_blocker=passwordless_sudo_required'; exit 2; }
+
+          nginx_dump="$(mktemp)"
+          trap 'rm -f "$nginx_dump"' EXIT
+          sudo -n nginx -T >"$nginx_dump" 2>/dev/null || { echo 'iroomsng_diag_blocker=nginx_config_read_failed'; exit 2; }
+
+          port="$({ python3 - "$nginx_dump" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          text = Path(sys.argv[1]).read_text(errors="replace")
+          # A narrow parser is sufficient for the currently deployed Nginx shape:
+          # inspect only server blocks naming iroomsng.kr and accept one loopback
+          # HTTP proxy target. Nothing from the effective config is printed.
+          blocks = []
+          depth = 0
+          start = None
+          for index, char in enumerate(text):
+              if char == '{':
+                  if depth == 0:
+                      start = index
+                  depth += 1
+              elif char == '}':
+                  depth -= 1
+                  if depth == 0 and start is not None:
+                      block = text[start:index + 1]
+                      if re.search(r"server_name\s+[^;]*\biroomsng\.kr\b", block, re.I):
+                          blocks.append(block)
+                      start = None
+          targets = []
+          for block in blocks:
+              targets.extend(
+                  re.findall(r"proxy_pass\s+http://127\.0\.0\.1:(\d{1,5})\s*;", block, re.I)
+              )
+          unique = sorted(set(targets))
+          if len(unique) != 1:
+              raise SystemExit(3)
+          print(unique[0])
+          PY
+          } 2>/dev/null)" || { echo 'iroomsng_diag_blocker=single_loopback_upstream_not_proven'; exit 2; }
+          printf '%s' "$port" | grep -Eq '^[0-9]{1,5}$' || { echo 'iroomsng_diag_blocker=invalid_upstream_port'; exit 2; }
+          echo 'iroomsng_diag_single_loopback_upstream=yes'
+
+          if ss -ltnH | awk '{print $4}' | grep -Eq "(^|:)${port}$"; then
+              echo 'iroomsng_diag_upstream_listener=yes'
+              local_code="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --header 'Host: iroomsng.kr' --connect-timeout 5 --max-time 10 "http://127.0.0.1:${port}/" || true)"
+              case "$local_code" in
+                2??|3??|4??) echo 'iroomsng_diag_local_upstream_http_reachable=yes' ;;
+                *) echo 'iroomsng_diag_local_upstream_http_reachable=no' ;;
+              esac
+          else
+              echo 'iroomsng_diag_upstream_listener=no'
+              echo 'iroomsng_diag_local_upstream_http_reachable=no'
+          fi
+          echo 'iroomsng_upstream_readiness_diagnostic_complete=yes'
+          REMOTE
+
+      - name: Verify current public root state
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --proto '=https' --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 10 --max-time 20 https://iroomsng.kr/ || true)"
+          echo "iroomsng_diag_public_root_code=$code"
+          echo 'iroomsng_upstream_public_probe_complete=yes'
