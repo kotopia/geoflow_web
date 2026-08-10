@@ -32,6 +32,7 @@ jobs:
       TENANT_DB_PORT: "5432"
       ENABLE_TENANT_PROVISIONING: "0"
       AWS_REGION: ap-northeast-2
+      SITE_ORIGIN: https://geoflow.co.kr
 
     steps:
       - name: Checkout reviewed branch
@@ -58,7 +59,18 @@ jobs:
         run: |
           python -m py_compile \
             control/services/central_password_change_service.py \
-            control/views_account_security.py
+            control/services/account_password_reset_token_service.py \
+            control/services/account_password_reset_delivery.py \
+            control/services/account_password_reset_outbox_service.py \
+            control/services/account_password_reset_service.py \
+            control/views_account_security.py \
+            control/views_password_reset.py \
+            control/management/commands/process_account_password_reset_outbox.py
 
       - name: Run account security regression tests
-        run: python manage.py test control.test_account_password_change
+        run: |
+          python manage.py test \
+            control.test_account_password_change \
+            control.test_account_password_reset \
+            control.test_account_password_reset_token_service \
+            control.test_account_password_reset_delivery
