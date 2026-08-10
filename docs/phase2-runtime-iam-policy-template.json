@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTenantDatabaseSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:${TENANT_SECRET_NAME_PREFIX}*"
+      ]
+    },
+    {
+      "Sid": "ListPrivateTenantPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${GEOFLOW_BUCKET_NAME}"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "tenants/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadWritePrivateTenantObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${GEOFLOW_BUCKET_NAME}/tenants/*"
+      ]
+    }
+  ]
+}
