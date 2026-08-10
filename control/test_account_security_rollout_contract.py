@@ -105,6 +105,13 @@ class AccountSecurityRolloutContractTests(unittest.TestCase):
         )
         self.assertIn("manage.py check_account_password_reset_schema --strict", script)
 
+    def test_inline_django_probes_configure_settings_module(self):
+        script = self._script()
+        probe = 'DJANGO_SETTINGS_MODULE=geoflow_project.settings "$python" - <<\'PY\''
+        self.assertEqual(script.count("django.setup()"), 2)
+        self.assertEqual(script.count(probe), 2)
+        self.assertNotIn('\n"$python" - <<\'PY\'\nimport django\ndjango.setup()', script)
+
     def test_public_smoke_preserves_auth_and_csrf_boundaries(self):
         script = self._script()
         self.assertIn("https://geoflow.co.kr/password/forgot/", script)
