@@ -1,0 +1,34 @@
+name: iroomsng legacy unit failure contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-legacy-unit-failure-diagnostic.yml
+      - control/test_iroomsng_legacy_unit_failure_contract.py
+      - .github/workflows/iroomsng-legacy-unit-failure-contract.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-legacy-unit-failure-diagnostic.yml
+      - control/test_iroomsng_legacy_unit_failure_contract.py
+      - .github/workflows/iroomsng-legacy-unit-failure-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-legacy-unit-failure-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate read-only bounded diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_iroomsng_legacy_unit_failure_contract
