@@ -110,6 +110,22 @@ class SqlCentralAccountErasureRepository:
             params,
         )
 
+    def _delete_account_password_reset_artifacts(self, cursor, *, user_id: str) -> None:
+        """Remove current reset-delivery and token rows owned by the central account.
+
+        Phase 2 password-reset tables use ON DELETE RESTRICT against users, so these
+        account-scoped authentication artifacts must be removed before either hard
+        deletion or audit-preserving anonymization. Each table is checked separately
+        to remain safe when code is deployed before the password-reset migration.
+        """
+
+        for table in (
+            "account_password_reset_delivery_outbox",
+            "account_password_reset_tokens",
+        ):
+            if self._table_exists(cursor, table):
+                cursor.execute(f"DELETE FROM {table} WHERE user_id=%s", [user_id])
+
     def _delete_legacy_password_tokens(self, cursor, *, user_id: str) -> None:
         for table in ("password_reset_tokens", "user_tokens"):
             if self._table_exists(cursor, table):
@@ -315,6 +331,7 @@ class SqlCentralAccountErasureRepository:
                 user_id=user_id,
                 email=email,
             )
+            self._delete_account_password_reset_artifacts(cursor, user_id=user_id)
             self._delete_legacy_password_tokens(cursor, user_id=user_id)
 
             if self._has_external_audit_reference(
