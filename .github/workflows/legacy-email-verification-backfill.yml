@@ -1,0 +1,186 @@
+name: Legacy email verification backfill
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/legacy-email-verification-backfill.yml
+
+permissions:
+  contents: read
+
+jobs:
+  backfill-legacy-email-verification:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: release/stabilized-deploy
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Guarded legacy email verification backfill
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          [ "$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)" = active ] || {
+            echo 'legacy_email_backfill_blocker=stabilized_service_not_active'
+            exit 2
+          }
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'legacy_email_backfill_blocker=runtime_python_missing'; exit 2; }
+
+          "$python" - "$repo" <<'PY'
+          import os
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          from django.db import connections, transaction
+
+          MAX_CANDIDATES = 100
+          MIGRATION_NAME = "0002_signup_core_schema"
+
+          ELIGIBLE_SQL = """
+              SELECT u.id
+                FROM users u
+               WHERE u.is_active = TRUE
+                 AND u.email_verified = FALSE
+                 AND u.created_at < %s
+                 AND u.password_hash IS NOT NULL
+                 AND length(trim(u.password_hash)) > 0
+                 AND (
+                     u.password_hash LIKE 'pbkdf2_sha256$%%'
+                     OR u.password_hash LIKE 'bcrypt_sha256$%%'
+                     OR u.password_hash LIKE '$2a$%%'
+                     OR u.password_hash LIKE '$2b$%%'
+                     OR u.password_hash LIKE '$2y$%%'
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1
+                       FROM signup_requests sr
+                      WHERE sr.user_id = u.id
+                 )
+                 AND EXISTS (
+                     SELECT 1
+                       FROM user_group_map ugm
+                       JOIN groups g ON g.id = ugm.group_id
+                      WHERE ugm.user_id = u.id
+                        AND ugm.status = 'active'
+                        AND lower(trim(COALESCE(g.status, ''))) = 'active'
+                 )
+          """
+
+          with connections["default"].cursor() as cur:
+              cur.execute("SELECT to_regclass('public.signup_requests')")
+              if not cur.fetchone()[0]:
+                  raise RuntimeError("signup_requests_missing")
+              cur.execute(
+                  """
+                  SELECT applied
+                    FROM django_migrations
+                   WHERE app='control' AND name=%s
+                   ORDER BY applied ASC
+                   LIMIT 1
+                  """,
+                  [MIGRATION_NAME],
+              )
+              row = cur.fetchone()
+              if not row or row[0] is None:
+                  raise RuntimeError("signup_schema_migration_timestamp_missing")
+              cutoff = row[0]
+              cur.execute("SELECT COUNT(*) FROM (" + ELIGIBLE_SQL + ") eligible", [cutoff])
+              candidate_count = int(cur.fetchone()[0])
+
+          print(f"legacy_email_backfill_candidates={candidate_count}")
+          if candidate_count > MAX_CANDIDATES:
+              raise RuntimeError("legacy_email_backfill_candidate_limit_exceeded")
+          if candidate_count == 0:
+              print("legacy_email_backfill_updated=0")
+              print("legacy_email_verification_backfill_complete=yes")
+              raise SystemExit(0)
+
+          with transaction.atomic(using="default"):
+              with connections["default"].cursor() as cur:
+                  cur.execute(ELIGIBLE_SQL + " FOR UPDATE", [cutoff])
+                  locked_ids = [row[0] for row in cur.fetchall()]
+                  if len(locked_ids) != candidate_count:
+                      raise RuntimeError("legacy_email_backfill_candidate_set_changed")
+
+                  cur.execute(
+                      """
+                      UPDATE users
+                         SET email_verified = TRUE,
+                             updated_at = now()
+                       WHERE id = ANY(%s)
+                         AND email_verified = FALSE
+                      RETURNING id
+                      """,
+                      [locked_ids],
+                  )
+                  updated_ids = [row[0] for row in cur.fetchall()]
+                  if len(updated_ids) != candidate_count:
+                      raise RuntimeError("legacy_email_backfill_update_count_mismatch")
+
+                  cur.execute("SELECT COUNT(*) FROM (" + ELIGIBLE_SQL + ") eligible", [cutoff])
+                  remaining = int(cur.fetchone()[0])
+                  if remaining != 0:
+                      raise RuntimeError("legacy_email_backfill_postcheck_failed")
+
+          print(f"legacy_email_backfill_updated={candidate_count}")
+          print("legacy_email_backfill_signup_request_exclusion=yes")
+          print("legacy_email_backfill_pre_schema_cutoff=yes")
+          print("legacy_email_backfill_active_membership_required=yes")
+          print("legacy_email_verification_backfill_complete=yes")
+          PY
+          REMOTE
