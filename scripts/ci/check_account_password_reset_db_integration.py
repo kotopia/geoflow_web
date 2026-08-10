@@ -88,7 +88,7 @@ def main() -> int:
             TEST_EMAIL.upper(),
             cooldown=timedelta(minutes=10),
             alias=alias,
-            clock=lambda: now + timedelta(seconds=1),
+            clock=lambda: now,
         )
         if duplicate:
             fail("cooldown_duplicate_was_queued")
@@ -96,7 +96,7 @@ def main() -> int:
         claim = claim_next_account_password_reset_delivery(
             lease_for=timedelta(seconds=120),
             alias=alias,
-            clock=lambda: now + timedelta(seconds=2),
+            clock=lambda: now,
             lease_factory=lambda: LEASE_ID,
         )
         if claim is None:
@@ -106,7 +106,7 @@ def main() -> int:
         if claim.attempt_count != 1:
             fail("outbox_attempt_count_mismatch")
 
-        process_clock = now + timedelta(seconds=3)
+        process_clock = now
         outcome = process_account_password_reset_delivery_claim(
             claim,
             reset_url="https://geoflow.co.kr/password/reset/",
