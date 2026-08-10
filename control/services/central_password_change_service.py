@@ -113,8 +113,8 @@ def change_authenticated_central_password(
 
     The central user row is locked for the current-password check and hash update.
     Legacy reset/setup tokens, when that compatibility table exists, are consumed.
-    The Django auth bridge password is replaced with a fresh unusable value so all
-    sessions authenticated with the previous bridge auth hash become invalid.
+    The authenticated Django bridge account must exist and receives a fresh unusable
+    password so sessions authenticated with its previous auth hash become invalid.
     """
 
     normalized_user_id = str(user_id or "").strip()
@@ -122,7 +122,6 @@ def change_authenticated_central_password(
         raise CentralPasswordChangeAuthenticationError("central identity unavailable")
 
     central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
-    bridge_rotated = False
     legacy_tokens_invalidated = False
 
     with transaction.atomic(using=central_alias):
@@ -145,12 +144,24 @@ def change_authenticated_central_password(
                 )
 
             locked_user_id, email, encoded_password = row
+            normalized_email = str(email or "").strip().lower()
             _validate_password_change(
-                email=str(email or "").strip().lower(),
+                email=normalized_email,
                 encoded_password=str(encoded_password or ""),
                 current_password=current_password,
                 new_password=new_password,
             )
+
+            User = get_user_model()
+            bridge_user = (
+                User.objects.using(central_alias)
+                .filter(username__iexact=normalized_email)
+                .first()
+            )
+            if bridge_user is None:
+                raise CentralPasswordChangeError(
+                    "authenticated bridge account unavailable"
+                )
 
             new_hash = make_password(new_password)
             cursor.execute(
@@ -179,19 +190,11 @@ def change_authenticated_central_password(
                 )
                 legacy_tokens_invalidated = True
 
-        User = get_user_model()
-        bridge_user = (
-            User.objects.using(central_alias)
-            .filter(username__iexact=str(email or "").strip())
-            .first()
-        )
-        if bridge_user is not None:
             bridge_user.set_unusable_password()
             bridge_user.save(using=central_alias, update_fields=["password"])
-            bridge_rotated = True
 
     return CentralPasswordChangeResult(
         user_id=str(locked_user_id),
-        bridge_session_hash_rotated=bridge_rotated,
+        bridge_session_hash_rotated=True,
         legacy_tokens_invalidated=legacy_tokens_invalidated,
     )
