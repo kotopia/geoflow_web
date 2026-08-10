@@ -1,0 +1,196 @@
+name: iroomsng legacy unit failure diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-legacy-unit-failure-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-legacy-unit-failure:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact triggering release SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Attribute legacy unit failure mode read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          command -v nginx >/dev/null 2>&1 || { echo 'iroomsng_legacy_blocker=nginx_missing'; exit 2; }
+          command -v python3 >/dev/null 2>&1 || { echo 'iroomsng_legacy_blocker=python_missing'; exit 2; }
+          command -v systemctl >/dev/null 2>&1 || { echo 'iroomsng_legacy_blocker=systemctl_missing'; exit 2; }
+          command -v journalctl >/dev/null 2>&1 || { echo 'iroomsng_legacy_blocker=journalctl_missing'; exit 2; }
+          sudo -n true >/dev/null 2>&1 || { echo 'iroomsng_legacy_blocker=passwordless_sudo_required'; exit 2; }
+
+          nginx_dump="$(mktemp)"
+          geo_journal="$(mktemp)"
+          gun_journal="$(mktemp)"
+          trap 'rm -f "$nginx_dump" "$geo_journal" "$gun_journal"' EXIT
+          sudo -n nginx -T >"$nginx_dump" 2>/dev/null || { echo 'iroomsng_legacy_blocker=nginx_config_read_failed'; exit 2; }
+
+          port="$({ python3 - "$nginx_dump" <<'PY'
+          import re, sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text(errors='replace')
+          out=[]
+          for match in re.finditer(r'(?m)^\s*server\s*\{', text):
+              start=text.find('{',match.start()); depth=0; end=None
+              if start < 0: continue
+              for i in range(start,len(text)):
+                  if text[i]=='{': depth += 1
+                  elif text[i]=='}':
+                      depth -= 1
+                      if depth == 0: end=i+1; break
+              if end is None: continue
+              block=text[match.start():end]
+              if re.search(r'server_name\s+[^;]*\biroomsng\.kr\b',block,re.I):
+                  out.extend(re.findall(r'proxy_pass\s+http://127\.0\.0\.1:(\d{1,5})\s*;',block,re.I))
+          unique=sorted(set(out))
+          if len(unique) != 1: raise SystemExit(3)
+          print(unique[0])
+          PY
+          } 2>/dev/null)" || { echo 'iroomsng_legacy_blocker=single_upstream_not_proven'; exit 2; }
+          printf '%s' "$port" | grep -Eq '^[0-9]{1,5}$' || { echo 'iroomsng_legacy_blocker=invalid_upstream'; exit 2; }
+
+          fragment_geo="$(systemctl show geoflow.service -p FragmentPath --value 2>/dev/null || true)"
+          fragment_gun="$(systemctl show gunicorn.service -p FragmentPath --value 2>/dev/null || true)"
+          exec_geo="$(systemctl show geoflow.service -p ExecStart --value 2>/dev/null || true)"
+          exec_gun="$(systemctl show gunicorn.service -p ExecStart --value 2>/dev/null || true)"
+          if [ -n "$fragment_geo" ] && [ "$fragment_geo" = "$fragment_gun" ]; then
+            echo 'iroomsng_legacy_units_same_fragment=yes'
+          else
+            echo 'iroomsng_legacy_units_same_fragment=no'
+          fi
+          if [ -n "$exec_geo" ] && [ "$exec_geo" = "$exec_gun" ]; then
+            echo 'iroomsng_legacy_units_same_execstart=yes'
+          else
+            echo 'iroomsng_legacy_units_same_execstart=no'
+          fi
+
+          inspect_unit() {
+            unit="$1"
+            journal_file="$2"
+            key="$3"
+            if ! systemctl cat "$unit" >/dev/null 2>&1; then
+              echo "iroomsng_legacy_${key}_present=no"
+              return
+            fi
+            echo "iroomsng_legacy_${key}_present=yes"
+            active="$(systemctl show "$unit" -p ActiveState --value 2>/dev/null || true)"
+            sub="$(systemctl show "$unit" -p SubState --value 2>/dev/null || true)"
+            result="$(systemctl show "$unit" -p Result --value 2>/dev/null || true)"
+            file_state="$(systemctl show "$unit" -p UnitFileState --value 2>/dev/null || true)"
+            restarts="$(systemctl show "$unit" -p NRestarts --value 2>/dev/null || true)"
+            main_status="$(systemctl show "$unit" -p ExecMainStatus --value 2>/dev/null || true)"
+            case "$active" in active|inactive|failed|activating|deactivating|reloading|maintenance) ;; *) active=unknown ;; esac
+            case "$sub" in running|dead|failed|exited|start|stop|auto-restart|listening|'') ;; *) sub=other ;; esac
+            case "$result" in success|exit-code|signal|timeout|resources|protocol|watchdog|start-limit-hit|'') ;; *) result=other ;; esac
+            case "$file_state" in enabled|enabled-runtime|disabled|static|masked|masked-runtime|indirect|generated|transient|bad|'') ;; *) file_state=other ;; esac
+            printf '%s' "$restarts" | grep -Eq '^[0-9]+$' || restarts=unknown
+            printf '%s' "$main_status" | grep -Eq '^[0-9]+$' || main_status=unknown
+            echo "iroomsng_legacy_${key}_active_state=${active:-unknown}"
+            echo "iroomsng_legacy_${key}_sub_state=${sub:-unknown}"
+            echo "iroomsng_legacy_${key}_result=${result:-unknown}"
+            echo "iroomsng_legacy_${key}_unit_file_state=${file_state:-unknown}"
+            echo "iroomsng_legacy_${key}_restart_count=${restarts}"
+            if [ "$main_status" = 0 ]; then echo "iroomsng_legacy_${key}_main_status_zero=yes"; else echo "iroomsng_legacy_${key}_main_status_zero=no"; fi
+
+            wd="$(systemctl show "$unit" -p WorkingDirectory --value 2>/dev/null || true)"
+            if [ -n "$wd" ] && [ -d "$wd" ]; then
+              echo "iroomsng_legacy_${key}_working_directory_exists=yes"
+              origin="$(git -C "$wd" remote get-url origin 2>/dev/null || true)"
+              case "$origin" in
+                https://github.com/kotopia/geoflow_web|https://github.com/kotopia/geoflow_web.git|git@github.com:kotopia/geoflow_web.git)
+                  echo "iroomsng_legacy_${key}_working_directory_is_geoflow_repo=yes" ;;
+                *) echo "iroomsng_legacy_${key}_working_directory_is_geoflow_repo=no" ;;
+              esac
+            else
+              echo "iroomsng_legacy_${key}_working_directory_exists=no"
+              echo "iroomsng_legacy_${key}_working_directory_is_geoflow_repo=no"
+            fi
+
+            exec_start="$(systemctl show "$unit" -p ExecStart --value 2>/dev/null || true)"
+            if printf '%s' "$exec_start" | grep -Eq "(127\\.0\\.0\\.1|0\\.0\\.0\\.0|localhost):${port}([^0-9]|$)"; then
+              echo "iroomsng_legacy_${key}_targets_iroomsng_upstream=yes"
+            else
+              echo "iroomsng_legacy_${key}_targets_iroomsng_upstream=no"
+            fi
+            if printf '%s' "$exec_start" | grep -Fqi 'geoflow_project'; then echo "iroomsng_legacy_${key}_exec_has_geoflow_project=yes"; else echo "iroomsng_legacy_${key}_exec_has_geoflow_project=no"; fi
+            if printf '%s' "$exec_start" | grep -Eqi 'iroomsng|webgis'; then echo "iroomsng_legacy_${key}_exec_has_iroomsng_marker=yes"; else echo "iroomsng_legacy_${key}_exec_has_iroomsng_marker=no"; fi
+            if systemctl cat "$unit" 2>/dev/null | grep -Eq '^[[:space:]]*EnvironmentFile='; then echo "iroomsng_legacy_${key}_has_environment_file=yes"; else echo "iroomsng_legacy_${key}_has_environment_file=no"; fi
+
+            sudo -n journalctl -u "$unit" -n 500 --no-pager >"$journal_file" 2>/dev/null || true
+            echo "iroomsng_legacy_${key}_journal_address_in_use=$(grep -Eci 'address already in use' "$journal_file" || true)"
+            echo "iroomsng_legacy_${key}_journal_module_import=$(grep -Eci 'ModuleNotFoundError|ImportError' "$journal_file" || true)"
+            echo "iroomsng_legacy_${key}_journal_no_such_file=$(grep -Eci 'No such file or directory' "$journal_file" || true)"
+            echo "iroomsng_legacy_${key}_journal_permission_denied=$(grep -Eci 'Permission denied' "$journal_file" || true)"
+            echo "iroomsng_legacy_${key}_journal_worker_boot=$(grep -Eci 'Worker failed to boot|HaltServer' "$journal_file" || true)"
+          }
+
+          inspect_unit geoflow.service "$geo_journal" geoflow
+          inspect_unit gunicorn.service "$gun_journal" gunicorn
+
+          if systemctl cat geoflow.service 2>/dev/null | grep -Fq 'gunicorn.service'; then echo 'iroomsng_legacy_geoflow_references_gunicorn=yes'; else echo 'iroomsng_legacy_geoflow_references_gunicorn=no'; fi
+          if systemctl cat gunicorn.service 2>/dev/null | grep -Fq 'geoflow.service'; then echo 'iroomsng_legacy_gunicorn_references_geoflow=yes'; else echo 'iroomsng_legacy_gunicorn_references_geoflow=no'; fi
+
+          if ss -ltnH | awk '{print $4}' | grep -Eq "(^|:)${port}$"; then echo 'iroomsng_legacy_listener_present=yes'; else echo 'iroomsng_legacy_listener_present=no'; fi
+          echo 'iroomsng_legacy_unit_failure_diagnostic_complete=yes'
+          REMOTE
+
+      - name: Verify public iroomsng root
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --proto '=https' --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 10 --max-time 20 https://iroomsng.kr/ || true)"
+          printf '%s' "$code" | grep -Eq '^[0-9]{3}$' || code=000
+          echo "iroomsng_legacy_public_root_code=$code"
