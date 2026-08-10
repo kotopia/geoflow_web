@@ -83,6 +83,18 @@ class ObjectStorageRuntimePreflightTests(SimpleTestCase):
         self.assertEqual(failures, {"aws_role_only_runtime"})
         self.assertNotIn("legacy-profile", rendered)
 
+    def test_role_only_guard_rejects_disabled_ec2_metadata(self):
+        checks = inspect_object_storage_runtime(
+            environ={
+                "AWS_S3_BUCKET": "private-geoflow-bucket",
+                "AWS_REGION": "ap-northeast-2",
+                "AWS_REQUIRE_ROLE_CREDENTIALS": "1",
+                "AWS_EC2_METADATA_DISABLED": "true",
+            }
+        )
+        failures = {check.code for check in checks if not check.ready}
+        self.assertEqual(failures, {"aws_role_only_runtime"})
+
     def test_phase2_runtime_probe_is_present_and_python_syntax_is_valid(self):
         probe = Path(__file__).resolve().parents[1] / "scripts" / "ops" / "phase2_role_runtime_probe.py"
         self.assertTrue(probe.is_file())
