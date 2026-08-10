@@ -8,6 +8,13 @@ on:
         required: false
         default: "22"
         type: string
+  workflow_call:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed host
+        required: false
+        default: "22"
+        type: string
 
 permissions:
   contents: read
