@@ -1,0 +1,282 @@
+name: Cheonan authorization remediation
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-authorization-remediation.yml
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  cheonan-authorization-remediation:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout reviewed release candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate reviewed branch and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Guarded Cheonan central metadata remediation
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          [ "$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)" = active ] || {
+            echo 'cheonan_remediation_blocker=stabilized_service_not_active'
+            exit 2
+          }
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'cheonan_remediation_blocker=runtime_python_missing'; exit 2; }
+
+          "$python" - "$repo" <<'PY'
+          import hmac
+          import os
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          import psycopg2
+          from django.conf import settings
+          from django.db import connections, transaction
+
+          from control.services.tenant_db_secret_resolver import resolve_tenant_db_password
+
+          TARGET_ALIAS = "cheonan_db"
+
+          def text(value):
+              return str(value or "").strip()
+
+          def connect_ok(name, user, password, host, port):
+              if not all(text(v) for v in (name, user, password, host, port)):
+                  return False
+              try:
+                  conn = psycopg2.connect(
+                      dbname=name,
+                      user=user,
+                      password=password,
+                      host=host,
+                      port=port,
+                      sslmode="require",
+                      connect_timeout=8,
+                  )
+                  try:
+                      with conn.cursor() as cur:
+                          cur.execute("SELECT 1")
+                          row = cur.fetchone()
+                          return bool(row and row[0] == 1)
+                  finally:
+                      conn.close()
+              except Exception:
+                  return False
+
+          static = settings.DATABASES.get(TARGET_ALIAS)
+          if not isinstance(static, dict):
+              raise SystemExit("cheonan_remediation_blocker=static_alias_missing")
+
+          static_name = static.get("NAME")
+          static_host = static.get("HOST")
+          static_port = static.get("PORT")
+          static_user = static.get("USER")
+          static_password = static.get("PASSWORD")
+          if not all(text(v) for v in (static_name, static_host, static_port, static_user, static_password)):
+              raise SystemExit("cheonan_remediation_blocker=static_config_incomplete")
+          if not connect_ok(static_name, static_user, static_password, static_host, static_port):
+              raise SystemExit("cheonan_remediation_blocker=static_alias_not_connectable")
+
+          with connections["default"].cursor() as cur:
+              cur.execute(
+                  """
+                  SELECT g.id::text, g.status, c.db_name, c.db_host, c.db_port,
+                         c.db_user, c.db_password
+                    FROM group_db_config c
+                    JOIN groups g ON g.id = c.group_id
+                   WHERE c.db_alias = %s
+                  """,
+                  [TARGET_ALIAS],
+              )
+              rows = cur.fetchall()
+          if len(rows) != 1:
+              raise SystemExit("cheonan_remediation_blocker=expected_single_config")
+
+          group_id, old_status, old_name, old_host, old_port, old_user, old_password_ref = rows[0]
+          if text(old_status).lower() == "active":
+              raise SystemExit("cheonan_remediation_blocker=group_already_active_unexpected")
+          if text(old_host).lower() != text(static_host).lower() or text(old_port) != text(static_port):
+              raise SystemExit("cheonan_remediation_blocker=host_or_port_mismatch")
+          if text(old_name) == text(static_name) and text(old_user) == text(static_user):
+              raise SystemExit("cheonan_remediation_blocker=metadata_mismatch_not_reproduced")
+
+          try:
+              resolved_stored_password = resolve_tenant_db_password(old_password_ref)
+          except Exception:
+              raise SystemExit("cheonan_remediation_blocker=stored_password_unresolvable")
+          if not hmac.compare_digest(text(resolved_stored_password), text(static_password)):
+              raise SystemExit("cheonan_remediation_blocker=stored_password_not_static_password")
+
+          with connections["default"].cursor() as cur:
+              cur.execute(
+                  """
+                  SELECT COUNT(*) FILTER (WHERE ugm.status='active'),
+                         COUNT(*) FILTER (
+                           WHERE ugm.status='active'
+                             AND u.is_active=TRUE
+                             AND u.email_verified=TRUE
+                         ),
+                         COUNT(*) FILTER (
+                           WHERE ugm.status='active'
+                             AND NOT EXISTS (
+                               SELECT 1 FROM role_permissions rp
+                                WHERE rp.role_id=ugm.role_id
+                             )
+                         )
+                    FROM user_group_map ugm
+                    JOIN users u ON u.id=ugm.user_id
+                   WHERE ugm.group_id=%s
+                  """,
+                  [group_id],
+              )
+              active_memberships, serving_memberships, permissionless_memberships = cur.fetchone()
+          if int(active_memberships) < 1 or int(serving_memberships) < 1:
+              raise SystemExit("cheonan_remediation_blocker=no_serving_membership")
+          if int(permissionless_memberships) != 0:
+              raise SystemExit("cheonan_remediation_blocker=permissionless_active_membership")
+
+          with transaction.atomic(using="default"):
+              with connections["default"].cursor() as cur:
+                  cur.execute(
+                      "SELECT status FROM groups WHERE id=%s FOR UPDATE",
+                      [group_id],
+                  )
+                  locked = cur.fetchone()
+                  if not locked or text(locked[0]).lower() == "active":
+                      raise RuntimeError("group state changed during remediation")
+
+                  cur.execute(
+                      """
+                      UPDATE groups
+                         SET status='active', updated_at=now()
+                       WHERE id=%s
+                      """,
+                      [group_id],
+                  )
+                  if cur.rowcount != 1:
+                      raise RuntimeError("group update did not affect one row")
+
+                  cur.execute(
+                      """
+                      UPDATE group_db_config
+                         SET db_name=%s,
+                             db_host=%s,
+                             db_port=%s,
+                             db_user=%s
+                       WHERE group_id=%s
+                         AND db_alias=%s
+                      """,
+                      [static_name, static_host, static_port, static_user, group_id, TARGET_ALIAS],
+                  )
+                  if cur.rowcount != 1:
+                      raise RuntimeError("config update did not affect one row")
+
+              if not connect_ok(
+                  static_name,
+                  static_user,
+                  resolved_stored_password,
+                  static_host,
+                  static_port,
+              ):
+                  raise RuntimeError("aligned config cannot connect")
+
+          with connections["default"].cursor() as cur:
+              cur.execute(
+                  """
+                  SELECT g.status, c.db_name, c.db_host, c.db_port, c.db_user, c.db_password
+                    FROM group_db_config c
+                    JOIN groups g ON g.id=c.group_id
+                   WHERE c.group_id=%s AND c.db_alias=%s
+                  """,
+                  [group_id, TARGET_ALIAS],
+              )
+              verified = cur.fetchone()
+
+          if not verified or text(verified[0]).lower() != "active":
+              raise SystemExit("cheonan_remediation_blocker=post_group_not_active")
+          if text(verified[1]) != text(static_name):
+              raise SystemExit("cheonan_remediation_blocker=post_name_mismatch")
+          if text(verified[2]).lower() != text(static_host).lower():
+              raise SystemExit("cheonan_remediation_blocker=post_host_mismatch")
+          if text(verified[3]) != text(static_port):
+              raise SystemExit("cheonan_remediation_blocker=post_port_mismatch")
+          if text(verified[4]) != text(static_user):
+              raise SystemExit("cheonan_remediation_blocker=post_user_mismatch")
+          try:
+              post_password = resolve_tenant_db_password(verified[5])
+          except Exception:
+              raise SystemExit("cheonan_remediation_blocker=post_password_unresolvable")
+          if not connect_ok(verified[1], verified[4], post_password, verified[2], verified[3]):
+              raise SystemExit("cheonan_remediation_blocker=post_config_not_connectable")
+
+          print("cheonan_remediation_group_active=yes")
+          print("cheonan_remediation_dropdown_eligible=yes")
+          print("cheonan_remediation_config_aligned=yes")
+          print("cheonan_remediation_config_connects=yes")
+          print(f"cheonan_remediation_active_memberships={int(active_memberships)}")
+          print(f"cheonan_remediation_serving_memberships={int(serving_memberships)}")
+          print("cheonan_authorization_remediation_complete=yes")
+          PY
+          REMOTE
