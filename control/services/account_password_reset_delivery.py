@@ -148,9 +148,12 @@ def load_account_password_reset_delivery_config(
                     (parts.scheme, parts.netloc, "/password/reset/", "", "")
                 )
     if not reset_url:
-        site_origin = str(
-            getattr(settings_obj, "SITE_ORIGIN", "") or ""
-        ).strip().rstrip("/")
+        site_origin_value = _setting_or_env(
+            settings_obj,
+            environ,
+            "SITE_ORIGIN",
+        )
+        site_origin = str(site_origin_value or "").strip().rstrip("/")
         if site_origin:
             reset_url = f"{site_origin}/password/reset/"
     if not isinstance(reset_url, str):
