@@ -6,6 +6,7 @@ from django.urls import path, include
 from control import views_auth
 from control import views_signup
 from control import views_legal
+from control import views_password_reset
 from control.views_login_security import login_view
 
 urlpatterns = [
@@ -25,6 +26,17 @@ urlpatterns = [
         'signup/verify/',
         views_signup.signup_email_verification_view,
         name='signup_verify',
+    ),
+
+    path(
+        'password/forgot/',
+        views_password_reset.forgot_password_view,
+        name='password_forgot',
+    ),
+    path(
+        'password/reset/',
+        views_password_reset.reset_password_view,
+        name='password_reset',
     ),
 
     path('control/', include(('control.urls', 'control'), namespace='control')),
