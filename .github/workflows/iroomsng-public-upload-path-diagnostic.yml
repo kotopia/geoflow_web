@@ -1,0 +1,74 @@
+name: iroomsng public upload path diagnostic
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-public-upload-path-diagnostic.yml
+      - control/test_iroomsng_public_upload_path_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-upload-path-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate diagnostic contract
+        run: python -m unittest control.test_iroomsng_public_upload_path_contract
+
+      - name: Probe public root and non-uploading POST boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          root_code="$(curl \
+            --proto '=https' \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --connect-timeout 10 \
+            --max-time 20 \
+            https://iroomsng.kr/)"
+          echo "iroomsng_public_root_code=$root_code"
+
+          # Intentionally omit the file. The legacy view validates layer/object/file
+          # before calling its S3 helper, so a 400 proves the request reached Django
+          # without creating an object or uploading anything.
+          upload_boundary_code="$(curl \
+            --proto '=https' \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --request POST \
+            --data-urlencode 'layer_name=diagnostic' \
+            --data-urlencode 'object_id=diagnostic' \
+            --connect-timeout 10 \
+            --max-time 20 \
+            https://iroomsng.kr/api/upload-photo/)"
+          echo "iroomsng_upload_boundary_without_file_code=$upload_boundary_code"
+
+          case "$root_code" in
+            2??|3??) echo 'iroomsng_public_root_reachable=yes' ;;
+            *) echo 'iroomsng_public_root_reachable=no' ;;
+          esac
+
+          if [ "$upload_boundary_code" = "400" ]; then
+            echo 'iroomsng_upload_route_reaches_application=yes'
+            echo 'iroomsng_upload_route_upstream_502_without_file=no'
+          elif [ "$upload_boundary_code" = "502" ]; then
+            echo 'iroomsng_upload_route_reaches_application=no'
+            echo 'iroomsng_upload_route_upstream_502_without_file=yes'
+          else
+            echo 'iroomsng_upload_route_reaches_application=indeterminate'
+            echo 'iroomsng_upload_route_upstream_502_without_file=no'
+          fi
+          echo 'iroomsng_public_upload_path_diagnostic_complete=yes'
