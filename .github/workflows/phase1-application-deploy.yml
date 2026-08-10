@@ -6,6 +6,8 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/phase1-application-deploy.yml
+      - geoflow_ops/security_views.py
+      - geoflow_ops/services/contract_project_pair.py
   workflow_dispatch:
     inputs:
       ssh_port:
@@ -30,14 +32,17 @@ jobs:
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
 
     steps:
-      - name: Checkout reviewed release candidate
+      - name: Checkout exact triggering release candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
 
       - name: Validate reviewed candidate and connection inputs
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
           candidate_sha="$(git rev-parse HEAD)"
           test "$candidate_sha" = "$GITHUB_SHA"
           printf 'candidate_sha=%s\n' "$candidate_sha"
