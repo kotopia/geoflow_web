@@ -4,20 +4,42 @@ from unittest import TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "iroomsng-upstream-readiness-diagnostic.yml"
+LAUNCHER = ROOT / ".github" / "workflows" / "iroomsng-upstream-readiness-launcher.yml"
 
 
 class IroomsngUpstreamReadinessContractTests(TestCase):
     def _text(self) -> str:
         return WORKFLOW.read_text()
 
-    def test_diagnostic_is_manual_release_only_and_production_gated(self):
+    def _launcher(self) -> str:
+        return LAUNCHER.read_text()
+
+    def test_diagnostic_is_manual_reusable_release_only_and_production_gated(self):
         text = self._text()
         self.assertIn("workflow_dispatch:", text)
-        self.assertNotIn("\n  push:", text)
-        self.assertNotIn("\n  pull_request:", text)
+        self.assertIn("workflow_call:", text)
+        self.assertNotIn("\n  push:\n", text)
+        self.assertNotIn("\n  pull_request:\n", text)
         self.assertIn("github.ref_name == 'release/stabilized-deploy'", text)
         self.assertIn("environment: production", text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', text)
+
+    def test_launcher_creates_one_gated_run_only_when_its_own_file_changes(self):
+        text = self._launcher()
+        self.assertIn("\n  push:\n", text)
+        self.assertIn("      - release/stabilized-deploy", text)
+        self.assertIn(
+            "      - .github/workflows/iroomsng-upstream-readiness-launcher.yml",
+            text,
+        )
+        self.assertNotIn("workflow_dispatch:", text)
+        self.assertIn(
+            "uses: ./.github/workflows/iroomsng-upstream-readiness-diagnostic.yml",
+            text,
+        )
+        self.assertIn('ssh_port: "22"', text)
+        self.assertIn("secrets: inherit", text)
+        self.assertNotIn("environment: production", text)
 
     def test_remote_probe_is_read_only_and_never_prints_nginx_dump(self):
         text = self._text()

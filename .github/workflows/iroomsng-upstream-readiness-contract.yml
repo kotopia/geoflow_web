@@ -6,6 +6,7 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/iroomsng-upstream-readiness-diagnostic.yml
+      - .github/workflows/iroomsng-upstream-readiness-launcher.yml
       - .github/workflows/iroomsng-upstream-readiness-contract.yml
       - control/test_iroomsng_upstream_readiness_contract.py
   workflow_dispatch:
