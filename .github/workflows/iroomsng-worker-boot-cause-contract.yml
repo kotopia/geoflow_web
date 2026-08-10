@@ -1,0 +1,34 @@
+name: iroomsng worker boot cause contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-worker-boot-cause-diagnostic.yml
+      - control/test_iroomsng_worker_boot_cause_contract.py
+      - .github/workflows/iroomsng-worker-boot-cause-contract.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-worker-boot-cause-diagnostic.yml
+      - control/test_iroomsng_worker_boot_cause_contract.py
+      - .github/workflows/iroomsng-worker-boot-cause-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-worker-boot-cause-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate read-only bounded diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_iroomsng_worker_boot_cause_contract
