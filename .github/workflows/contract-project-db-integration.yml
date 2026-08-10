@@ -1,0 +1,87 @@
+name: Contract project DB integration
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+  push:
+    branches:
+      - release/stabilized-deploy
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-project-db-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: geoflow_ci
+          POSTGRES_PASSWORD: ci-postgres-placeholder
+          POSTGRES_DB: geoflow_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geoflow_ci -d geoflow_control"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DJANGO_SETTINGS_MODULE: geoflow_project.ci_migration_settings
+      DJANGO_SECRET_KEY: ci-contract-project-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: testserver,geoflow.co.kr
+      CENTRAL_DB_NAME: geoflow_control
+      CENTRAL_DB_USER: geoflow_ci
+      CENTRAL_DB_PASSWORD: ci-postgres-placeholder
+      CENTRAL_DB_HOST: 127.0.0.1
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: geoflow_control
+      TENANT_DB_USER: geoflow_ci
+      TENANT_DB_PASSWORD: ci-postgres-placeholder
+      TENANT_DB_HOST: 127.0.0.1
+      TENANT_DB_PORT: "5432"
+      ENABLE_TENANT_PROVISIONING: "0"
+      AWS_REGION: ap-northeast-2
+      SITE_ORIGIN: https://geoflow.co.kr
+      GITHUB_ACTIONS: "true"
+
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install integration dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev postgresql-client
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Static atomic-creation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_contract_project_creation_contract
+          python -m py_compile \
+            geoflow_ops/services/contract_project_creation.py \
+            geoflow_ops/views_contract_creation.py \
+            scripts/ci/check_contract_project_creation_db_integration.py
+
+      - name: Exercise pair creation and rollback on disposable PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ci/check_contract_project_creation_db_integration.py
