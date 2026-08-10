@@ -11,6 +11,14 @@ class AccountSecurityRolloutContractTests(unittest.TestCase):
             / "account-security-production-rollout.yml"
         ).read_text(encoding="utf-8")
 
+    def _launcher(self) -> str:
+        return (
+            Path(__file__).parent.parent
+            / ".github"
+            / "workflows"
+            / "account-security-production-rollout-launcher.yml"
+        ).read_text(encoding="utf-8")
+
     def _script(self) -> str:
         return (
             Path(__file__).parent.parent
@@ -19,15 +27,34 @@ class AccountSecurityRolloutContractTests(unittest.TestCase):
             / "account_security_production_rollout.sh"
         ).read_text(encoding="utf-8")
 
-    def test_rollout_is_manual_and_production_gated(self):
+    def test_rollout_is_manual_reusable_and_production_gated(self):
         workflow = self._workflow()
         self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("workflow_call:", workflow)
         self.assertNotIn("\n  push:", workflow)
         self.assertIn("environment: production", workflow)
         self.assertIn("REQUESTED_RELEASE_SHA", workflow)
         self.assertIn("release_sha_not_current_head", workflow)
         self.assertIn("bash -n scripts/ops/account_security_production_rollout.sh", workflow)
         self.assertIn("REMOTE_STAGE", workflow)
+
+    def test_launcher_can_create_one_gated_run_only_when_its_own_file_changes(self):
+        launcher = self._launcher()
+        self.assertIn("\n  push:\n", launcher)
+        self.assertIn("      - release/stabilized-deploy", launcher)
+        self.assertIn(
+            "      - .github/workflows/account-security-production-rollout-launcher.yml",
+            launcher,
+        )
+        self.assertNotIn("workflow_dispatch:", launcher)
+        self.assertIn(
+            "uses: ./.github/workflows/account-security-production-rollout.yml",
+            launcher,
+        )
+        self.assertIn("release_sha: ${{ github.sha }}", launcher)
+        self.assertIn('ssh_port: "22"', launcher)
+        self.assertIn("secrets: inherit", launcher)
+        self.assertNotIn("environment: production", launcher)
 
     def test_rollout_reconciles_only_reviewed_dirty_shapes(self):
         script = self._script()
