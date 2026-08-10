@@ -1,0 +1,77 @@
+name: Contract project atomic DB integration
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - geoflow_ops/security_views.py
+      - geoflow_ops/services/contract_project_pair.py
+      - scripts/test_contract_project_pair_db.py
+      - control/test_contract_project_atomic_create_contract.py
+      - .github/workflows/contract-project-atomic-db-integration.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - geoflow_ops/security_views.py
+      - geoflow_ops/services/contract_project_pair.py
+      - scripts/test_contract_project_pair_db.py
+      - control/test_contract_project_atomic_create_contract.py
+      - .github/workflows/contract-project-atomic-db-integration.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract-project-atomic-db-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DJANGO_SECRET_KEY: contract-project-db-integration
+      DJANGO_DEBUG: "0"
+      CENTRAL_DB_NAME: postgres
+      CENTRAL_DB_USER: postgres
+      CENTRAL_DB_PASSWORD: postgres
+      CENTRAL_DB_HOST: 127.0.0.1
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: postgres
+      TENANT_DB_USER: postgres
+      TENANT_DB_PASSWORD: postgres
+      TENANT_DB_HOST: 127.0.0.1
+      TENANT_DB_PORT: "5432"
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v6.0.0
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install GeoDjango system libraries
+        run: sudo apt-get update && sudo apt-get install -y gdal-bin libgdal-dev
+
+      - name: Install exact Python dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Run static atomic-create contract
+        run: python -m unittest control.test_contract_project_atomic_create_contract
+
+      - name: Exercise real PostgreSQL commit and rollback
+        run: python scripts/test_contract_project_pair_db.py
