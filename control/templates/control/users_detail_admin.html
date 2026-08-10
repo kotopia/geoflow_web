@@ -3,19 +3,36 @@
 {% block content %}
 <div class="container-fluid px-4">
   <h1 class="h3 mb-3">사용자 상세</h1>
+
   <div class="card mb-3"><div class="card-body">
     <div class="mb-1"><b>Email</b> {{ user.email }}</div>
-    <div class="text-muted small">Active: {{ user.is_active|yesno:"Y,N" }}, Verified: {{ user.email_verified|yesno:"Y,N" }}</div>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <span class="badge {% if user.email_verified %}bg-success{% else %}bg-secondary{% endif %}">
+        이메일 인증 {{ user.email_verified|yesno:"완료,대기" }}
+      </span>
+      <span class="badge {% if user.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+        계정 승인 {{ user.is_active|yesno:"완료,대기" }}
+      </span>
+    </div>
+    <div class="mt-2 small text-muted">
+      {% if user.email_verified and user.is_active %}
+        중앙 회원가입 절차가 완료된 활성 계정입니다.
+      {% elif user.email_verified %}
+        이메일 인증은 완료되었으며 중앙 관리자 승인을 기다리는 계정입니다.
+      {% else %}
+        이메일 인증이 완료되어야 중앙 가입심사 대상으로 전환됩니다.
+      {% endif %}
+    </div>
   </div></div>
 
   <div class="row g-3">
     <div class="col-md-6">
       <div class="card"><div class="card-body">
-        <h6 class="card-title">멤버십</h6>
+        <h6 class="card-title">테넌트 멤버십</h6>
         <ul class="list-group list-group-flush">
           {% for m in memberships %}
           <li class="list-group-item">{{ m.group_name }} ({{ m.group_code }}) — {{ m.role_code }} / {{ m.status }}</li>
-          {% empty %}<li class="list-group-item text-muted">없음</li>{% endfor %}
+          {% empty %}<li class="list-group-item text-muted">지정된 테넌트 멤버십이 없습니다.</li>{% endfor %}
         </ul>
       </div></div>
     </div>
@@ -49,11 +66,14 @@
   </div>
 
   <div class="card mt-3"><div class="card-body">
-    <h6 class="card-title">합류 요청</h6>
+    <h6 class="card-title">테넌트 합류 요청</h6>
+    <div class="small text-muted mb-2">
+      아래 항목은 중앙 회원가입/가입심사 상태와 별개의 테넌트 합류 요청 기록입니다.
+    </div>
     <ul class="list-group list-group-flush">
       {% for j in joins %}
       <li class="list-group-item">{{ j.group_name }} ({{ j.group_code }}) — {{ j.role_code|default:"-" }} / {{ j.status }} / {{ j.created_at|date:"Y-m-d H:i" }}</li>
-      {% empty %}<li class="list-group-item text-muted">없음</li>{% endfor %}
+      {% empty %}<li class="list-group-item text-muted">테넌트 합류 요청이 없습니다.</li>{% endfor %}
     </ul>
   </div></div>
 </div>
