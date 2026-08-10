@@ -1,3 +1,5 @@
+import hashlib
+import re
 from pathlib import Path
 
 from django.test import SimpleTestCase
@@ -6,6 +8,20 @@ from django.test import SimpleTestCase
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "phase2-aws-role-cutover.yml"
 PROBE = ROOT / "scripts" / "ops" / "phase2_role_runtime_probe.py"
+GUARD = ROOT / "control" / "services" / "object_storage_runtime_preflight.py"
+
+
+def _git_blob_sha(path: Path) -> str:
+    content = path.read_bytes()
+    payload = b"blob " + str(len(content)).encode("ascii") + b"\0" + content
+    return hashlib.sha1(payload).hexdigest()
+
+
+def _expected_blob(text: str, variable: str) -> str:
+    match = re.search(rf"{re.escape(variable)}='([0-9a-f]{{40}})'", text)
+    if not match:
+        raise AssertionError(f"Missing {variable} in cutover workflow")
+    return match.group(1)
 
 
 class Phase2RoleCutoverContractTests(SimpleTestCase):
@@ -46,3 +62,14 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         text = PROBE.read_text()
         self.assertIn('{"iam-role", "container-role"}', text)
         self.assertIn("credential_source_not_role", text)
+
+    def test_cutover_reviewed_blob_pins_match_current_guard_and_probe(self):
+        text = WORKFLOW.read_text()
+        self.assertEqual(
+            _expected_blob(text, "expected_guard_cutover_blob"),
+            _git_blob_sha(GUARD),
+        )
+        self.assertEqual(
+            _expected_blob(text, "expected_probe_blob"),
+            _git_blob_sha(PROBE),
+        )
