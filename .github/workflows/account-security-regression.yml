@@ -64,10 +64,13 @@ jobs:
             control/services/account_password_reset_outbox_service.py \
             control/services/account_password_reset_service.py \
             control/views_account_security.py \
-            control/views_password_reset.py
+            control/views_password_reset.py \
+            control/management/commands/process_account_password_reset_outbox.py
 
       - name: Run account security regression tests
         run: |
           python manage.py test \
             control.test_account_password_change \
-            control.test_account_password_reset
+            control.test_account_password_reset \
+            control.test_account_password_reset_token_service \
+            control.test_account_password_reset_delivery
