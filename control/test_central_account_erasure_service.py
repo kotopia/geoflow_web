@@ -53,6 +53,9 @@ class CentralAccountErasureSqlContractTests(SimpleTestCase):
         join_delete_source = getsource(
             SqlCentralAccountErasureRepository._delete_join_requests_for_identity
         )
+        secure_reset_source = getsource(
+            SqlCentralAccountErasureRepository._delete_account_password_reset_artifacts
+        )
         legacy_token_source = getsource(
             SqlCentralAccountErasureRepository._delete_legacy_password_tokens
         )
@@ -64,6 +67,7 @@ class CentralAccountErasureSqlContractTests(SimpleTestCase):
                 owner_source,
                 bridge_source,
                 join_delete_source,
+                secure_reset_source,
                 legacy_token_source,
             )
         )
@@ -75,6 +79,8 @@ class CentralAccountErasureSqlContractTests(SimpleTestCase):
             "DELETE FROM signup_requests",
             "DELETE FROM user_group_map",
             "DELETE FROM join_requests",
+            "account_password_reset_delivery_outbox",
+            "account_password_reset_tokens",
             "password_reset_tokens",
             "user_tokens",
             "decided_by_user_id",
@@ -179,6 +185,25 @@ class CentralAccountDjangoBridgeErasureTests(SimpleTestCase):
             source.index("_anonymize_django_session_bridge"),
             source.rindex("DELETE FROM users WHERE id=%s"),
         )
+
+
+class CentralAccountSecureResetErasureTests(SimpleTestCase):
+    def test_erasure_cleans_current_password_reset_artifacts_when_present(self):
+        source = getsource(
+            SqlCentralAccountErasureRepository._delete_account_password_reset_artifacts
+        )
+        self.assertIn("account_password_reset_delivery_outbox", source)
+        self.assertIn("account_password_reset_tokens", source)
+        self.assertIn("_table_exists", source)
+        self.assertIn("DELETE FROM {table} WHERE user_id=%s", source)
+
+    def test_secure_reset_cleanup_occurs_before_audit_preserving_anonymization_or_delete(self):
+        source = getsource(SqlCentralAccountErasureRepository.erase)
+        cleanup = source.index("_delete_account_password_reset_artifacts")
+        audit_decision = source.index("_has_external_audit_reference")
+        user_delete = source.rindex("DELETE FROM users WHERE id=%s")
+        self.assertLess(cleanup, audit_decision)
+        self.assertLess(cleanup, user_delete)
 
 
 class CentralAccountLegacyTokenErasureTests(SimpleTestCase):
