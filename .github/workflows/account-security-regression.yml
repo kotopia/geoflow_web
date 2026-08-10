@@ -76,4 +76,5 @@ jobs:
             control.test_account_password_reset \
             control.test_account_password_reset_token_service \
             control.test_account_password_reset_delivery \
-            control.test_account_password_reset_schema_readiness
+            control.test_account_password_reset_schema_readiness \
+            control.test_account_security_rollout_contract
