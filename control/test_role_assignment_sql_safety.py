@@ -6,6 +6,14 @@ class RoleAssignmentSQLSafetyTests(unittest.TestCase):
     def _source(self) -> str:
         return Path(__file__).with_name("views_users_admin.py").read_text(encoding="utf-8")
 
+    def _template(self) -> str:
+        return (
+            Path(__file__).parent
+            / "templates"
+            / "control"
+            / "users_detail_admin.html"
+        ).read_text(encoding="utf-8")
+
     def test_password_hash_like_wildcards_are_escaped_for_bound_parameters(self):
         source = self._source()
 
@@ -45,6 +53,15 @@ class RoleAssignmentSQLSafetyTests(unittest.TestCase):
         failure_index = source.index("if not assigned:")
         success_index = source.index('messages.success(request, "그룹/역할이 지정되었습니다.")')
         self.assertLess(failure_index, success_index)
+
+    def test_admin_ui_does_not_present_tenant_join_history_as_signup_status(self):
+        template = self._template()
+        self.assertIn("중앙 회원가입 절차", template)
+        self.assertIn("이메일 인증", template)
+        self.assertIn("계정 승인", template)
+        self.assertIn("테넌트 합류 요청", template)
+        self.assertIn("중앙 회원가입/가입심사 상태와 별개", template)
+        self.assertNotIn('<h6 class="card-title">합류 요청</h6>', template)
 
 
 if __name__ == "__main__":
