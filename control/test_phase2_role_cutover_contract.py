@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "phase2-aws-role-cutover.yml"
+READINESS_WORKFLOW = ROOT / ".github" / "workflows" / "phase2-aws-role-readiness-diagnostic.yml"
 PROBE = ROOT / "scripts" / "ops" / "phase2_role_runtime_probe.py"
 GUARD = ROOT / "control" / "services" / "object_storage_runtime_preflight.py"
 RULESET_TEMPLATE = ROOT / "docs" / "phase2-release-ruleset-api-template.json"
@@ -50,6 +51,48 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         self.assertNotIn("delete-access-key", text)
         self.assertNotIn("update-access-key", text)
         self.assertNotIn("iam delete", text.lower())
+
+    def test_readiness_diagnostic_is_production_gated_and_read_only(self):
+        text = READINESS_WORKFLOW.read_text()
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("environment: production", text)
+        self.assertIn("phase2_role_s3_put_live_probe=not_performed_read_only", text)
+        self.assertNotIn("put_object(", text)
+        self.assertNotIn("delete_object(", text)
+        self.assertNotIn("create_secret(", text)
+        self.assertNotIn("update_secret(", text)
+        self.assertNotIn("systemctl restart", text)
+        self.assertNotIn("systemctl stop", text)
+        self.assertNotIn("systemctl start", text)
+
+    def test_readiness_diagnostic_forces_role_credential_resolution(self):
+        text = READINESS_WORKFLOW.read_text()
+        for name in (
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "AWS_PROFILE",
+            "AWS_DEFAULT_PROFILE",
+            "AWS_SHARED_CREDENTIALS_FILE",
+            "AWS_CONFIG_FILE",
+            "AWS_EC2_METADATA_DISABLED",
+        ):
+            self.assertIn(name, text)
+        self.assertIn('method == "iam-role"', text)
+        self.assertIn('method == "container-role"', text)
+        self.assertIn('method_class in {"instance-role", "container-role"}', text)
+        self.assertIn("phase2_role_diag_blocker=no_role_credentials", text)
+
+    def test_readiness_diagnostic_validates_secret_and_s3_read_paths_without_identifier_logging(self):
+        text = READINESS_WORKFLOW.read_text()
+        self.assertIn("resolve_tenant_db_password(", text)
+        self.assertIn("s3.head_bucket(Bucket=bucket)", text)
+        self.assertIn('s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)', text)
+        self.assertIn('s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")', text)
+        self.assertNotIn("print(stored", text)
+        self.assertNotIn("print(bucket", text)
+        self.assertNotIn("print(key", text)
+        self.assertNotIn("print(arn", text)
 
     def test_probe_checks_real_tenant_connectivity_without_identifier_logging(self):
         text = PROBE.read_text()
