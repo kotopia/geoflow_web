@@ -12,6 +12,17 @@ on:
         required: false
         default: "22"
         type: string
+  workflow_call:
+    inputs:
+      release_sha:
+        description: Exact reviewed release/stabilized-deploy commit to deploy
+        required: true
+        type: string
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+        type: string
 
 permissions:
   contents: read
