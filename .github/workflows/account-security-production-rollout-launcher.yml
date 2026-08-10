@@ -1,5 +1,6 @@
 name: Account security production rollout launcher
 
+# Retry trigger after the rolled-back Django runtime-config probe failure.
 on:
   push:
     branches:

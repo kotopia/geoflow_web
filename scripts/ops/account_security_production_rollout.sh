@@ -191,7 +191,7 @@ PY
 migration_started=1
 "$python" manage.py migrate control 0006_account_password_reset_schema --database=default --noinput
 "$python" manage.py check_account_password_reset_schema --strict
-"$python" - <<'PY'
+DJANGO_SETTINGS_MODULE=geoflow_project.settings "$python" - <<'PY'
 import django
 django.setup()
 from control.services.account_password_reset_delivery import load_account_password_reset_delivery_config
