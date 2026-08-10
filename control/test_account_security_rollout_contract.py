@@ -34,7 +34,15 @@ class AccountSecurityRolloutContractTests(unittest.TestCase):
         self.assertIn("production_worktree_has_unreviewed_status", script)
         self.assertIn("production_dirty_file_diverges_from_candidate", script)
         self.assertIn("dirty_files_match_candidate=yes", script)
+        self.assertIn('git -C "$repo" reset --hard "$candidate_sha"', script)
+        self.assertIn("reviewed_dirty_files_reconciled=yes", script)
         self.assertNotIn("git clean", script)
+
+        verified_index = script.index("account_rollout_dirty_files_match_candidate=yes")
+        reset_index = script.index('git -C "$repo" reset --hard "$candidate_sha"')
+        checkout_index = script.index('git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"')
+        self.assertLess(verified_index, reset_index)
+        self.assertLess(reset_index, checkout_index)
 
     def test_migration_scope_is_bounded_and_schema_is_audited(self):
         script = self._script()
