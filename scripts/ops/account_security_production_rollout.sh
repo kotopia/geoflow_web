@@ -124,10 +124,15 @@ dirty_count="$(wc -l < "$dirty_paths" | tr -d ' ')"
 echo "account_rollout_reviewed_dirty_file_count=$dirty_count"
 echo 'account_rollout_dirty_files_match_candidate=yes'
 
+# A direct checkout refuses even reviewed dirty files when they differ from the
+# old commit. At this point every dirty path has been backed up and proven byte-
+# identical to the candidate, so a hard reset is the deterministic reconciliation.
 rollback_needed=1
-git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
+git -C "$repo" reset --hard "$candidate_sha" >/dev/null
+git -C "$repo" checkout -B "$expected_branch" "$candidate_sha" >/dev/null
 [ "$(git -C "$repo" rev-parse HEAD)" = "$candidate_sha" ] || fail 'candidate_checkout_failed'
 [ -z "$(git -C "$repo" status --porcelain)" ] || fail 'candidate_worktree_not_clean'
+echo 'account_rollout_reviewed_dirty_files_reconciled=yes'
 
 "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
 "$python" -m pip check
