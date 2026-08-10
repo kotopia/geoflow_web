@@ -1,0 +1,31 @@
+name: Cheonan project backfill contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-project-backfill.yml
+      - .github/workflows/cheonan-project-backfill-contract.yml
+      - control/test_cheonan_project_backfill_contract.py
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-project-backfill.yml
+      - .github/workflows/cheonan-project-backfill-contract.yml
+      - control/test_cheonan_project_backfill_contract.py
+
+permissions:
+  contents: read
+
+jobs:
+  cheonan-project-backfill-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run static backfill safety contract
+        run: python -m unittest control.test_cheonan_project_backfill_contract
