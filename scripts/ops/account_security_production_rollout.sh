@@ -105,6 +105,21 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# A previously approved role-assignment hotfix may leave the production
+# views_users_admin.py intentionally different from the release candidate.
+# Derive that one reviewed hotfix shape from the exact candidate itself instead
+# of pinning a stale blob. No production file is changed by this derivation.
+role_hotfix_candidate="$backup_dir/role-hotfix-candidate.py"
+role_hotfix_patcher="$backup_dir/role-hotfix-patcher.py"
+git -C "$repo" show "$candidate_sha:control/views_users_admin.py" > "$role_hotfix_candidate" \
+  || fail 'candidate_role_assignment_view_missing'
+git -C "$repo" show "$candidate_sha:scripts/ops/patch_role_assignment_legacy_runtime.py" > "$role_hotfix_patcher" \
+  || fail 'candidate_role_assignment_patcher_missing'
+"$python" "$role_hotfix_patcher" "$role_hotfix_candidate" >/dev/null \
+  || fail 'candidate_role_assignment_hotfix_derivation_failed'
+reviewed_role_hotfix_blob="$(git -C "$repo" hash-object "$role_hotfix_candidate")"
+[ -n "$reviewed_role_hotfix_blob" ] || fail 'candidate_role_assignment_hotfix_blob_missing'
+
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   status="${line:0:2}"
@@ -114,7 +129,14 @@ while IFS= read -r line; do
   candidate_blob="$(git -C "$repo" rev-parse "$candidate_sha:$path" 2>/dev/null || true)"
   [ -n "$candidate_blob" ] || fail 'dirty_path_missing_from_candidate'
   working_blob="$(git -C "$repo" hash-object "$repo/$path")"
-  [ "$working_blob" = "$candidate_blob" ] || fail 'production_dirty_file_diverges_from_candidate'
+  if [ "$working_blob" != "$candidate_blob" ]; then
+    if [ "$path" = 'control/views_users_admin.py' ] \
+      && [ "$working_blob" = "$reviewed_role_hotfix_blob" ]; then
+      echo 'account_rollout_reviewed_role_assignment_hotfix_detected=yes'
+    else
+      fail 'production_dirty_file_diverges_from_candidate'
+    fi
+  fi
   printf '%s\n' "$path" >> "$dirty_paths"
   mkdir -p "$backup_dir/files/$(dirname "$path")"
   cp -p "$repo/$path" "$backup_dir/files/$path"
@@ -122,11 +144,12 @@ done < <(git -C "$repo" status --porcelain=v1)
 
 dirty_count="$(wc -l < "$dirty_paths" | tr -d ' ')"
 echo "account_rollout_reviewed_dirty_file_count=$dirty_count"
-echo 'account_rollout_dirty_files_match_candidate=yes'
+echo 'account_rollout_dirty_files_match_reviewed_shapes=yes'
 
 # A direct checkout refuses even reviewed dirty files when they differ from the
-# old commit. At this point every dirty path has been backed up and proven byte-
-# identical to the candidate, so a hard reset is the deterministic reconciliation.
+# old commit. At this point every dirty path has been backed up and proven to be
+# either byte-identical to the candidate or the exact candidate-derived role
+# hotfix shape, so a hard reset is the deterministic reconciliation.
 rollback_needed=1
 git -C "$repo" reset --hard "$candidate_sha" >/dev/null
 git -C "$repo" checkout -B "$expected_branch" "$candidate_sha" >/dev/null
