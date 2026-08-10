@@ -179,31 +179,41 @@ class AccountPasswordResetRouteTests(SimpleTestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_reset_post_is_scoped_csrf_exempt_and_reaches_application(self):
-        fake_config = SimpleNamespace(request_cooldown=timedelta(minutes=10))
+    def test_reset_post_remains_csrf_protected(self):
+        response = self.client.post(
+            reverse("password_reset"),
+            {
+                "token": "pr1.k1." + "D" * 43,
+                "new_password": "SafePassword-2026!",
+                "new_password2": "SafePassword-2026!",
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_reset_post_with_csrf_reaches_application(self):
         fake_key_ring = HmacSha256VerificationKeyRing(
             active_key_id="k1",
             keys={"k1": b"A" * 32},
         )
+        get_response = self.client.get(reverse("password_reset"))
+        self.assertEqual(get_response.status_code, 200)
+        csrf_token = self.client.cookies["csrftoken"].value
         with (
-            patch(
-                "control.views_password_reset.load_account_password_reset_delivery_config",
-                return_value=fake_config,
-            ),
             patch(
                 "control.views_password_reset.load_signup_email_verification_key_ring",
                 return_value=fake_key_ring,
             ),
-            patch("control.views_password_reset.queue_account_password_reset_request"),
             patch("control.views_password_reset.reset_account_password_with_token") as reset,
         ):
             response = self.client.post(
                 reverse("password_reset"),
                 {
+                    "csrfmiddlewaretoken": csrf_token,
                     "token": "pr1.k1." + "D" * 43,
                     "new_password": "SafePassword-2026!",
                     "new_password2": "SafePassword-2026!",
                 },
+                HTTP_X_CSRFTOKEN=csrf_token,
             )
         self.assertEqual(response.status_code, 200)
         reset.assert_called_once()
