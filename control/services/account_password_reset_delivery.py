@@ -134,10 +134,25 @@ def load_account_password_reset_delivery_config(
     settings_obj=settings,
     environ: Mapping[str, str] = os.environ,
 ) -> AccountPasswordResetDeliveryConfig:
-    site_origin = str(getattr(settings_obj, "SITE_ORIGIN", "") or "").strip().rstrip("/")
     reset_url = _setting_or_env(settings_obj, environ, "PASSWORD_RESET_URL")
-    if not reset_url and site_origin:
-        reset_url = f"{site_origin}/password/reset/"
+    if not reset_url:
+        verification_url = _setting_or_env(
+            settings_obj,
+            environ,
+            "SIGNUP_EMAIL_VERIFICATION_URL",
+        )
+        if isinstance(verification_url, str) and verification_url.strip():
+            parts = urlsplit(verification_url.strip())
+            if parts.scheme in ("http", "https") and parts.netloc:
+                reset_url = urlunsplit(
+                    (parts.scheme, parts.netloc, "/password/reset/", "", "")
+                )
+    if not reset_url:
+        site_origin = str(
+            getattr(settings_obj, "SITE_ORIGIN", "") or ""
+        ).strip().rstrip("/")
+        if site_origin:
+            reset_url = f"{site_origin}/password/reset/"
     if not isinstance(reset_url, str):
         raise AccountPasswordResetConfigurationError("password reset URL is unavailable")
     try:
@@ -213,8 +228,7 @@ def _setting_or_env(settings_obj, environ, name: str):
     value = environ.get(name)
     if isinstance(value, str) and value.strip():
         return value.strip()
-    value = getattr(settings_obj, name, None)
-    return value
+    return getattr(settings_obj, name, None)
 
 
 def _int_setting_or_env(settings_obj, environ, name: str, *, default: int) -> int:
