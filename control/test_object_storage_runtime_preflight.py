@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.test import SimpleTestCase
 
 from control.services.object_storage_runtime_preflight import (
@@ -80,3 +82,9 @@ class ObjectStorageRuntimePreflightTests(SimpleTestCase):
         rendered = "\n".join(check.message for check in checks)
         self.assertEqual(failures, {"aws_role_only_runtime"})
         self.assertNotIn("legacy-profile", rendered)
+
+    def test_phase2_runtime_probe_is_present_and_python_syntax_is_valid(self):
+        probe = Path(__file__).resolve().parents[1] / "scripts" / "ops" / "phase2_role_runtime_probe.py"
+        self.assertTrue(probe.is_file())
+        source = probe.read_text(encoding="utf-8")
+        compile(source, str(probe), "exec")
