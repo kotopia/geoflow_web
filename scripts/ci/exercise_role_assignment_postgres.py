@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from inspect import unwrap
+from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.ci_migration_settings")
 
 import django
