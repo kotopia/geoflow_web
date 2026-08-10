@@ -4,11 +4,17 @@ from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from control.gf_authz.permissions import gf_has_perm
 
 from . import views_catalog, views_contracts, views_myinfo, views_projects
+from .models import Contract
+from .services.contract_project_pair import (
+    contract_id_from_create_response,
+    create_project_for_new_contract,
+)
 from .services.entity_access import authorize_scope_read, require_tenant_context
 
 
@@ -29,7 +35,19 @@ def contract_list(request):
 @require_http_methods(["GET", "POST"])
 def contract_create(request):
     _require(request, "contracts.create")
-    return views_contracts.contract_create(request)
+    if request.method != "POST":
+        return views_contracts.contract_create(request)
+
+    alias = require_tenant_context(request)
+    with transaction.atomic(using=alias):
+        response = views_contracts.contract_create(request)
+        if not (300 <= int(getattr(response, "status_code", 0)) < 400):
+            return response
+
+        contract_id = contract_id_from_create_response(response)
+        contract = Contract.objects.using(alias).get(pk=contract_id)
+        create_project_for_new_contract(alias, contract)
+        return response
 
 
 @login_required
