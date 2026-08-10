@@ -1,0 +1,30 @@
+name: Cheonan tenant readiness contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-tenant-readiness-diagnostic.yml
+      - .github/workflows/cheonan-tenant-readiness-contract.yml
+      - control/test_cheonan_tenant_readiness_contract.py
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-tenant-readiness-diagnostic.yml
+      - .github/workflows/cheonan-tenant-readiness-contract.yml
+      - control/test_cheonan_tenant_readiness_contract.py
+
+permissions:
+  contents: read
+
+jobs:
+  cheonan-tenant-readiness-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate read-only diagnostic contract
+        run: python -m unittest control.test_cheonan_tenant_readiness_contract
