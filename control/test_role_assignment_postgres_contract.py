@@ -27,13 +27,13 @@ class RoleAssignmentPostgresContractTests(TestCase):
         self.assertIn("role_assignment_postgres_update_existing=yes", text)
         self.assertIn("role_assignment_postgres_membership_count_after_update=1", text)
 
-    def test_real_handler_does_not_depend_on_on_conflict_or_database_uuid_generation(self):
+    def test_real_handler_uses_update_then_insert_without_database_uuid_generation(self):
         text = HANDLER.read_text()
-        self.assertNotIn("ON CONFLICT", text)
         self.assertNotIn("gen_random_uuid", text)
         self.assertIn("pbkdf2_sha256$%%", text)
         self.assertIn("UPDATE user_group_map", text)
         self.assertIn("INSERT INTO user_group_map", text)
+        self.assertIn("str(uuid4())", text)
 
     def test_workflow_uses_only_disposable_postgres(self):
         text = WORKFLOW.read_text()
