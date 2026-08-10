@@ -9,6 +9,7 @@ from .views_join import my_join_requests_view, join_requests_pending_view, join_
 from .views_groups_admin import group_list_admin, group_create_admin, group_edit_admin
 from .views_onboarding import no_tenant_view
 from .views_legacy_password_security import legacy_password_setup_view
+from .views_account_security import account_password_change_view
 from .views_users_admin import (
     users_list_admin,
     users_detail_admin,
@@ -75,6 +76,7 @@ urlpatterns = [
     path("central/groups/<uuid:group_id>/edit/", group_edit_admin, name="group_edit_admin"),
 
     # password
+    path("account/password/change/", account_password_change_view, name="account_password_change"),
     path("account/set-password/<str:token>/", legacy_password_setup_view, name="account_set_password"),
 
     path("categories/", categories_page, name="ctrl_categories_page"),
