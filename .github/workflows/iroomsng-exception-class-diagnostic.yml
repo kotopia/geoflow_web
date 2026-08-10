@@ -75,9 +75,9 @@ jobs:
             unit="$1"
             key="$2"
             journal_file="$(mktemp)"
-            trap 'rm -f "$journal_file"' RETURN
             if ! systemctl cat "$unit" >/dev/null 2>&1; then
               echo "iroomsng_exception_${key}_present=no"
+              rm -f "$journal_file"
               return
             fi
             echo "iroomsng_exception_${key}_present=yes"
@@ -107,7 +107,10 @@ jobs:
               "UnicodeEncodeError", "ValidationError", "ValueError", "ViewDoesNotExist",
               "ZeroDivisionError",
           }
-          token_re = re.compile(r"(?m)^(?:[A-Za-z_][A-Za-z0-9_.]*\.)?([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning|Exit)|HaltServer)\s*:")
+          token_re = re.compile(
+              r"(?m)(?:^|:\s+)(?:[A-Za-z_][A-Za-z0-9_]*\.)*"
+              r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning|Exit)|HaltServer)\s*:"
+          )
           tokens = token_re.findall(text)
           counts = Counter(token for token in tokens if token in allow)
           other = sum(1 for token in tokens if token not in allow)
@@ -124,11 +127,11 @@ jobs:
           else:
               top = "none_detected"
           print(f"iroomsng_exception_{key}_dominant_class={top}")
-
           chained = len(re.findall(r"During handling of the above exception|direct cause of the following exception", text, re.I))
           print(f"iroomsng_exception_{key}_exception_chain_markers={chained}")
-          print(f"iroomsng_exception_{key}_traceback_count={len(re.findall(r'Traceback \\(most recent call last\\)', text))}")
+          print(f"iroomsng_exception_{key}_traceback_count={text.count('Traceback (most recent call last)')}")
           PY
+            rm -f "$journal_file"
           }
 
           classify_unit geoflow.service geoflow
