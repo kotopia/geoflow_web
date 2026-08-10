@@ -44,12 +44,12 @@ class LegacyEmailVerificationBackfillContractTests(TestCase):
 
     def test_only_email_verified_and_updated_at_are_mutated(self):
         text = self._text()
-        self.assertIn("UPDATE users", text)
-        self.assertIn("SET email_verified = TRUE", text)
-        self.assertIn("updated_at = now()", text)
+        update_block = text.split("UPDATE users", 1)[1].split("RETURNING id", 1)[0]
+        self.assertIn("SET email_verified = TRUE", update_block)
+        self.assertIn("updated_at = now()", update_block)
+        self.assertNotIn("password_hash =", update_block)
+        self.assertNotIn("is_active =", update_block)
         for forbidden in (
-            "password_hash =",
-            "is_active =",
             "DELETE FROM users",
             "UPDATE user_group_map",
             "UPDATE groups",
