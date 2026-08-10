@@ -33,7 +33,7 @@ def _drop_process_static_sources() -> None:
     os.environ.pop("AWS_EC2_METADATA_DISABLED", None)
 
 
-def _configure_tenant_connection(alias: str, config, password: str, base_config: dict) -> dict:
+def _configure_tenant_connection(config, password: str, base_config: dict) -> dict:
     db_config = dict(base_config)
     db_config.update(
         {
@@ -87,9 +87,9 @@ def main() -> int:
         if not _role_only_guard_enabled():
             _fail("role_only_guard_disabled")
 
-    # For the precutover probe, settings may have loaded legacy AWS variables from
-    # production configuration. Remove them only inside this process so boto3 must
-    # prove that an instance/container role is independently usable.
+    # In precutover mode, settings may have loaded legacy AWS variables from the
+    # production configuration. Remove them only inside this probe process so
+    # boto3 must prove that an instance/container role is independently usable.
     _drop_process_static_sources()
 
     import boto3
@@ -117,9 +117,7 @@ def main() -> int:
         _fail("credential_source_not_role")
 
     configs = list(
-        GroupDBConfig.objects.select_related("group")
-        .filter(group__status="active")
-        .only(
+        GroupDBConfig.objects.filter(group__status="active").only(
             "db_alias",
             "db_name",
             "db_host",
@@ -164,7 +162,7 @@ def main() -> int:
         secret_ok += 1
 
         alias = f"phase2_role_probe_{index}"
-        db_config = _configure_tenant_connection(alias, config, password, base_config)
+        db_config = _configure_tenant_connection(config, password, base_config)
         connections.settings[alias] = db_config
         if settings.DATABASES is not connections.settings:
             settings.DATABASES[alias] = db_config
