@@ -48,7 +48,7 @@ jobs:
           python -m py_compile \
             control/services/object_storage_runtime_preflight.py \
             scripts/ops/phase2_role_runtime_probe.py
-          test "$(git hash-object control/services/object_storage_runtime_preflight.py)" = "602fd0c6dc2b2ba8180837a5413aac16e0e55c6e" || {
+          test "$(git hash-object control/services/object_storage_runtime_preflight.py)" = "9076b9f5f1d4ddac964b5f8e27be0834f31bb070" || {
             echo 'phase2_cutover_blocker=reviewed_guard_blob_changed'; exit 2;
           }
           test "$(git hash-object scripts/ops/phase2_role_runtime_probe.py)" = "44d91b77b9b6104ff4019a33f9176e37bd7c2139" || {
@@ -96,7 +96,7 @@ jobs:
 
           service='geoflow-stabilized.service'
           expected_guard_base_blob='c5543bf2dace16c4227ffcef7512e6c4da6bb3c5'
-          expected_guard_cutover_blob='602fd0c6dc2b2ba8180837a5413aac16e0e55c6e'
+          expected_guard_cutover_blob='9076b9f5f1d4ddac964b5f8e27be0834f31bb070'
           expected_probe_blob='44d91b77b9b6104ff4019a33f9176e37bd7c2139'
           expected_secret_resolver_blob='e36057251ce9e38fa7ea5cf4a7058eeafbc2f171'
           expected_s3_service_blob='ba61bf02cfea81e3fd0a29e1a2730bf265054c4c'
@@ -110,6 +110,7 @@ jobs:
               -u AWS_DEFAULT_PROFILE \
               -u AWS_SHARED_CREDENTIALS_FILE \
               -u AWS_CONFIG_FILE \
+              -u AWS_EC2_METADATA_DISABLED \
               "$@"
           }
 
@@ -148,7 +149,7 @@ jobs:
 
           # Never echo the systemd Environment value; it may contain credentials.
           service_environment="$(systemctl show "$service" -p Environment --value 2>/dev/null || true)"
-          if printf '%s' "$service_environment" | grep -Eq '(^|[[:space:]"])(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_PROFILE|AWS_DEFAULT_PROFILE|AWS_SHARED_CREDENTIALS_FILE|AWS_CONFIG_FILE)='; then
+          if printf '%s' "$service_environment" | grep -Eq '(^|[[:space:]"])(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_PROFILE|AWS_DEFAULT_PROFILE|AWS_SHARED_CREDENTIALS_FILE|AWS_CONFIG_FILE|AWS_EC2_METADATA_DISABLED)='; then
             fail 'systemd_direct_aws_credential_source_present'
           fi
           unset service_environment
@@ -167,7 +168,7 @@ jobs:
           unit_path = Path(sys.argv[1])
           allowed_env = Path(sys.argv[2]).resolve()
           forbidden = re.compile(
-              r"^\s*(?:export\s+)?(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_PROFILE|AWS_DEFAULT_PROFILE|AWS_SHARED_CREDENTIALS_FILE|AWS_CONFIG_FILE)\s*="
+              r"^\s*(?:export\s+)?(?:AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_PROFILE|AWS_DEFAULT_PROFILE|AWS_SHARED_CREDENTIALS_FILE|AWS_CONFIG_FILE|AWS_EC2_METADATA_DISABLED)\s*="
           )
           for raw in unit_path.read_text(errors="replace").splitlines():
               line = raw.strip()
@@ -254,6 +255,7 @@ jobs:
               "AWS_DEFAULT_PROFILE",
               "AWS_SHARED_CREDENTIALS_FILE",
               "AWS_CONFIG_FILE",
+              "AWS_EC2_METADATA_DISABLED",
           }
           out = []
           for line in env_path.read_text().splitlines():
