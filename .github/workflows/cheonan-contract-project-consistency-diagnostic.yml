@@ -1,0 +1,288 @@
+name: Cheonan contract project consistency diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-contract-project-consistency-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cheonan-contract-project-consistency:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: release/stabilized-deploy
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Inspect Cheonan contract-project consistency read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          [ "$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)" = active ] || {
+            echo 'cheonan_contract_project_blocker=stabilized_service_not_active'
+            exit 2
+          }
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'cheonan_contract_project_blocker=runtime_python_missing'; exit 2; }
+
+          "$python" - "$repo" <<'PY'
+          import os
+          import re
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          from django.conf import settings
+          from django.db import connections, transaction
+
+          ALIAS = "cheonan_db"
+          REPO_INIT = "2025-12-05 06:49:24+00"
+
+          def safe(value):
+              value = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+              return re.sub(r"[^0-9A-Za-z._\-가-힣 ]", "?", value)[:120]
+
+          if ALIAS not in settings.DATABASES:
+              raise SystemExit("cheonan_contract_project_blocker=static_alias_missing")
+
+          with connections[ALIAS].cursor() as cur:
+              cur.execute("SELECT 1")
+              if cur.fetchone() != (1,):
+                  raise SystemExit("cheonan_contract_project_blocker=tenant_connect_failed")
+
+          with transaction.atomic(using=ALIAS):
+              with connections[ALIAS].cursor() as cur:
+                  cur.execute("SET LOCAL TRANSACTION READ ONLY")
+
+                  cur.execute("SELECT COUNT(*) FROM ctr.contracts")
+                  contracts_total = int(cur.fetchone()[0])
+                  cur.execute("SELECT COUNT(*) FROM prj.projects")
+                  projects_total = int(cur.fetchone()[0])
+                  cur.execute("SELECT COUNT(*) FROM prj.projects WHERE contract_id IS NOT NULL")
+                  projects_linked = int(cur.fetchone()[0])
+                  cur.execute("SELECT COUNT(DISTINCT contract_id) FROM prj.projects WHERE contract_id IS NOT NULL")
+                  distinct_linked_contracts = int(cur.fetchone()[0])
+
+                  cur.execute(
+                      """
+                      SELECT COUNT(*)
+                        FROM ctr.contracts c
+                        LEFT JOIN prj.projects p ON p.contract_id = c.id
+                       WHERE p.id IS NULL
+                      """
+                  )
+                  contracts_without_project = int(cur.fetchone()[0])
+
+                  cur.execute(
+                      """
+                      SELECT COUNT(*)
+                        FROM (
+                            SELECT contract_id
+                              FROM prj.projects
+                             WHERE contract_id IS NOT NULL
+                             GROUP BY contract_id
+                            HAVING COUNT(*) > 1
+                        ) d
+                      """
+                  )
+                  contracts_with_multiple_projects = int(cur.fetchone()[0])
+
+                  cur.execute(
+                      """
+                      SELECT COUNT(*)
+                        FROM prj.projects p
+                        LEFT JOIN ctr.contracts c ON c.id = p.contract_id
+                       WHERE p.contract_id IS NOT NULL
+                         AND c.id IS NULL
+                      """
+                  )
+                  orphan_project_links = int(cur.fetchone()[0])
+
+                  cur.execute(
+                      """
+                      WITH missing AS (
+                          SELECT c.*
+                            FROM ctr.contracts c
+                            LEFT JOIN prj.projects p ON p.contract_id = c.id
+                           WHERE p.id IS NULL
+                      )
+                      SELECT
+                          COUNT(*) FILTER (WHERE legacy_id IS NOT NULL),
+                          COUNT(*) FILTER (WHERE legacy_id IS NULL),
+                          COUNT(*) FILTER (WHERE created_at IS NULL),
+                          COUNT(*) FILTER (WHERE created_at < %s::timestamptz),
+                          COUNT(*) FILTER (WHERE created_at >= %s::timestamptz),
+                          MIN(created_at),
+                          MAX(created_at)
+                        FROM missing
+                      """,
+                      [REPO_INIT, REPO_INIT],
+                  )
+                  (
+                      missing_legacy,
+                      missing_nonlegacy,
+                      missing_created_null,
+                      missing_before_repo,
+                      missing_since_repo,
+                      missing_min_created,
+                      missing_max_created,
+                  ) = cur.fetchone()
+
+                  cur.execute(
+                      """
+                      WITH ranked AS (
+                          SELECT c.id,
+                                 ROW_NUMBER() OVER (ORDER BY c.created_at DESC NULLS LAST, c.id) AS rn
+                            FROM ctr.contracts c
+                      )
+                      SELECT
+                          COUNT(*) FILTER (WHERE r.rn <= 10 AND p.id IS NULL),
+                          COUNT(*) FILTER (WHERE r.rn <= 20 AND p.id IS NULL),
+                          COUNT(*) FILTER (WHERE r.rn <= 50 AND p.id IS NULL)
+                        FROM ranked r
+                        LEFT JOIN prj.projects p ON p.contract_id = r.id
+                      """
+                  )
+                  missing_newest_10, missing_newest_20, missing_newest_50 = cur.fetchone()
+
+                  cur.execute(
+                      """
+                      SELECT c.code,
+                             c.created_at,
+                             c.status,
+                             (c.legacy_id IS NOT NULL) AS has_legacy_id
+                        FROM ctr.contracts c
+                        LEFT JOIN prj.projects p ON p.contract_id = c.id
+                       WHERE p.id IS NULL
+                       ORDER BY c.created_at NULLS FIRST, c.code NULLS FIRST
+                      """
+                  )
+                  missing_rows = cur.fetchall()
+
+                  cur.execute(
+                      """
+                      SELECT COUNT(*)
+                        FROM pg_trigger t
+                        JOIN pg_class cl ON cl.oid = t.tgrelid
+                        JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+                       WHERE ns.nspname = 'ctr'
+                         AND cl.relname = 'contracts'
+                         AND NOT t.tgisinternal
+                      """
+                  )
+                  contract_user_trigger_count = int(cur.fetchone()[0])
+
+                  cur.execute(
+                      """
+                      SELECT COUNT(*)
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON ccu.constraint_schema = tc.constraint_schema
+                         AND ccu.constraint_name = tc.constraint_name
+                       WHERE tc.table_schema = 'prj'
+                         AND tc.table_name = 'projects'
+                         AND ccu.column_name = 'contract_id'
+                         AND tc.constraint_type = 'UNIQUE'
+                      """
+                  )
+                  project_contract_unique_constraints = int(cur.fetchone()[0])
+
+                  cur.execute(
+                      """
+                      SELECT is_nullable
+                        FROM information_schema.columns
+                       WHERE table_schema = 'prj'
+                         AND table_name = 'projects'
+                         AND column_name = 'contract_id'
+                      """
+                  )
+                  nullable_row = cur.fetchone()
+                  project_contract_nullable = str(nullable_row[0] if nullable_row else "unknown")
+
+          print("cheonan_contract_project_connection=yes")
+          print(f"cheonan_contracts_total={contracts_total}")
+          print(f"cheonan_projects_total={projects_total}")
+          print(f"cheonan_projects_with_contract={projects_linked}")
+          print(f"cheonan_distinct_contracts_with_project={distinct_linked_contracts}")
+          print(f"cheonan_contracts_without_project={contracts_without_project}")
+          print(f"cheonan_contracts_with_multiple_projects={contracts_with_multiple_projects}")
+          print(f"cheonan_orphan_project_links={orphan_project_links}")
+          print(f"cheonan_missing_with_legacy_id={int(missing_legacy or 0)}")
+          print(f"cheonan_missing_without_legacy_id={int(missing_nonlegacy or 0)}")
+          print(f"cheonan_missing_created_at_null={int(missing_created_null or 0)}")
+          print(f"cheonan_missing_before_repo_init={int(missing_before_repo or 0)}")
+          print(f"cheonan_missing_since_repo_init={int(missing_since_repo or 0)}")
+          print(f"cheonan_missing_created_min={missing_min_created.isoformat() if missing_min_created else 'none'}")
+          print(f"cheonan_missing_created_max={missing_max_created.isoformat() if missing_max_created else 'none'}")
+          print(f"cheonan_missing_among_newest_10={int(missing_newest_10 or 0)}")
+          print(f"cheonan_missing_among_newest_20={int(missing_newest_20 or 0)}")
+          print(f"cheonan_missing_among_newest_50={int(missing_newest_50 or 0)}")
+          print(f"cheonan_contract_user_trigger_count={contract_user_trigger_count}")
+          print(f"cheonan_project_contract_unique_constraints={project_contract_unique_constraints}")
+          print(f"cheonan_project_contract_nullable={safe(project_contract_nullable)}")
+          print(f"cheonan_missing_row_count={len(missing_rows)}")
+          for index, (code, created_at, status, has_legacy_id) in enumerate(missing_rows, start=1):
+              created = created_at.isoformat() if created_at else "none"
+              print(
+                  f"cheonan_missing_contract_{index}="
+                  f"code:{safe(code)}|created:{safe(created)}|status:{safe(status)}|legacy:{'yes' if has_legacy_id else 'no'}"
+              )
+          print("cheonan_contract_project_diagnostic_complete=yes")
+          PY
+          REMOTE
