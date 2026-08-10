@@ -9,6 +9,7 @@ Confirmed without exposing production identifiers or credentials:
 - A real pull request targeting `release/stabilized-deploy` emitted and passed all three release checks: `release-preflight`, `migration-rehearsal`, and `public-https-smoke`.
 - Repository rulesets are currently absent, so Stage B protection is not yet enforced through a repository ruleset.
 - The existing read-only IAM-role readiness diagnostic previously failed with `phase2_role_diag_blocker=no_role_credentials` after static/profile AWS credential sources were removed only inside the diagnostic process. This confirms the next AWS infrastructure dependency is an EC2 instance profile/runtime role credential source; it does not indicate an application credential-chain defect.
+- An opt-in repository preflight guard is prepared through `AWS_REQUIRE_ROLE_CREDENTIALS`. It remains disabled by default until the production role-readiness diagnostic passes.
 
 Next infrastructure action before role cutover:
 
@@ -30,13 +31,14 @@ The production cutover sequence is:
 2. Run the read-only role-readiness diagnostic with static/profile credentials removed only inside the diagnostic process.
 3. Require all active tenant DB secret references to resolve through the role.
 4. Require S3 bucket/list/read probes to succeed through the role.
-5. Deploy the reviewed default-chain application code.
-6. Remove long-lived AWS credential variables from the production runtime configuration.
+5. Deploy the reviewed default-chain application code and the opt-in role-only runtime guard.
+6. Remove long-lived AWS credential variables from the production runtime configuration and set `AWS_REQUIRE_ROLE_CREDENTIALS=1` in the same controlled cutover.
 7. Restart the application service.
-8. Verify tenant login/DB resolution, object-storage read/upload behavior, and public HTTPS/legal endpoints.
-9. Only after successful validation, deactivate the superseded IAM user's access keys using a separate controlled AWS change.
+8. Run the strict repository/runtime preflight and require the role-only guard to pass.
+9. Verify tenant login/DB resolution, object-storage read/upload behavior, and public HTTPS/legal endpoints.
+10. Only after successful validation, deactivate the superseded IAM user's access keys using a separate controlled AWS change.
 
-Rollback before key deactivation is to restore the prior runtime credential variables and restart the service. The old keys must not be deleted until the role-only runtime has been proven healthy.
+Rollback before key deactivation is to restore the prior runtime credential variables, disable the role-only guard, and restart the service. The old keys must not be deleted until the role-only runtime has been proven healthy.
 
 ## 2. Minimum runtime IAM permissions
 
@@ -66,6 +68,8 @@ The diagnostic is accepted only when:
 - no credential value, secret identifier, object key, bucket name, tenant identifier, DB identifier, account ID, or ARN is printed.
 
 A live S3 PUT probe is intentionally excluded because the diagnostic is read-only. PUT is validated after cutover through the application upload flow.
+
+`AWS_REQUIRE_ROLE_CREDENTIALS=1` is an additional configuration-shape guard. It rejects configured static/profile AWS credential sources during preflight, but it does not replace the live role-readiness diagnostic because repository-side preflight does not contact EC2 metadata, STS, Secrets Manager, or S3.
 
 ## 4. Release branch protection rollout
 
@@ -112,6 +116,8 @@ Production role cutover validation:
 - role-readiness diagnostic passes;
 - reviewed code is deployed;
 - static AWS runtime variables are removed without printing values;
+- `AWS_REQUIRE_ROLE_CREDENTIALS=1` is enabled only after role readiness passes;
+- strict preflight reports the role-only runtime guard ready;
 - service restart succeeds;
 - active tenant secret resolution and DB connectivity succeed;
 - private S3 download and upload flows succeed;
