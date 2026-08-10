@@ -8,6 +8,9 @@ on:
       - .github/workflows/phase2-proxy-security-readiness-diagnostic.yml
       - .github/workflows/phase2-proxy-security-contract.yml
       - control/test_phase2_proxy_security_readiness_contract.py
+      - control/test_proxy_security_settings.py
+      - geoflow_project/proxy_security_settings.py
+      - geoflow_project/settings.py
       - docs/phase2-proxy-security-rollout.md
   pull_request:
     branches:
@@ -16,6 +19,9 @@ on:
       - .github/workflows/phase2-proxy-security-readiness-diagnostic.yml
       - .github/workflows/phase2-proxy-security-contract.yml
       - control/test_phase2_proxy_security_readiness_contract.py
+      - control/test_proxy_security_settings.py
+      - geoflow_project/proxy_security_settings.py
+      - geoflow_project/settings.py
       - docs/phase2-proxy-security-rollout.md
   workflow_dispatch:
 
@@ -35,5 +41,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate read-only trusted-proxy diagnostic contract
-        run: python -m unittest control.test_phase2_proxy_security_readiness_contract
+      - name: Validate trusted-proxy diagnostics and settings contracts
+        run: |
+          python -m unittest \
+            control.test_phase2_proxy_security_readiness_contract \
+            control.test_proxy_security_settings

@@ -20,6 +20,7 @@ from .env_values import (
     get_optional_env_text,
     get_optional_env_text_mapping,
 )
+from .proxy_security_settings import load_proxy_security_settings
 
 logger = logging.getLogger("geoflow.env")
 
@@ -71,6 +72,16 @@ CSRF_TRUSTED_ORIGINS = get_env_list("DJANGO_CSRF_TRUSTED_ORIGINS", default="")
 # 기본값은 운영 보안 우선(secure=True), 로컬 http 개발 시 .env에서 False로 오버라이드
 CSRF_COOKIE_SECURE = get_env_bool("DJANGO_CSRF_COOKIE_SECURE", default=True)
 SESSION_COOKIE_SECURE = get_env_bool("DJANGO_SESSION_COOKIE_SECURE", default=True)
+
+# Reverse-proxy/TLS hardening is explicit and opt-in. The trusted proxy contract
+# cannot be changed to an arbitrary client-controlled header: when enabled it is
+# always exactly HTTP_X_FORWARDED_PROTO=https.
+_PROXY_SECURITY = load_proxy_security_settings(os.environ)
+SECURE_PROXY_SSL_HEADER = _PROXY_SECURITY.proxy_ssl_header
+SECURE_SSL_REDIRECT = _PROXY_SECURITY.ssl_redirect
+SECURE_HSTS_SECONDS = _PROXY_SECURITY.hsts_seconds
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _PROXY_SECURITY.hsts_include_subdomains
+SECURE_HSTS_PRELOAD = _PROXY_SECURITY.hsts_preload
 
 
 # Application definition
@@ -376,8 +387,8 @@ EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-SITE_ORIGIN = "http://192.168.0.19:8000"
-DEFAULT_FROM_EMAIL = "noreply@geoflow.local"
+SITE_ORIGIN = os.getenv("SITE_ORIGIN", "http://192.168.0.19:8000")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@geoflow.local")
 
 # Signup verification remains disabled until all runtime values are configured.
 # Key material is supplied only through the environment and is never logged.
