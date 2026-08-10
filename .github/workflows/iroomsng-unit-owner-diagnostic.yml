@@ -73,7 +73,8 @@ jobs:
 
           nginx_dump="$(mktemp)"
           candidate_file="$(mktemp)"
-          trap 'rm -f "$nginx_dump" "$candidate_file"' EXIT
+          eligible_file="$(mktemp)"
+          trap 'rm -f "$nginx_dump" "$candidate_file" "$eligible_file"' EXIT
           sudo -n nginx -T >"$nginx_dump" 2>/dev/null || { echo 'iroomsng_owner_blocker=nginx_config_read_failed'; exit 2; }
 
           port="$({ python3 - "$nginx_dump" <<'PY'
@@ -145,13 +146,35 @@ jobs:
           printf '%s' "$candidate_count" | grep -Eq '^[0-9]+$'
           echo "iroomsng_owner_candidate_units=${candidate_count}"
 
-          if [ "$candidate_count" -ne 1 ]; then
+          excluded_count=0
+          while IFS= read -r candidate_unit; do
+            [ -n "$candidate_unit" ] || continue
+            case "$candidate_unit" in
+              geoflow-stabilized.service|geoflow.service|gunicorn.service)
+                excluded_count=$((excluded_count + 1))
+                ;;
+              *.service)
+                printf '%s\n' "$candidate_unit" >>"$eligible_file"
+                ;;
+              *)
+                echo 'iroomsng_owner_blocker=invalid_unit_basename'
+                exit 2
+                ;;
+            esac
+          done <"$candidate_file"
+
+          eligible_count="$(wc -l <"$eligible_file" | tr -d ' ')"
+          printf '%s' "$eligible_count" | grep -Eq '^[0-9]+$'
+          echo "iroomsng_owner_forbidden_geoflow_units_excluded=${excluded_count}"
+          echo "iroomsng_owner_eligible_units=${eligible_count}"
+
+          if [ "$eligible_count" -ne 1 ]; then
             echo 'iroomsng_owner_unique_unit=no'
             echo 'iroomsng_unit_owner_diagnostic_complete=yes'
             exit 0
           fi
 
-          unit="$(cat "$candidate_file")"
+          unit="$(cat "$eligible_file")"
           case "$unit" in
             *.service) ;;
             *) echo 'iroomsng_owner_blocker=invalid_unit_basename'; exit 2 ;;

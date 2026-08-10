@@ -33,6 +33,7 @@ class IroomsngUnitOwnerDiagnosticContractTests(TestCase):
         text = self._text()
         self.assertIn("basename \"$service_file\"", text)
         self.assertIn("iroomsng_owner_candidate_units=", text)
+        self.assertIn("iroomsng_owner_eligible_units=", text)
         self.assertIn("iroomsng_owner_unit=", text)
         self.assertIn("iroomsng_owner_active_state=", text)
         self.assertIn("iroomsng_owner_sub_state=", text)
@@ -44,7 +45,19 @@ class IroomsngUnitOwnerDiagnosticContractTests(TestCase):
         self.assertNotIn("-p Environment", text)
         self.assertNotIn("-p EnvironmentFiles", text)
 
-    def test_known_geoflow_units_are_explicitly_forbidden(self):
+    def test_known_geoflow_units_are_excluded_before_unique_owner_decision(self):
+        text = self._text()
+        forbidden = "geoflow-stabilized.service|geoflow.service|gunicorn.service"
+        self.assertIn(forbidden, text)
+        self.assertIn("iroomsng_owner_forbidden_geoflow_units_excluded=", text)
+        self.assertIn('if [ "$eligible_count" -ne 1 ]', text)
+        self.assertLess(
+            text.index("iroomsng_owner_forbidden_geoflow_units_excluded="),
+            text.index('if [ "$eligible_count" -ne 1 ]'),
+        )
+        self.assertNotIn('if [ "$candidate_count" -ne 1 ]', text)
+
+    def test_known_geoflow_unit_is_still_defensively_forbidden_after_filtering(self):
         text = self._text()
         self.assertIn("geoflow-stabilized.service|geoflow.service|gunicorn.service", text)
         self.assertIn("iroomsng_owner_forbidden_geoflow_unit=yes", text)
@@ -76,9 +89,9 @@ class IroomsngUnitOwnerDiagnosticContractTests(TestCase):
         ):
             self.assertNotIn(forbidden, text)
 
-    def test_ambiguous_ownership_fails_closed_without_recovery(self):
+    def test_ambiguous_eligible_ownership_fails_closed_without_recovery(self):
         text = self._text()
-        self.assertIn('if [ "$candidate_count" -ne 1 ]', text)
+        self.assertIn('if [ "$eligible_count" -ne 1 ]', text)
         self.assertIn("iroomsng_owner_unique_unit=no", text)
         self.assertIn("iroomsng_unit_owner_diagnostic_complete=yes", text)
         self.assertNotIn("recovery", text.lower())
