@@ -36,6 +36,54 @@ def _has_required_candidate_value(value):
     return value is not None and bool(str(value).strip())
 
 
+def _configured_static_tenant_aliases():
+    """Return only aliases intentionally configured as static tenant databases.
+
+    Runtime tenant registration mutates Django's connection registry, so mere
+    presence in ``settings.DATABASES`` is not a sufficient trust signal.  An
+    explicit allowlist wins; otherwise the legacy/default tenant alias is the
+    only statically trusted tenant alias.
+    """
+
+    configured = getattr(settings, "STATIC_TENANT_DB_ALIASES", None)
+    if configured is None:
+        configured = (getattr(settings, "DEFAULT_TENANT_DB_ALIAS", None),)
+    elif isinstance(configured, str):
+        configured = (configured,)
+
+    return {
+        str(alias).strip()
+        for alias in configured
+        if alias is not None and str(alias).strip()
+    }
+
+
+def _static_tenant_database_config_is_ready(alias):
+    alias = str(alias or "").strip()
+    central_alias = str(
+        getattr(settings, "CENTRAL_DB_ALIAS", "default") or "default"
+    ).strip()
+    if not alias or alias == central_alias:
+        return False
+    if alias not in _configured_static_tenant_aliases():
+        return False
+
+    databases = getattr(settings, "DATABASES", {})
+    database = databases.get(alias) if isinstance(databases, dict) else None
+    if not isinstance(database, dict):
+        return False
+
+    required_values = (
+        database.get("ENGINE"),
+        database.get("NAME"),
+        database.get("USER"),
+        database.get("PASSWORD"),
+        database.get("HOST"),
+        database.get("PORT"),
+    )
+    return all(_has_required_candidate_value(value) for value in required_values)
+
+
 def _candidate_is_selectable(candidate, membership):
     if not isinstance(candidate, dict) or membership is None:
         return False
@@ -58,20 +106,45 @@ def _candidate_is_selectable(candidate, membership):
         candidate.get("name"),
         candidate.get("db_alias"),
     )
+    if not all(
+        _has_required_candidate_value(value)
+        for value in required_candidate_values
+    ):
+        return False
+
+    candidate_alias = str(candidate["db_alias"]).strip()
+    central_alias = str(
+        getattr(settings, "CENTRAL_DB_ALIAS", "default") or "default"
+    ).strip()
+    if candidate_alias == central_alias:
+        return False
+
+    config_alias = getattr(config, "db_alias", None)
+    if not _has_required_candidate_value(config_alias):
+        return False
+    if candidate_alias != str(config_alias).strip():
+        return False
+
+    # A deliberately configured static tenant alias already has its connection
+    # credentials in settings.DATABASES.  Do not reject that trusted static path
+    # merely because legacy duplicate credential columns are incomplete.  The
+    # static connection itself must still be fully configured.
+    if candidate_alias in _configured_static_tenant_aliases():
+        return _static_tenant_database_config_is_ready(candidate_alias)
+
+    # Dynamic tenants remain fail-closed and must carry a complete central DB
+    # connection configuration so tenant_connections can register them safely.
     required_config_values = (
-        getattr(config, "db_alias", None),
         getattr(config, "db_name", None),
         getattr(config, "db_host", None),
         getattr(config, "db_port", None),
         getattr(config, "db_user", None),
         getattr(config, "db_password", None),
     )
-    if not all(
+    return all(
         _has_required_candidate_value(value)
-        for value in required_candidate_values + required_config_values
-    ):
-        return False
-    return candidate["db_alias"] == config.db_alias
+        for value in required_config_values
+    )
 
 
 def _selectable_tenant_candidates(user_id, candidates):
