@@ -8,7 +8,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from control.gf_authz.permissions import gf_has_perm
 
-from . import views_catalog, views_contracts, views_myinfo, views_projects
+from . import views_catalog, views_contract_creation, views_contracts, views_myinfo, views_projects
 from .services.entity_access import authorize_scope_read, require_tenant_context
 
 
@@ -29,7 +29,7 @@ def contract_list(request):
 @require_http_methods(["GET", "POST"])
 def contract_create(request):
     _require(request, "contracts.create")
-    return views_contracts.contract_create(request)
+    return views_contract_creation.contract_create(request)
 
 
 @login_required
