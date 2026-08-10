@@ -1,0 +1,31 @@
+name: iroomsng unit owner diagnostic contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-unit-owner-diagnostic.yml
+      - .github/workflows/iroomsng-unit-owner-diagnostic-contract.yml
+      - control/test_iroomsng_unit_owner_diagnostic_contract.py
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-unit-owner-diagnostic.yml
+      - .github/workflows/iroomsng-unit-owner-diagnostic-contract.yml
+      - control/test_iroomsng_unit_owner_diagnostic_contract.py
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-unit-owner-diagnostic-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run static safety contract
+        run: python -m unittest control.test_iroomsng_unit_owner_diagnostic_contract
