@@ -79,28 +79,36 @@ jobs:
           from pathlib import Path
 
           text = Path(sys.argv[1]).read_text(errors="replace")
-          # A narrow parser is sufficient for the currently deployed Nginx shape:
-          # inspect only server blocks naming iroomsng.kr and accept one loopback
-          # HTTP proxy target. Nothing from the effective config is printed.
           blocks = []
-          depth = 0
-          start = None
-          for index, char in enumerate(text):
-              if char == '{':
-                  if depth == 0:
-                      start = index
-                  depth += 1
-              elif char == '}':
-                  depth -= 1
-                  if depth == 0 and start is not None:
-                      block = text[start:index + 1]
-                      if re.search(r"server_name\s+[^;]*\biroomsng\.kr\b", block, re.I):
-                          blocks.append(block)
-                      start = None
+          for match in re.finditer(r"(?m)^\s*server\s*\{", text):
+              brace_start = text.find("{", match.start())
+              if brace_start < 0:
+                  continue
+              depth = 0
+              end = None
+              for index in range(brace_start, len(text)):
+                  char = text[index]
+                  if char == "{":
+                      depth += 1
+                  elif char == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = index + 1
+                          break
+              if end is None:
+                  continue
+              block = text[match.start():end]
+              if re.search(r"server_name\s+[^;]*\biroomsng\.kr\b", block, re.I):
+                  blocks.append(block)
+
           targets = []
           for block in blocks:
               targets.extend(
-                  re.findall(r"proxy_pass\s+http://127\.0\.0\.1:(\d{1,5})\s*;", block, re.I)
+                  re.findall(
+                      r"proxy_pass\s+http://127\.0\.0\.1:(\d{1,5})\s*;",
+                      block,
+                      re.I,
+                  )
               )
           unique = sorted(set(targets))
           if len(unique) != 1:
