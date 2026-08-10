@@ -1,0 +1,37 @@
+name: Release branch protection contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/release-preflight.yml
+      - .github/workflows/release-branch-protection-contract.yml
+      - control/test_release_branch_protection_contract.py
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/release-preflight.yml
+      - .github/workflows/release-branch-protection-contract.yml
+      - control/test_release_branch_protection_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-branch-protection-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Validate required release checks remain enforceable
+        run: python -m unittest control.test_release_branch_protection_contract
