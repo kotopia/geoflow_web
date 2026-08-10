@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from django.conf import settings
 from django.contrib import messages
-from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.shortcuts import render
 from django.views.decorators.cache import never_cache
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_http_methods
 
@@ -22,17 +24,18 @@ from .services.account_password_reset_service import (
     AccountPasswordResetRejected,
     reset_account_password_with_token,
 )
-from .services.signup_verification_runtime import (
-    load_signup_email_verification_key_ring,
-)
-from .services.signup_verification_service import (
-    EmailVerificationConfigurationError,
-)
+from .services.signup_verification_runtime import load_signup_email_verification_key_ring
+from .services.signup_verification_service import EmailVerificationConfigurationError
 
 
+logger = logging.getLogger(__name__)
 GENERIC_RESET_REQUEST_MESSAGE = (
     "입력한 이메일로 재설정할 수 있는 계정이 있으면 안내 메일을 발송합니다. "
     "메일이 보이지 않으면 잠시 후 스팸함도 확인해 주세요."
+)
+GENERIC_RESET_ERROR = (
+    "재설정 링크가 유효하지 않거나 만료되었거나, "
+    "새 비밀번호가 보안 조건을 만족하지 않습니다."
 )
 
 
@@ -57,14 +60,24 @@ def forgot_password_view(request):
 
     try:
         config = load_account_password_reset_delivery_config(settings_obj=settings)
-        # Loading the key ring here makes a broken reset configuration fail before
-        # a delivery intent is persisted, without exposing whether the account exists.
+        # Fail before persisting a delivery intent when key configuration is broken.
+        # The queue result itself is deliberately ignored to prevent enumeration.
         load_signup_email_verification_key_ring(settings_obj=settings)
         queue_account_password_reset_request(
             email,
             cooldown=config.request_cooldown,
         )
     except (AccountPasswordResetConfigurationError, EmailVerificationConfigurationError):
+        logger.error("AUTH: password reset request configuration unavailable")
+        return render(
+            request,
+            "control/forgot_password.html",
+            {"service_error": "현재 비밀번호 재설정 요청을 처리할 수 없습니다."},
+            status=503,
+        )
+    except Exception as exc:
+        # Never include the submitted email or exception message in the log.
+        logger.error("AUTH: password reset request unavailable (%s)", type(exc).__name__)
         return render(
             request,
             "control/forgot_password.html",
@@ -79,14 +92,13 @@ def forgot_password_view(request):
     )
 
 
-# The raw reset token is a one-time, expiring, replay-protected capability and
-# arrives from an email fragment. Keep this exemption scoped to the reset endpoint;
-# the reset-request form and every other account form remain CSRF-protected.
 @sensitive_post_parameters("token", "new_password", "new_password2")
 @never_cache
-@csrf_exempt
+@csrf_protect
 @require_http_methods(["GET", "POST"])
 def reset_password_view(request):
+    """Complete a reset with the raw capability accepted only in POST body."""
+
     if request.method == "GET":
         return render(request, "control/reset_password.html")
 
@@ -119,6 +131,7 @@ def reset_password_view(request):
             key_ring=key_ring,
         )
     except EmailVerificationConfigurationError:
+        logger.error("AUTH: password reset key configuration unavailable")
         return render(
             request,
             "control/reset_password.html",
@@ -129,16 +142,11 @@ def reset_password_view(request):
         return render(
             request,
             "control/reset_password.html",
-            {
-                "posted_token": token,
-                "reset_error": (
-                    "재설정 링크가 유효하지 않거나 만료되었거나, "
-                    "새 비밀번호가 보안 조건을 만족하지 않습니다."
-                ),
-            },
+            {"posted_token": token, "reset_error": GENERIC_RESET_ERROR},
             status=400,
         )
-    except AccountPasswordResetError:
+    except AccountPasswordResetError as exc:
+        logger.error("AUTH: password reset completion unavailable (%s)", type(exc).__name__)
         return render(
             request,
             "control/reset_password.html",
