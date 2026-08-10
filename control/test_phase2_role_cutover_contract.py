@@ -1,4 +1,5 @@
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -9,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "phase2-aws-role-cutover.yml"
 PROBE = ROOT / "scripts" / "ops" / "phase2_role_runtime_probe.py"
 GUARD = ROOT / "control" / "services" / "object_storage_runtime_preflight.py"
+RULESET_TEMPLATE = ROOT / "docs" / "phase2-release-ruleset-api-template.json"
 
 
 def _git_blob_sha(path: Path) -> str:
@@ -38,6 +40,7 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         self.assertIn('systemctl cat "$service"', text)
         self.assertIn("systemd_direct_aws_credential_source_present", text)
         self.assertIn("systemd_environment_file_not_safe", text)
+        self.assertIn("AWS_EC2_METADATA_DISABLED", text)
 
     def test_cutover_is_rollback_guarded_and_does_not_delete_old_keys(self):
         text = WORKFLOW.read_text()
@@ -72,4 +75,24 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         self.assertEqual(
             _expected_blob(text, "expected_probe_blob"),
             _git_blob_sha(PROBE),
+        )
+
+    def test_release_ruleset_template_locks_stage_b_contract(self):
+        payload = json.loads(RULESET_TEMPLATE.read_text())
+        self.assertEqual(payload["target"], "branch")
+        self.assertEqual(payload["enforcement"], "active")
+        self.assertEqual(payload["bypass_actors"], [])
+        self.assertEqual(
+            payload["conditions"]["ref_name"]["include"],
+            ["refs/heads/release/stabilized-deploy"],
+        )
+        rules = {rule["type"]: rule for rule in payload["rules"]}
+        self.assertIn("deletion", rules)
+        self.assertIn("non_fast_forward", rules)
+        self.assertIn("pull_request", rules)
+        checks = rules["required_status_checks"]["parameters"]
+        self.assertTrue(checks["strict_required_status_checks_policy"])
+        self.assertEqual(
+            [item["context"] for item in checks["required_status_checks"]],
+            ["release-preflight", "migration-rehearsal", "public-https-smoke"],
         )
