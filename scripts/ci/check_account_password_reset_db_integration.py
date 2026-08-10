@@ -4,8 +4,14 @@ import os
 import sys
 import uuid
 from datetime import timedelta
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+# Executing this file directly makes scripts/ci the first import path. Put the
+# reviewed repository root first so Django settings and application modules are
+# imported from the checkout under test rather than from the runner environment.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY_ROOT))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.ci_migration_settings")
 
 import django  # noqa: E402
