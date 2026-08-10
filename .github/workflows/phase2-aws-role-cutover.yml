@@ -101,6 +101,17 @@ jobs:
           expected_secret_resolver_blob='e36057251ce9e38fa7ea5cf4a7058eeafbc2f171'
           expected_s3_service_blob='ba61bf02cfea81e3fd0a29e1a2730bf265054c4c'
           fail() { echo "phase2_cutover_blocker=$1"; exit 2; }
+          run_clean_aws_env() {
+            env \
+              -u AWS_ACCESS_KEY_ID \
+              -u AWS_SECRET_ACCESS_KEY \
+              -u AWS_SESSION_TOKEN \
+              -u AWS_PROFILE \
+              -u AWS_DEFAULT_PROFILE \
+              -u AWS_SHARED_CREDENTIALS_FILE \
+              -u AWS_CONFIG_FILE \
+              "$@"
+          }
 
           command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
           sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
@@ -135,8 +146,7 @@ jobs:
             *) fail 'runtime_guard_file_diverged' ;;
           esac
 
-          # Fail closed when AWS credentials are injected directly by the systemd unit.
-          # Capture but never echo the Environment value because it may contain secrets.
+          # Never echo the systemd Environment value; it may contain credentials.
           service_environment="$(systemctl show "$service" -p Environment --value 2>/dev/null || true)"
           if printf '%s' "$service_environment" | grep -Eq '(^|[[:space:]"])(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_PROFILE|AWS_DEFAULT_PROFILE|AWS_SHARED_CREDENTIALS_FILE|AWS_CONFIG_FILE)='; then
             fail 'systemd_direct_aws_credential_source_present'
@@ -144,11 +154,11 @@ jobs:
           unset service_environment
 
           # Inspect EnvironmentFile directives without printing paths or contents. The
-          # repository .env is allowed because this cutover edits that exact file; any
-          # other EnvironmentFile containing AWS credential source keys blocks cutover.
+          # repository .env is allowed because this cutover edits that exact file.
           unit_dump="$(mktemp)"
           systemctl cat "$service" > "$unit_dump" 2>/dev/null || fail 'systemd_unit_read_failed'
-          "$python" - "$unit_dump" "$repo/.env" <<'PY'
+          unit_rc=0
+          "$python" - "$unit_dump" "$repo/.env" <<'PY' || unit_rc=$?
           import re
           import shlex
           import sys
@@ -191,7 +201,6 @@ jobs:
                           raise SystemExit(4)
           print("phase2_cutover_systemd_environment_files_safe=yes")
           PY
-          unit_rc=$?
           rm -f "$unit_dump"
           [ "$unit_rc" -eq 0 ] || fail 'systemd_environment_file_not_safe'
 
@@ -264,14 +273,16 @@ jobs:
           print("phase2_cutover_runtime_env_updated=yes")
           PY
 
-          DJANGO_SETTINGS_MODULE=geoflow_project.settings "$python" manage.py check_release_preflight --strict >/dev/null
+          run_clean_aws_env "$python" manage.py check_release_preflight --strict >/dev/null
           sudo -n systemctl restart "$service"
           sleep 3
           active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
           sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
           [ "$active" = active ] && [ "$sub" = running ] || fail 'web_service_not_running_after_cutover'
 
-          "$python" "$REMOTE_PROBE" "$repo" postcutover
+          # Remove SSH-shell credential sources so this validates the updated .env plus
+          # EC2/container role rather than the operator's shell profile.
+          run_clean_aws_env "$python" "$REMOTE_PROBE" "$repo" postcutover
 
           login_get="$(curl --proto '=https' --silent --show-error --output /dev/null --write-out '%{http_code}' --connect-timeout 10 --max-time 20 https://geoflow.co.kr/login/)"
           echo "phase2_cutover_public_login_get=$login_get"
