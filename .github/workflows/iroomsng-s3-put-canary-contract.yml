@@ -1,0 +1,32 @@
+name: iroomsng S3 put canary contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-s3-put-canary.yml
+      - .github/workflows/iroomsng-s3-put-canary-contract.yml
+      - control/test_iroomsng_s3_put_canary_contract.py
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-s3-put-canary-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Validate bounded zero-byte S3 canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_iroomsng_s3_put_canary_contract
