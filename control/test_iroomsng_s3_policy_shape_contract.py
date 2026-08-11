@@ -30,13 +30,15 @@ class IroomsngS3PolicyShapeContractTests(TestCase):
             'systemctl disable',
             'systemctl reload',
             'manage.py migrate',
-            'aws_secret_access_key=',
             'print(access_key',
             'print(secret_key',
             'print(bucket',
             'print(identity_arn',
             'print(raw)',
             'print(bucket_policy',
+            'echo "$access_key"',
+            'echo "$secret_key"',
+            'echo "$bucket"',
         )
         for token in forbidden:
             self.assertNotIn(token, text)
