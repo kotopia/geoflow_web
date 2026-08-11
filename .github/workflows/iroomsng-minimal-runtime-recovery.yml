@@ -1,0 +1,391 @@
+name: iroomsng minimal runtime recovery
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-minimal-runtime-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-minimal-runtime-recovery:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact triggering release SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Recover only legacy iroomsng runtime and verify existing S3 helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          primary='geoflow.service'
+          duplicate='gunicorn.service'
+          stable='geoflow-stabilized.service'
+          dropin_dir="/etc/systemd/system/${primary}.d"
+          dropin_file="${dropin_dir}/90-iroomsng-django50-recovery.conf"
+
+          fail() {
+            echo "iroomsng_recovery_blocker=$1"
+            exit 2
+          }
+
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          command -v curl >/dev/null 2>&1 || fail 'curl_missing'
+          command -v python3 >/dev/null 2>&1 || fail 'python3_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+
+          systemctl cat "$primary" >/dev/null 2>&1 || fail 'legacy_primary_unit_missing'
+          systemctl cat "$duplicate" >/dev/null 2>&1 || fail 'legacy_duplicate_unit_missing'
+          systemctl cat "$stable" >/dev/null 2>&1 || fail 'stabilized_unit_missing'
+          [ "$(systemctl is-active "$stable" 2>/dev/null || true)" = active ] || fail 'stabilized_service_not_active'
+
+          wd="$(systemctl show "$primary" -p WorkingDirectory --value 2>/dev/null || true)"
+          duplicate_wd="$(systemctl show "$duplicate" -p WorkingDirectory --value 2>/dev/null || true)"
+          stable_wd="$(systemctl show "$stable" -p WorkingDirectory --value 2>/dev/null || true)"
+          unit_user="$(systemctl show "$primary" -p User --value 2>/dev/null || true)"
+          exec_raw="$(systemctl show "$primary" -p ExecStart --value 2>/dev/null || true)"
+          duplicate_exec_raw="$(systemctl show "$duplicate" -p ExecStart --value 2>/dev/null || true)"
+          stable_exec_raw="$(systemctl show "$stable" -p ExecStart --value 2>/dev/null || true)"
+
+          [ -n "$wd" ] && [ -d "$wd" ] || fail 'legacy_working_directory_missing'
+          [ -n "$duplicate_wd" ] && [ "$duplicate_wd" = "$wd" ] || fail 'duplicate_working_directory_mismatch'
+          [ -n "$stable_wd" ] && [ "$stable_wd" != "$wd" ] || fail 'stabilized_working_directory_not_isolated'
+          [ -n "$unit_user" ] || fail 'legacy_unit_user_missing'
+          printf '%s' "$stable_exec_raw" | grep -q '\.venv' || fail 'stabilized_runtime_not_venv_isolated'
+          [ ! -e "$dropin_file" ] || fail 'recovery_dropin_already_exists'
+          [ -f "$wd/requirements.txt" ] || fail 'legacy_requirements_missing'
+          grep -Eq '^Django==5\.0\.6[[:space:]]*$' "$wd/requirements.txt" || fail 'legacy_repo_django_pin_not_5_0_6'
+
+          exec_path="$(printf '%s' "$exec_raw" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -n1)"
+          [ -n "$exec_path" ] && [ -f "$exec_path" ] || fail 'legacy_exec_path_unresolved'
+          first_line="$(head -n1 "$exec_path" 2>/dev/null || true)"
+          case "$first_line" in
+            '#!'*) runtime_python="$(printf '%s' "${first_line#\#!}" | awk '{print $1}')" ;;
+            *) fail 'legacy_runtime_python_unresolved' ;;
+          esac
+          [ -x "$runtime_python" ] || fail 'legacy_runtime_python_missing'
+
+          settings_module="$(systemctl cat "$primary" 2>/dev/null | sed -n 's/^[[:space:]]*Environment=.*DJANGO_SETTINGS_MODULE=\([^"[:space:]]*\).*/\1/p' | head -n1)"
+          [ -n "$settings_module" ] || fail 'legacy_settings_module_unresolved'
+
+          current_django="$(sudo -u "$unit_user" "$runtime_python" -c 'import django; print(django.get_version())' 2>/dev/null || true)"
+          [ "$current_django" = '5.2.4' ] || fail 'legacy_runtime_django_not_expected_5_2_4'
+
+          extract_bind() {
+            local raw="$1"
+            EXEC_RAW="$raw" python3 - <<'PY'
+          import os, re, shlex
+          raw = os.environ['EXEC_RAW']
+          match = re.search(r'argv\[\]=([^;]*)', raw)
+          if not match:
+              raise SystemExit(3)
+          argv = shlex.split(match.group(1).strip())
+          if not argv:
+              raise SystemExit(4)
+          bind = None
+          for i, arg in enumerate(argv[1:], start=1):
+              if arg in {'--bind', '-b'} and i + 1 < len(argv):
+                  bind = argv[i + 1]
+                  break
+              if arg.startswith('--bind='):
+                  bind = arg.split('=', 1)[1]
+                  break
+          if not bind:
+              raise SystemExit(5)
+          print(bind)
+          PY
+          }
+
+          primary_bind="$(extract_bind "$exec_raw" 2>/dev/null || true)"
+          duplicate_bind="$(extract_bind "$duplicate_exec_raw" 2>/dev/null || true)"
+          [ -n "$primary_bind" ] || fail 'legacy_primary_bind_unresolved'
+          [ "$duplicate_bind" = "$primary_bind" ] || fail 'legacy_duplicate_bind_mismatch'
+          if [[ "$primary_bind" =~ ^127\.0\.0\.1:([0-9]{2,5})$ ]]; then
+            upstream_port="${BASH_REMATCH[1]}"
+          elif [[ "$primary_bind" =~ ^localhost:([0-9]{2,5})$ ]]; then
+            upstream_port="${BASH_REMATCH[1]}"
+          else
+            fail 'legacy_bind_not_loopback_tcp'
+          fi
+
+          public_before="$(curl -ksS --max-time 10 -o /dev/null -w '%{http_code}' https://iroomsng.kr/ 2>/dev/null || true)"
+          [ "$public_before" = '502' ] || fail 'public_root_not_expected_502'
+
+          user_home="$(getent passwd "$unit_user" | awk -F: '{print $6}')"
+          [ -n "$user_home" ] && [ -d "$user_home" ] || fail 'legacy_user_home_missing'
+          case "$user_home" in *[[:space:]]*) fail 'legacy_user_home_contains_whitespace' ;; esac
+          venv="$user_home/.venvs/iroomsng-django50-recovery"
+          [ ! -e "$venv" ] || fail 'legacy_recovery_venv_already_exists'
+          [ "$venv" != "$stable_wd" ] || fail 'recovery_venv_collides_with_stabilized_runtime'
+
+          echo 'iroomsng_recovery_preflight=yes'
+          echo 'iroomsng_recovery_current_django=5.2.4'
+          echo 'iroomsng_recovery_repo_django_pin=5.0.6'
+          echo 'iroomsng_recovery_duplicate_same_target=yes'
+          echo 'iroomsng_recovery_stabilized_isolated=yes'
+
+          sudo -u "$unit_user" mkdir -p "$user_home/.venvs"
+          sudo -u "$unit_user" "$runtime_python" -m venv --system-site-packages "$venv" || fail 'legacy_recovery_venv_create_failed'
+          sudo -u "$unit_user" "$venv/bin/python" -m pip install --disable-pip-version-check --no-input 'Django==5.0.6' >/dev/null || fail 'legacy_recovery_django_install_failed'
+
+          user_site="$(sudo -u "$unit_user" "$runtime_python" -c 'import site; print(site.getusersitepackages())' 2>/dev/null || true)"
+          [ -n "$user_site" ] && [ -d "$user_site" ] || fail 'legacy_user_site_packages_missing'
+          venv_site="$(sudo -u "$unit_user" "$venv/bin/python" -c 'import site; print(next(p for p in site.getsitepackages() if p.endswith("site-packages")))' 2>/dev/null || true)"
+          [ -n "$venv_site" ] && [ -d "$venv_site" ] || fail 'legacy_venv_site_packages_missing'
+          printf '%s\n' "$user_site" | sudo -u "$unit_user" tee "$venv_site/legacy-user-site.pth" >/dev/null
+
+          venv_django="$(sudo -u "$unit_user" "$venv/bin/python" -c 'import django; print(django.get_version())' 2>/dev/null || true)"
+          [ "$venv_django" = '5.0.6' ] || fail 'legacy_recovery_django_version_wrong'
+          django_local="$(sudo -u "$unit_user" "$venv/bin/python" -c 'import django,sys; print("yes" if django.__file__.startswith(sys.prefix) else "no")' 2>/dev/null || true)"
+          [ "$django_local" = yes ] || fail 'legacy_recovery_django_not_local_to_venv'
+          sudo -u "$unit_user" "$venv/bin/python" -c 'import gunicorn, boto3, PIL, cv2, numpy, psycopg2' >/dev/null 2>&1 || fail 'legacy_runtime_dependency_import_failed'
+
+          wsgi_module="${settings_module%.settings}.wsgi"
+          sudo -u "$unit_user" env DJANGO_SETTINGS_MODULE="$settings_module" LEGACY_WD="$wd" WSGI_MODULE="$wsgi_module" "$venv/bin/python" - <<'PY' >/dev/null 2>&1 || fail 'legacy_wsgi_import_failed'
+          import importlib
+          import os
+          import sys
+          wd = os.environ['LEGACY_WD']
+          os.chdir(wd)
+          sys.path.insert(0, wd)
+          import django
+          django.setup()
+          importlib.import_module(os.environ['WSGI_MODULE'])
+          PY
+
+          sudo -u "$unit_user" env DJANGO_SETTINGS_MODULE="$settings_module" LEGACY_WD="$wd" "$venv/bin/python" - <<'PY' >/dev/null 2>&1 || fail 'legacy_database_read_probe_failed'
+          import os
+          import sys
+          wd = os.environ['LEGACY_WD']
+          os.chdir(wd)
+          sys.path.insert(0, wd)
+          import django
+          django.setup()
+          from django.db import connection
+          with connection.cursor() as cursor:
+              cursor.execute('SELECT 1')
+              row = cursor.fetchone()
+          assert row and row[0] == 1
+          PY
+
+          wrapper="$venv/bin/iroomsng-gunicorn-recovery"
+          sudo -u "$unit_user" env EXEC_RAW="$exec_raw" VENV="$venv" WRAPPER="$wrapper" "$runtime_python" - <<'PY' || fail 'legacy_wrapper_generation_failed'
+          import os
+          import re
+          import shlex
+          raw = os.environ['EXEC_RAW']
+          match = re.search(r'argv\[\]=([^;]*)', raw)
+          if not match:
+              raise SystemExit(3)
+          argv = shlex.split(match.group(1).strip())
+          if len(argv) < 2 or 'gunicorn' not in os.path.basename(argv[0]).lower():
+              raise SystemExit(4)
+          command = [os.path.join(os.environ['VENV'], 'bin', 'python'), '-m', 'gunicorn', *argv[1:]]
+          text = '#!/usr/bin/env bash\nset -euo pipefail\nexec ' + ' '.join(shlex.quote(part) for part in command) + '\n'
+          with open(os.environ['WRAPPER'], 'w', encoding='utf-8') as handle:
+              handle.write(text)
+          os.chmod(os.environ['WRAPPER'], 0o700)
+          PY
+
+          [ -x "$wrapper" ] || fail 'legacy_wrapper_missing'
+          echo 'iroomsng_recovery_venv_ready=yes'
+          echo 'iroomsng_recovery_wsgi_import=yes'
+          echo 'iroomsng_recovery_database_read_probe=yes'
+
+          primary_state_before="$(systemctl is-active "$primary" 2>/dev/null || true)"
+          duplicate_state_before="$(systemctl is-active "$duplicate" 2>/dev/null || true)"
+          duplicate_enabled_before="$(systemctl is-enabled "$duplicate" 2>/dev/null || true)"
+          stable_pid_before="$(systemctl show "$stable" -p MainPID --value 2>/dev/null || true)"
+
+          rollback() {
+            set +e
+            sudo systemctl stop "$primary" >/dev/null 2>&1
+            sudo rm -f "$dropin_file"
+            sudo systemctl daemon-reload >/dev/null 2>&1
+            if [ "$duplicate_enabled_before" = enabled ]; then
+              sudo systemctl enable "$duplicate" >/dev/null 2>&1
+            fi
+            case "$duplicate_state_before" in
+              active|activating|reloading) sudo systemctl start "$duplicate" >/dev/null 2>&1 ;;
+            esac
+            case "$primary_state_before" in
+              active|activating|reloading) sudo systemctl start "$primary" >/dev/null 2>&1 ;;
+            esac
+            sudo -u "$unit_user" rm -rf "$venv" >/dev/null 2>&1
+            echo 'iroomsng_recovery_rollback_completed=yes'
+          }
+
+          sudo systemctl stop "$duplicate" >/dev/null 2>&1 || { rollback; fail 'legacy_duplicate_stop_failed'; }
+          sudo systemctl stop "$primary" >/dev/null 2>&1 || { rollback; fail 'legacy_primary_stop_failed'; }
+          sudo mkdir -p "$dropin_dir"
+          printf '[Service]\nExecStart=\nExecStart=%s\n' "$wrapper" | sudo tee "$dropin_file" >/dev/null || { rollback; fail 'legacy_dropin_write_failed'; }
+          sudo systemctl daemon-reload >/dev/null 2>&1 || { rollback; fail 'systemd_daemon_reload_failed'; }
+          sudo systemctl start "$primary" >/dev/null 2>&1 || { rollback; fail 'legacy_primary_start_failed'; }
+
+          primary_ready=no
+          for _ in $(seq 1 20); do
+            if [ "$(systemctl is-active "$primary" 2>/dev/null || true)" = active ]; then
+              local_code="$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${upstream_port}/" 2>/dev/null || true)"
+              case "$local_code" in
+                2??|3??) primary_ready=yes; break ;;
+              esac
+            fi
+            sleep 1
+          done
+          [ "$primary_ready" = yes ] || { rollback; fail 'legacy_local_health_failed'; }
+
+          public_after="$(curl -ksS --max-time 10 -o /dev/null -w '%{http_code}' https://iroomsng.kr/ 2>/dev/null || true)"
+          case "$public_after" in
+            2??|3??) ;;
+            *) rollback; fail 'legacy_public_health_failed' ;;
+          esac
+
+          [ "$(systemctl is-active "$stable" 2>/dev/null || true)" = active ] || { rollback; fail 'stabilized_service_changed_during_recovery'; }
+          if [ "$duplicate_enabled_before" = enabled ]; then
+            sudo systemctl disable "$duplicate" >/dev/null 2>&1 || { rollback; fail 'legacy_duplicate_disable_failed'; }
+          fi
+          [ "$(systemctl is-active "$duplicate" 2>/dev/null || true)" != active ] || { rollback; fail 'legacy_duplicate_still_active'; }
+
+          stable_pid_after="$(systemctl show "$stable" -p MainPID --value 2>/dev/null || true)"
+          if [ -n "$stable_pid_before" ] && [ "$stable_pid_after" = "$stable_pid_before" ]; then
+            stable_pid_unchanged=yes
+          else
+            stable_pid_unchanged=no
+          fi
+
+          echo 'iroomsng_recovery_web_complete=yes'
+          echo 'iroomsng_recovery_primary_active=yes'
+          echo 'iroomsng_recovery_duplicate_stopped=yes'
+          echo 'iroomsng_recovery_stabilized_active=yes'
+          echo "iroomsng_recovery_stabilized_pid_unchanged=$stable_pid_unchanged"
+          echo "iroomsng_recovery_public_status=$public_after"
+
+          s3_result="$(sudo -u "$unit_user" env DJANGO_SETTINGS_MODULE="$settings_module" LEGACY_WD="$wd" "$venv/bin/python" - <<'PY'
+          import contextlib
+          import io
+          import os
+          import sys
+          wd = os.environ['LEGACY_WD']
+          os.chdir(wd)
+          sys.path.insert(0, wd)
+          import django
+          django.setup()
+          import boto3
+          from PIL import Image
+          from django.conf import settings
+          from webgisapp.tools.aws_s3 import upload_file_to_s3
+
+          key = None
+          cleanup_required = False
+          result = 'unknown'
+          image = io.BytesIO()
+          Image.new('RGB', (16, 16), (32, 64, 96)).save(image, format='JPEG')
+          image.seek(0)
+          sink = io.StringIO()
+          try:
+              with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                  key, _ = upload_file_to_s3(image, '__diagnostic__', 'runtime-recovery')
+              cleanup_required = True
+              s3 = boto3.client(
+                  's3',
+                  region_name=settings.AWS_S3_REGION_NAME,
+                  aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                  aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+              )
+              s3.head_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+              s3.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+              cleanup_required = False
+              result = 'success'
+          except Exception as exc:
+              text = str(exc).lower()
+              if 'accessdenied' in text or 'access denied' in text:
+                  result = 'access_denied'
+              elif 'image processing' in text or 'cannot write mode' in text:
+                  result = 'image_processing'
+              elif 'no module named' in text:
+                  result = 'dependency'
+              else:
+                  result = 'other'
+              if cleanup_required and key:
+                  try:
+                      s3 = boto3.client(
+                          's3',
+                          region_name=settings.AWS_S3_REGION_NAME,
+                          aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                          aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                      )
+                      s3.delete_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=key)
+                      cleanup_required = False
+                  except Exception:
+                      pass
+          print(f'{result}|{"yes" if cleanup_required else "no"}')
+          PY
+          )"
+          s3_status="${s3_result%%|*}"
+          s3_cleanup="${s3_result##*|}"
+          echo "iroomsng_recovery_s3_helper_status=$s3_status"
+          echo "iroomsng_recovery_s3_cleanup_required=$s3_cleanup"
+
+          final_public="$(curl -ksS --max-time 10 -o /dev/null -w '%{http_code}' https://iroomsng.kr/ 2>/dev/null || true)"
+          case "$final_public" in
+            2??|3??) ;;
+            *) fail 'legacy_public_health_regressed_after_s3_check' ;;
+          esac
+
+          if [ "$s3_status" = success ] && [ "$s3_cleanup" = no ]; then
+            echo 'iroomsng_recovery_complete=yes'
+          else
+            echo 'iroomsng_recovery_complete=partial'
+            exit 4
+          fi
+          REMOTE
