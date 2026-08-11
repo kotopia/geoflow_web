@@ -1,0 +1,43 @@
+name: Authz tenant scope regression
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - control/gf_authz/services.py
+      - control/test_gf_authz_tenant_scope.py
+      - .github/workflows/gf-authz-tenant-scope-regression.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - control/gf_authz/services.py
+      - control/test_gf_authz_tenant_scope.py
+      - .github/workflows/gf-authz-tenant-scope-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  gf-authz-tenant-scope-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install exact Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Verify tenant authorization scoping
+        run: python -m unittest control.test_gf_authz_tenant_scope

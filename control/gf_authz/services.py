@@ -47,7 +47,15 @@ def gf_load_user_context(request) -> Dict:
     """
     중앙 DB에서 현재 로그인 사용자(email 기준)의 uuid를 찾고,
     해당 사용자@현재 그룹에서의 roles → permissions를 확장합니다.
+
+    Tenant authorization is meaningful only with an explicit tenant/group scope.
+    A missing group id must never be interpreted as "all groups" because that
+    would merge privileges from unrelated tenant memberships into one request.
     """
+    group_id = _resolve_group_id(request)
+    if not group_id:
+        return {"tenant_id": None, "roles": [], "perms": [], "project_ids": []}
+
     alias = _central_alias()
     users_tbl            = _table("users",            "public.users")
     user_roles_tbl       = _table("user_roles",       "public.user_group_map")  # 매핑 사용
@@ -57,7 +65,6 @@ def gf_load_user_context(request) -> Dict:
     project_members_tbl  = _table("project_members",  "public.project_members")
 
     email = _resolve_request_identity(request)
-    group_id = _resolve_group_id(request)
 
     roles: Set[str] = set()
     perms: Set[str] = set()
@@ -69,47 +76,28 @@ def gf_load_user_context(request) -> Dict:
         if not central_user_id:
             return {"tenant_id": group_id, "roles": [], "perms": [], "project_ids": []}
 
-        # 2) roles (그룹 스코프 적용)
-        if group_id:
+        # 2) roles (현재 그룹 스코프만 허용)
+        cur.execute(f"""
+            SELECT r.code
+              FROM {user_roles_tbl} ur
+              JOIN {roles_tbl} r ON r.id = ur.role_id
+             WHERE ur.user_id = %s
+               AND ur.group_id = %s
+               AND (ur.status IS NULL OR ur.status='active')
+        """, [central_user_id, group_id])
+        roles = {row[0] for row in cur.fetchall()}
+
+        # 3) perms (역할→퍼미션 확장, 동일 그룹 스코프)
+        if roles:
             cur.execute(f"""
-                SELECT r.code
+                SELECT DISTINCT p.code
                   FROM {user_roles_tbl} ur
-                  JOIN {roles_tbl} r ON r.id = ur.role_id
+                  JOIN {role_permissions_tbl} rp ON rp.role_id = ur.role_id
+                  JOIN {permissions_tbl}      p ON p.id = rp.permission_id
                  WHERE ur.user_id = %s
                    AND ur.group_id = %s
                    AND (ur.status IS NULL OR ur.status='active')
             """, [central_user_id, group_id])
-        else:
-            cur.execute(f"""
-                SELECT r.code
-                  FROM {user_roles_tbl} ur
-                  JOIN {roles_tbl} r ON r.id = ur.role_id
-                 WHERE ur.user_id = %s
-                   AND (ur.status IS NULL OR ur.status='active')
-            """, [central_user_id])
-        roles = {row[0] for row in cur.fetchall()}
-
-        # 3) perms (역할→퍼미션 확장, 동일 스코프)
-        if roles:
-            if group_id:
-                cur.execute(f"""
-                    SELECT DISTINCT p.code
-                      FROM {user_roles_tbl} ur
-                      JOIN {role_permissions_tbl} rp ON rp.role_id = ur.role_id
-                      JOIN {permissions_tbl}      p ON p.id = rp.permission_id
-                     WHERE ur.user_id = %s
-                       AND ur.group_id = %s
-                       AND (ur.status IS NULL OR ur.status='active')
-                """, [central_user_id, group_id])
-            else:
-                cur.execute(f"""
-                    SELECT DISTINCT p.code
-                      FROM {user_roles_tbl} ur
-                      JOIN {role_permissions_tbl} rp ON rp.role_id = ur.role_id
-                      JOIN {permissions_tbl}      p ON p.id = rp.permission_id
-                     WHERE ur.user_id = %s
-                       AND (ur.status IS NULL OR ur.status='active')
-                """, [central_user_id])
             perms = {row[0] for row in cur.fetchall()}
 
         # 4) 프로젝트 스코프(선택)
