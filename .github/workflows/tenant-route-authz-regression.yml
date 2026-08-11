@@ -1,0 +1,53 @@
+name: Tenant route authorization regression
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - geoflow_ops/urls.py
+      - geoflow_ops/security_views.py
+      - geoflow_ops/employee_security_views.py
+      - geoflow_ops/event_security_views.py
+      - geoflow_ops/upload_guard_views.py
+      - geoflow_ops/views_events.py
+      - geoflow_ops/views_uploads.py
+      - geoflow_ops/services/entity_access.py
+      - geoflow_ops/test_tenant_route_authorization_contract.py
+      - .github/workflows/tenant-route-authz-regression.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - geoflow_ops/urls.py
+      - geoflow_ops/security_views.py
+      - geoflow_ops/employee_security_views.py
+      - geoflow_ops/event_security_views.py
+      - geoflow_ops/upload_guard_views.py
+      - geoflow_ops/views_events.py
+      - geoflow_ops/views_uploads.py
+      - geoflow_ops/services/entity_access.py
+      - geoflow_ops/test_tenant_route_authorization_contract.py
+      - .github/workflows/tenant-route-authz-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  tenant-route-authz-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify tenant route authorization boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest geoflow_ops.test_tenant_route_authorization_contract
