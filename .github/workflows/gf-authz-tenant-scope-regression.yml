@@ -6,14 +6,18 @@ on:
       - release/stabilized-deploy
     paths:
       - control/gf_authz/services.py
+      - control/templatetags/acl_tags.py
       - control/test_gf_authz_tenant_scope.py
+      - control/test_legacy_acl_tenant_scope.py
       - .github/workflows/gf-authz-tenant-scope-regression.yml
   push:
     branches:
       - release/stabilized-deploy
     paths:
       - control/gf_authz/services.py
+      - control/templatetags/acl_tags.py
       - control/test_gf_authz_tenant_scope.py
+      - control/test_legacy_acl_tenant_scope.py
       - .github/workflows/gf-authz-tenant-scope-regression.yml
 
 permissions:
@@ -40,4 +44,7 @@ jobs:
           python -m pip check
 
       - name: Verify tenant authorization scoping
-        run: python -m unittest control.test_gf_authz_tenant_scope
+        run: |
+          python -m unittest \
+            control.test_gf_authz_tenant_scope \
+            control.test_legacy_acl_tenant_scope
