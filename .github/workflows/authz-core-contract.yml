@@ -32,6 +32,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install contract dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "Django==5.2.16"
+
       - name: Verify authorization helper contract
         shell: bash
         run: |
