@@ -143,14 +143,12 @@ def project_summary_save(request, pk):
 @login_required
 @require_GET
 def catalog_board(request):
-    require_tenant_context(request)
+    _require(request, "projects.view")
     project_id = request.GET.get("project_id")
     if project_id:
         try:
             UUID(str(project_id))
         except (TypeError, ValueError, AttributeError):
-            raise PermissionDenied("Permission denied")
-        if not gf_has_perm(request, "projects.view"):
             raise PermissionDenied("Permission denied")
     return views_catalog.catalog_board(request)
 
