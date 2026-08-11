@@ -25,14 +25,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install minimal contract dependency
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --disable-pip-version-check --no-input Django==5.2.16
-
       - name: Validate bounded read-only S3 policy-shape diagnostic
         shell: bash
         run: |
           set -euo pipefail
-          python -m django test control.test_iroomsng_s3_policy_shape_contract --settings=geoflow_project.settings
+          python -m unittest control.test_iroomsng_s3_policy_shape_contract
