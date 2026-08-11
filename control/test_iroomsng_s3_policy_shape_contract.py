@@ -1,9 +1,8 @@
 from pathlib import Path
+from unittest import TestCase
 
-from django.test import SimpleTestCase
 
-
-class IroomsngS3PolicyShapeContractTests(SimpleTestCase):
+class IroomsngS3PolicyShapeContractTests(TestCase):
     def test_diagnostic_is_bounded_and_read_only(self):
         path = Path('.github/workflows/iroomsng-s3-policy-shape-diagnostic.yml')
         text = path.read_text(encoding='utf-8')
