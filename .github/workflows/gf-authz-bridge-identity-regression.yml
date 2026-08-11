@@ -22,7 +22,7 @@ permissions:
 jobs:
   gf-authz-bridge-identity-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       DJANGO_SECRET_KEY: ci-authz-bridge-identity-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ
       DJANGO_DEBUG: "0"
@@ -47,6 +47,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+
+      - name: Install GeoDjango system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
 
       - name: Install exact Python dependencies
         run: |
