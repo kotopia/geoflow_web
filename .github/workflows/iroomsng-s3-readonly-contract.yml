@@ -1,0 +1,27 @@
+name: iroomsng S3 read-only contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-s3-readonly-diagnostic.yml
+      - .github/workflows/iroomsng-s3-readonly-contract.yml
+      - control/test_iroomsng_s3_readonly_contract.py
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-s3-readonly-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate bounded read-only S3 diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_iroomsng_s3_readonly_contract

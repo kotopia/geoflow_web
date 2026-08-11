@@ -1,0 +1,271 @@
+name: iroomsng S3 read-only diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-s3-readonly-diagnostic.yml
+      - .github/workflows/iroomsng-s3-readonly-contract.yml
+      - control/test_iroomsng_s3_readonly_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-s3-readonly:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact triggering release SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Probe legacy AWS identity and S3 authorization read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          primary='geoflow.service'
+          stable='geoflow-stabilized.service'
+
+          fail() {
+            echo "iroomsng_s3_blocker=$1"
+            exit 2
+          }
+
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+          systemctl cat "$primary" >/dev/null 2>&1 || fail 'legacy_primary_unit_missing'
+
+          stable_active="$(systemctl is-active "$stable" 2>/dev/null || true)"
+          [ "$stable_active" = active ] || fail 'stabilized_service_not_active'
+
+          wd="$(systemctl show "$primary" -p WorkingDirectory --value 2>/dev/null || true)"
+          unit_user="$(systemctl show "$primary" -p User --value 2>/dev/null || true)"
+          exec_raw="$(systemctl show "$primary" -p ExecStart --value 2>/dev/null || true)"
+          [ -n "$wd" ] && [ -d "$wd" ] || fail 'legacy_working_directory_missing'
+          [ -n "$unit_user" ] || fail 'legacy_unit_user_missing'
+
+          exec_path="$(printf '%s' "$exec_raw" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -n1)"
+          [ -n "$exec_path" ] && [ -f "$exec_path" ] || fail 'legacy_exec_path_unresolved'
+          first_line="$(head -n1 "$exec_path" 2>/dev/null || true)"
+          case "$first_line" in
+            '#!'*) runtime_python="$(printf '%s' "${first_line#\#!}" | awk '{print $1}')" ;;
+            *) fail 'legacy_runtime_python_unresolved' ;;
+          esac
+          [ -x "$runtime_python" ] || fail 'legacy_runtime_python_missing'
+
+          settings_module="$(systemctl cat "$primary" 2>/dev/null | sed -n 's/^[[:space:]]*Environment=.*DJANGO_SETTINGS_MODULE=\([^"[:space:]]*\).*/\1/p' | head -n1)"
+          [ -n "$settings_module" ] || fail 'legacy_settings_module_unresolved'
+
+          cd "$wd"
+          sudo -u "$unit_user" env \
+            DJANGO_SETTINGS_MODULE="$settings_module" \
+            IROOMSNG_WORKDIR="$wd" \
+            "$runtime_python" - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          import boto3
+          from botocore.exceptions import BotoCoreError, ClientError
+          from django.conf import settings
+
+          def safe_code(value):
+              value = str(value or "unknown")
+              return value if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", value) else "unknown"
+
+          def emit_error(prefix, exc):
+              if isinstance(exc, ClientError):
+                  code = exc.response.get("Error", {}).get("Code", "unknown")
+                  print(f"{prefix}_error_code={safe_code(code)}")
+              else:
+                  print(f"{prefix}_exception_class={safe_code(type(exc).__name__)}")
+
+          access_key = getattr(settings, "AWS_ACCESS_KEY_ID", None)
+          secret_key = getattr(settings, "AWS_SECRET_ACCESS_KEY", None)
+          bucket = getattr(settings, "AWS_STORAGE_BUCKET_NAME", None)
+          region = getattr(settings, "AWS_S3_REGION_NAME", None) or "ap-northeast-2"
+
+          print(f"iroomsng_s3_runtime_access_key_configured={'yes' if access_key else 'no'}")
+          print(f"iroomsng_s3_runtime_secret_key_configured={'yes' if secret_key else 'no'}")
+          print(f"iroomsng_s3_runtime_bucket_configured={'yes' if bucket else 'no'}")
+          print(f"iroomsng_s3_runtime_region_configured={'yes' if region else 'no'}")
+
+          if not all((access_key, secret_key, bucket, region)):
+              raise SystemExit("iroomsng_s3_blocker=legacy_aws_settings_incomplete")
+
+          root_script = Path(os.environ.get("IROOMSNG_WORKDIR", ".")) / "s3_upload.py"
+          match_state = "unknown"
+          if root_script.is_file():
+              try:
+                  text = root_script.read_text(errors="replace")
+                  m = re.search(r"(?m)^KEY_ID\s*=\s*['\"]([^'\"]+)['\"]", text)
+                  if m:
+                      match_state = "yes" if m.group(1) == access_key else "no"
+              except OSError:
+                  pass
+          print(f"iroomsng_s3_runtime_matches_legacy_root_script={match_state}")
+
+          session = boto3.Session(
+              aws_access_key_id=access_key,
+              aws_secret_access_key=secret_key,
+              region_name=region,
+          )
+
+          identity_arn = None
+          sts = session.client("sts", region_name=region)
+          try:
+              identity = sts.get_caller_identity()
+              identity_arn = identity.get("Arn")
+              print("iroomsng_s3_sts_identity_valid=yes")
+          except (ClientError, BotoCoreError, Exception) as exc:
+              print("iroomsng_s3_sts_identity_valid=no")
+              emit_error("iroomsng_s3_sts", exc)
+
+          s3 = session.client("s3", region_name=region)
+          try:
+              s3.head_bucket(Bucket=bucket)
+              print("iroomsng_s3_head_bucket=yes")
+          except (ClientError, BotoCoreError, Exception) as exc:
+              print("iroomsng_s3_head_bucket=no")
+              emit_error("iroomsng_s3_head_bucket", exc)
+
+          try:
+              s3.get_bucket_location(Bucket=bucket)
+              print("iroomsng_s3_get_bucket_location=yes")
+          except (ClientError, BotoCoreError, Exception) as exc:
+              print("iroomsng_s3_get_bucket_location=no")
+              emit_error("iroomsng_s3_get_bucket_location", exc)
+
+          try:
+              s3.list_objects_v2(Bucket=bucket, MaxKeys=1)
+              print("iroomsng_s3_list_bucket=yes")
+          except (ClientError, BotoCoreError, Exception) as exc:
+              print("iroomsng_s3_list_bucket=no")
+              emit_error("iroomsng_s3_list_bucket", exc)
+
+          decision = "unavailable"
+          if identity_arn:
+              try:
+                  iam = session.client("iam", region_name=region)
+                  response = iam.simulate_principal_policy(
+                      PolicySourceArn=identity_arn,
+                      ActionNames=["s3:PutObject"],
+                      ResourceArns=[f"arn:aws:s3:::{bucket}/*"],
+                  )
+                  results = response.get("EvaluationResults", [])
+                  if results:
+                      raw = results[0].get("EvalDecision", "unknown")
+                      decision = safe_code(raw)
+                  print("iroomsng_s3_iam_simulation_available=yes")
+              except (ClientError, BotoCoreError, Exception) as exc:
+                  print("iroomsng_s3_iam_simulation_available=no")
+                  emit_error("iroomsng_s3_iam_simulation", exc)
+          else:
+              print("iroomsng_s3_iam_simulation_available=no")
+          print(f"iroomsng_s3_put_object_policy_decision={decision}")
+
+          put_total = 0
+          put_success = 0
+          access_denied = 0
+          invalid_key = 0
+          signature_mismatch = 0
+          expired_token = 0
+          kms_denied = 0
+          other_error = 0
+          cloudtrail_available = "no"
+          try:
+              cloudtrail = session.client("cloudtrail", region_name=region)
+              now = dt.datetime.now(dt.timezone.utc)
+              response = cloudtrail.lookup_events(
+                  LookupAttributes=[{"AttributeKey": "AccessKeyId", "AttributeValue": access_key}],
+                  StartTime=now - dt.timedelta(days=7),
+                  EndTime=now,
+                  MaxResults=50,
+              )
+              cloudtrail_available = "yes"
+              for event in response.get("Events", []):
+                  try:
+                      raw = json.loads(event.get("CloudTrailEvent", "{}"))
+                  except Exception:
+                      continue
+                  if raw.get("eventName") != "PutObject":
+                      continue
+                  put_total += 1
+                  code = str(raw.get("errorCode") or "")
+                  if not code:
+                      put_success += 1
+                  elif code in {"AccessDenied", "AccessDeniedException"}:
+                      access_denied += 1
+                  elif code in {"InvalidAccessKeyId", "InvalidClientTokenId"}:
+                      invalid_key += 1
+                  elif code == "SignatureDoesNotMatch":
+                      signature_mismatch += 1
+                  elif code in {"ExpiredToken", "ExpiredTokenException"}:
+                      expired_token += 1
+                  elif "KMS" in code.upper() and "DENIED" in code.upper():
+                      kms_denied += 1
+                  else:
+                      other_error += 1
+          except (ClientError, BotoCoreError, Exception) as exc:
+              emit_error("iroomsng_s3_cloudtrail", exc)
+
+          print(f"iroomsng_s3_cloudtrail_available={cloudtrail_available}")
+          print(f"iroomsng_s3_cloudtrail_putobject_total_7d={put_total}")
+          print(f"iroomsng_s3_cloudtrail_putobject_success_7d={put_success}")
+          print(f"iroomsng_s3_cloudtrail_putobject_access_denied_7d={access_denied}")
+          print(f"iroomsng_s3_cloudtrail_putobject_invalid_key_7d={invalid_key}")
+          print(f"iroomsng_s3_cloudtrail_putobject_signature_mismatch_7d={signature_mismatch}")
+          print(f"iroomsng_s3_cloudtrail_putobject_expired_token_7d={expired_token}")
+          print(f"iroomsng_s3_cloudtrail_putobject_kms_denied_7d={kms_denied}")
+          print(f"iroomsng_s3_cloudtrail_putobject_other_error_7d={other_error}")
+          print("iroomsng_s3_readonly_diagnostic_complete=yes")
+          PY
+          REMOTE
