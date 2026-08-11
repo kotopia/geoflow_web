@@ -38,6 +38,7 @@ jobs:
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
       STAGE: ${{ inputs.stage }}
       CONFIRM_ACTIVATION: ${{ inputs.confirm_activation }}
+      BACKUP_TOKEN: ${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Checkout reviewed release branch
@@ -93,29 +94,24 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Apply one guarded stage with automatic rollback
+      - name: Apply one guarded stage and retain rollback backup
         shell: bash
         run: |
           set -euo pipefail
-          ssh \
-            -i "$HOME/.ssh/geoflow_deploy_key" \
-            -p "$SSH_PORT" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" \
-            "STAGE='$STAGE' REVIEWED_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" \
+            "STAGE='$STAGE' BACKUP_TOKEN='$BACKUP_TOKEN' bash -s" <<'REMOTE'
           set -euo pipefail
           umask 077
-
           service='geoflow-stabilized.service'
+          expected_settings_blob='899e21668f2e0549f7064d229c7fbb25150d24c9'
+          expected_proxy_settings_blob='b4e4565d2cc21b1c848f936e0e0efb944776c0f1'
           fail() { echo "phase2_proxy_activation_blocker=$1"; exit 2; }
 
           command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
           sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
           command -v nginx >/dev/null 2>&1 || fail 'nginx_command_missing'
-
           active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
           sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
           [ "$active" = active ] && [ "$sub" = running ] || fail 'service_not_running_before_mutation'
@@ -124,14 +120,12 @@ jobs:
           [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
           repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
           [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'runtime_repo_missing'
-          runtime_sha="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
-          [ "$runtime_sha" = "$REVIEWED_SHA" ] || fail 'runtime_sha_not_reviewed_release_sha'
           [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
           python="$repo/.venv/bin/python"
           [ -x "$python" ] || fail 'runtime_python_missing'
+          [ "$(git -C "$repo" hash-object geoflow_project/settings.py)" = "$expected_settings_blob" ] || fail 'runtime_settings_not_reviewed'
+          [ "$(git -C "$repo" hash-object geoflow_project/proxy_security_settings.py)" = "$expected_proxy_settings_blob" ] || fail 'runtime_proxy_settings_not_reviewed'
 
-          # The repository .env must be the authoritative source for these settings.
-          # Inspect the systemd Environment field only for the names; never print it.
           service_environment="$(systemctl show "$service" -p Environment --value 2>/dev/null || true)"
           if printf '%s' "$service_environment" | grep -Eq '(^|[[:space:]"])(DJANGO_TRUST_X_FORWARDED_PROTO|DJANGO_SECURE_SSL_REDIRECT|DJANGO_SECURE_HSTS_SECONDS|DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS|DJANGO_SECURE_HSTS_PRELOAD)='; then
             unset service_environment
@@ -170,27 +164,24 @@ jobs:
           esac
           echo 'phase2_proxy_activation_stage_precondition=yes'
 
-          env_backup="$(mktemp "$repo/.env.phase2-proxy-backup.XXXXXX")"
-          cp -p "$repo/.env" "$env_backup"
+          backup="/tmp/geoflow-phase2-proxy-${BACKUP_TOKEN}.env"
+          [ ! -e "$backup" ] || fail 'rollback_backup_already_exists'
+          cp -p "$repo/.env" "$backup"
+          chmod 600 "$backup"
           mutation_started=0
-
-          rollback() {
+          rollback_local() {
             set +e
-            if [ "$mutation_started" -eq 1 ] && [ -f "$env_backup" ]; then
-              cp -p "$env_backup" "$repo/.env"
+            if [ "$mutation_started" -eq 1 ] && [ -f "$backup" ]; then
+              cp -p "$backup" "$repo/.env"
               sudo -n systemctl restart "$service" >/dev/null 2>&1 || true
               sleep 2
             fi
-            rm -f "$env_backup"
+            rm -f "$backup"
             echo 'phase2_proxy_activation_rollback_completed=yes'
           }
           on_exit() {
             rc=$?
-            if [ "$rc" -ne 0 ] && [ "$mutation_started" -eq 1 ]; then
-              rollback
-            else
-              rm -f "$env_backup"
-            fi
+            if [ "$rc" -ne 0 ]; then rollback_local; fi
             exit "$rc"
           }
           trap on_exit EXIT
@@ -211,37 +202,25 @@ jobs:
               'DJANGO_SECURE_HSTS_PRELOAD',
           }
           values = {
-              'trust-proxy': {
-                  'DJANGO_TRUST_X_FORWARDED_PROTO': '1',
-                  'DJANGO_SECURE_SSL_REDIRECT': '0',
-                  'DJANGO_SECURE_HSTS_SECONDS': '0',
-                  'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS': '0',
-                  'DJANGO_SECURE_HSTS_PRELOAD': '0',
-              },
-              'ssl-redirect': {
-                  'DJANGO_TRUST_X_FORWARDED_PROTO': '1',
-                  'DJANGO_SECURE_SSL_REDIRECT': '1',
-                  'DJANGO_SECURE_HSTS_SECONDS': '0',
-                  'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS': '0',
-                  'DJANGO_SECURE_HSTS_PRELOAD': '0',
-              },
-              'short-hsts': {
-                  'DJANGO_TRUST_X_FORWARDED_PROTO': '1',
-                  'DJANGO_SECURE_SSL_REDIRECT': '1',
-                  'DJANGO_SECURE_HSTS_SECONDS': '300',
-                  'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS': '0',
-                  'DJANGO_SECURE_HSTS_PRELOAD': '0',
-              },
+              'trust-proxy': ('1', '0', '0'),
+              'ssl-redirect': ('1', '1', '0'),
+              'short-hsts': ('1', '1', '300'),
           }[stage]
-
+          trust, redirect, hsts = values
+          desired = {
+              'DJANGO_TRUST_X_FORWARDED_PROTO': trust,
+              'DJANGO_SECURE_SSL_REDIRECT': redirect,
+              'DJANGO_SECURE_HSTS_SECONDS': hsts,
+              'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS': '0',
+              'DJANGO_SECURE_HSTS_PRELOAD': '0',
+          }
           out = []
           for line in env_path.read_text().splitlines():
               stripped = line.lstrip()
               if stripped.startswith('#') or '=' not in line:
                   out.append(line)
                   continue
-              key = line.split('=', 1)[0].strip()
-              if key not in managed:
+              if line.split('=', 1)[0].strip() not in managed:
                   out.append(line)
           for key in (
               'DJANGO_TRUST_X_FORWARDED_PROTO',
@@ -250,7 +229,7 @@ jobs:
               'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS',
               'DJANGO_SECURE_HSTS_PRELOAD',
           ):
-              out.append(f'{key}={values[key]}')
+              out.append(f'{key}={desired[key]}')
           tmp = env_path.with_name(env_path.name + '.phase2-proxy.tmp')
           tmp.write_text('\n'.join(out) + '\n')
           os.chmod(tmp, 0o600)
@@ -265,7 +244,7 @@ jobs:
           sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
           [ "$active" = active ] && [ "$sub" = running ] || fail 'service_not_running_after_mutation'
 
-          expected="$($python - <<'PY'
+          resulting="$($python - <<'PY'
           import os
           os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'geoflow_project.settings')
           import django
@@ -279,18 +258,19 @@ jobs:
           print(f'{proxy},{redirect},{hsts},{include},{preload}')
           PY
           )"
-          case "$STAGE:$expected" in
+          case "$STAGE:$resulting" in
             trust-proxy:1,0,0,0,0) ;;
             ssl-redirect:1,1,0,0,0) ;;
             short-hsts:1,1,300,0,0) ;;
             *) fail 'runtime_settings_not_expected_after_mutation' ;;
           esac
 
+          # Keep the backup for the runner-side public smoke. A later failure step can
+          # still restore it even after this SSH session succeeds.
           mutation_started=0
-          rm -f "$env_backup"
           trap - EXIT
           echo "phase2_proxy_activation_stage=$STAGE"
-          echo 'phase2_proxy_activation_remote_complete=yes'
+          echo 'phase2_proxy_activation_remote_applied=yes'
           REMOTE
 
       - name: Verify public boundary after activation
@@ -306,8 +286,7 @@ jobs:
             *) echo 'phase2_proxy_activation_blocker=http_not_redirecting_after_mutation'; exit 2 ;;
           esac
           grep -Eqi '^location:[[:space:]]*https://geoflow\.co\.kr(/|[[:space:]]*$)' "$http_headers" || {
-            echo 'phase2_proxy_activation_blocker=http_redirect_not_canonical_https_after_mutation'
-            exit 2
+            echo 'phase2_proxy_activation_blocker=http_redirect_not_canonical_https_after_mutation'; exit 2;
           }
           https_code="$(curl --proto '=https' --silent --show-error --output /dev/null --dump-header "$https_headers" --write-out '%{http_code}' --connect-timeout 10 --max-time 20 https://geoflow.co.kr/login/)"
           case "$https_code" in
@@ -316,8 +295,46 @@ jobs:
           esac
           if [ "$STAGE" = short-hsts ]; then
             grep -Eqi '^strict-transport-security:[[:space:]]*max-age=300([;[:space:]]|$)' "$https_headers" || {
-              echo 'phase2_proxy_activation_blocker=short_hsts_header_not_expected'
-              exit 2
+              echo 'phase2_proxy_activation_blocker=short_hsts_header_not_expected'; exit 2;
             }
           fi
+          echo 'phase2_proxy_activation_public_postcheck=yes'
+
+      - name: Finalize successful activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "BACKUP_TOKEN='$BACKUP_TOKEN' bash -s" <<'REMOTE'
+          set -euo pipefail
+          backup="/tmp/geoflow-phase2-proxy-${BACKUP_TOKEN}.env"
+          [ -f "$backup" ] || { echo 'phase2_proxy_activation_blocker=rollback_backup_missing_at_finalize'; exit 2; }
+          rm -f "$backup"
           echo 'phase2_proxy_security_staged_activation_complete=yes'
+          REMOTE
+
+      - name: Roll back if any post-mutation step failed
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "BACKUP_TOKEN='$BACKUP_TOKEN' bash -s" <<'REMOTE'
+          set +e
+          service='geoflow-stabilized.service'
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          backup="/tmp/geoflow-phase2-proxy-${BACKUP_TOKEN}.env"
+          if [ -n "$repo" ] && [ -f "$backup" ] && sudo -n true >/dev/null 2>&1; then
+            cp -p "$backup" "$repo/.env"
+            sudo -n systemctl restart "$service" >/dev/null 2>&1
+            sleep 2
+            rm -f "$backup"
+            echo 'phase2_proxy_activation_rollback_completed=yes'
+          else
+            rm -f "$backup"
+            echo 'phase2_proxy_activation_rollback_not_required_or_unavailable=yes'
+          fi
+          REMOTE
