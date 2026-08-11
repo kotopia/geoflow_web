@@ -1,4 +1,6 @@
 from django import template
+from django.conf import settings
+
 from control.services import central_repo as C
 from control.services_identity import lookup_user_id_from_request
 
@@ -17,10 +19,21 @@ def _norm(code: str) -> set[str]:
         return {code, *PERM_ALIASES[code]}
     return {code}
 
+
+def _tenant_scope_is_active(request) -> bool:
+    """Legacy ACL checks are valid only inside an explicit tenant request."""
+    central_alias = str(
+        getattr(settings, "CENTRAL_DB_ALIAS", "default") or "default"
+    ).strip()
+    tenant_alias = str(request.session.get("tenant_db_alias") or "").strip()
+    scope = str(request.session.get("scope") or "").strip().lower()
+    return bool(tenant_alias and tenant_alias != central_alias and scope == "tenant")
+
+
 @register.simple_tag(takes_context=True)
 def has_perm(context, perm_code: str) -> bool:
     req = context.get("request")
-    if not req:
+    if not req or not _tenant_scope_is_active(req):
         return False
 
     user_uuid = getattr(req, "_user_uuid", None) or lookup_user_id_from_request(req)
