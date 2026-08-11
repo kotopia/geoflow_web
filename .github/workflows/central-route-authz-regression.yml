@@ -1,0 +1,59 @@
+name: Central route authorization regression
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - control/urls.py
+      - control/decorators.py
+      - control/views_join.py
+      - control/views_signup_admin.py
+      - control/views_users_admin.py
+      - control/views_user_assignment.py
+      - control/views_groups.py
+      - control/views_groups_admin.py
+      - control/views_categories.py
+      - control/views_account_security.py
+      - control/catalog/urls.py
+      - control/test_central_route_authorization_contract.py
+      - .github/workflows/central-route-authz-regression.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - control/urls.py
+      - control/decorators.py
+      - control/views_join.py
+      - control/views_signup_admin.py
+      - control/views_users_admin.py
+      - control/views_user_assignment.py
+      - control/views_groups.py
+      - control/views_groups_admin.py
+      - control/views_categories.py
+      - control/views_account_security.py
+      - control/catalog/urls.py
+      - control/test_central_route_authorization_contract.py
+      - .github/workflows/central-route-authz-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  central-route-authz-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify central authorization boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_central_route_authorization_contract
