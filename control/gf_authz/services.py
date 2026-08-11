@@ -51,12 +51,19 @@ def gf_load_user_context(request) -> Dict:
     Tenant authorization is meaningful only with an explicit tenant/group scope.
     A missing group id must never be interpreted as "all groups" because that
     would merge privileges from unrelated tenant memberships into one request.
+    Likewise, a stale group id retained while the request has moved back to the
+    central scope must not rehydrate tenant permissions into a central request.
     """
     group_id = _resolve_group_id(request)
     if not group_id:
         return {"tenant_id": None, "roles": [], "perms": [], "project_ids": []}
 
-    alias = _central_alias()
+    central_alias = _central_alias()
+    tenant_alias = str(request.session.get("tenant_db_alias") or "").strip()
+    scope = str(request.session.get("scope") or "").strip().lower()
+    if not tenant_alias or tenant_alias == central_alias or scope != "tenant":
+        return {"tenant_id": None, "roles": [], "perms": [], "project_ids": []}
+
     users_tbl            = _table("users",            "public.users")
     user_roles_tbl       = _table("user_roles",       "public.user_group_map")  # 매핑 사용
     roles_tbl            = _table("roles",            "public.roles")
@@ -70,7 +77,7 @@ def gf_load_user_context(request) -> Dict:
     perms: Set[str] = set()
     project_ids: List[str] = []
 
-    with connections[alias].cursor() as cur:
+    with connections[central_alias].cursor() as cur:
         # 1) auth_user.id(int)이 아니라 중앙 users.id(uuid)로 변환
         central_user_id = _resolve_central_user_uuid(cur, users_tbl, email)
         if not central_user_id:

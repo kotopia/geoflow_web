@@ -65,7 +65,9 @@ class GFAuthzTenantScopeTests(unittest.TestCase):
         )
 
     def test_missing_group_scope_fails_closed_without_db_lookup(self):
-        request = self._request({"tenant_db_alias": "default"})
+        request = self._request(
+            {"tenant_db_alias": "cheonan_db", "scope": "tenant"}
+        )
         with patch.object(services, "connections", _ExplodingConnections()):
             context = services.gf_load_user_context(request)
 
@@ -74,9 +76,69 @@ class GFAuthzTenantScopeTests(unittest.TestCase):
             {"tenant_id": None, "roles": [], "perms": [], "project_ids": []},
         )
 
-    def test_group_uuid_is_an_explicit_tenant_scope(self):
+    def test_group_uuid_is_an_explicit_group_identifier(self):
         request = self._request({"group_uuid": "group-a"})
         self.assertEqual(services._resolve_group_id(request), "group-a")
+
+    def test_stale_group_on_central_scope_fails_closed_without_db_lookup(self):
+        fake_settings = SimpleNamespace(
+            GF_AUTHZ_CENTRAL_ALIAS="default",
+            GF_AUTHZ_TABLES={},
+        )
+        request = self._request(
+            {
+                "group_id": "group-a",
+                "tenant_db_alias": "default",
+                "scope": "central",
+            }
+        )
+        with patch.object(services, "connections", _ExplodingConnections()), patch.object(
+            services, "settings", fake_settings
+        ):
+            context = services.gf_load_user_context(request)
+
+        self.assertEqual(
+            context,
+            {"tenant_id": None, "roles": [], "perms": [], "project_ids": []},
+        )
+
+    def test_group_without_tenant_alias_fails_closed_without_db_lookup(self):
+        fake_settings = SimpleNamespace(
+            GF_AUTHZ_CENTRAL_ALIAS="default",
+            GF_AUTHZ_TABLES={},
+        )
+        request = self._request({"group_id": "group-a", "scope": "tenant"})
+        with patch.object(services, "connections", _ExplodingConnections()), patch.object(
+            services, "settings", fake_settings
+        ):
+            context = services.gf_load_user_context(request)
+
+        self.assertEqual(
+            context,
+            {"tenant_id": None, "roles": [], "perms": [], "project_ids": []},
+        )
+
+    def test_non_tenant_scope_marker_fails_closed_without_db_lookup(self):
+        fake_settings = SimpleNamespace(
+            GF_AUTHZ_CENTRAL_ALIAS="default",
+            GF_AUTHZ_TABLES={},
+        )
+        request = self._request(
+            {
+                "group_id": "group-a",
+                "tenant_db_alias": "cheonan_db",
+                "scope": "central",
+            }
+        )
+        with patch.object(services, "connections", _ExplodingConnections()), patch.object(
+            services, "settings", fake_settings
+        ):
+            context = services.gf_load_user_context(request)
+
+        self.assertEqual(
+            context,
+            {"tenant_id": None, "roles": [], "perms": [], "project_ids": []},
+        )
 
     def test_role_and_permission_queries_are_group_scoped(self):
         cursor = _FakeCursor()
@@ -84,7 +146,13 @@ class GFAuthzTenantScopeTests(unittest.TestCase):
             GF_AUTHZ_CENTRAL_ALIAS="default",
             GF_AUTHZ_TABLES={},
         )
-        request = self._request({"group_id": "group-a"})
+        request = self._request(
+            {
+                "group_id": "group-a",
+                "tenant_db_alias": "cheonan_db",
+                "scope": "tenant",
+            }
+        )
 
         with patch.object(services, "connections", _FakeConnections(cursor)), patch.object(
             services, "settings", fake_settings
