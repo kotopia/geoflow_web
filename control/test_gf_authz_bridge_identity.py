@@ -1,11 +1,10 @@
+import unittest
 from types import SimpleNamespace
-
-from django.test import SimpleTestCase
 
 from control.gf_authz.services import _resolve_request_identity
 
 
-class GFAuthzBridgeIdentityTests(SimpleTestCase):
+class GFAuthzBridgeIdentityTests(unittest.TestCase):
     def _request(self, *, email=None, username=None):
         return SimpleNamespace(user=SimpleNamespace(email=email, username=username))
 
@@ -36,3 +35,7 @@ class GFAuthzBridgeIdentityTests(SimpleTestCase):
     def test_missing_user_fails_closed_to_empty_string(self):
         request = SimpleNamespace()
         self.assertEqual(_resolve_request_identity(request), "")
+
+
+if __name__ == "__main__":
+    unittest.main()
