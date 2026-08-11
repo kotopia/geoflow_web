@@ -1,0 +1,58 @@
+name: Authz bridge identity regression
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - control/gf_authz/services.py
+      - control/test_gf_authz_bridge_identity.py
+      - .github/workflows/gf-authz-bridge-identity-regression.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - control/gf_authz/services.py
+      - control/test_gf_authz_bridge_identity.py
+      - .github/workflows/gf-authz-bridge-identity-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  gf-authz-bridge-identity-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DJANGO_SECRET_KEY: ci-authz-bridge-identity-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ
+      DJANGO_DEBUG: "0"
+      CENTRAL_DB_NAME: ci-central
+      CENTRAL_DB_USER: ci-central-user
+      CENTRAL_DB_PASSWORD: ci-nonsecret-placeholder
+      CENTRAL_DB_HOST: central.example.internal
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: ci-tenant
+      TENANT_DB_USER: ci-tenant-user
+      TENANT_DB_PASSWORD: ci-nonsecret-placeholder
+      TENANT_DB_HOST: tenant.example.internal
+      TENANT_DB_PORT: "5432"
+      AWS_REGION: ap-northeast-2
+      AWS_S3_BUCKET: geoflow-ci-nonexistent
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install exact Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Verify bridge identity fallback
+        run: python manage.py test control.test_gf_authz_bridge_identity
