@@ -20,6 +20,23 @@ def _resolve_group_id(request) -> Optional[str]:
             return str(val)
     return None
 
+def _resolve_request_identity(request) -> str:
+    """Resolve the central login identity from the non-privileged Django bridge.
+
+    New bridge rows carry the email in both ``email`` and ``username``. Legacy
+    bridge rows can predate that normalization and may have only ``username``.
+    Match the same fail-closed identity rule used by the central account guards:
+    prefer email, then fall back to username, and normalize only whitespace/case.
+    """
+    user = getattr(request, "user", None)
+    if user is None:
+        return ""
+    return str(
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or ""
+    ).strip().lower()
+
 def _resolve_central_user_uuid(cur, users_tbl: str, email: str) -> Optional[str]:
     cur.execute(f"SELECT id FROM {users_tbl} WHERE lower(email)=lower(%s) LIMIT 1", [email])
     row = cur.fetchone()
@@ -39,7 +56,7 @@ def gf_load_user_context(request) -> Dict:
     permissions_tbl      = _table("permissions",      "public.permissions")
     project_members_tbl  = _table("project_members",  "public.project_members")
 
-    email = getattr(request.user, "email", None)
+    email = _resolve_request_identity(request)
     group_id = _resolve_group_id(request)
 
     roles: Set[str] = set()
@@ -48,7 +65,7 @@ def gf_load_user_context(request) -> Dict:
 
     with connections[alias].cursor() as cur:
         # 1) auth_user.id(int)이 아니라 중앙 users.id(uuid)로 변환
-        central_user_id = _resolve_central_user_uuid(cur, users_tbl, email or "")
+        central_user_id = _resolve_central_user_uuid(cur, users_tbl, email)
         if not central_user_id:
             return {"tenant_id": group_id, "roles": [], "perms": [], "project_ids": []}
 
