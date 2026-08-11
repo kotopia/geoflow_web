@@ -1,0 +1,340 @@
+name: iroomsng S3 policy shape diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-s3-policy-shape-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-s3-policy-shape:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact triggering release SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Inspect legacy S3 policy shape read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          primary='geoflow.service'
+          stable='geoflow-stabilized.service'
+
+          fail() {
+            echo "iroomsng_s3_policy_blocker=$1"
+            exit 2
+          }
+
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+          systemctl cat "$primary" >/dev/null 2>&1 || fail 'legacy_primary_unit_missing'
+          [ "$(systemctl is-active "$stable" 2>/dev/null || true)" = active ] || fail 'stabilized_service_not_active'
+
+          wd="$(systemctl show "$primary" -p WorkingDirectory --value 2>/dev/null || true)"
+          unit_user="$(systemctl show "$primary" -p User --value 2>/dev/null || true)"
+          exec_raw="$(systemctl show "$primary" -p ExecStart --value 2>/dev/null || true)"
+          [ -n "$wd" ] && [ -d "$wd" ] || fail 'legacy_working_directory_missing'
+          [ -n "$unit_user" ] || fail 'legacy_unit_user_missing'
+          exec_path="$(printf '%s' "$exec_raw" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -n1)"
+          [ -n "$exec_path" ] && [ -f "$exec_path" ] || fail 'legacy_exec_path_unresolved'
+          first_line="$(head -n1 "$exec_path" 2>/dev/null || true)"
+          case "$first_line" in
+            '#!'*) runtime_python="$(printf '%s' "${first_line#\#!}" | awk '{print $1}')" ;;
+            *) fail 'legacy_runtime_python_unresolved' ;;
+          esac
+          [ -x "$runtime_python" ] || fail 'legacy_runtime_python_missing'
+          settings_module="$(systemctl cat "$primary" 2>/dev/null | sed -n 's/^[[:space:]]*Environment=.*DJANGO_SETTINGS_MODULE=\([^"[:space:]]*\).*/\1/p' | head -n1)"
+          [ -n "$settings_module" ] || fail 'legacy_settings_module_unresolved'
+
+          cd "$wd"
+          sudo -u "$unit_user" env DJANGO_SETTINGS_MODULE="$settings_module" "$runtime_python" - <<'PY'
+          import json
+          import re
+          import urllib.parse
+
+          import boto3
+          from botocore.exceptions import BotoCoreError, ClientError
+          from django.conf import settings
+
+          def safe_code(value):
+              value = str(value or "unknown")
+              return value if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", value) else "unknown"
+
+          def emit_error(prefix, exc):
+              if isinstance(exc, ClientError):
+                  code = exc.response.get("Error", {}).get("Code", "unknown")
+                  print(f"{prefix}_error_code={safe_code(code)}")
+              else:
+                  print(f"{prefix}_exception_class={safe_code(type(exc).__name__)}")
+
+          def action_matches(action, wanted="s3:PutObject"):
+              values = action if isinstance(action, list) else [action]
+              for value in values:
+                  v = str(value or "").lower()
+                  if v in {wanted.lower(), "s3:*", "*"}:
+                      return True
+              return False
+
+          def scan_policy(doc):
+              allow = deny = 0
+              secure_transport = source_ip = source_vpce = 0
+              encryption_condition = acl_condition = kms_condition = 0
+              statements = doc.get("Statement", []) if isinstance(doc, dict) else []
+              if isinstance(statements, dict):
+                  statements = [statements]
+              for stmt in statements:
+                  if not isinstance(stmt, dict) or not action_matches(stmt.get("Action")):
+                      continue
+                  effect = str(stmt.get("Effect", "")).lower()
+                  if effect == "allow":
+                      allow += 1
+                  elif effect == "deny":
+                      deny += 1
+                  cond = stmt.get("Condition", {})
+                  text = json.dumps(cond, sort_keys=True).lower()
+                  secure_transport += int("aws:securetransport" in text)
+                  source_ip += int("aws:sourceip" in text)
+                  source_vpce += int("aws:sourcevpce" in text)
+                  encryption_condition += int("s3:x-amz-server-side-encryption" in text)
+                  acl_condition += int("s3:x-amz-acl" in text)
+                  kms_condition += int("kms:" in text or "s3:x-amz-server-side-encryption-aws-kms-key-id" in text)
+              return {
+                  "allow": allow,
+                  "deny": deny,
+                  "secure_transport": secure_transport,
+                  "source_ip": source_ip,
+                  "source_vpce": source_vpce,
+                  "encryption_condition": encryption_condition,
+                  "acl_condition": acl_condition,
+                  "kms_condition": kms_condition,
+              }
+
+          access_key = getattr(settings, "AWS_ACCESS_KEY_ID", None)
+          secret_key = getattr(settings, "AWS_SECRET_ACCESS_KEY", None)
+          bucket = getattr(settings, "AWS_STORAGE_BUCKET_NAME", None)
+          region = getattr(settings, "AWS_S3_REGION_NAME", None) or "ap-northeast-2"
+          if not all((access_key, secret_key, bucket, region)):
+              raise SystemExit("iroomsng_s3_policy_blocker=legacy_aws_settings_incomplete")
+
+          session = boto3.Session(
+              aws_access_key_id=access_key,
+              aws_secret_access_key=secret_key,
+              region_name=region,
+          )
+          sts = session.client("sts", region_name=region)
+          identity_arn = None
+          try:
+              identity_arn = sts.get_caller_identity().get("Arn")
+              print("iroomsng_s3_policy_sts_identity_valid=yes")
+          except (ClientError, BotoCoreError, Exception) as exc:
+              print("iroomsng_s3_policy_sts_identity_valid=no")
+              emit_error("iroomsng_s3_policy_sts", exc)
+
+          s3 = session.client("s3", region_name=region)
+
+          try:
+              enc = s3.get_bucket_encryption(Bucket=bucket)
+              rules = enc.get("ServerSideEncryptionConfiguration", {}).get("Rules", [])
+              algs = {
+                  rule.get("ApplyServerSideEncryptionByDefault", {}).get("SSEAlgorithm")
+                  for rule in rules if isinstance(rule, dict)
+              }
+              algs.discard(None)
+              if "aws:kms:dsse" in algs:
+                  mode = "aws-kms-dsse"
+              elif "aws:kms" in algs:
+                  mode = "aws-kms"
+              elif "AES256" in algs:
+                  mode = "aes256"
+              elif algs:
+                  mode = "other"
+              else:
+                  mode = "none"
+              print("iroomsng_s3_policy_bucket_encryption_readable=yes")
+              print(f"iroomsng_s3_policy_bucket_default_encryption={mode}")
+          except ClientError as exc:
+              code = exc.response.get("Error", {}).get("Code", "unknown")
+              if code in {"ServerSideEncryptionConfigurationNotFoundError", "NoSuchBucketEncryption"}:
+                  print("iroomsng_s3_policy_bucket_encryption_readable=yes")
+                  print("iroomsng_s3_policy_bucket_default_encryption=none")
+              else:
+                  print("iroomsng_s3_policy_bucket_encryption_readable=no")
+                  emit_error("iroomsng_s3_policy_bucket_encryption", exc)
+          except Exception as exc:
+              print("iroomsng_s3_policy_bucket_encryption_readable=no")
+              emit_error("iroomsng_s3_policy_bucket_encryption", exc)
+
+          try:
+              own = s3.get_bucket_ownership_controls(Bucket=bucket)
+              rules = own.get("OwnershipControls", {}).get("Rules", [])
+              values = [r.get("ObjectOwnership") for r in rules if isinstance(r, dict)]
+              value = values[0] if values else "unknown"
+              mapping = {
+                  "BucketOwnerEnforced": "bucket-owner-enforced",
+                  "BucketOwnerPreferred": "bucket-owner-preferred",
+                  "ObjectWriter": "object-writer",
+              }
+              print("iroomsng_s3_policy_ownership_readable=yes")
+              print(f"iroomsng_s3_policy_object_ownership={mapping.get(value, 'unknown')}")
+          except ClientError as exc:
+              code = exc.response.get("Error", {}).get("Code", "unknown")
+              if code == "OwnershipControlsNotFoundError":
+                  print("iroomsng_s3_policy_ownership_readable=yes")
+                  print("iroomsng_s3_policy_object_ownership=not-configured")
+              else:
+                  print("iroomsng_s3_policy_ownership_readable=no")
+                  emit_error("iroomsng_s3_policy_ownership", exc)
+          except Exception as exc:
+              print("iroomsng_s3_policy_ownership_readable=no")
+              emit_error("iroomsng_s3_policy_ownership", exc)
+
+          try:
+              block = s3.get_public_access_block(Bucket=bucket).get("PublicAccessBlockConfiguration", {})
+              print("iroomsng_s3_policy_public_access_block_readable=yes")
+              for key, out in (
+                  ("BlockPublicAcls", "block_public_acls"),
+                  ("IgnorePublicAcls", "ignore_public_acls"),
+                  ("BlockPublicPolicy", "block_public_policy"),
+                  ("RestrictPublicBuckets", "restrict_public_buckets"),
+              ):
+                  print(f"iroomsng_s3_policy_{out}={'yes' if block.get(key) else 'no'}")
+          except ClientError as exc:
+              code = exc.response.get("Error", {}).get("Code", "unknown")
+              if code == "NoSuchPublicAccessBlockConfiguration":
+                  print("iroomsng_s3_policy_public_access_block_readable=yes")
+                  print("iroomsng_s3_policy_block_public_acls=no")
+                  print("iroomsng_s3_policy_ignore_public_acls=no")
+                  print("iroomsng_s3_policy_block_public_policy=no")
+                  print("iroomsng_s3_policy_restrict_public_buckets=no")
+              else:
+                  print("iroomsng_s3_policy_public_access_block_readable=no")
+                  emit_error("iroomsng_s3_policy_public_access_block", exc)
+          except Exception as exc:
+              print("iroomsng_s3_policy_public_access_block_readable=no")
+              emit_error("iroomsng_s3_policy_public_access_block", exc)
+
+          bucket_policy = None
+          try:
+              raw = s3.get_bucket_policy(Bucket=bucket).get("Policy", "{}")
+              bucket_policy = json.loads(raw)
+              print("iroomsng_s3_policy_bucket_policy_readable=yes")
+              shape = scan_policy(bucket_policy)
+              print(f"iroomsng_s3_policy_bucket_put_allow_statement_count={shape['allow']}")
+              print(f"iroomsng_s3_policy_bucket_put_deny_statement_count={shape['deny']}")
+              print(f"iroomsng_s3_policy_bucket_put_secure_transport_condition={'yes' if shape['secure_transport'] else 'no'}")
+              print(f"iroomsng_s3_policy_bucket_put_source_ip_condition={'yes' if shape['source_ip'] else 'no'}")
+              print(f"iroomsng_s3_policy_bucket_put_source_vpce_condition={'yes' if shape['source_vpce'] else 'no'}")
+              print(f"iroomsng_s3_policy_bucket_put_encryption_condition={'yes' if shape['encryption_condition'] else 'no'}")
+              print(f"iroomsng_s3_policy_bucket_put_acl_condition={'yes' if shape['acl_condition'] else 'no'}")
+              print(f"iroomsng_s3_policy_bucket_put_kms_condition={'yes' if shape['kms_condition'] else 'no'}")
+          except ClientError as exc:
+              code = exc.response.get("Error", {}).get("Code", "unknown")
+              if code in {"NoSuchBucketPolicy", "NoSuchBucketPolicyException"}:
+                  print("iroomsng_s3_policy_bucket_policy_readable=yes")
+                  print("iroomsng_s3_policy_bucket_policy_present=no")
+              else:
+                  print("iroomsng_s3_policy_bucket_policy_readable=no")
+                  emit_error("iroomsng_s3_policy_bucket_policy", exc)
+          except Exception as exc:
+              print("iroomsng_s3_policy_bucket_policy_readable=no")
+              emit_error("iroomsng_s3_policy_bucket_policy", exc)
+
+          iam_docs = []
+          iam_readable = "no"
+          iam_error = None
+          try:
+              if identity_arn and ":user/" in identity_arn:
+                  username = identity_arn.split(":user/", 1)[1]
+                  iam = session.client("iam", region_name=region)
+                  for item in iam.list_attached_user_policies(UserName=username).get("AttachedPolicies", []):
+                      arn = item.get("PolicyArn")
+                      if not arn:
+                          continue
+                      meta = iam.get_policy(PolicyArn=arn).get("Policy", {})
+                      version_id = meta.get("DefaultVersionId")
+                      if not version_id:
+                          continue
+                      doc = iam.get_policy_version(PolicyArn=arn, VersionId=version_id).get("PolicyVersion", {}).get("Document", {})
+                      if isinstance(doc, str):
+                          doc = json.loads(urllib.parse.unquote(doc))
+                      iam_docs.append(doc)
+                  for name in iam.list_user_policies(UserName=username).get("PolicyNames", []):
+                      doc = iam.get_user_policy(UserName=username, PolicyName=name).get("PolicyDocument", {})
+                      if isinstance(doc, str):
+                          doc = json.loads(urllib.parse.unquote(doc))
+                      iam_docs.append(doc)
+                  iam_readable = "yes"
+              else:
+                  iam_error = "identity_not_iam_user"
+          except ClientError as exc:
+              iam_error = safe_code(exc.response.get("Error", {}).get("Code", "unknown"))
+          except Exception as exc:
+              iam_error = safe_code(type(exc).__name__)
+
+          print(f"iroomsng_s3_policy_iam_policy_documents_readable={iam_readable}")
+          if iam_error:
+              print(f"iroomsng_s3_policy_iam_policy_read_error={iam_error}")
+          print(f"iroomsng_s3_policy_iam_policy_document_count={len(iam_docs)}")
+          total = {k: 0 for k in scan_policy({})}
+          for doc in iam_docs:
+              shape = scan_policy(doc)
+              for key, value in shape.items():
+                  total[key] += value
+          print(f"iroomsng_s3_policy_iam_put_allow_statement_count={total['allow']}")
+          print(f"iroomsng_s3_policy_iam_put_deny_statement_count={total['deny']}")
+          print(f"iroomsng_s3_policy_iam_put_encryption_condition={'yes' if total['encryption_condition'] else 'no'}")
+          print(f"iroomsng_s3_policy_iam_put_acl_condition={'yes' if total['acl_condition'] else 'no'}")
+          print(f"iroomsng_s3_policy_iam_put_kms_condition={'yes' if total['kms_condition'] else 'no'}")
+          print("iroomsng_s3_policy_shape_diagnostic_complete=yes")
+          PY
+          REMOTE
