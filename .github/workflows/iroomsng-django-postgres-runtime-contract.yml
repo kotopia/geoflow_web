@@ -1,0 +1,34 @@
+name: iroomsng Django PostgreSQL runtime contract
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-django-postgres-runtime-diagnostic.yml
+      - control/test_iroomsng_django_postgres_runtime_contract.py
+      - .github/workflows/iroomsng-django-postgres-runtime-contract.yml
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/iroomsng-django-postgres-runtime-diagnostic.yml
+      - control/test_iroomsng_django_postgres_runtime_contract.py
+      - .github/workflows/iroomsng-django-postgres-runtime-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  iroomsng-django-postgres-runtime-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate bounded read-only compatibility diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest control.test_iroomsng_django_postgres_runtime_contract
