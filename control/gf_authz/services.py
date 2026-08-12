@@ -83,18 +83,18 @@ def gf_load_user_context(request) -> Dict:
         if not central_user_id:
             return {"tenant_id": group_id, "roles": [], "perms": [], "project_ids": []}
 
-        # 2) roles (현재 그룹 스코프만 허용)
+        # 2) roles (현재 그룹의 활성 매핑만 허용)
         cur.execute(f"""
             SELECT r.code
               FROM {user_roles_tbl} ur
               JOIN {roles_tbl} r ON r.id = ur.role_id
              WHERE ur.user_id = %s
                AND ur.group_id = %s
-               AND (ur.status IS NULL OR ur.status='active')
+               AND ur.status = 'active'
         """, [central_user_id, group_id])
         roles = {row[0] for row in cur.fetchall()}
 
-        # 3) perms (역할→퍼미션 확장, 동일 그룹 스코프)
+        # 3) perms (역할→퍼미션 확장, 동일 그룹의 활성 매핑만 허용)
         if roles:
             cur.execute(f"""
                 SELECT DISTINCT p.code
@@ -103,7 +103,7 @@ def gf_load_user_context(request) -> Dict:
                   JOIN {permissions_tbl}      p ON p.id = rp.permission_id
                  WHERE ur.user_id = %s
                    AND ur.group_id = %s
-                   AND (ur.status IS NULL OR ur.status='active')
+                   AND ur.status = 'active'
             """, [central_user_id, group_id])
             perms = {row[0] for row in cur.fetchall()}
 
