@@ -5,6 +5,7 @@ on:
     branches:
       - release/stabilized-deploy
     paths:
+      - control/gf_authz/vocabulary.py
       - geoflow_ops/urls.py
       - geoflow_ops/security_views.py
       - geoflow_ops/employee_security_views.py
@@ -13,12 +14,15 @@ on:
       - geoflow_ops/views_events.py
       - geoflow_ops/views_uploads.py
       - geoflow_ops/services/entity_access.py
+      - geoflow_ops/templates/geoflow_ops/employees/employee_detail.html
+      - geoflow_ops/test_permission_vocabulary_contract.py
       - geoflow_ops/test_tenant_route_authorization_contract.py
       - .github/workflows/tenant-route-authz-regression.yml
   push:
     branches:
       - release/stabilized-deploy
     paths:
+      - control/gf_authz/vocabulary.py
       - geoflow_ops/urls.py
       - geoflow_ops/security_views.py
       - geoflow_ops/employee_security_views.py
@@ -27,6 +31,8 @@ on:
       - geoflow_ops/views_events.py
       - geoflow_ops/views_uploads.py
       - geoflow_ops/services/entity_access.py
+      - geoflow_ops/templates/geoflow_ops/employees/employee_detail.html
+      - geoflow_ops/test_permission_vocabulary_contract.py
       - geoflow_ops/test_tenant_route_authorization_contract.py
       - .github/workflows/tenant-route-authz-regression.yml
 
@@ -50,4 +56,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m unittest geoflow_ops.test_tenant_route_authorization_contract
+          python -m unittest \
+            geoflow_ops.test_tenant_route_authorization_contract \
+            geoflow_ops.test_permission_vocabulary_contract
