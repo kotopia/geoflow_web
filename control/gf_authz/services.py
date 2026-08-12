@@ -43,6 +43,37 @@ def _resolve_central_user_uuid(cur, users_tbl: str, email: str) -> Optional[str]
     return str(row[0]) if row else None
 
 
+def _column_exists(cur, relation: str, column: str) -> bool:
+    """Check an optional physical column without requiring a schema migration."""
+    normalized = str(relation).replace('"', "")
+    if "." in normalized:
+        schema_name, table_name = normalized.rsplit(".", 1)
+        cur.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_schema=%s
+               AND table_name=%s
+               AND column_name=%s
+             LIMIT 1
+            """,
+            [schema_name, table_name, column],
+        )
+    else:
+        cur.execute(
+            """
+            SELECT 1
+              FROM information_schema.columns
+             WHERE table_schema=current_schema()
+               AND table_name=%s
+               AND column_name=%s
+             LIMIT 1
+            """,
+            [normalized, column],
+        )
+    return cur.fetchone() is not None
+
+
 def gf_load_user_context(request) -> Dict:
     """
     중앙 DB에서 현재 로그인 사용자(email 기준)의 uuid를 찾고,
@@ -83,7 +114,16 @@ def gf_load_user_context(request) -> Dict:
         if not central_user_id:
             return {"tenant_id": group_id, "roles": [], "perms": [], "project_ids": []}
 
-        # 2) roles (현재 그룹의 활성 매핑만 허용)
+        # Some deployed central schemas predate roles.status. When it exists,
+        # role deactivation must immediately remove the role from effective authz.
+        role_status_supported = _column_exists(cur, roles_tbl, "status")
+        role_status_filter = (
+            "AND lower(COALESCE(r.status, '')) = 'active'"
+            if role_status_supported
+            else ""
+        )
+
+        # 2) roles (현재 그룹의 활성 매핑 및, 지원 시, 활성 역할만 허용)
         cur.execute(f"""
             SELECT r.code
               FROM {user_roles_tbl} ur
@@ -91,19 +131,27 @@ def gf_load_user_context(request) -> Dict:
              WHERE ur.user_id = %s
                AND ur.group_id = %s
                AND ur.status = 'active'
+               {role_status_filter}
         """, [central_user_id, group_id])
         roles = {row[0] for row in cur.fetchall()}
 
-        # 3) perms (역할→퍼미션 확장, 동일 그룹의 활성 매핑만 허용)
+        # 3) perms (역할→퍼미션 확장, 동일 그룹의 활성 매핑/역할만 허용)
         if roles:
+            role_join = (
+                f"JOIN {roles_tbl} r ON r.id = ur.role_id"
+                if role_status_supported
+                else ""
+            )
             cur.execute(f"""
                 SELECT DISTINCT p.code
                   FROM {user_roles_tbl} ur
+                  {role_join}
                   JOIN {role_permissions_tbl} rp ON rp.role_id = ur.role_id
                   JOIN {permissions_tbl}      p ON p.id = rp.permission_id
                  WHERE ur.user_id = %s
                    AND ur.group_id = %s
                    AND ur.status = 'active'
+                   {role_status_filter}
             """, [central_user_id, group_id])
             perms = {row[0] for row in cur.fetchall()}
 

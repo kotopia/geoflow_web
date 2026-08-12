@@ -59,6 +59,11 @@ class SqlJoinMembershipApprovalRepository:
                 return False
             decider_assignment = f", {decider_column}=%s"
             decider_params = [approval.actor_user_id]
+            role_status_clause = ""
+            if self._column_exists(cursor, "roles", "status"):
+                role_status_clause = (
+                    "AND lower(COALESCE(requested_role.status, ''))='active'"
+                )
             cursor.execute(
                 f"""
                 WITH eligible AS (
@@ -88,6 +93,7 @@ class SqlJoinMembershipApprovalRepository:
                       JOIN roles AS requested_role
                         ON requested_role.id=%s
                        AND requested_role.code=join_request.requested_role_code
+                       {role_status_clause}
                       JOIN users AS approval_actor
                         ON approval_actor.id=%s
                        AND approval_actor.is_active=TRUE
