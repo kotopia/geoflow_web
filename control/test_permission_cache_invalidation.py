@@ -5,6 +5,7 @@ from django.test import RequestFactory, SimpleTestCase
 
 from control.gf_authz.middleware import GFAuthzContextMiddleware
 from control.gf_authz.permissions import gf_has_perm, gf_has_role
+from control.templatetags.acl_tags import has_perm as template_has_perm
 
 
 class PermissionCacheInvalidationTests(SimpleTestCase):
@@ -30,6 +31,19 @@ class PermissionCacheInvalidationTests(SimpleTestCase):
         )
         return request
 
+    def _tenant_template_request(self):
+        request = self._request()
+        request.session.update(
+            {
+                "tenant_db_alias": "tenant_db",
+                "scope": "tenant",
+                "group_uuid": "group-key",
+                "perms": ["stale.permission"],
+            }
+        )
+        request._user_uuid = "user-key"
+        return request
+
     def test_empty_request_caches_do_not_fall_back_to_stale_session_authz(self):
         request = self._request()
         request._gf_roles_cache = set()
@@ -37,6 +51,20 @@ class PermissionCacheInvalidationTests(SimpleTestCase):
 
         self.assertFalse(gf_has_role(request, "stale-role"))
         self.assertFalse(gf_has_perm(request, "stale.permission"))
+
+    def test_template_acl_empty_request_cache_does_not_use_stale_legacy_session(self):
+        request = self._tenant_template_request()
+        request._gf_perms_cache = set()
+
+        self.assertFalse(template_has_perm({"request": request}, "stale.permission"))
+
+    def test_template_acl_prefers_fresh_request_cache_over_legacy_session(self):
+        request = self._tenant_template_request()
+        request._gf_perms_cache = {"fresh.permission", "directory.edit"}
+
+        self.assertFalse(template_has_perm({"request": request}, "stale.permission"))
+        self.assertTrue(template_has_perm({"request": request}, "fresh.permission"))
+        self.assertTrue(template_has_perm({"request": request}, "people.manage"))
 
     @patch("control.gf_authz.middleware.gf_load_user_context")
     def test_stale_session_context_is_replaced_from_authoritative_source(

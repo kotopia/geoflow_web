@@ -36,14 +36,22 @@ def has_perm(context, perm_code: str) -> bool:
     if not req or not _tenant_scope_is_active(req):
         return False
 
+    needed = _norm(perm_code)
+
+    # GFAuthzContextMiddleware가 설정한 요청 단위 캐시는 현재 요청의 authoritative
+    # 권한 상태다. 빈 set()도 명시적인 권한 없음이므로 legacy session cache로
+    # 되돌아가면 안 된다.
+    request_perms = getattr(req, "_gf_perms_cache", None)
+    if request_perms is not None:
+        return bool(set(request_perms) & needed)
+
     user_uuid = getattr(req, "_user_uuid", None) or lookup_user_id_from_request(req)
     group_id = req.session.get("group_uuid") or req.session.get("group_id")
     if not user_uuid or not group_id:
         return False
 
-    # 세션 캐시 우선
+    # middleware request cache가 없는 legacy 호출 경로에서만 기존 세션 캐시 사용
     sess_perms = set(req.session.get("perms") or [])
-    needed = _norm(perm_code)
     if sess_perms:
         return bool(sess_perms & needed)
 
