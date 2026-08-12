@@ -10,6 +10,21 @@ from django.views.decorators.csrf import csrf_protect
 from .decorators import require_central_admin
 
 
+def _column_exists(cur, table: str, column: str) -> bool:
+    cur.execute(
+        """
+        SELECT 1
+          FROM information_schema.columns
+         WHERE table_schema=current_schema()
+           AND table_name=%s
+           AND column_name=%s
+         LIMIT 1
+        """,
+        [table, column],
+    )
+    return cur.fetchone() is not None
+
+
 @require_central_admin
 @csrf_protect
 def users_assign_group_admin(request, user_id):
@@ -34,14 +49,22 @@ def users_assign_group_admin(request, user_id):
     assigned = False
     with transaction.atomic(using="default"):
         with connections["default"].cursor() as cur:
+            role_status_clause = ""
+            if _column_exists(cur, "roles", "status"):
+                role_status_clause = (
+                    "AND lower(COALESCE(r.status, ''))='active'"
+                )
+
             cur.execute(
-                """
+                f"""
                 SELECT u.id::text, g.id::text, r.id::text
                   FROM users u
                   JOIN groups g
                     ON g.id=%s
                    AND lower(COALESCE(g.status, ''))='active'
-                  JOIN roles r ON r.id=%s
+                  JOIN roles r
+                    ON r.id=%s
+                   {role_status_clause}
                  WHERE u.id=%s
                    AND u.is_active=TRUE
                    AND u.email_verified=TRUE
