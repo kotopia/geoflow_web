@@ -30,6 +30,14 @@ class PermissionCacheInvalidationTests(SimpleTestCase):
         )
         return request
 
+    def test_empty_request_caches_do_not_fall_back_to_stale_session_authz(self):
+        request = self._request()
+        request._gf_roles_cache = set()
+        request._gf_perms_cache = set()
+
+        self.assertFalse(gf_has_role(request, "stale-role"))
+        self.assertFalse(gf_has_perm(request, "stale.permission"))
+
     @patch("control.gf_authz.middleware.gf_load_user_context")
     def test_stale_session_context_is_replaced_from_authoritative_source(
         self,

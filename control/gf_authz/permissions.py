@@ -7,10 +7,16 @@ GF_LOGIN_URL_NAME = "login"       # 기존 로그인 url name 재사용
 GF_NO_PERM_URL_NAME = "no_perm"   # 없으면 403을 그대로 응답
 
 def gf_get_perms(request):
-    return set(getattr(request, "_gf_perms_cache", None) or request.session.get("gf_perms") or [])
+    cached_perms = getattr(request, "_gf_perms_cache", None)
+    if cached_perms is not None:
+        return set(cached_perms)
+    return set(request.session.get("gf_perms") or [])
 
 def gf_get_roles(request):
-    return set(getattr(request, "_gf_roles_cache", None) or request.session.get("gf_roles") or [])
+    cached_roles = getattr(request, "_gf_roles_cache", None)
+    if cached_roles is not None:
+        return set(cached_roles)
+    return set(request.session.get("gf_roles") or [])
 
 def gf_has_perm(request, perm_code: str) -> bool:
     return perm_code in gf_get_perms(request)
