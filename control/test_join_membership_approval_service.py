@@ -55,6 +55,11 @@ class JoinMembershipApprovalServiceTests(TestCase):
         ):
             self.assertIn(required, source)
 
+    def test_optional_role_status_is_rechecked_in_atomic_approval(self):
+        source = getsource(SqlJoinMembershipApprovalRepository.apply)
+        self.assertIn('_column_exists(cursor, "roles", "status")', source)
+        self.assertIn("requested_role.status", source)
+        self.assertIn("='active'", source)
 
     def test_actor_is_required_for_audited_approval(self):
         repository = MagicMock()
