@@ -11,7 +11,7 @@ Canonical working location:
 Current phase:
 
 - Phase 1: complete
-- Phase 2: IAM / authorization hardening and completion
+- Phase 2: IAM / authorization hardening plus the remaining approved operational completion gates
 - active release branch: `release/stabilized-deploy`
 
 Historical dirty/archive worktrees are context only. Do not recreate or modify them merely to match an older workstation.
@@ -76,9 +76,9 @@ If concurrent work has advanced release, prefer a fresh topic branch or a normal
 
 ## 5. Phase 2 Objective
 
-Complete GeoFlow IAM and authorization hardening without unnecessary architectural expansion.
+Complete GeoFlow IAM and authorization hardening without unnecessary architectural expansion, then finish the reviewed operational security gates required for Phase 2 closure.
 
-Primary completion areas:
+Primary repository completion areas:
 
 - canonical permission taxonomy consistency
 - active tenant URL/view/API authorization coverage
@@ -91,6 +91,12 @@ Primary completion areas:
 - project-level authorization only if existing requirements and data structures justify it; do not invent schema merely for theoretical completeness
 - regression tests for each confirmed authorization gap
 - release preflight / security regression coverage
+
+Primary operational completion areas:
+
+- minimum-permission production EC2 instance profile/runtime role readiness and role-only cutover (`#10`)
+- trusted proxy / canonical HTTPS / staged HSTS hardening (`#28`)
+- enforced release branch ruleset/protection with validation (`#11`)
 
 Prefer fixing proven gaps over speculative redesign.
 
@@ -161,6 +167,7 @@ When multiple safe next tasks exist, prioritize in this order:
 5. stale-cache / scope fail-closed issues
 6. regression/preflight gaps
 7. documentation and cleanup necessary to close Phase 2
+8. independent preparation/verification for the remaining operational gates
 
 If a finding is ambiguous, inspect call sites, URL routing, permission seed data, tests, and historical compatibility before changing code.
 
@@ -168,7 +175,7 @@ Do not introduce new permission codes, roles, tables, or project-membership sche
 
 ## 10. Definition of Phase 2 Done
 
-Phase 2 is complete when all of the following are true:
+Phase 2 repository authorization work is complete when all of the following are true:
 
 - active tenant-facing routes and APIs have an explicit, tested authorization policy
 - known direct URL/API bypasses are closed
@@ -177,10 +184,21 @@ Phase 2 is complete when all of the following are true:
 - role approval changes are reflected in effective permissions as designed
 - regression tests cover confirmed gaps and are part of CI/preflight where appropriate
 - latest release CI is green
-- no unresolved Phase 2 security blocker remains in the repository review
-- remaining items are clearly Phase 3/product enhancements rather than IAM defects
+- no unresolved repository-level Phase 2 security blocker remains in the repository review
 
-When these criteria are met, stop creating new Phase 2 changes, prepare a concise completion report, and leave any production-only deployment/activation gate waiting for the user.
+Repository-level completion alone is **not** the end of the full Phase 2 program. Do not disable an unattended Phase 2 completion loop solely because the criteria above are satisfied.
+
+Full Phase 2 is complete only when all of the following operational acceptance criteria are also satisfied:
+
+- Issue `#10`: the reviewed minimum-permission runtime role/instance profile is attached to the production GeoFlow EC2 runtime; the role-only readiness diagnostic passes; the guarded role-only credential cutover is completed; and post-cutover tenant secret/S3/application smoke validation is green
+- Issue `#28`: the trusted-proxy/TLS readiness diagnostic passes; proxy trust, Django SSL redirect, and a short-duration HSTS stage are activated through the reviewed production-gated sequence; `includeSubDomains` and `preload` remain disabled unless separately proven safe; and post-activation HTTPS/login smoke validation is green
+- Issue `#11`: the `release/stabilized-deploy` branch is actually protected by the reviewed Stage B policy (pull request required, required release checks enforced, deletion/force-push blocked, no routine bypass) and one normal feature PR validates the enforcement
+- the exact latest release HEAD has green release CI/preflight and public production smoke checks after the operational work
+- `#10`, `#11`, and `#28` are closed or contain explicit evidence that their acceptance criteria have been satisfied
+
+Production mutations still require the applicable protected operational approval and exact reviewed procedure. If an action cannot be executed through available tools, identify the smallest user-only action required and continue every independent Phase 2 task rather than declaring completion.
+
+Only when both repository and operational criteria are satisfied should new Phase 2 work stop and Phase 3 begin.
 
 ## 11. Reporting
 
@@ -193,5 +211,6 @@ At useful checkpoints record:
 - tests/checks run and result
 - PR number and merge SHA
 - any waiting protected production gate
+- any smallest user-only AWS/repository-admin action that cannot be performed through available tools
 
 Never include secret values or raw production business records.
