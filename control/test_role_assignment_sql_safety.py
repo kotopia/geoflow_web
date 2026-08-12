@@ -4,7 +4,9 @@ import unittest
 
 class RoleAssignmentSQLSafetyTests(unittest.TestCase):
     def _source(self) -> str:
-        return Path(__file__).with_name("views_users_admin.py").read_text(encoding="utf-8")
+        # Audit the handler actually wired by control/urls.py. A legacy duplicate
+        # remains in views_users_admin.py for compatibility but is not the route target.
+        return Path(__file__).with_name("views_user_assignment.py").read_text(encoding="utf-8")
 
     def _template(self) -> str:
         return (
@@ -45,6 +47,13 @@ class RoleAssignmentSQLSafetyTests(unittest.TestCase):
         )
         for guard in required_guards:
             self.assertIn(guard, source)
+
+    def test_role_assignment_rechecks_optional_role_activity(self):
+        source = self._source()
+        self.assertIn('_column_exists(cur, "roles", "status")', source)
+        self.assertIn('role_status_clause = ""', source)
+        self.assertIn("lower(COALESCE(r.status, ''))='active'", source)
+        self.assertIn("FOR UPDATE OF u, g, r", source)
 
     def test_failed_guard_does_not_report_assignment_success(self):
         source = self._source()
