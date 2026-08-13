@@ -1,0 +1,259 @@
+name: Phase 2 AWS admin capability diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase2-aws-admin-capability-diagnostic.yml
+      - control/test_phase2_aws_admin_capability_contract.py
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  aws-admin-capability-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate exact release and connection inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST" || { echo 'phase2_admin_diag_blocker=missing_ssh_host'; exit 2; }
+          test -n "$SSH_USER" || { echo 'phase2_admin_diag_blocker=missing_ssh_user'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'phase2_admin_diag_blocker=missing_ssh_key'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'phase2_admin_diag_blocker=missing_known_hosts'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'phase2_admin_diag_blocker=invalid_ssh_port'; exit 2; }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only AWS administration capability diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          service='geoflow-stabilized.service'
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = active ] && [ "$sub" = running ] || { echo 'phase2_admin_diag_blocker=stabilized_service_not_running'; exit 2; }
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || { echo 'phase2_admin_diag_blocker=service_working_directory_missing'; exit 2; }
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || { echo 'phase2_admin_diag_blocker=service_repo_missing'; exit 2; }
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'phase2_admin_diag_blocker=runtime_python_missing'; exit 2; }
+
+          # This probe is deliberately read-only. It never prints credential values,
+          # account IDs, ARNs, instance IDs, profile names, role names, bucket names,
+          # secret identifiers, object keys, database identifiers, or host internals.
+          "$python" - "$repo" <<'PY'
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          import boto3
+          from botocore.exceptions import ClientError
+
+          region = str(os.environ.get("AWS_REGION") or "ap-northeast-2").strip()
+          session = boto3.Session(region_name=region)
+          credentials = session.get_credentials()
+          if credentials is None:
+              print("phase2_admin_existing_credentials_available=no")
+              print("phase2_admin_capability_candidate=no")
+              print("phase2_admin_diag_blocker=no_existing_credentials")
+              raise SystemExit(2)
+
+          method = str(getattr(credentials, "method", "") or "unknown")
+          if method in {"iam-role", "container-role"}:
+              method_class = "role"
+          elif method in {"env", "shared-credentials-file", "config-file", "custom-process", "boto-config"}:
+              method_class = "fallback"
+          else:
+              method_class = "other"
+          print("phase2_admin_existing_credentials_available=yes")
+          print(f"phase2_admin_existing_credential_class={method_class}")
+
+          try:
+              identity = session.client("sts", region_name=region).get_caller_identity()
+              caller_arn = str(identity.get("Arn") or "")
+          except Exception:
+              print("phase2_admin_sts_identity=failed")
+              print("phase2_admin_capability_candidate=no")
+              print("phase2_admin_diag_blocker=sts_identity_failed")
+              raise SystemExit(2)
+
+          if ":user/" in caller_arn:
+              principal_class = "iam-user"
+          elif ":assumed-role/" in caller_arn:
+              principal_class = "assumed-role"
+          elif ":role/" in caller_arn:
+              principal_class = "iam-role"
+          elif caller_arn.endswith(":root"):
+              principal_class = "root"
+          else:
+              principal_class = "other"
+          print("phase2_admin_sts_identity=ok")
+          print(f"phase2_admin_principal_class={principal_class}")
+
+          instance_id = ""
+          try:
+              token_request = urllib.request.Request(
+                  "http://169.254.169.254/latest/api/token",
+                  method="PUT",
+                  headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+              )
+              with urllib.request.urlopen(token_request, timeout=2) as response:
+                  token = response.read().decode("utf-8").strip()
+              id_request = urllib.request.Request(
+                  "http://169.254.169.254/latest/meta-data/instance-id",
+                  headers={"X-aws-ec2-metadata-token": token},
+              )
+              with urllib.request.urlopen(id_request, timeout=2) as response:
+                  instance_id = response.read().decode("utf-8").strip()
+          except Exception:
+              instance_id = ""
+
+          if not instance_id:
+              print("phase2_admin_instance_identity=unavailable")
+              print("phase2_admin_capability_candidate=no")
+              print("phase2_admin_diag_blocker=instance_identity_unavailable")
+              raise SystemExit(2)
+          print("phase2_admin_instance_identity=ok")
+
+          ec2 = session.client("ec2", region_name=region)
+          ec2_describe = "unavailable"
+          current_profile = "unknown"
+          try:
+              described = ec2.describe_instances(InstanceIds=[instance_id])
+              ec2_describe = "allowed"
+              reservations = described.get("Reservations") or []
+              instances = reservations[0].get("Instances") if reservations else []
+              instance = instances[0] if instances else {}
+              current_profile = "present" if instance.get("IamInstanceProfile") else "absent"
+          except ClientError as exc:
+              code = str(exc.response.get("Error", {}).get("Code") or "")
+              ec2_describe = "denied" if "AccessDenied" in code or "Unauthorized" in code else "failed"
+          except Exception:
+              ec2_describe = "failed"
+          print(f"phase2_admin_ec2_describe_own_instance={ec2_describe}")
+          print(f"phase2_admin_current_instance_profile={current_profile}")
+
+          association_read = "unavailable"
+          try:
+              ec2.describe_iam_instance_profile_associations(
+                  Filters=[{"Name": "instance-id", "Values": [instance_id]}],
+                  MaxResults=5,
+              )
+              association_read = "allowed"
+          except ClientError as exc:
+              code = str(exc.response.get("Error", {}).get("Code") or "")
+              association_read = "denied" if "AccessDenied" in code or "Unauthorized" in code else "failed"
+          except Exception:
+              association_read = "failed"
+          print(f"phase2_admin_ec2_profile_association_read={association_read}")
+
+          iam = session.client("iam", region_name=region)
+          iam_read = "allowed"
+          for operation in (
+              lambda: iam.list_roles(MaxItems=1),
+              lambda: iam.list_instance_profiles(MaxItems=1),
+              lambda: iam.list_policies(Scope="Local", MaxItems=1),
+          ):
+              try:
+                  operation()
+              except ClientError as exc:
+                  code = str(exc.response.get("Error", {}).get("Code") or "")
+                  iam_read = "denied" if "AccessDenied" in code or "Unauthorized" in code else "failed"
+                  break
+              except Exception:
+                  iam_read = "failed"
+                  break
+          print(f"phase2_admin_iam_inventory_read={iam_read}")
+
+          simulation = "unavailable"
+          policy_source_arn = caller_arn if principal_class in {"iam-user", "iam-role"} else ""
+          required_actions = [
+              "iam:CreateRole",
+              "iam:CreatePolicy",
+              "iam:CreateInstanceProfile",
+              "iam:AddRoleToInstanceProfile",
+              "iam:AttachRolePolicy",
+              "iam:PassRole",
+              "ec2:AssociateIamInstanceProfile",
+              "ec2:ReplaceIamInstanceProfileAssociation",
+          ]
+          if policy_source_arn:
+              try:
+                  simulated = iam.simulate_principal_policy(
+                      PolicySourceArn=policy_source_arn,
+                      ActionNames=required_actions,
+                  )
+                  evaluations = simulated.get("EvaluationResults") or []
+                  decisions = {str(item.get("EvalDecision") or "") for item in evaluations}
+                  simulation = "all-required-allowed" if len(evaluations) == len(required_actions) and decisions == {"allowed"} else "not-all-allowed"
+              except ClientError as exc:
+                  code = str(exc.response.get("Error", {}).get("Code") or "")
+                  simulation = "denied" if "AccessDenied" in code or "Unauthorized" in code else "unavailable"
+              except Exception:
+                  simulation = "unavailable"
+          print(f"phase2_admin_required_mutation_simulation={simulation}")
+
+          candidate = (
+              ec2_describe == "allowed"
+              and association_read == "allowed"
+              and iam_read == "allowed"
+              and simulation == "all-required-allowed"
+          )
+          print(f"phase2_admin_capability_candidate={'yes' if candidate else 'no'}")
+          print("phase2_aws_admin_capability_diagnostic_complete=yes")
+          PY
+          REMOTE
