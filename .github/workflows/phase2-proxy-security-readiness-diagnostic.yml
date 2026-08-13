@@ -1,6 +1,13 @@
 name: Phase 2 proxy security readiness diagnostic
 
 on:
+  workflow_call:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+        type: string
   workflow_dispatch:
     inputs:
       ssh_port:
