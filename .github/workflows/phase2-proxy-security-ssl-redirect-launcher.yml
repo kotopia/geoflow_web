@@ -39,13 +39,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api \
+          payload='{"ref":"release/stabilized-deploy","inputs":{"stage":"ssl-redirect","confirm_activation":"PHASE2_PROXY_ACTIVATE","ssh_port":"22"}}'
+          printf '%s' "$payload" | gh api \
             --method POST \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase2-proxy-security-staged-activation.yml/dispatches" \
-            -f ref='release/stabilized-deploy' \
-            -F 'inputs[stage]=ssl-redirect' \
-            -F 'inputs[confirm_activation]=PHASE2_PROXY_ACTIVATE' \
-            -F 'inputs[ssh_port]=22'
+            --input - \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase2-proxy-security-staged-activation.yml/dispatches"
           echo 'phase2_proxy_ssl_redirect_launcher_dispatched=yes'
