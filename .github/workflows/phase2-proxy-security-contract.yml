@@ -6,6 +6,7 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/phase2-proxy-security-readiness-diagnostic.yml
+      - .github/workflows/phase2-proxy-security-readiness-launcher.yml
       - .github/workflows/phase2-proxy-security-contract.yml
       - control/test_phase2_proxy_security_readiness_contract.py
       - control/test_proxy_security_settings.py
@@ -17,6 +18,7 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/phase2-proxy-security-readiness-diagnostic.yml
+      - .github/workflows/phase2-proxy-security-readiness-launcher.yml
       - .github/workflows/phase2-proxy-security-contract.yml
       - control/test_phase2_proxy_security_readiness_contract.py
       - control/test_proxy_security_settings.py
