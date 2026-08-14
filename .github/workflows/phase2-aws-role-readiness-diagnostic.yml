@@ -45,7 +45,7 @@ jobs:
           test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
           python -m py_compile scripts/ops/phase2_aws_role_readiness_probe.py
-          test "$(git hash-object scripts/ops/phase2_aws_role_readiness_probe.py)" = "d803c186ef9d904089b9e984474185e5189ae04a" || {
+          test "$(git hash-object scripts/ops/phase2_aws_role_readiness_probe.py)" = "924aa5754d081a65842a78e8aefc68d3b514a945" || {
             echo 'phase2_role_diag_blocker=reviewed_probe_blob_changed'
             exit 2
           }
@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
 
           service='geoflow-stabilized.service'
-          expected_probe_blob='d803c186ef9d904089b9e984474185e5189ae04a'
+          expected_probe_blob='924aa5754d081a65842a78e8aefc68d3b514a945'
           expected_secret_resolver_blob='e36057251ce9e38fa7ea5cf4a7058eeafbc2f171'
           fail() { echo "phase2_role_diag_blocker=$1"; exit 2; }
 
@@ -113,9 +113,10 @@ jobs:
           [ -f "$resolver" ] || fail 'runtime_secret_resolver_missing'
           [ "$(git -C "$repo" hash-object "$resolver")" = "$expected_secret_resolver_blob" ] || fail 'runtime_secret_resolver_not_reviewed'
 
-          # The staged probe prints only bounded status/cause categories. It never
-          # prints credentials, secret identifiers, ARNs, account IDs, bucket names,
-          # object keys, DB hosts/names, or tenant identifiers.
+          # The staged probe prints only bounded status/cause categories and
+          # read-only policy inventory counts. It never prints credentials,
+          # secret identifiers, ARNs, account IDs, bucket names, object keys,
+          # DB hosts/names, tenant identifiers, policy names, or policy documents.
           "$python" "$REMOTE_PROBE" "$repo"
           REMOTE
 
