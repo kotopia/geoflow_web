@@ -57,4 +57,5 @@ jobs:
           python manage.py test \
             control.test_static_tenant_alias_selection \
             control.test_tenant_connection_registration \
-            control.test_phase2_dynamic_tenant_runtime
+            control.test_phase2_dynamic_tenant_runtime \
+            control.test_tenant_selection_live_revalidation
