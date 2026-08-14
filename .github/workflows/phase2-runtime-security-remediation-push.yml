@@ -106,12 +106,64 @@ jobs:
           [ "$(git -C "$repo" hash-object control/services/web_security_preflight.py)" = "$expected_web_preflight_blob" ] || fail 'runtime_web_preflight_not_reviewed'
           [ "$(git -C "$repo" hash-object control/management/commands/check_release_preflight.py)" = "$expected_command_blob" ] || fail 'runtime_preflight_command_not_reviewed'
 
+          # Do not print systemd Environment values; they may contain secret material.
           service_environment="$(systemctl show "$service" -p Environment --value 2>/dev/null || true)"
           if printf '%s' "$service_environment" | grep -Eq '(^|[[:space:]"])(DJANGO_SECRET_KEY|DJANGO_CSRF_TRUSTED_ORIGINS)='; then
             unset service_environment
             fail 'systemd_direct_runtime_security_override_present'
           fi
           unset service_environment
+
+          # Allow the reviewed repository .env only. Other systemd EnvironmentFile
+          # sources must not override either setting managed by this remediation.
+          unit_dump="$(mktemp)"
+          systemctl cat "$service" > "$unit_dump" 2>/dev/null || fail 'systemd_unit_read_failed'
+          unit_rc=0
+          "$python" - "$unit_dump" "$repo/.env" <<'PY' || unit_rc=$?
+          import re
+          import shlex
+          import sys
+          from pathlib import Path
+
+          unit_path = Path(sys.argv[1])
+          allowed_env = Path(sys.argv[2]).resolve()
+          forbidden = re.compile(
+              r"^\s*(?:export\s+)?(?:DJANGO_SECRET_KEY|DJANGO_CSRF_TRUSTED_ORIGINS)\s*="
+          )
+          for raw in unit_path.read_text(errors="replace").splitlines():
+              line = raw.strip()
+              if not line.startswith("EnvironmentFile="):
+                  continue
+              spec = line.split("=", 1)[1].strip()
+              try:
+                  items = shlex.split(spec)
+              except ValueError:
+                  raise SystemExit(3)
+              for item in items:
+                  optional = item.startswith("-")
+                  candidate = item[1:] if optional else item
+                  if not candidate or any(ch in candidate for ch in ("%", "*", "?", "[")):
+                      raise SystemExit(3)
+                  path = Path(candidate)
+                  if not path.is_absolute():
+                      raise SystemExit(3)
+                  try:
+                      resolved = path.resolve()
+                  except OSError:
+                      raise SystemExit(3)
+                  if resolved == allowed_env:
+                      continue
+                  if not resolved.is_file():
+                      if optional:
+                          continue
+                      raise SystemExit(3)
+                  for env_line in resolved.read_text(errors="replace").splitlines():
+                      if forbidden.match(env_line):
+                          raise SystemExit(4)
+          print('phase2_runtime_security_environment_files_safe=yes')
+          PY
+          rm -f "$unit_dump"
+          [ "$unit_rc" -eq 0 ] || fail 'systemd_environment_file_not_safe'
 
           cd "$repo"
           before="$(mktemp)"
