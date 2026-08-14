@@ -72,18 +72,16 @@ jobs:
           expected_web_preflight_blob='bd6a6504bc658d9365d0f34567afae62758f0035'
           expected_command_blob='fa1e7432935b7ec992b34c0c841a499ce585530d'
           fail() { echo "phase2_runtime_security_blocker=$1"; exit 2; }
-          clean_role_env() {
+          role_only_shape_env() {
             env \
-              -u AWS_ACCESS_KEY_ID \
-              -u AWS_SECRET_ACCESS_KEY \
-              -u AWS_SESSION_TOKEN \
-              -u AWS_PROFILE \
-              -u AWS_DEFAULT_PROFILE \
-              -u AWS_SHARED_CREDENTIALS_FILE \
-              -u AWS_CONFIG_FILE \
-              -u AWS_EC2_METADATA_DISABLED \
-              -u DJANGO_SECRET_KEY \
-              -u DJANGO_CSRF_TRUSTED_ORIGINS \
+              AWS_ACCESS_KEY_ID= \
+              AWS_SECRET_ACCESS_KEY= \
+              AWS_SESSION_TOKEN= \
+              AWS_PROFILE= \
+              AWS_DEFAULT_PROFILE= \
+              AWS_SHARED_CREDENTIALS_FILE= \
+              AWS_CONFIG_FILE= \
+              AWS_EC2_METADATA_DISABLED= \
               AWS_REQUIRE_ROLE_CREDENTIALS=1 \
               "$@"
           }
@@ -118,10 +116,10 @@ jobs:
           cd "$repo"
           before="$(mktemp)"
           before_rc=0
-          clean_role_env "$python" manage.py check_release_preflight --strict >"$before" 2>&1 || before_rc=$?
+          role_only_shape_env "$python" manage.py check_release_preflight --strict >"$before" 2>&1 || before_rc=$?
           [ "$before_rc" -ne 0 ] || { rm -f "$before"; fail 'preflight_unexpectedly_ready_before_remediation'; }
           fail_count="$(grep -c '^\[FAIL\]' "$before" || true)"
-          [ "$fail_count" = '2' ] || { cat "$before"; rm -f "$before"; fail 'unexpected_preflight_failure_set'; }
+          [ "$fail_count" = '2' ] || { rm -f "$before"; fail 'unexpected_preflight_failure_set'; }
           grep -Fq '[FAIL] django_secret_key:' "$before" || { rm -f "$before"; fail 'django_secret_key_not_expected_blocker'; }
           grep -Fq '[FAIL] csrf_canonical_origin:' "$before" || { rm -f "$before"; fail 'csrf_origin_not_expected_blocker'; }
           rm -f "$before"
@@ -177,7 +175,7 @@ jobs:
           print('phase2_runtime_security_env_updated=yes')
           PY
 
-          clean_role_env "$python" manage.py check_release_preflight --strict >/dev/null
+          role_only_shape_env "$python" manage.py check_release_preflight --strict >/dev/null
           echo 'phase2_runtime_security_role_only_preflight_ready=yes'
           env -u DJANGO_SECRET_KEY -u DJANGO_CSRF_TRUSTED_ORIGINS "$python" manage.py check >/dev/null
 
