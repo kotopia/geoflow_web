@@ -84,6 +84,27 @@ def s3_minimum_policy_ready(list_state: str, read_state: str) -> bool:
     return list_state == "ok" and read_state in {"ok", "not_tested_no_object"}
 
 
+def inventory_role_policies(static_session, role_name: str) -> tuple[str, int | None, int | None, str]:
+    """Return only bounded policy inventory metadata; never policy names/documents."""
+
+    if static_session is None:
+        return "no_static_fallback", None, None, "unknown"
+    if not role_name:
+        return "role_name_unavailable", None, None, "unknown"
+
+    try:
+        iam = static_session.client("iam")
+        inline = iam.list_role_policies(RoleName=role_name, MaxItems=1000)
+        attached = iam.list_attached_role_policies(RoleName=role_name, MaxItems=1000)
+    except Exception as exc:
+        return classify_aws_error(exc), None, None, "unknown"
+
+    inline_names = inline.get("PolicyNames") or []
+    attached_items = attached.get("AttachedPolicies") or []
+    truncated = bool(inline.get("IsTruncated") or attached.get("IsTruncated"))
+    return "ok", len(inline_names), len(attached_items), "yes" if truncated else "no"
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("phase2_role_diag_blocker=invalid_probe_arguments")
@@ -96,6 +117,15 @@ def main() -> int:
     import django
 
     django.setup()
+
+    # Preserve only an in-memory reference to the existing fallback credentials
+    # for a bounded IAM *read-only* policy inventory. Values are never printed,
+    # written, or used for runtime readiness. The actual Secrets/S3 readiness
+    # below still removes all static/profile sources and must use the EC2 role.
+    fallback_access_key = str(os.environ.get("AWS_ACCESS_KEY_ID") or "").strip()
+    fallback_secret_key = str(os.environ.get("AWS_SECRET_ACCESS_KEY") or "").strip()
+    fallback_session_token = str(os.environ.get("AWS_SESSION_TOKEN") or "").strip()
+    fallback_present = bool(fallback_access_key and fallback_secret_key)
 
     # settings.py may have loaded the production .env already. Remove every
     # static/profile source only in this probe process so boto3 must use the
@@ -122,6 +152,15 @@ def main() -> int:
     )
 
     region = str(os.environ.get("AWS_REGION") or "ap-northeast-2").strip()
+    static_session = None
+    if fallback_present:
+        static_session = boto3.Session(
+            aws_access_key_id=fallback_access_key,
+            aws_secret_access_key=fallback_secret_key,
+            aws_session_token=fallback_session_token or None,
+            region_name=region,
+        )
+
     session = boto3.Session(region_name=region)
     credentials = session.get_credentials()
     if credentials is None:
@@ -142,14 +181,43 @@ def main() -> int:
 
     assumed_role = "unknown"
     sts_error = "none"
+    role_name = ""
     try:
         identity = session.client("sts", region_name=region).get_caller_identity()
         arn = str(identity.get("Arn") or "")
         assumed_role = "yes" if ":assumed-role/" in arn else "no"
+        if assumed_role == "yes":
+            role_name = arn.split(":assumed-role/", 1)[1].split("/", 1)[0]
     except Exception as exc:  # identifier-safe classification only
         sts_error = classify_aws_error(exc)
     print(f"phase2_role_principal_is_assumed_role={assumed_role}")
     print(f"phase2_role_sts_error={sts_error}")
+
+    inventory_state, inline_count, attached_count, inventory_truncated = inventory_role_policies(
+        static_session,
+        role_name,
+    )
+    print(f"phase2_role_static_fallback_present={'yes' if fallback_present else 'no'}")
+    print(f"phase2_role_policy_inventory={inventory_state}")
+    print(
+        "phase2_role_inline_policy_count="
+        + (str(inline_count) if inline_count is not None else "unknown")
+    )
+    print(
+        "phase2_role_attached_policy_count="
+        + (str(attached_count) if attached_count is not None else "unknown")
+    )
+    print(f"phase2_role_policy_inventory_truncated={inventory_truncated}")
+    if inventory_state == "ok" and inline_count == 0 and attached_count == 0:
+        print("phase2_role_policy_inventory_blocker=no_role_policies")
+    else:
+        print("phase2_role_policy_inventory_blocker=none")
+
+    # Drop the in-memory static values as soon as the bounded inventory is done.
+    fallback_access_key = ""
+    fallback_secret_key = ""
+    fallback_session_token = ""
+    static_session = None
 
     sm = session.client("secretsmanager", region_name=region)
     active_configs = list(

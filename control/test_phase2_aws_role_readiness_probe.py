@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import Mock
 
 from botocore.exceptions import ClientError
 
@@ -56,6 +57,51 @@ class Phase2AwsRoleReadinessProbeTests(unittest.TestCase):
         )
         self.assertFalse(self.probe.s3_minimum_policy_ready("failed", "ok"))
         self.assertFalse(self.probe.s3_minimum_policy_ready("ok", "failed"))
+
+    def test_policy_inventory_reports_counts_only(self):
+        iam = Mock()
+        iam.list_role_policies.return_value = {
+            "PolicyNames": ["redacted-inline"],
+            "IsTruncated": False,
+        }
+        iam.list_attached_role_policies.return_value = {
+            "AttachedPolicies": [
+                {"PolicyName": "redacted-managed", "PolicyArn": "redacted"}
+            ],
+            "IsTruncated": False,
+        }
+        session = Mock()
+        session.client.return_value = iam
+
+        self.assertEqual(
+            self.probe.inventory_role_policies(session, "redacted-role"),
+            ("ok", 1, 1, "no"),
+        )
+        iam.list_role_policies.assert_called_once_with(
+            RoleName="redacted-role",
+            MaxItems=1000,
+        )
+        iam.list_attached_role_policies.assert_called_once_with(
+            RoleName="redacted-role",
+            MaxItems=1000,
+        )
+
+    def test_policy_inventory_access_denied_is_bounded(self):
+        iam = Mock()
+        iam.list_role_policies.side_effect = self._client_error("AccessDenied")
+        session = Mock()
+        session.client.return_value = iam
+
+        self.assertEqual(
+            self.probe.inventory_role_policies(session, "redacted-role"),
+            ("access_denied", None, None, "unknown"),
+        )
+
+    def test_policy_inventory_requires_no_static_fallback_values(self):
+        self.assertEqual(
+            self.probe.inventory_role_policies(None, "redacted-role"),
+            ("no_static_fallback", None, None, "unknown"),
+        )
 
     def test_output_vocabulary_is_fixed_and_identifier_safe(self):
         self.assertEqual(
