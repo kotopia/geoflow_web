@@ -201,6 +201,15 @@ CENTRAL_DB_ALIAS = "default"            # 중앙 DB 별칭
 GF_AUTHZ_CENTRAL_ALIAS = CENTRAL_DB_ALIAS
 
 DEFAULT_TENANT_DB_ALIAS = "cheonan_db"  # 테넌트 앱 마이그레이션/초기화용 기본 테넌트 DB (런타임 기본은 CENTRAL_DB_ALIAS)
+TENANT_DB_REQUIRE_SECRET_REFERENCES = get_env_bool(
+    "TENANT_DB_REQUIRE_SECRET_REFERENCES",
+    default=False,
+)
+# In secret-reference runtime mode, every tenant alias must be selected and
+# registered from central GroupDBConfig rather than trusted as a static fallback.
+STATIC_TENANT_DB_ALIASES = (
+    () if TENANT_DB_REQUIRE_SECRET_REFERENCES else (DEFAULT_TENANT_DB_ALIAS,)
+)
 
 # 중앙(Control) DB 접속 정보
 CENTRAL_DB_NAME = os.getenv("CENTRAL_DB_NAME", "geoflow_control")
@@ -302,7 +311,14 @@ DATABASES = {
         "CONN_MAX_AGE": 0,
         "CONN_HEALTH_CHECKS": False,
     },
-    "cheonan_db": {  # 테넌트
+}
+
+# The public runtime must not pre-register a tenant connection when tenant DB
+# passwords are external secret references.  The tenant alias is registered on
+# demand from central GroupDBConfig by ensure_tenant_connection_for_session().
+# Legacy/migration environments keep the static alias by leaving the guard off.
+if not TENANT_DB_REQUIRE_SECRET_REFERENCES:
+    DATABASES[DEFAULT_TENANT_DB_ALIAS] = {  # 테넌트
         "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": TENANT_DB_NAME,
         "USER": TENANT_DB_USER,
@@ -316,8 +332,7 @@ DATABASES = {
         "ATOMIC_REQUESTS": False,
         "CONN_MAX_AGE": 0,
         "CONN_HEALTH_CHECKS": False,
-    },
-}
+    }
 
 
 
