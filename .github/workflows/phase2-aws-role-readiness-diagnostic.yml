@@ -6,6 +6,7 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/phase2-aws-role-readiness-diagnostic.yml
+      - scripts/ops/phase2_aws_role_readiness_probe.py
   workflow_dispatch:
     inputs:
       ssh_port:
@@ -33,7 +34,7 @@ jobs:
       - name: Checkout reviewed release candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate connection inputs
+      - name: Validate connection inputs and reviewed probe
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +44,11 @@ jobs:
           test -n "$SSH_KEY" || { echo 'missing_secret=GEOFLOW_DEPLOY_SSH_KEY'; exit 2; }
           test -n "$SSH_KNOWN_HOSTS" || { echo 'missing_secret=GEOFLOW_DEPLOY_KNOWN_HOSTS'; exit 2; }
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
+          python -m py_compile scripts/ops/phase2_aws_role_readiness_probe.py
+          test "$(git hash-object scripts/ops/phase2_aws_role_readiness_probe.py)" = "d803c186ef9d904089b9e984474185e5189ae04a" || {
+            echo 'phase2_role_diag_blocker=reviewed_probe_blob_changed'
+            exit 2
+          }
 
       - name: Configure strict SSH trust
         shell: bash
@@ -55,6 +61,21 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
+      - name: Stage reviewed read-only probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_probe="/tmp/geoflow-phase2-role-readiness-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.py"
+          scp -q \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/ops/phase2_aws_role_readiness_probe.py \
+            "$SSH_USER@$SSH_HOST:$remote_probe"
+          echo "REMOTE_PROBE=$remote_probe" >> "$GITHUB_ENV"
+
       - name: Read-only role-only runtime diagnostic
         shell: bash
         run: |
@@ -66,162 +87,51 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" \
+            "REMOTE_PROBE='$REMOTE_PROBE' bash -s" <<'REMOTE'
           set -euo pipefail
 
           service='geoflow-stabilized.service'
+          expected_probe_blob='d803c186ef9d904089b9e984474185e5189ae04a'
+          expected_secret_resolver_blob='e36057251ce9e38fa7ea5cf4a7058eeafbc2f171'
+          fail() { echo "phase2_role_diag_blocker=$1"; exit 2; }
+
           active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
           sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
-          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || { echo 'phase2_role_diag_blocker=stabilized_service_not_running'; exit 2; }
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'stabilized_service_not_running'
 
           workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
-          [ -n "$workdir" ] && [ -d "$workdir" ] || { echo 'phase2_role_diag_blocker=service_working_directory_missing'; exit 2; }
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
           repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
-          [ -n "$repo" ] && [ -d "$repo/.git" ] || { echo 'phase2_role_diag_blocker=service_repo_missing'; exit 2; }
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
           python="$repo/.venv/bin/python"
-          [ -x "$python" ] || { echo 'phase2_role_diag_blocker=stabilized_venv_python_missing'; exit 2; }
+          [ -x "$python" ] || fail 'stabilized_venv_python_missing'
+          [ -s "$REMOTE_PROBE" ] || fail 'staged_probe_missing'
+          [ "$(git hash-object "$REMOTE_PROBE")" = "$expected_probe_blob" ] || fail 'staged_probe_not_reviewed'
 
-          # This diagnostic never prints credential values, secret identifiers, ARNs,
-          # account IDs, bucket names, object keys, DB hosts, DB names, or tenant IDs.
-          "$python" - "$repo" <<'PY'
-          import os
-          import sys
+          resolver="$repo/control/services/tenant_db_secret_resolver.py"
+          [ -f "$resolver" ] || fail 'runtime_secret_resolver_missing'
+          [ "$(git -C "$repo" hash-object "$resolver")" = "$expected_secret_resolver_blob" ] || fail 'runtime_secret_resolver_not_reviewed'
 
-          repo = sys.argv[1]
-          sys.path.insert(0, repo)
-          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
-
-          import django
-          django.setup()
-
-          # settings.py loads the production .env. Remove every static/profile AWS
-          # credential source only inside this diagnostic process so boto3 must use
-          # an instance/container role or fail closed. The service environment and
-          # .env file are never modified.
-          for name in (
-              "AWS_ACCESS_KEY_ID",
-              "AWS_SECRET_ACCESS_KEY",
-              "AWS_SESSION_TOKEN",
-              "AWS_PROFILE",
-              "AWS_DEFAULT_PROFILE",
-              "AWS_SHARED_CREDENTIALS_FILE",
-              "AWS_CONFIG_FILE",
-          ):
-              os.environ.pop(name, None)
-          os.environ.pop("AWS_EC2_METADATA_DISABLED", None)
-
-          import boto3
-          from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-
-          from control.models import GroupDBConfig
-          from control.services.tenant_db_secret_resolver import (
-              TenantDBCredentialError,
-              is_tenant_db_secret_reference,
-              resolve_tenant_db_password,
-          )
-
-          region = str(os.environ.get("AWS_REGION") or "ap-northeast-2").strip()
-          session = boto3.Session(region_name=region)
-          credentials = session.get_credentials()
-          if credentials is None:
-              print("phase2_role_credentials_available=no")
-              print("phase2_role_ready=no")
-              print("phase2_role_diag_blocker=no_role_credentials")
-              raise SystemExit(2)
-
-          method = str(getattr(credentials, "method", "") or "unknown")
-          if method == "iam-role":
-              method_class = "instance-role"
-          elif method == "container-role":
-              method_class = "container-role"
-          else:
-              method_class = "other"
-          print("phase2_role_credentials_available=yes")
-          print(f"phase2_role_credential_method={method_class}")
-
-          assumed_role = "unknown"
-          try:
-              identity = session.client("sts", region_name=region).get_caller_identity()
-              arn = str(identity.get("Arn") or "")
-              assumed_role = "yes" if ":assumed-role/" in arn else "no"
-          except Exception:
-              assumed_role = "unknown"
-          print(f"phase2_role_principal_is_assumed_role={assumed_role}")
-
-          sm = session.client("secretsmanager", region_name=region)
-          active_configs = list(
-              GroupDBConfig.objects.select_related("group")
-              .filter(group__status="active")
-              .only("db_password")
-          )
-          active_refs = 0
-          secret_resolve_ok = 0
-          secret_resolve_fail = 0
-          for config in active_configs:
-              stored = str(config.db_password or "").strip()
-              if not is_tenant_db_secret_reference(stored):
-                  continue
-              active_refs += 1
-              try:
-                  resolved = resolve_tenant_db_password(
-                      stored,
-                      environ=os.environ,
-                      client=sm,
-                  )
-                  if resolved:
-                      secret_resolve_ok += 1
-                  else:
-                      secret_resolve_fail += 1
-              except TenantDBCredentialError:
-                  secret_resolve_fail += 1
-
-          print(f"phase2_role_active_secret_refs={active_refs}")
-          print(f"phase2_role_secret_resolve_ok={secret_resolve_ok}")
-          print(f"phase2_role_secret_resolve_fail={secret_resolve_fail}")
-
-          bucket = str(os.environ.get("AWS_S3_BUCKET") or "").strip()
-          s3_head_bucket = "not_configured"
-          s3_list = "not_tested"
-          s3_read = "not_tested_no_object"
-          if bucket:
-              s3 = session.client("s3", region_name=region)
-              try:
-                  s3.head_bucket(Bucket=bucket)
-                  s3_head_bucket = "ok"
-              except Exception:
-                  s3_head_bucket = "failed"
-
-              try:
-                  listed = s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)
-                  s3_list = "ok"
-                  contents = listed.get("Contents") or []
-                  if contents:
-                      key = str(contents[0].get("Key") or "")
-                      if key:
-                          try:
-                              response = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")
-                              body = response.get("Body")
-                              if body is not None:
-                                  body.read(1)
-                                  body.close()
-                              s3_read = "ok"
-                          except Exception:
-                              s3_read = "failed"
-              except Exception:
-                  s3_list = "failed"
-
-          print(f"phase2_role_s3_head_bucket={s3_head_bucket}")
-          print(f"phase2_role_s3_list={s3_list}")
-          print(f"phase2_role_s3_read_probe={s3_read}")
-          print("phase2_role_s3_put_live_probe=not_performed_read_only")
-
-          role_method_ok = method_class in {"instance-role", "container-role"}
-          secrets_ok = active_refs > 0 and secret_resolve_fail == 0 and secret_resolve_ok == active_refs
-          s3_readiness_ok = s3_head_bucket == "ok" and s3_list == "ok" and s3_read in {"ok", "not_tested_no_object"}
-          ready = role_method_ok and secrets_ok and s3_readiness_ok
-          print(f"phase2_role_ready={'yes' if ready else 'no'}")
-          print("phase2_aws_role_readiness_diagnostic_complete=yes")
-          if not ready:
-              raise SystemExit(2)
-          PY
+          # The staged probe prints only bounded status/cause categories. It never
+          # prints credentials, secret identifiers, ARNs, account IDs, bucket names,
+          # object keys, DB hosts/names, or tenant identifiers.
+          "$python" "$REMOTE_PROBE" "$repo"
           REMOTE
+
+      - name: Remove staged probe
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${REMOTE_PROBE:-}" ]; then
+            ssh \
+              -i "$HOME/.ssh/geoflow_deploy_key" \
+              -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" \
+              "rm -f '$REMOTE_PROBE'" >/dev/null 2>&1
+          fi

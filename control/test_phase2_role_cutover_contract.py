@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "phase2-aws-role-cutover.yml"
 READINESS_WORKFLOW = ROOT / ".github" / "workflows" / "phase2-aws-role-readiness-diagnostic.yml"
+READINESS_PROBE = ROOT / "scripts" / "ops" / "phase2_aws_role_readiness_probe.py"
 PROBE = ROOT / "scripts" / "ops" / "phase2_role_runtime_probe.py"
 GUARD = ROOT / "control" / "services" / "object_storage_runtime_preflight.py"
 RULESET_TEMPLATE = ROOT / "docs" / "phase2-release-ruleset-api-template.json"
@@ -53,20 +54,23 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         self.assertNotIn("iam delete", text.lower())
 
     def test_readiness_diagnostic_is_production_gated_and_read_only(self):
-        text = READINESS_WORKFLOW.read_text()
-        self.assertIn("workflow_dispatch:", text)
-        self.assertIn("environment: production", text)
-        self.assertIn("phase2_role_s3_put_live_probe=not_performed_read_only", text)
-        self.assertNotIn("put_object(", text)
-        self.assertNotIn("delete_object(", text)
-        self.assertNotIn("create_secret(", text)
-        self.assertNotIn("update_secret(", text)
-        self.assertNotIn("systemctl restart", text)
-        self.assertNotIn("systemctl stop", text)
-        self.assertNotIn("systemctl start", text)
+        workflow_text = READINESS_WORKFLOW.read_text()
+        probe_text = READINESS_PROBE.read_text()
+        combined = workflow_text + "\n" + probe_text
+        self.assertIn("workflow_dispatch:", workflow_text)
+        self.assertIn("environment: production", workflow_text)
+        self.assertIn("phase2_role_s3_put_live_probe=not_performed_read_only", probe_text)
+        self.assertNotIn("put_object(", combined)
+        self.assertNotIn("delete_object(", combined)
+        self.assertNotIn("create_secret(", combined)
+        self.assertNotIn("update_secret(", combined)
+        self.assertNotIn("systemctl restart", combined)
+        self.assertNotIn("systemctl stop", combined)
+        self.assertNotIn("systemctl start", combined)
 
     def test_readiness_diagnostic_forces_role_credential_resolution(self):
-        text = READINESS_WORKFLOW.read_text()
+        workflow_text = READINESS_WORKFLOW.read_text()
+        probe_text = READINESS_PROBE.read_text()
         for name in (
             "AWS_ACCESS_KEY_ID",
             "AWS_SECRET_ACCESS_KEY",
@@ -77,22 +81,34 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
             "AWS_CONFIG_FILE",
             "AWS_EC2_METADATA_DISABLED",
         ):
-            self.assertIn(name, text)
-        self.assertIn('method == "iam-role"', text)
-        self.assertIn('method == "container-role"', text)
-        self.assertIn('method_class in {"instance-role", "container-role"}', text)
-        self.assertIn("phase2_role_diag_blocker=no_role_credentials", text)
+            self.assertIn(name, probe_text)
+        self.assertIn('method == "iam-role"', probe_text)
+        self.assertIn('method == "container-role"', probe_text)
+        self.assertIn('method_class in {"instance-role", "container-role"}', probe_text)
+        self.assertIn("phase2_role_diag_blocker=no_role_credentials", probe_text)
+        self.assertIn("scripts/ops/phase2_aws_role_readiness_probe.py", workflow_text)
 
     def test_readiness_diagnostic_validates_secret_and_s3_read_paths_without_identifier_logging(self):
+        workflow_text = READINESS_WORKFLOW.read_text()
+        probe_text = READINESS_PROBE.read_text()
+        self.assertIn("resolve_tenant_db_password(", probe_text)
+        self.assertIn("s3.head_bucket(Bucket=bucket)", probe_text)
+        self.assertIn('s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)', probe_text)
+        self.assertIn('s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")', probe_text)
+        self.assertIn("phase2_role_s3_head_bucket_required=no", probe_text)
+        self.assertIn("s3_minimum_policy_ready(s3_list, s3_read)", probe_text)
+        self.assertNotIn("print(stored", probe_text)
+        self.assertNotIn("print(bucket", probe_text)
+        self.assertNotIn("print(key", probe_text)
+        self.assertNotIn("print(arn", probe_text)
+        self.assertIn("expected_probe_blob=", workflow_text)
+
+    def test_readiness_workflow_pins_current_reviewed_probe_blob(self):
         text = READINESS_WORKFLOW.read_text()
-        self.assertIn("resolve_tenant_db_password(", text)
-        self.assertIn("s3.head_bucket(Bucket=bucket)", text)
-        self.assertIn('s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)', text)
-        self.assertIn('s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")', text)
-        self.assertNotIn("print(stored", text)
-        self.assertNotIn("print(bucket", text)
-        self.assertNotIn("print(key", text)
-        self.assertNotIn("print(arn", text)
+        self.assertEqual(
+            _expected_blob(text, "expected_probe_blob"),
+            _git_blob_sha(READINESS_PROBE),
+        )
 
     def test_probe_checks_real_tenant_connectivity_without_identifier_logging(self):
         text = PROBE.read_text()
