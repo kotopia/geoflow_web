@@ -75,45 +75,67 @@ def inspect_database_runtime(
     """Inspect DB configuration shape only; never open a database connection."""
 
     checks: list[DatabaseRuntimeCheck] = []
+    secret_refs_required = _enabled(environ, "TENANT_DB_REQUIRE_SECRET_REFERENCES")
 
     for prefix, label in (("CENTRAL_DB", "central"), ("TENANT_DB", "tenant")):
-        required = ("NAME", "USER", "PASSWORD", "HOST")
-        explicit = all(_present(environ, f"{prefix}_{suffix}") for suffix in required)
+        dynamic_tenant = label == "tenant" and secret_refs_required
+
+        if dynamic_tenant:
+            explicit = True
+            explicit_message = (
+                "Static tenant database credentials are not required because "
+                "the runtime uses central GroupDBConfig secret references."
+            )
+            host_ready = True
+            host_message = (
+                "Static tenant database host is not required in secret-reference runtime mode."
+            )
+            port_ready = True
+            port_message = (
+                "Static tenant database port is not required in secret-reference runtime mode."
+            )
+        else:
+            required = ("NAME", "USER", "PASSWORD", "HOST")
+            explicit = all(
+                _present(environ, f"{prefix}_{suffix}") for suffix in required
+            )
+            explicit_message = (
+                f"Production {label} database configuration is explicit."
+                if explicit
+                else f"Configure explicit production {label} database name, user, password, and host; do not rely on fallback credentials."
+            )
+            host_ready = _nonlocal_host(environ, f"{prefix}_HOST")
+            host_message = (
+                f"Production {label} database host is non-local."
+                if host_ready
+                else f"Production {label} database must not use a local host fallback."
+            )
+            port_ready = _valid_port(environ, f"{prefix}_PORT")
+            port_message = (
+                f"Production {label} database port is explicitly valid."
+                if port_ready
+                else f"Configure an explicit valid production {label} database port."
+            )
+
         checks.append(
             DatabaseRuntimeCheck(
                 code=f"{label}_db_explicit_credentials",
                 ready=explicit,
-                message=(
-                    f"Production {label} database configuration is explicit."
-                    if explicit
-                    else f"Configure explicit production {label} database name, user, password, and host; do not rely on fallback credentials."
-                ),
+                message=explicit_message,
             )
         )
-
-        host_ready = _nonlocal_host(environ, f"{prefix}_HOST")
         checks.append(
             DatabaseRuntimeCheck(
                 code=f"{label}_db_nonlocal_host",
                 ready=host_ready,
-                message=(
-                    f"Production {label} database host is non-local."
-                    if host_ready
-                    else f"Production {label} database must not use a local host fallback."
-                ),
+                message=host_message,
             )
         )
-
-        port_ready = _valid_port(environ, f"{prefix}_PORT")
         checks.append(
             DatabaseRuntimeCheck(
                 code=f"{label}_db_port",
                 ready=port_ready,
-                message=(
-                    f"Production {label} database port is explicitly valid."
-                    if port_ready
-                    else f"Configure an explicit valid production {label} database port."
-                ),
+                message=port_message,
             )
         )
 
@@ -130,7 +152,6 @@ def inspect_database_runtime(
         )
     )
 
-    secret_refs_required = _enabled(environ, "TENANT_DB_REQUIRE_SECRET_REFERENCES")
     checks.append(
         DatabaseRuntimeCheck(
             code="tenant_db_secret_references_required",
