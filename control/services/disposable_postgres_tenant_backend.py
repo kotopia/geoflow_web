@@ -303,8 +303,10 @@ class DisposablePostgresTenantBackend:
                 )
                 if cursor.fetchone() != (1,):
                     raise DisposableTenantBackendError("postgis_missing_after_schema")
+                # The package is `geoflow_ops`, but its AppConfig label is
+                # intentionally `webgisapp`, which is what Django records here.
                 cursor.execute(
-                    "SELECT COUNT(*) FROM django_migrations WHERE app='geoflow_ops'"
+                    "SELECT COUNT(*) FROM django_migrations WHERE app='webgisapp'"
                 )
                 row = cursor.fetchone()
                 if not row or int(row[0]) < 1:
