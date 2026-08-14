@@ -33,6 +33,7 @@ jobs:
           }
           echo 'phase2_aws_role_readiness_launcher_exact_release=yes'
 
+      # Relaunch after the reviewed minimum runtime policy was attached to the EC2 role.
       - name: Dispatch reviewed read-only AWS role readiness diagnostic
         env:
           GH_TOKEN: ${{ github.token }}
