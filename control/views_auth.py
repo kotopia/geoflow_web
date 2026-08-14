@@ -5,7 +5,6 @@ from django.contrib.auth import get_user_model, login, logout
 from django.shortcuts import render, redirect
 from django.http import HttpResponseForbidden
 from django.db import connections
-from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth.hashers import make_password
 from django.urls import reverse
 from control.services import central_repo as C
@@ -16,12 +15,18 @@ from django.views.decorators.debug import (
 )
 from django.middleware.csrf import rotate_token
 
-from control.models import UserGroupMap
 from control.services.central_login_authentication import (
     PUBLIC_LOGIN_ERROR,
     CentralLoginPasswordConfigurationError,
     burn_central_login_password_check,
     verify_central_login_password,
+)
+from control.services.tenant_selection import (
+    candidate_is_selectable as _candidate_is_selectable,
+    configured_static_tenant_aliases as _configured_static_tenant_aliases,
+    has_required_candidate_value as _has_required_candidate_value,
+    selectable_tenant_candidates as _selectable_tenant_candidates,
+    static_tenant_database_config_is_ready as _static_tenant_database_config_is_ready,
 )
 from control.tenant_connections import (
     clear_tenant_session_state,
@@ -30,155 +35,6 @@ from control.tenant_connections import (
 
 import logging
 logger = logging.getLogger(__name__)
-
-
-def _has_required_candidate_value(value):
-    return value is not None and bool(str(value).strip())
-
-
-def _configured_static_tenant_aliases():
-    """Return only aliases intentionally configured as static tenant databases.
-
-    Runtime tenant registration mutates Django's connection registry, so mere
-    presence in ``settings.DATABASES`` is not a sufficient trust signal.  An
-    explicit allowlist wins; otherwise the legacy/default tenant alias is the
-    only statically trusted tenant alias.
-    """
-
-    configured = getattr(settings, "STATIC_TENANT_DB_ALIASES", None)
-    if configured is None:
-        configured = (getattr(settings, "DEFAULT_TENANT_DB_ALIAS", None),)
-    elif isinstance(configured, str):
-        configured = (configured,)
-
-    return {
-        str(alias).strip()
-        for alias in configured
-        if alias is not None and str(alias).strip()
-    }
-
-
-def _static_tenant_database_config_is_ready(alias):
-    alias = str(alias or "").strip()
-    central_alias = str(
-        getattr(settings, "CENTRAL_DB_ALIAS", "default") or "default"
-    ).strip()
-    if not alias or alias == central_alias:
-        return False
-    if alias not in _configured_static_tenant_aliases():
-        return False
-
-    databases = getattr(settings, "DATABASES", {})
-    database = databases.get(alias) if isinstance(databases, dict) else None
-    if not isinstance(database, dict):
-        return False
-
-    required_values = (
-        database.get("ENGINE"),
-        database.get("NAME"),
-        database.get("USER"),
-        database.get("PASSWORD"),
-        database.get("HOST"),
-        database.get("PORT"),
-    )
-    return all(_has_required_candidate_value(value) for value in required_values)
-
-
-def _candidate_is_selectable(candidate, membership):
-    if not isinstance(candidate, dict) or membership is None:
-        return False
-    if str(candidate.get("id")) != str(getattr(membership, "group_id", "")):
-        return False
-    if getattr(membership, "status", None) != "active":
-        return False
-
-    group = getattr(membership, "group", None)
-    if group is None or getattr(group, "status", None) != "active":
-        return False
-    try:
-        config = group.groupdbconfig
-    except (ObjectDoesNotExist, AttributeError):
-        return False
-
-    required_candidate_values = (
-        candidate.get("id"),
-        candidate.get("code"),
-        candidate.get("name"),
-        candidate.get("db_alias"),
-    )
-    if not all(
-        _has_required_candidate_value(value)
-        for value in required_candidate_values
-    ):
-        return False
-
-    candidate_alias = str(candidate["db_alias"]).strip()
-    central_alias = str(
-        getattr(settings, "CENTRAL_DB_ALIAS", "default") or "default"
-    ).strip()
-    if candidate_alias == central_alias:
-        return False
-
-    config_alias = getattr(config, "db_alias", None)
-    if not _has_required_candidate_value(config_alias):
-        return False
-    if candidate_alias != str(config_alias).strip():
-        return False
-
-    # A deliberately configured static tenant alias already has its connection
-    # credentials in settings.DATABASES.  Do not reject that trusted static path
-    # merely because legacy duplicate credential columns are incomplete.  The
-    # static connection itself must still be fully configured.
-    if candidate_alias in _configured_static_tenant_aliases():
-        return _static_tenant_database_config_is_ready(candidate_alias)
-
-    # Dynamic tenants remain fail-closed and must carry a complete central DB
-    # connection configuration so tenant_connections can register them safely.
-    required_config_values = (
-        getattr(config, "db_name", None),
-        getattr(config, "db_host", None),
-        getattr(config, "db_port", None),
-        getattr(config, "db_user", None),
-        getattr(config, "db_password", None),
-    )
-    return all(
-        _has_required_candidate_value(value)
-        for value in required_config_values
-    )
-
-
-def _selectable_tenant_candidates(user_id, candidates):
-    candidate_ids = [
-        str(candidate.get("id"))
-        for candidate in candidates
-        if isinstance(candidate, dict) and candidate.get("id")
-    ]
-    if not candidate_ids:
-        return []
-
-    central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
-    try:
-        memberships = (
-            UserGroupMap.objects.using(central_alias)
-            .select_related("group", "group__groupdbconfig")
-            .filter(user_id=user_id, group_id__in=candidate_ids)
-        )
-        membership_by_group = {
-            str(membership.group_id): membership
-            for membership in memberships
-        }
-    except Exception:
-        logger.warning("AUTH: tenant candidate eligibility lookup failed")
-        return []
-
-    return [
-        candidate
-        for candidate in candidates
-        if _candidate_is_selectable(
-            candidate,
-            membership_by_group.get(str(candidate.get("id"))),
-        )
-    ]
 
 
 @sensitive_post_parameters("email", "username", "password")
