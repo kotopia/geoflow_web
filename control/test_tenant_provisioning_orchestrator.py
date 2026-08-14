@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 import uuid
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from control.services.tenant_provisioning_contract import (
     TenantProvisioningSnapshot,
@@ -93,6 +93,11 @@ class FakeProvisioningBackend:
         self._rollback("rollback_role")
 
 
+@override_settings(
+    ENABLE_TENANT_PROVISIONING=True,
+    PROVISIONING_READY=True,
+    TENANT_DB_REQUIRE_SECRET_REFERENCES=True,
+)
 class TenantProvisioningOrchestratorTests(SimpleTestCase):
     def setUp(self):
         snapshot = TenantProvisioningSnapshot(
@@ -165,6 +170,51 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             )
 
         self.assertEqual(caught.exception.code, "confirmation_mismatch")
+        self.assertEqual(backend.events, [])
+
+    @override_settings(ENABLE_TENANT_PROVISIONING=False)
+    def test_live_feature_disable_blocks_stale_executable_plan(self):
+        backend = FakeProvisioningBackend()
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(caught.exception.code, "runtime_feature_disabled")
+        self.assertEqual(backend.events, [])
+
+    @override_settings(PROVISIONING_READY=False)
+    def test_live_provisioner_not_ready_blocks_stale_plan(self):
+        backend = FakeProvisioningBackend()
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(caught.exception.code, "runtime_provisioner_not_ready")
+        self.assertEqual(backend.events, [])
+
+    @override_settings(TENANT_DB_REQUIRE_SECRET_REFERENCES=False)
+    def test_live_secret_reference_mode_disable_blocks_execution(self):
+        backend = FakeProvisioningBackend()
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            "runtime_secret_reference_mode_required",
+        )
         self.assertEqual(backend.events, [])
 
     def test_schema_failure_rolls_back_only_role_and_database_created_by_attempt(self):
