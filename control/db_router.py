@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connections
 from control.middleware import current_db_alias
+from control.tenant_migration_context import current_provisioning_migration_alias
 
 import logging
 logger = logging.getLogger(__name__)
@@ -42,8 +43,17 @@ class TenantRouter:
         return self._resolve_alias(obj1._meta.model) == self._resolve_alias(obj2._meta.model)
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
+        central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
         if app_label in self.CENTRAL_APPS:
-            return db == settings.CENTRAL_DB_ALIAS
+            return db == central_alias
         if app_label in self.TENANT_APPS:
-            return db == getattr(settings, "DEFAULT_TENANT_DB_ALIAS", "default")
-        return db == settings.CENTRAL_DB_ALIAS
+            default_tenant_alias = getattr(
+                settings,
+                "DEFAULT_TENANT_DB_ALIAS",
+                "default",
+            )
+            if db == default_tenant_alias:
+                return True
+            provisioning_alias = current_provisioning_migration_alias()
+            return bool(provisioning_alias and db == provisioning_alias)
+        return db == central_alias

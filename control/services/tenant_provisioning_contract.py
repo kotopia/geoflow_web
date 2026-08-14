@@ -220,6 +220,7 @@ PROVISIONING_EXECUTION_SEQUENCE = (
     "create_database_role",
     "create_database",
     "enable_postgis",
+    "open_explicit_dynamic_tenant_migration_context",
     "apply_tenant_schema",
     "create_external_secret",
     "grant_runtime_role_exact_secret_read",

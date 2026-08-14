@@ -57,8 +57,14 @@ jobs:
         run: |
           python -m py_compile \
             control/services/tenant_provisioning_contract.py \
+            control/tenant_migration_context.py \
+            control/db_router.py \
             control/management/commands/check_tenant_provisioning_plan.py \
-            control/test_tenant_provisioning_contract.py
+            control/test_tenant_provisioning_contract.py \
+            control/test_tenant_migration_context.py
 
       - name: Run provisioning contract tests
-        run: python manage.py test control.test_tenant_provisioning_contract
+        run: |
+          python manage.py test \
+            control.test_tenant_provisioning_contract \
+            control.test_tenant_migration_context
