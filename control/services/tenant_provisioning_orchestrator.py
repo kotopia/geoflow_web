@@ -4,6 +4,8 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
+from django.conf import settings
+
 from control.services.tenant_provisioning_contract import TenantProvisioningPlan
 
 
@@ -79,6 +81,17 @@ def _validate_execution(plan: TenantProvisioningPlan, confirmation: object) -> N
         raise TenantProvisioningOrchestratorError("execution_prerequisites_not_ready")
     if not plan.runtime_secret_grant_required:
         raise TenantProvisioningOrchestratorError("runtime_secret_grant_contract_missing")
+
+    # Re-check the live execution settings rather than trusting a previously built
+    # plan. A stale plan cannot turn provisioning on after an operator disables it.
+    if not bool(getattr(settings, "ENABLE_TENANT_PROVISIONING", False)):
+        raise TenantProvisioningOrchestratorError("runtime_feature_disabled")
+    if not bool(getattr(settings, "PROVISIONING_READY", False)):
+        raise TenantProvisioningOrchestratorError("runtime_provisioner_not_ready")
+    if not bool(getattr(settings, "TENANT_DB_REQUIRE_SECRET_REFERENCES", False)):
+        raise TenantProvisioningOrchestratorError(
+            "runtime_secret_reference_mode_required"
+        )
 
 
 def _rollback_attempt(
