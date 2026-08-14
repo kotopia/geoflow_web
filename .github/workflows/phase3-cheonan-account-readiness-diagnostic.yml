@@ -1,0 +1,263 @@
+name: Phase 3 Cheonan account readiness diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase3-cheonan-account-readiness-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  cheonan-account-readiness:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || {
+            echo 'phase3_account_diag_blocker=release_advanced'
+            exit 2
+          }
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          echo 'phase3_account_diag_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read-only central account readiness summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          [ "$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)" = active ] || {
+            echo 'phase3_account_diag_blocker=stabilized_service_not_active'
+            exit 2
+          }
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || { echo 'phase3_account_diag_blocker=runtime_python_missing'; exit 2; }
+
+          "$python" - "$repo" <<'PY'
+          from collections import Counter
+          import os
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          from django.contrib.auth.hashers import check_password, identify_hasher
+          from django.core.exceptions import ValidationError
+          from django.core.validators import validate_email
+          from django.db import connections
+
+          TARGET_ALIAS = "cheonan_db"
+
+          def yes(value):
+              return "yes" if bool(value) else "no"
+
+          def clean(value):
+              return str(value or "")
+
+          def hash_kind(encoded):
+              value = clean(encoded)
+              if not value.strip():
+                  return "blank"
+              if value.startswith(("$2a$", "$2b$", "$2y$")):
+                  return "raw_bcrypt"
+              if value.startswith("pbkdf2_sha256$"):
+                  return "pbkdf2_sha256"
+              if value.startswith("bcrypt_sha256$"):
+                  return "bcrypt_sha256"
+              if value.startswith("!"):
+                  return "unusable"
+              try:
+                  identify_hasher(value)
+              except Exception:
+                  return "unknown"
+              return "django_other"
+
+          def verifier_compatible(encoded):
+              value = clean(encoded)
+              if not value.strip() or value.startswith("!"):
+                  return False
+              if value.startswith(("$2a$", "$2b$", "$2y$")):
+                  try:
+                      import bcrypt
+                      bcrypt.checkpw(b"phase3-diagnostic-never-match", value.encode())
+                  except ValueError:
+                      return False
+                  except Exception:
+                      return False
+                  return True
+              try:
+                  identify_hasher(value)
+                  check_password("phase3-diagnostic-never-match", value)
+                  return True
+              except Exception:
+                  return False
+
+          with connections["default"].cursor() as cur:
+              cur.execute(
+                  """
+                  SELECT g.id::text, g.status
+                    FROM group_db_config c
+                    JOIN groups g ON g.id = c.group_id
+                   WHERE c.db_alias = %s
+                   LIMIT 2
+                  """,
+                  [TARGET_ALIAS],
+              )
+              group_rows = cur.fetchall()
+
+              if len(group_rows) != 1:
+                  raise SystemExit("phase3_account_diag_blocker=expected_single_cheonan_group")
+              group_id, group_status = group_rows[0]
+
+              cur.execute(
+                  """
+                  SELECT u.email, u.is_active, u.email_verified, u.password_hash,
+                         ugm.status, r.code
+                    FROM user_group_map ugm
+                    JOIN users u ON u.id = ugm.user_id
+                    JOIN roles r ON r.id = ugm.role_id
+                   WHERE ugm.group_id = %s
+                   ORDER BY u.id
+                  """,
+                  [group_id],
+              )
+              members = cur.fetchall()
+
+              cur.execute(
+                  """
+                  SELECT COUNT(*)
+                    FROM (
+                        SELECT lower(trim(email)) AS normalized_email
+                          FROM users
+                         GROUP BY lower(trim(email))
+                        HAVING COUNT(*) > 1
+                    ) duplicates
+                  """
+              )
+              global_normalized_duplicate_groups = int(cur.fetchone()[0])
+
+              cur.execute(
+                  """
+                  SELECT COUNT(*)
+                    FROM users
+                   WHERE email IS NULL OR email <> trim(email)
+                  """
+              )
+              global_outer_whitespace = int(cur.fetchone()[0])
+
+          normalized = Counter()
+          kinds = Counter()
+          role_counts = Counter()
+          outer_whitespace = 0
+          invalid_email_syntax = 0
+          active_count = 0
+          verified_count = 0
+          membership_active_count = 0
+          verifier_compatible_count = 0
+          full_prereq_count = 0
+
+          for email, is_active, email_verified, encoded, membership_status, role_code in members:
+              email_value = clean(email)
+              canonical_email = email_value.strip().lower()
+              normalized[canonical_email] += 1
+              kinds[hash_kind(encoded)] += 1
+              role_counts[clean(role_code).strip() or "unknown"] += 1
+
+              email_trimmed = email_value == email_value.strip()
+              if not email_trimmed:
+                  outer_whitespace += 1
+              try:
+                  validate_email(email_value.strip())
+                  email_valid = True
+              except ValidationError:
+                  email_valid = False
+                  invalid_email_syntax += 1
+
+              active = is_active is True
+              verified = email_verified is True
+              membership_active = clean(membership_status) == "active"
+              compatible = verifier_compatible(encoded)
+
+              active_count += int(active)
+              verified_count += int(verified)
+              membership_active_count += int(membership_active)
+              verifier_compatible_count += int(compatible)
+
+              login_row_match_shape = bool(canonical_email) and email_trimmed and email_valid and active and verified
+              tenant_shape = clean(group_status).strip().lower() == "active" and membership_active
+              full_prereq_count += int(login_row_match_shape and tenant_shape and compatible)
+
+          duplicate_groups = sum(1 for count in normalized.values() if count > 1)
+          duplicate_rows = sum(count for count in normalized.values() if count > 1)
+
+          print(f"phase3_cheonan_group_active={yes(clean(group_status).strip().lower() == 'active')}")
+          print(f"phase3_cheonan_member_count={len(members)}")
+          print(f"phase3_cheonan_member_active={active_count}")
+          print(f"phase3_cheonan_member_email_verified={verified_count}")
+          print(f"phase3_cheonan_membership_active={membership_active_count}")
+          print(f"phase3_cheonan_email_outer_whitespace={outer_whitespace}")
+          print(f"phase3_cheonan_email_invalid_syntax={invalid_email_syntax}")
+          print(f"phase3_cheonan_normalized_duplicate_groups={duplicate_groups}")
+          print(f"phase3_cheonan_normalized_duplicate_rows={duplicate_rows}")
+          print(f"phase3_cheonan_password_verifier_compatible={verifier_compatible_count}")
+          print(f"phase3_cheonan_full_login_prereq_ready={full_prereq_count}")
+
+          for kind in (
+              "pbkdf2_sha256", "bcrypt_sha256", "raw_bcrypt", "django_other",
+              "blank", "unusable", "unknown",
+          ):
+              print(f"phase3_cheonan_hash_{kind}={kinds.get(kind, 0)}")
+
+          for role_code in sorted(role_counts):
+              safe_role = role_code.replace("\n", "").replace("\r", "")
+              print(f"phase3_cheonan_role_{safe_role}={role_counts[role_code]}")
+
+          print(f"phase3_central_normalized_duplicate_email_groups={global_normalized_duplicate_groups}")
+          print(f"phase3_central_email_outer_whitespace={global_outer_whitespace}")
+          print("phase3_cheonan_account_readiness_diagnostic_complete=yes")
+          PY
+          REMOTE
