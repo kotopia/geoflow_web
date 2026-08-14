@@ -207,27 +207,50 @@ def main() -> int:
         _fail("s3_not_configured")
 
     s3 = session.client("s3", region_name=region)
+
+    # HeadBucket requires bucket-level authorization that the reviewed runtime
+    # policy deliberately does not grant. Observe it for diagnostics, but do not
+    # make it a readiness requirement. Runtime readiness is defined by the exact
+    # capabilities the application needs under tenants/: prefix-scoped listing
+    # plus object read when an object exists.
+    head_status = "ok"
     try:
         s3.head_bucket(Bucket=bucket)
-        listed = s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)
-        contents = listed.get("Contents") or []
-        read_probe = "not_tested_no_object"
-        if contents:
-            key = str(contents[0].get("Key") or "")
-            if key:
-                response = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")
-                body = response.get("Body")
-                if body is not None:
-                    body.read(1)
-                    body.close()
-                read_probe = "ok"
-        print("phase2_role_probe_s3_head=yes")
-        print("phase2_role_probe_s3_list=yes")
-        print(f"phase2_role_probe_s3_read={read_probe}")
     except Exception:
-        print("phase2_role_probe_s3_readiness=no")
-        _fail("s3_readiness_failed")
+        head_status = "failed"
+    print(f"phase2_role_probe_s3_head={head_status}")
+    print("phase2_role_probe_s3_head_required=no")
 
+    try:
+        listed = s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)
+    except Exception:
+        print("phase2_role_probe_s3_list=no")
+        print("phase2_role_probe_s3_readiness=no")
+        _fail("s3_list_failed")
+
+    print("phase2_role_probe_s3_list=yes")
+    contents = listed.get("Contents") or []
+    read_probe = "not_tested_no_object"
+    if contents:
+        key = str(contents[0].get("Key") or "")
+        if not key:
+            print("phase2_role_probe_s3_read=invalid_object_key")
+            print("phase2_role_probe_s3_readiness=no")
+            _fail("s3_read_failed")
+        try:
+            response = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")
+            body = response.get("Body")
+            if body is not None:
+                body.read(1)
+                body.close()
+            read_probe = "ok"
+        except Exception:
+            print("phase2_role_probe_s3_read=failed")
+            print("phase2_role_probe_s3_readiness=no")
+            _fail("s3_read_failed")
+
+    print(f"phase2_role_probe_s3_read={read_probe}")
+    print("phase2_role_probe_s3_readiness=yes")
     print("phase2_role_probe_complete=yes")
     return 0
 
