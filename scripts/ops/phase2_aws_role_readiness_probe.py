@@ -118,18 +118,35 @@ def main() -> int:
 
     django.setup()
 
-    # Preserve only an in-memory reference to the existing fallback credentials
-    # for a bounded IAM *read-only* policy inventory. Values are never printed,
-    # written, or used for runtime readiness. The actual Secrets/S3 readiness
-    # below still removes all static/profile sources and must use the EC2 role.
-    fallback_access_key = str(os.environ.get("AWS_ACCESS_KEY_ID") or "").strip()
-    fallback_secret_key = str(os.environ.get("AWS_SECRET_ACCESS_KEY") or "").strip()
-    fallback_session_token = str(os.environ.get("AWS_SESSION_TOKEN") or "").strip()
-    fallback_present = bool(fallback_access_key and fallback_secret_key)
+    import boto3
+
+    from control.models import GroupDBConfig
+    from control.services.tenant_db_secret_resolver import (
+        TenantDBCredentialError,
+        is_tenant_db_secret_reference,
+        resolve_tenant_db_password,
+    )
+
+    region = str(os.environ.get("AWS_REGION") or "ap-northeast-2").strip()
+
+    # Resolve the already-configured provider chain once before removing static
+    # sources. This keeps only botocore's in-memory session object for the bounded
+    # IAM read-only inventory below; the probe never reads, copies, prints, or
+    # reconstructs credential values itself.
+    static_session = boto3.Session(region_name=region)
+    static_credentials = static_session.get_credentials()
+    static_method = str(getattr(static_credentials, "method", "") or "") if static_credentials else ""
+    static_fallback_present = bool(
+        static_credentials is not None
+        and static_method not in {"iam-role", "container-role"}
+    )
+    if not static_fallback_present:
+        static_session = None
 
     # settings.py may have loaded the production .env already. Remove every
-    # static/profile source only in this probe process so boto3 must use the
-    # instance/container role. No runtime file or service environment is changed.
+    # static/profile source only in this probe process so the runtime readiness
+    # session below must use the instance/container role. No runtime file or
+    # service environment is changed.
     for name in (
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
@@ -141,25 +158,6 @@ def main() -> int:
     ):
         os.environ.pop(name, None)
     os.environ.pop("AWS_EC2_METADATA_DISABLED", None)
-
-    import boto3
-
-    from control.models import GroupDBConfig
-    from control.services.tenant_db_secret_resolver import (
-        TenantDBCredentialError,
-        is_tenant_db_secret_reference,
-        resolve_tenant_db_password,
-    )
-
-    region = str(os.environ.get("AWS_REGION") or "ap-northeast-2").strip()
-    static_session = None
-    if fallback_present:
-        static_session = boto3.Session(
-            aws_access_key_id=fallback_access_key,
-            aws_secret_access_key=fallback_secret_key,
-            aws_session_token=fallback_session_token or None,
-            region_name=region,
-        )
 
     session = boto3.Session(region_name=region)
     credentials = session.get_credentials()
@@ -197,7 +195,7 @@ def main() -> int:
         static_session,
         role_name,
     )
-    print(f"phase2_role_static_fallback_present={'yes' if fallback_present else 'no'}")
+    print(f"phase2_role_static_fallback_present={'yes' if static_fallback_present else 'no'}")
     print(f"phase2_role_policy_inventory={inventory_state}")
     print(
         "phase2_role_inline_policy_count="
@@ -213,11 +211,10 @@ def main() -> int:
     else:
         print("phase2_role_policy_inventory_blocker=none")
 
-    # Drop the in-memory static values as soon as the bounded inventory is done.
-    fallback_access_key = ""
-    fallback_secret_key = ""
-    fallback_session_token = ""
+    # Release the read-only inventory session immediately. Runtime readiness below
+    # continues only with the instance/container role session.
     static_session = None
+    static_credentials = None
 
     sm = session.client("secretsmanager", region_name=region)
     active_configs = list(
