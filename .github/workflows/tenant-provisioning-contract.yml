@@ -58,12 +58,14 @@ jobs:
           python -m py_compile \
             control/services/tenant_provisioning_contract.py \
             control/services/tenant_provisioning_orchestrator.py \
+            control/services/disposable_postgres_tenant_backend.py \
             control/tenant_migration_context.py \
             control/db_router.py \
             control/management/commands/check_tenant_provisioning_plan.py \
             control/test_tenant_provisioning_contract.py \
             control/test_tenant_provisioning_orchestrator.py \
-            control/test_tenant_migration_context.py
+            control/test_tenant_migration_context.py \
+            scripts/ci/rehearse_disposable_tenant_provisioning.py
 
       - name: Run provisioning contract tests
         run: |
@@ -71,3 +73,63 @@ jobs:
             control.test_tenant_provisioning_contract \
             control.test_tenant_provisioning_orchestrator \
             control.test_tenant_migration_context
+
+  disposable-postgres-provisioning-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: geoflow_provision_ci
+          POSTGRES_PASSWORD: ci-postgres-placeholder
+          POSTGRES_DB: geoflow_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geoflow_provision_ci -d geoflow_control"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DJANGO_SECRET_KEY: ci-disposable-provisioning-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabc
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: testserver,geoflow.co.kr
+      CENTRAL_DB_NAME: geoflow_control
+      CENTRAL_DB_USER: geoflow_provision_ci
+      CENTRAL_DB_PASSWORD: ci-postgres-placeholder
+      CENTRAL_DB_HOST: 127.0.0.1
+      CENTRAL_DB_PORT: "5432"
+      TENANT_DB_NAME: geoflow_control
+      TENANT_DB_USER: geoflow_provision_ci
+      TENANT_DB_PASSWORD: ci-postgres-placeholder
+      TENANT_DB_HOST: 127.0.0.1
+      TENANT_DB_PORT: "5432"
+      ENABLE_TENANT_PROVISIONING: "0"
+      TENANT_DB_REQUIRE_SECRET_REFERENCES: "1"
+      CI_PROVISIONER_DB_HOST: 127.0.0.1
+      CI_PROVISIONER_DB_PORT: "5432"
+      CI_PROVISIONER_ADMIN_DATABASE: postgres
+      CI_PROVISIONER_DB_USER: geoflow_provision_ci
+      CI_PROVISIONER_DB_PASSWORD: ci-postgres-placeholder
+
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install disposable rehearsal dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev postgresql-client
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Rehearse new tenant DB lifecycle in disposable PostGIS only
+        run: python scripts/ci/rehearse_disposable_tenant_provisioning.py
