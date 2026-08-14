@@ -105,6 +105,75 @@ def inventory_role_policies(static_session, role_name: str) -> tuple[str, int | 
     return "ok", len(inline_names), len(attached_items), "yes" if truncated else "no"
 
 
+def probe_secret_resolution(
+    session,
+    active_configs,
+    environ,
+    is_secret_reference,
+    resolve_password,
+    credential_error_type,
+) -> tuple[int, int, Counter[str]]:
+    """Probe active secret references without returning identifiers or values."""
+
+    active_refs = 0
+    resolve_ok = 0
+    failures: Counter[str] = Counter()
+    if session is None:
+        return active_refs, resolve_ok, failures
+
+    client = session.client("secretsmanager")
+    for config in active_configs:
+        stored = str(config.db_password or "").strip()
+        if not is_secret_reference(stored):
+            continue
+        active_refs += 1
+        try:
+            resolved = resolve_password(stored, environ=environ, client=client)
+            if resolved:
+                resolve_ok += 1
+            else:
+                failures["resolver_validation"] += 1
+        except credential_error_type as exc:
+            failures[classify_resolver_error(exc)] += 1
+    return active_refs, resolve_ok, failures
+
+
+def probe_s3_prefix_read(session, bucket: str) -> tuple[str, str, str, str]:
+    """Probe only prefix listing and a one-byte read, never object mutation."""
+
+    if session is None:
+        return "not_tested", "none", "not_tested_no_object", "none"
+    if not bucket:
+        return "not_configured", "none", "not_tested_no_object", "none"
+
+    s3 = session.client("s3")
+    list_state = "not_tested"
+    list_error = "none"
+    read_state = "not_tested_no_object"
+    read_error = "none"
+    try:
+        listed = s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)
+        list_state = "ok"
+        contents = listed.get("Contents") or []
+        if contents:
+            key = str(contents[0].get("Key") or "")
+            if key:
+                try:
+                    response = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")
+                    body = response.get("Body")
+                    if body is not None:
+                        body.read(1)
+                        body.close()
+                    read_state = "ok"
+                except Exception as exc:
+                    read_state = "failed"
+                    read_error = classify_aws_error(exc)
+    except Exception as exc:
+        list_state = "failed"
+        list_error = classify_aws_error(exc)
+    return list_state, list_error, read_state, read_error
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("phase2_role_diag_blocker=invalid_probe_arguments")
@@ -119,17 +188,14 @@ def main() -> int:
     django.setup()
 
     # Preserve only an in-memory reference to the existing fallback credentials
-    # for a bounded IAM *read-only* policy inventory. Values are never printed,
-    # written, or used for runtime readiness. The actual Secrets/S3 readiness
-    # below still removes all static/profile sources and must use the EC2 role.
+    # for bounded, read-only comparison and IAM inventory. Values are never
+    # printed or written. The authoritative readiness below still removes every
+    # static/profile source and must use the EC2 instance/container role.
     fallback_access_key = str(os.environ.get("AWS_ACCESS_KEY_ID") or "").strip()
     fallback_secret_key = str(os.environ.get("AWS_SECRET_ACCESS_KEY") or "").strip()
     fallback_session_token = str(os.environ.get("AWS_SESSION_TOKEN") or "").strip()
     fallback_present = bool(fallback_access_key and fallback_secret_key)
 
-    # settings.py may have loaded the production .env already. Remove every
-    # static/profile source only in this probe process so boto3 must use the
-    # instance/container role. No runtime file or service environment is changed.
     for name in (
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
@@ -188,7 +254,7 @@ def main() -> int:
         assumed_role = "yes" if ":assumed-role/" in arn else "no"
         if assumed_role == "yes":
             role_name = arn.split(":assumed-role/", 1)[1].split("/", 1)[0]
-    except Exception as exc:  # identifier-safe classification only
+    except Exception as exc:
         sts_error = classify_aws_error(exc)
     print(f"phase2_role_principal_is_assumed_role={assumed_role}")
     print(f"phase2_role_sts_error={sts_error}")
@@ -213,83 +279,73 @@ def main() -> int:
     else:
         print("phase2_role_policy_inventory_blocker=none")
 
-    # Drop the in-memory static values as soon as the bounded inventory is done.
-    fallback_access_key = ""
-    fallback_secret_key = ""
-    fallback_session_token = ""
-    static_session = None
-
-    sm = session.client("secretsmanager", region_name=region)
     active_configs = list(
         GroupDBConfig.objects.select_related("group")
         .filter(group__status="active")
         .only("db_password")
     )
-    active_refs = 0
-    secret_resolve_ok = 0
-    secret_failures: Counter[str] = Counter()
-    for config in active_configs:
-        stored = str(config.db_password or "").strip()
-        if not is_tenant_db_secret_reference(stored):
-            continue
-        active_refs += 1
-        try:
-            resolved = resolve_tenant_db_password(
-                stored,
-                environ=os.environ,
-                client=sm,
-            )
-            if resolved:
-                secret_resolve_ok += 1
-            else:
-                secret_failures["resolver_validation"] += 1
-        except TenantDBCredentialError as exc:
-            secret_failures[classify_resolver_error(exc)] += 1
+    bucket = str(os.environ.get("AWS_S3_BUCKET") or "").strip()
 
+    # Compare the existing fallback path against the exact same resources. This
+    # proves whether production identifiers/region are valid without exposing
+    # them. Fallback success + role AccessDenied isolates the blocker to the new
+    # role's authorization policy rather than application configuration.
+    fallback_refs, fallback_secret_ok, fallback_failures = probe_secret_resolution(
+        static_session,
+        active_configs,
+        os.environ,
+        is_tenant_db_secret_reference,
+        resolve_tenant_db_password,
+        TenantDBCredentialError,
+    )
+    fallback_secret_fail = sum(fallback_failures.values())
+    fallback_s3_list, fallback_s3_list_error, fallback_s3_read, fallback_s3_read_error = (
+        probe_s3_prefix_read(static_session, bucket)
+    )
+    print(f"phase2_role_fallback_active_secret_refs={fallback_refs}")
+    print(f"phase2_role_fallback_secret_resolve_ok={fallback_secret_ok}")
+    print(f"phase2_role_fallback_secret_resolve_fail={fallback_secret_fail}")
+    for kind in SAFE_ERROR_KINDS:
+        print(f"phase2_role_fallback_secret_fail_{kind}={fallback_failures[kind]}")
+    print(f"phase2_role_fallback_s3_list={fallback_s3_list}")
+    print(f"phase2_role_fallback_s3_list_error={fallback_s3_list_error}")
+    print(f"phase2_role_fallback_s3_read_probe={fallback_s3_read}")
+    print(f"phase2_role_fallback_s3_read_error={fallback_s3_read_error}")
+    print("phase2_role_fallback_s3_put_probe=not_performed_read_only")
+
+    # Drop the in-memory fallback values before authoritative role readiness.
+    fallback_access_key = ""
+    fallback_secret_key = ""
+    fallback_session_token = ""
+    static_session = None
+
+    role_refs, secret_resolve_ok, secret_failures = probe_secret_resolution(
+        session,
+        active_configs,
+        os.environ,
+        is_tenant_db_secret_reference,
+        resolve_tenant_db_password,
+        TenantDBCredentialError,
+    )
     secret_resolve_fail = sum(secret_failures.values())
-    print(f"phase2_role_active_secret_refs={active_refs}")
+    print(f"phase2_role_active_secret_refs={role_refs}")
     print(f"phase2_role_secret_resolve_ok={secret_resolve_ok}")
     print(f"phase2_role_secret_resolve_fail={secret_resolve_fail}")
     for kind in SAFE_ERROR_KINDS:
         print(f"phase2_role_secret_fail_{kind}={secret_failures[kind]}")
 
-    bucket = str(os.environ.get("AWS_S3_BUCKET") or "").strip()
     s3_head_bucket = "not_configured"
     s3_head_error = "none"
-    s3_list = "not_tested"
-    s3_list_error = "none"
-    s3_read = "not_tested_no_object"
-    s3_read_error = "none"
     if bucket:
         s3 = session.client("s3", region_name=region)
         try:
             s3.head_bucket(Bucket=bucket)
             s3_head_bucket = "ok"
-        except Exception as exc:  # HeadBucket is observational, not readiness-critical.
+        except Exception as exc:
             s3_head_bucket = "failed"
             s3_head_error = classify_aws_error(exc)
 
-        try:
-            listed = s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)
-            s3_list = "ok"
-            contents = listed.get("Contents") or []
-            if contents:
-                key = str(contents[0].get("Key") or "")
-                if key:
-                    try:
-                        response = s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")
-                        body = response.get("Body")
-                        if body is not None:
-                            body.read(1)
-                            body.close()
-                        s3_read = "ok"
-                    except Exception as exc:
-                        s3_read = "failed"
-                        s3_read_error = classify_aws_error(exc)
-        except Exception as exc:
-            s3_list = "failed"
-            s3_list_error = classify_aws_error(exc)
-
+    s3_list, s3_list_error, s3_read, s3_read_error = probe_s3_prefix_read(session, bucket)
     print(f"phase2_role_s3_head_bucket={s3_head_bucket}")
     print(f"phase2_role_s3_head_bucket_error={s3_head_error}")
     print("phase2_role_s3_head_bucket_required=no")
@@ -300,11 +356,7 @@ def main() -> int:
     print("phase2_role_s3_put_live_probe=not_performed_read_only")
 
     role_method_ok = method_class in {"instance-role", "container-role"}
-    secrets_ok = (
-        active_refs > 0
-        and secret_resolve_fail == 0
-        and secret_resolve_ok == active_refs
-    )
+    secrets_ok = role_refs > 0 and secret_resolve_fail == 0 and secret_resolve_ok == role_refs
     s3_readiness_ok = bool(bucket) and s3_minimum_policy_ready(s3_list, s3_read)
     ready = role_method_ok and secrets_ok and s3_readiness_ok
     print(f"phase2_role_ready={'yes' if ready else 'no'}")
