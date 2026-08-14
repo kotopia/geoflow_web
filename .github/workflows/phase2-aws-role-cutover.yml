@@ -51,7 +51,7 @@ jobs:
           test "$(git hash-object control/services/object_storage_runtime_preflight.py)" = "9076b9f5f1d4ddac964b5f8e27be0834f31bb070" || {
             echo 'phase2_cutover_blocker=reviewed_guard_blob_changed'; exit 2;
           }
-          test "$(git hash-object scripts/ops/phase2_role_runtime_probe.py)" = "44d91b77b9b6104ff4019a33f9176e37bd7c2139" || {
+          test "$(git hash-object scripts/ops/phase2_role_runtime_probe.py)" = "febd85207280aa2b404ca52e0020ea239f6dc114" || {
             echo 'phase2_cutover_blocker=reviewed_probe_blob_changed'; exit 2;
           }
 
@@ -97,7 +97,7 @@ jobs:
           service='geoflow-stabilized.service'
           expected_guard_base_blob='c5543bf2dace16c4227ffcef7512e6c4da6bb3c5'
           expected_guard_cutover_blob='9076b9f5f1d4ddac964b5f8e27be0834f31bb070'
-          expected_probe_blob='44d91b77b9b6104ff4019a33f9176e37bd7c2139'
+          expected_probe_blob='febd85207280aa2b404ca52e0020ea239f6dc114'
           expected_secret_resolver_blob='e36057251ce9e38fa7ea5cf4a7058eeafbc2f171'
           expected_s3_service_blob='ba61bf02cfea81e3fd0a29e1a2730bf265054c4c'
           fail() { echo "phase2_cutover_blocker=$1"; exit 2; }
