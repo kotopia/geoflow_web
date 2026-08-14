@@ -113,6 +113,19 @@ jobs:
               -u AWS_EC2_METADATA_DISABLED \
               "$@"
           }
+          run_role_only_shape_env() {
+            env \
+              AWS_ACCESS_KEY_ID= \
+              AWS_SECRET_ACCESS_KEY= \
+              AWS_SESSION_TOKEN= \
+              AWS_PROFILE= \
+              AWS_DEFAULT_PROFILE= \
+              AWS_SHARED_CREDENTIALS_FILE= \
+              AWS_CONFIG_FILE= \
+              AWS_EC2_METADATA_DISABLED= \
+              AWS_REQUIRE_ROLE_CREDENTIALS=1 \
+              "$@"
+          }
 
           command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
           sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
@@ -209,6 +222,19 @@ jobs:
           "$python" "$REMOTE_PROBE" "$repo" precutover
           echo 'phase2_cutover_precheck_complete=yes'
 
+          # Before touching the production .env, simulate the exact role-only
+          # configuration shape in this child process. Empty process variables
+          # intentionally block python-dotenv (override=False) from reloading the
+          # legacy static/profile sources from the current .env. The management
+          # command performs configuration-only checks and does not print secrets.
+          role_preflight_rc=0
+          run_role_only_shape_env "$python" manage.py check_release_preflight --strict || role_preflight_rc=$?
+          if [ "$role_preflight_rc" -ne 0 ]; then
+            rm -f "$REMOTE_GUARD" "$REMOTE_PROBE"
+            fail 'role_only_release_preflight_failed'
+          fi
+          echo 'phase2_cutover_role_only_release_preflight_ready=yes'
+
           env_backup="$(mktemp "$repo/.env.phase2-role-backup.XXXXXX")"
           guard_backup="$(mktemp "$repo/control/services/.object-storage-preflight-backup.XXXXXX")"
           cp -p "$repo/.env" "$env_backup"
@@ -275,7 +301,9 @@ jobs:
           print("phase2_cutover_runtime_env_updated=yes")
           PY
 
-          run_clean_aws_env "$python" manage.py check_release_preflight --strict >/dev/null
+          # Keep the safe preflight output visible if the actual post-edit
+          # environment diverges from the pre-mutation simulation.
+          run_clean_aws_env "$python" manage.py check_release_preflight --strict
           sudo -n systemctl restart "$service"
           sleep 3
           active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
