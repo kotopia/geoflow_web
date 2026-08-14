@@ -11,10 +11,12 @@ from control.services.tenant_selection import refresh_server_issued_tenant_candi
 from control.services_identity import lookup_user_id_from_request
 
 
-def _refresh_session_candidates(request, user_id):
+def _refresh_session_candidates(request, user_id, issued_candidates=None):
+    if issued_candidates is None:
+        issued_candidates = request.session.get("tenant_candidates", [])
     candidates = refresh_server_issued_tenant_candidates(
         user_id,
-        request.session.get("tenant_candidates", []),
+        issued_candidates,
     )
     if candidates:
         request.session["tenant_candidates"] = candidates
@@ -57,7 +59,12 @@ def group_select_view(request, group_id):
         messages.error(request, "로그인 후 이용하세요.")
         return redirect("/login/")
 
-    candidates = _refresh_session_candidates(request, uid)
+    issued_candidates = request.session.get("tenant_candidates", [])
+    candidates = _refresh_session_candidates(
+        request,
+        uid,
+        issued_candidates=issued_candidates,
+    )
     selected_id = str(group_id)
     candidate = next(
         (
