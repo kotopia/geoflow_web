@@ -52,6 +52,7 @@ class StaticTenantAliasSelectionTests(SimpleTestCase):
     @override_settings(
         CENTRAL_DB_ALIAS="default",
         DEFAULT_TENANT_DB_ALIAS="tenant-a",
+        STATIC_TENANT_DB_ALIASES=("tenant-a",),
         DATABASES={
             "default": {"ENGINE": "django.db.backends.postgresql"},
             "tenant-a": {
@@ -82,6 +83,7 @@ class StaticTenantAliasSelectionTests(SimpleTestCase):
     @override_settings(
         CENTRAL_DB_ALIAS="default",
         DEFAULT_TENANT_DB_ALIAS="tenant-a",
+        STATIC_TENANT_DB_ALIASES=("tenant-a",),
         DATABASES={
             "default": {"ENGINE": "django.db.backends.postgresql"},
             "tenant-a": {
@@ -106,6 +108,7 @@ class StaticTenantAliasSelectionTests(SimpleTestCase):
     @override_settings(
         CENTRAL_DB_ALIAS="default",
         DEFAULT_TENANT_DB_ALIAS="tenant-a",
+        STATIC_TENANT_DB_ALIASES=("tenant-a",),
         DATABASES={
             "default": {"ENGINE": "django.db.backends.postgresql"},
             "tenant-a": {
@@ -140,6 +143,7 @@ class StaticTenantAliasSelectionTests(SimpleTestCase):
     @override_settings(
         CENTRAL_DB_ALIAS="default",
         DEFAULT_TENANT_DB_ALIAS="tenant-a",
+        STATIC_TENANT_DB_ALIASES=("tenant-a",),
         DATABASES={
             "default": {"ENGINE": "django.db.backends.postgresql"},
             "tenant-a": {
@@ -200,6 +204,7 @@ class StaticTenantAliasSelectionTests(SimpleTestCase):
     @override_settings(
         CENTRAL_DB_ALIAS="default",
         DEFAULT_TENANT_DB_ALIAS="default",
+        STATIC_TENANT_DB_ALIASES=(),
         DATABASES={
             "default": {
                 "ENGINE": "django.db.backends.postgresql",
