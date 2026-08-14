@@ -1,0 +1,129 @@
+name: Phase 2 AWS minimum runtime policy apply
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase2-aws-role-min-policy-apply.yml
+      - scripts/ops/phase2_apply_min_runtime_policy.py
+      - control/test_phase2_aws_role_min_policy_apply_contract.py
+
+permissions:
+  contents: read
+
+jobs:
+  apply-minimum-runtime-policy:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: '22'
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate exact branch and reviewed applicator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --abbrev-ref HEAD)" = "release/stabilized-deploy"
+          test -n "$SSH_HOST" || { echo 'phase2_min_policy_apply_blocker=missing_ssh_host'; exit 2; }
+          test -n "$SSH_USER" || { echo 'phase2_min_policy_apply_blocker=missing_ssh_user'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'phase2_min_policy_apply_blocker=missing_ssh_key'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'phase2_min_policy_apply_blocker=missing_known_hosts'; exit 2; }
+          python -m py_compile scripts/ops/phase2_apply_min_runtime_policy.py
+          test "$(git hash-object scripts/ops/phase2_apply_min_runtime_policy.py)" = "abe546c20a7c7f0a72e77b08ec601e669a658af8" || {
+            echo 'phase2_min_policy_apply_blocker=reviewed_applicator_blob_changed'
+            exit 2
+          }
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Stage reviewed IAM applicator
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_applicator="/tmp/geoflow-phase2-min-policy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.py"
+          scp -q \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            scripts/ops/phase2_apply_min_runtime_policy.py \
+            "$SSH_USER@$SSH_HOST:$remote_applicator"
+          echo "REMOTE_APPLICATOR=$remote_applicator" >> "$GITHUB_ENV"
+
+      - name: Apply reviewed minimum runtime IAM policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" \
+            "REMOTE_APPLICATOR='$REMOTE_APPLICATOR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          expected_applicator_blob='abe546c20a7c7f0a72e77b08ec601e669a658af8'
+          expected_secret_resolver_blob='e36057251ce9e38fa7ea5cf4a7058eeafbc2f171'
+          fail() { echo "phase2_min_policy_apply_blocker=$1"; exit 2; }
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = active ] && [ "$sub" = running ] || fail 'stabilized_service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'runtime_repo_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'runtime_python_missing'
+          [ -s "$REMOTE_APPLICATOR" ] || fail 'staged_applicator_missing'
+          [ "$(git hash-object "$REMOTE_APPLICATOR")" = "$expected_applicator_blob" ] || fail 'staged_applicator_not_reviewed'
+
+          resolver="$repo/control/services/tenant_db_secret_resolver.py"
+          [ -f "$resolver" ] || fail 'runtime_secret_resolver_missing'
+          [ "$(git -C "$repo" hash-object "$resolver")" = "$expected_secret_resolver_blob" ] || fail 'runtime_secret_resolver_not_reviewed'
+
+          # The applicator derives exact Secret ARNs and bucket scope in memory,
+          # never prints them, and only attempts one reviewed inline role policy.
+          "$python" "$REMOTE_APPLICATOR" "$repo"
+          REMOTE
+
+      - name: Remove staged applicator
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${REMOTE_APPLICATOR:-}" ]; then
+            ssh \
+              -i "$HOME/.ssh/geoflow_deploy_key" \
+              -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" \
+              "rm -f '$REMOTE_APPLICATOR'" >/dev/null 2>&1
+          fi
