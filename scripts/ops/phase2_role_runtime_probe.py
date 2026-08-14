@@ -208,7 +208,10 @@ def main() -> int:
 
     s3 = session.client("s3", region_name=region)
     try:
-        s3.head_bucket(Bucket=bucket)
+        # Match the reviewed least-privilege readiness contract exactly. The
+        # ListBucket grant is constrained to tenants/*, so HeadBucket has no
+        # prefix context and may correctly be denied even when runtime access is
+        # ready. Prove the actual required read path instead: prefix list + Get.
         listed = s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)
         contents = listed.get("Contents") or []
         read_probe = "not_tested_no_object"
@@ -221,7 +224,7 @@ def main() -> int:
                     body.read(1)
                     body.close()
                 read_probe = "ok"
-        print("phase2_role_probe_s3_head=yes")
+        print("phase2_role_probe_s3_head=not_required")
         print("phase2_role_probe_s3_list=yes")
         print(f"phase2_role_probe_s3_read={read_probe}")
     except Exception:
