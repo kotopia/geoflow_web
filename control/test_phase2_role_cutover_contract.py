@@ -60,6 +60,7 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         self.assertIn("workflow_dispatch:", workflow_text)
         self.assertIn("environment: production", workflow_text)
         self.assertIn("phase2_role_s3_put_live_probe=not_performed_read_only", probe_text)
+        self.assertIn("phase2_role_fallback_s3_put_probe=not_performed_read_only", probe_text)
         self.assertNotIn("put_object(", combined)
         self.assertNotIn("delete_object(", combined)
         self.assertNotIn("create_secret(", combined)
@@ -91,7 +92,7 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
     def test_readiness_diagnostic_validates_secret_and_s3_read_paths_without_identifier_logging(self):
         workflow_text = READINESS_WORKFLOW.read_text()
         probe_text = READINESS_PROBE.read_text()
-        self.assertIn("resolve_tenant_db_password(", probe_text)
+        self.assertIn("resolve_password(stored, environ=environ, client=client)", probe_text)
         self.assertIn("s3.head_bucket(Bucket=bucket)", probe_text)
         self.assertIn('s3.list_objects_v2(Bucket=bucket, Prefix="tenants/", MaxKeys=1)', probe_text)
         self.assertIn('s3.get_object(Bucket=bucket, Key=key, Range="bytes=0-0")', probe_text)
@@ -102,6 +103,20 @@ class Phase2RoleCutoverContractTests(SimpleTestCase):
         self.assertNotIn("print(key", probe_text)
         self.assertNotIn("print(arn", probe_text)
         self.assertIn("expected_probe_blob=", workflow_text)
+
+    def test_readiness_compares_fallback_and_role_read_paths_without_identifier_output(self):
+        probe_text = READINESS_PROBE.read_text()
+        self.assertIn("phase2_role_fallback_active_secret_refs", probe_text)
+        self.assertIn("phase2_role_fallback_secret_resolve_ok", probe_text)
+        self.assertIn("phase2_role_fallback_s3_list", probe_text)
+        self.assertIn("phase2_role_fallback_s3_read_probe", probe_text)
+        self.assertIn("probe_secret_resolution(\n        static_session", probe_text)
+        self.assertIn("probe_s3_prefix_read(static_session, bucket)", probe_text)
+        self.assertIn("probe_secret_resolution(\n        session", probe_text)
+        self.assertIn("probe_s3_prefix_read(session, bucket)", probe_text)
+        self.assertNotIn("print(fallback_access_key", probe_text)
+        self.assertNotIn("print(fallback_secret_key", probe_text)
+        self.assertNotIn("PolicyNames", READINESS_WORKFLOW.read_text())
 
     def test_readiness_workflow_pins_current_reviewed_probe_blob(self):
         text = READINESS_WORKFLOW.read_text()
