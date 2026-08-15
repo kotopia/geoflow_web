@@ -22,6 +22,9 @@ from control.services.disposable_full_tenant_backend import (  # noqa: E402
 from control.services.disposable_postgres_tenant_backend import (  # noqa: E402
     DisposablePostgresConfig,
 )
+from control.services.tenant_provisioning_backend_readiness import (  # noqa: E402
+    inspect_tenant_provisioning_backend_readiness,
+)
 from control.services.tenant_provisioning_contract import (  # noqa: E402
     TenantProvisioningSnapshot,
     build_tenant_provisioning_plan,
@@ -31,6 +34,24 @@ from control.services.tenant_provisioning_orchestrator import (  # noqa: E402
     TenantProvisioningOrchestratorError,
     provision_new_tenant,
 )
+
+
+class _DisposableReadOnlyReadinessProbe:
+    """Fake-only positive metadata probe; no provider or central DB calls exist."""
+
+    read_only = True
+
+    def database_target_safe(self, plan):
+        return True
+
+    def secret_target_safe(self, plan):
+        return True
+
+    def runtime_exact_secret_scope_ready(self, plan):
+        return True
+
+    def publication_target_still_available(self, plan):
+        return True
 
 
 def required(name: str) -> str:
@@ -62,6 +83,16 @@ def build_plan(group_id: str):
     return replace(planned, execution_available=True)
 
 
+def build_readiness(plan):
+    """Collect the same immutable attestation shape while execution is disabled."""
+
+    disabled_plan = replace(plan, execution_available=False)
+    return inspect_tenant_provisioning_backend_readiness(
+        disabled_plan,
+        _DisposableReadOnlyReadinessProbe(),
+    )
+
+
 def backend_config() -> DisposablePostgresConfig:
     return DisposablePostgresConfig(
         host=required("CI_PROVISIONER_DB_HOST"),
@@ -75,6 +106,7 @@ def backend_config() -> DisposablePostgresConfig:
 
 def main() -> int:
     plan = build_plan(str(uuid.uuid4()))
+    readiness = build_readiness(plan)
     config = backend_config()
 
     with override_settings(
@@ -96,6 +128,7 @@ def main() -> int:
                 plan,
                 failing_backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=readiness,
             )
         except TenantProvisioningOrchestratorError as exc:
             if exc.code != "provisioning_step_failed":
@@ -116,6 +149,7 @@ def main() -> int:
             plan,
             success_backend,
             confirmation=PROVISIONING_CONFIRMATION,
+            readiness=readiness,
         )
         if not result.completed or not result.config_published:
             raise RuntimeError("orchestrator_success_result_invalid")
@@ -133,6 +167,7 @@ def main() -> int:
         if not success_backend.simulated_external_state_clear:
             raise RuntimeError("successful_rehearsal_cleanup_incomplete")
 
+    print("tenant_orchestrator_ci_readiness_attestation=required_and_bound")
     print("tenant_orchestrator_ci_failure_rollback=yes")
     print("tenant_orchestrator_ci_retry_after_cleanup=yes")
     print("tenant_orchestrator_ci_post_grant_iam_readback=read_only_exact")
