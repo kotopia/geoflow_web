@@ -136,6 +136,11 @@ def provision_new_tenant(
     operation before publication fails, compensation only removes resources that
     the current attempt reports as newly created. Pre-existing/reconciled
     resources are never deleted by this orchestrator.
+
+    Compensation runs while the backend's per-group provisioning lock is still
+    held. Concrete DB backends can therefore safely require that same lock for
+    marker-guarded drop operations, and a failed attempt cannot race a second
+    attempt between failure and cleanup.
     """
 
     _validate_execution(plan, confirmation)
@@ -144,52 +149,62 @@ def provision_new_tenant(
 
     try:
         with backend.lock(plan):
-            role_created = bool(backend.ensure_database_role(plan))
-            resources = ProvisioningAttemptResources(role_created=role_created)
+            try:
+                role_created = bool(backend.ensure_database_role(plan))
+                resources = ProvisioningAttemptResources(role_created=role_created)
 
-            database_created = bool(backend.ensure_database(plan))
-            resources = ProvisioningAttemptResources(
-                role_created=resources.role_created,
-                database_created=database_created,
-            )
+                database_created = bool(backend.ensure_database(plan))
+                resources = ProvisioningAttemptResources(
+                    role_created=resources.role_created,
+                    database_created=database_created,
+                )
 
-            backend.enable_postgis(plan)
-            backend.apply_tenant_schema(plan)
+                backend.enable_postgis(plan)
+                backend.apply_tenant_schema(plan)
 
-            secret_created = bool(backend.ensure_external_secret(plan))
-            resources = ProvisioningAttemptResources(
-                role_created=resources.role_created,
-                database_created=resources.database_created,
-                secret_created=secret_created,
-            )
+                secret_created = bool(backend.ensure_external_secret(plan))
+                resources = ProvisioningAttemptResources(
+                    role_created=resources.role_created,
+                    database_created=resources.database_created,
+                    secret_created=secret_created,
+                )
 
-            runtime_grant_created = bool(
-                backend.grant_runtime_exact_secret_read(plan)
-            )
-            resources = ProvisioningAttemptResources(
-                role_created=resources.role_created,
-                database_created=resources.database_created,
-                secret_created=resources.secret_created,
-                runtime_grant_created=runtime_grant_created,
-            )
+                runtime_grant_created = bool(
+                    backend.grant_runtime_exact_secret_read(plan)
+                )
+                resources = ProvisioningAttemptResources(
+                    role_created=resources.role_created,
+                    database_created=resources.database_created,
+                    secret_created=resources.secret_created,
+                    runtime_grant_created=runtime_grant_created,
+                )
 
-            backend.verify_runtime_resolution_and_connectivity(plan)
+                backend.verify_runtime_resolution_and_connectivity(plan)
 
-            # Central metadata is published only after every external/runtime
-            # dependency is proven ready. There are intentionally no operations
-            # after this publication inside the orchestrator.
-            backend.publish_group_db_config(plan)
-            published = True
+                # Central metadata is published only after every external/runtime
+                # dependency is proven ready. There are intentionally no operations
+                # after this publication inside the orchestrator.
+                backend.publish_group_db_config(plan)
+                published = True
+            except TenantProvisioningOrchestratorError:
+                if not published:
+                    _rollback_attempt(backend, plan, resources)
+                raise
+            except Exception as exc:
+                if not published:
+                    try:
+                        _rollback_attempt(backend, plan, resources)
+                    except TenantProvisioningOrchestratorError as rollback_exc:
+                        raise rollback_exc from exc
+                raise TenantProvisioningOrchestratorError(
+                    "provisioning_step_failed"
+                ) from exc
     except TenantProvisioningOrchestratorError:
-        if not published:
-            _rollback_attempt(backend, plan, resources)
         raise
     except Exception as exc:
-        if not published:
-            try:
-                _rollback_attempt(backend, plan, resources)
-            except TenantProvisioningOrchestratorError as rollback_exc:
-                raise rollback_exc from exc
+        # Lock acquisition/release failures occur outside the inner step handler.
+        # Before publication there are no owned resources if acquisition failed;
+        # after publication the contract forbids compensating a published tenant.
         raise TenantProvisioningOrchestratorError("provisioning_step_failed") from exc
 
     return TenantProvisioningResult(completed=True, config_published=True)
