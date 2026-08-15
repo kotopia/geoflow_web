@@ -116,6 +116,7 @@ class FakeProvisioningBackend:
     ENABLE_TENANT_PROVISIONING=True,
     PROVISIONING_READY=True,
     TENANT_DB_REQUIRE_SECRET_REFERENCES=True,
+    TENANT_PROVISIONING_EXECUTOR_MODE=True,
 )
 class TenantProvisioningOrchestratorTests(SimpleTestCase):
     def setUp(self):
@@ -234,6 +235,20 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             caught.exception.code,
             "runtime_secret_reference_mode_required",
         )
+        self.assertEqual(backend.events, [])
+
+    @override_settings(TENANT_PROVISIONING_EXECUTOR_MODE=False)
+    def test_public_runtime_without_executor_mode_blocks_before_backend(self):
+        backend = FakeProvisioningBackend()
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(caught.exception.code, "dedicated_executor_mode_required")
         self.assertEqual(backend.events, [])
 
     def test_schema_failure_rolls_back_inside_lock_scope(self):
