@@ -21,17 +21,31 @@ from control.services.tenant_provisioning_orchestrator import (
 class FakeReadOnlyReadinessProbe:
     read_only = True
 
+    def __init__(self, *, backend=None, fail_code=None, raise_code=None):
+        self.backend = backend
+        self.fail_code = fail_code
+        self.raise_code = raise_code
+
+    def _check(self, code):
+        if self.backend is not None:
+            if not self.backend.lock_held:
+                raise RuntimeError("jit_readiness_without_lock")
+            self.backend.events.append(f"jit_{code}")
+        if self.raise_code == code:
+            raise RuntimeError("private_provider_detail")
+        return self.fail_code != code
+
     def database_target_safe(self, plan):
-        return True
+        return self._check("database_target_safe")
 
     def secret_target_safe(self, plan):
-        return True
+        return self._check("secret_target_safe")
 
     def runtime_exact_secret_scope_ready(self, plan):
-        return True
+        return self._check("runtime_exact_secret_scope_ready")
 
     def publication_target_still_available(self, plan):
-        return True
+        return self._check("publication_target_still_available")
 
 
 def build_test_execution_readiness(plan):
@@ -52,6 +66,8 @@ class FakeProvisioningBackend:
         created=None,
         rollback_fail_at=None,
         reconcile_fail=False,
+        jit_fail_code=None,
+        jit_raise_code=None,
     ):
         self.events = []
         self.fail_at = fail_at
@@ -64,6 +80,8 @@ class FakeProvisioningBackend:
         }
         self.rollback_fail_at = rollback_fail_at
         self.reconcile_fail = reconcile_fail
+        self.jit_fail_code = jit_fail_code
+        self.jit_raise_code = jit_raise_code
         self.lock_held = False
         self.published = False
 
@@ -88,6 +106,16 @@ class FakeProvisioningBackend:
         finally:
             self.lock_held = False
             self.events.append("lock_exit")
+
+    def read_only_readiness_probe(self, plan):
+        if not self.lock_held:
+            raise RuntimeError("jit_probe_without_lock")
+        self.events.append("jit_probe")
+        return FakeReadOnlyReadinessProbe(
+            backend=self,
+            fail_code=self.jit_fail_code,
+            raise_code=self.jit_raise_code,
+        )
 
     def ensure_database_role(self, plan):
         self._step("ensure_database_role")
@@ -186,6 +214,11 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             backend.events,
             [
                 "lock_enter",
+                "jit_probe",
+                "jit_database_target_safe",
+                "jit_secret_target_safe",
+                "jit_runtime_exact_secret_scope_ready",
+                "jit_publication_target_still_available",
                 "ensure_database_role",
                 "ensure_database",
                 "enable_postgis",
@@ -198,6 +231,31 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 "lock_exit",
             ],
         )
+        self.assertFalse(any(event.startswith("rollback_") for event in backend.events))
+
+    def test_jit_readiness_failure_under_lock_blocks_mutation_without_rollback(self):
+        backend = FakeProvisioningBackend(jit_fail_code="database_target_safe")
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
+            )
+
+        self.assertEqual(caught.exception.code, "readiness_revalidation_failed")
+        self.assertEqual(
+            backend.events,
+            [
+                "lock_enter",
+                "jit_probe",
+                "jit_database_target_safe",
+                "lock_exit",
+            ],
+        )
+        self.assertNotIn("ensure_database_role", backend.events)
+        self.assertNotIn("publish_group_db_config", backend.events)
         self.assertFalse(any(event.startswith("rollback_") for event in backend.events))
 
     def test_missing_readiness_attestation_blocks_before_backend(self):

@@ -20,6 +20,51 @@ class TenantProvisioningExecutionReadinessError(RuntimeError):
         self.code = code
 
 
+class _FailClosedShortCircuitProbe:
+    """Stop provider reads after the first failed JIT check.
+
+    The readiness inspector still emits the complete reviewed check set, but once
+    one live target is known unsafe there is no reason to touch additional provider
+    boundaries. Remaining checks therefore resolve to ``False`` without delegating
+    another read. This is especially useful when revalidation runs under the
+    provisioning lock immediately before mutation.
+    """
+
+    def __init__(self, probe: ReadOnlyTenantProvisioningProbe):
+        self._probe = probe
+        self._failed = False
+
+    @property
+    def read_only(self) -> bool:
+        return bool(getattr(self._probe, "read_only", False)) is True
+
+    def _check(self, call) -> bool:
+        if self._failed:
+            return False
+        try:
+            ready = bool(call())
+        except Exception:
+            self._failed = True
+            raise
+        if not ready:
+            self._failed = True
+        return ready
+
+    def database_target_safe(self, plan: TenantProvisioningPlan) -> bool:
+        return self._check(lambda: self._probe.database_target_safe(plan))
+
+    def secret_target_safe(self, plan: TenantProvisioningPlan) -> bool:
+        return self._check(lambda: self._probe.secret_target_safe(plan))
+
+    def runtime_exact_secret_scope_ready(self, plan: TenantProvisioningPlan) -> bool:
+        return self._check(lambda: self._probe.runtime_exact_secret_scope_ready(plan))
+
+    def publication_target_still_available(self, plan: TenantProvisioningPlan) -> bool:
+        return self._check(
+            lambda: self._probe.publication_target_still_available(plan)
+        )
+
+
 def revalidate_tenant_provisioning_readiness(
     plan: TenantProvisioningPlan,
     readiness: TenantProvisioningBackendReadiness,
@@ -32,6 +77,10 @@ def revalidate_tenant_provisioning_readiness(
     that check fails, no live provider reads are attempted. Otherwise it derives an
     otherwise-identical disabled plan, re-runs the reviewed read-only probe stack,
     and requires the fresh result to authorize the same execution target.
+
+    Live reads fail closed and short-circuit after the first failed provider check;
+    the readiness result still contains the complete reviewed check set, with the
+    unneeded later checks marked false without additional provider calls.
 
     The returned readiness remains ``execution_available=False``. A later reviewed
     integration may invoke this helper while holding the per-group provisioning
@@ -48,7 +97,7 @@ def revalidate_tenant_provisioning_readiness(
     try:
         refreshed = inspect_tenant_provisioning_backend_readiness(
             disabled_plan,
-            probe,
+            _FailClosedShortCircuitProbe(probe),
         )
     except TenantProvisioningBackendReadinessError as exc:
         raise TenantProvisioningExecutionReadinessError(
