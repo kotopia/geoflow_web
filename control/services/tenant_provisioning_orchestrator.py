@@ -6,6 +6,10 @@ from typing import Protocol
 
 from django.conf import settings
 
+from control.services.tenant_provisioning_backend_readiness import (
+    TenantProvisioningBackendReadiness,
+    readiness_allows_execution_candidate,
+)
 from control.services.tenant_provisioning_contract import TenantProvisioningPlan
 
 
@@ -104,6 +108,18 @@ def _validate_execution(plan: TenantProvisioningPlan, confirmation: object) -> N
         raise TenantProvisioningOrchestratorError("dedicated_executor_mode_required")
 
 
+def _validate_readiness_attestation(
+    plan: TenantProvisioningPlan,
+    readiness: TenantProvisioningBackendReadiness | None,
+) -> None:
+    """Require a matching read-only attestation before the backend lock is entered."""
+
+    if readiness is None:
+        raise TenantProvisioningOrchestratorError("readiness_attestation_required")
+    if not readiness_allows_execution_candidate(readiness, plan):
+        raise TenantProvisioningOrchestratorError("readiness_attestation_mismatch")
+
+
 def _rollback_attempt(
     backend: TenantProvisioningBackend,
     plan: TenantProvisioningPlan,
@@ -139,6 +155,7 @@ def provision_new_tenant(
     backend: TenantProvisioningBackend,
     *,
     confirmation: object,
+    readiness: TenantProvisioningBackendReadiness | None = None,
 ) -> TenantProvisioningResult:
     """Execute the reviewed new-tenant sequence through an injected backend.
 
@@ -146,6 +163,12 @@ def provision_new_tenant(
     If an operation before publication fails, compensation only removes resources
     that the current attempt reports as newly created. Pre-existing/reconciled
     resources are never deleted by this orchestrator.
+
+    A read-only readiness attestation is mandatory before the backend lock or any
+    mutation method can be reached. The attestation must have been collected while
+    execution was disabled, contain the complete reviewed check set, and remain
+    bound to the exact future execution target. A missing, stale, incomplete, or
+    already-executable attestation fails closed before backend access.
 
     The runtime secret grant has its own mandatory post-grant verification gate.
     Backends must read the resulting grant through their read-only verification
@@ -167,6 +190,7 @@ def provision_new_tenant(
     """
 
     _validate_execution(plan, confirmation)
+    _validate_readiness_attestation(plan, readiness)
     resources = ProvisioningAttemptResources()
     published = False
     publication_outcome_known = True

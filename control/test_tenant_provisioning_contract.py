@@ -144,14 +144,34 @@ class TenantProvisioningContractTests(SimpleTestCase):
         self.assertFalse(plan.provisioner_ready)
 
     def test_execution_sequence_publishes_group_config_last(self):
+        self.assertEqual(
+            PROVISIONING_EXECUTION_SEQUENCE[0],
+            "validate_bound_read_only_readiness_attestation",
+        )
         self.assertEqual(PROVISIONING_EXECUTION_SEQUENCE[-1], "publish_group_db_config_last")
+        self.assertLess(
+            PROVISIONING_EXECUTION_SEQUENCE.index(
+                "validate_bound_read_only_readiness_attestation"
+            ),
+            PROVISIONING_EXECUTION_SEQUENCE.index("lock_new_group_provisioning"),
+        )
         self.assertLess(
             PROVISIONING_EXECUTION_SEQUENCE.index("create_external_secret"),
             PROVISIONING_EXECUTION_SEQUENCE.index("grant_runtime_role_exact_secret_read"),
         )
         self.assertLess(
             PROVISIONING_EXECUTION_SEQUENCE.index("grant_runtime_role_exact_secret_read"),
-            PROVISIONING_EXECUTION_SEQUENCE.index("verify_runtime_secret_resolution_and_db_connectivity"),
+            PROVISIONING_EXECUTION_SEQUENCE.index(
+                "verify_runtime_exact_secret_grant_readback"
+            ),
+        )
+        self.assertLess(
+            PROVISIONING_EXECUTION_SEQUENCE.index(
+                "verify_runtime_exact_secret_grant_readback"
+            ),
+            PROVISIONING_EXECUTION_SEQUENCE.index(
+                "verify_runtime_secret_resolution_and_db_connectivity"
+            ),
         )
 
     def test_rollback_contract_only_targets_attempt_owned_unpublished_resources(self):
