@@ -10,6 +10,18 @@ from control.services.tenant_provisioning_contract import TenantProvisioningPlan
 
 
 _PLAN_BINDING_VERSION = 1
+_EXECUTION_TARGET_BINDING_VERSION = 1
+_REQUIRED_EXECUTION_ATTESTATION_CHECKS = frozenset(
+    {
+        "execution_contract_still_disabled",
+        "execution_prerequisites_ready",
+        "runtime_exact_secret_grant_contract_present",
+        "database_target_safe",
+        "secret_target_safe",
+        "runtime_exact_secret_scope_ready",
+        "publication_target_still_available",
+    }
+)
 
 
 class TenantProvisioningBackendReadinessError(RuntimeError):
@@ -50,6 +62,7 @@ class TenantProvisioningBackendReadinessCheck:
 class TenantProvisioningBackendReadiness:
     checks: tuple[TenantProvisioningBackendReadinessCheck, ...]
     plan_binding: str
+    execution_target_binding: str = ""
     execution_available: bool = False
 
     @property
@@ -57,18 +70,14 @@ class TenantProvisioningBackendReadiness:
         return bool(self.checks) and all(check.ready for check in self.checks)
 
 
-def tenant_provisioning_plan_binding(plan: TenantProvisioningPlan) -> str:
-    """Return a non-reversible binding for every execution-relevant plan field.
-
-    Readiness is transient evidence about one exact immutable plan. The binding
-    prevents a future executor from accidentally reusing a passing readiness
-    result after changing tenant identity, database target, secret reference, or
-    execution flags. Only the SHA-256 digest is carried in readiness output; raw
-    plan metadata is never copied into the attestation.
-    """
-
-    payload = {
-        "version": _PLAN_BINDING_VERSION,
+def _plan_binding_payload(
+    plan: TenantProvisioningPlan,
+    *,
+    version: int,
+    include_execution_available: bool,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "version": version,
         "group_id": plan.group_id,
         "group_code": plan.group_code,
         "db_alias": plan.db_alias,
@@ -84,8 +93,13 @@ def tenant_provisioning_plan_binding(plan: TenantProvisioningPlan) -> str:
             plan.secret_reference_runtime_required
         ),
         "runtime_secret_grant_required": bool(plan.runtime_secret_grant_required),
-        "execution_available": bool(plan.execution_available),
     }
+    if include_execution_available:
+        payload["execution_available"] = bool(plan.execution_available)
+    return payload
+
+
+def _digest_binding(payload: dict[str, object]) -> str:
     encoded = json.dumps(
         payload,
         sort_keys=True,
@@ -93,6 +107,45 @@ def tenant_provisioning_plan_binding(plan: TenantProvisioningPlan) -> str:
         ensure_ascii=True,
     ).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def tenant_provisioning_plan_binding(plan: TenantProvisioningPlan) -> str:
+    """Return a non-reversible binding for every execution-relevant plan field.
+
+    This strict binding includes ``execution_available``. It therefore continues
+    to prove that a readiness result belongs to one exact immutable plan and must
+    not match after any plan field changes, including a later execution-state
+    transition.
+    """
+
+    return _digest_binding(
+        _plan_binding_payload(
+            plan,
+            version=_PLAN_BINDING_VERSION,
+            include_execution_available=True,
+        )
+    )
+
+
+def tenant_provisioning_execution_target_binding(
+    plan: TenantProvisioningPlan,
+) -> str:
+    """Bind readiness to the exact resource target of a future execution plan.
+
+    Read-only readiness is deliberately collected while execution is disabled.
+    A future dedicated executor will need to turn only ``execution_available``
+    on after a separate reviewed gate. This second binding excludes exactly that
+    one switch while retaining tenant identity, database target, secret reference,
+    and every execution prerequisite. It cannot itself enable execution.
+    """
+
+    return _digest_binding(
+        _plan_binding_payload(
+            plan,
+            version=_EXECUTION_TARGET_BINDING_VERSION,
+            include_execution_available=False,
+        )
+    )
 
 
 def readiness_matches_plan(
@@ -104,6 +157,41 @@ def readiness_matches_plan(
     expected = tenant_provisioning_plan_binding(plan)
     return bool(readiness.plan_binding) and hmac.compare_digest(
         readiness.plan_binding,
+        expected,
+    )
+
+
+def readiness_allows_execution_candidate(
+    readiness: TenantProvisioningBackendReadiness,
+    plan: TenantProvisioningPlan,
+) -> bool:
+    """Check a narrow future disabled->enabled execution transition.
+
+    Passing read-only readiness must itself never enable execution. This helper is
+    only an attestation check for a later dedicated executor: readiness must have
+    passed while disabled, contain the complete reviewed check set, the supplied
+    candidate must explicitly be executable, and every execution-relevant field
+    except that single switch must still match. No backend/provider operation is
+    performed here.
+    """
+
+    if not readiness.ready:
+        return False
+    if readiness.execution_available:
+        return False
+    if not plan.execution_available:
+        return False
+
+    codes = [check.code for check in readiness.checks]
+    if len(codes) != len(set(codes)):
+        return False
+    passed_codes = {check.code for check in readiness.checks if check.ready}
+    if not _REQUIRED_EXECUTION_ATTESTATION_CHECKS.issubset(passed_codes):
+        return False
+
+    expected = tenant_provisioning_execution_target_binding(plan)
+    return bool(readiness.execution_target_binding) and hmac.compare_digest(
+        readiness.execution_target_binding,
         expected,
     )
 
@@ -137,6 +225,7 @@ def inspect_tenant_provisioning_backend_readiness(
         raise TenantProvisioningBackendReadinessError("read_only_probe_required")
 
     plan_binding = tenant_provisioning_plan_binding(plan)
+    execution_target_binding = tenant_provisioning_execution_target_binding(plan)
     static_checks = (
         TenantProvisioningBackendReadinessCheck(
             code="execution_contract_still_disabled",
@@ -160,6 +249,7 @@ def inspect_tenant_provisioning_backend_readiness(
         return TenantProvisioningBackendReadiness(
             checks=static_checks,
             plan_binding=plan_binding,
+            execution_target_binding=execution_target_binding,
         )
 
     live_checks = (
@@ -183,4 +273,5 @@ def inspect_tenant_provisioning_backend_readiness(
     return TenantProvisioningBackendReadiness(
         checks=static_checks + live_checks,
         plan_binding=plan_binding,
+        execution_target_binding=execution_target_binding,
     )
