@@ -11,7 +11,7 @@ _SECRET_RESOURCE_PATTERN = re.compile(
     r"^arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:"
     r"secret:geoflow/tenant-db/"
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
-    r"/password-\*$"
+    r"/password-\?\?\?\?\?\?$"
 )
 
 
@@ -26,17 +26,17 @@ class TenantProvisioningRuntimePolicyError(RuntimeError):
 def normalize_tenant_secret_resource_pattern(value: object) -> str:
     """Validate the one allowed future tenant-secret ARN pattern.
 
-    AWS Secrets Manager appends a six-character suffix to secret ARNs. A future
-    provisioning backend therefore cannot know the final ARN before secret
-    creation; the narrow pre-provision contract is the exact GeoFlow tenant secret
-    path plus only the provider suffix wildcard (``-*``). No other wildcard or
-    resource family is accepted here.
+    AWS Secrets Manager appends exactly six provider-generated characters to a
+    secret ARN. A future provisioning backend therefore cannot know the final ARN
+    before secret creation; the narrow pre-provision contract is the exact GeoFlow
+    tenant secret path plus six single-character IAM wildcards (``??????``). A
+    broad ``*`` wildcard or any other wildcard placement is rejected.
     """
 
     text = str(value or "").strip()
     if not text:
         raise TenantProvisioningRuntimePolicyError("secret_resource_pattern_required")
-    if text.count("*") != 1 or "?" in text:
+    if "*" in text or text.count("?") != 6 or not text.endswith("??????"):
         raise TenantProvisioningRuntimePolicyError("secret_resource_pattern_not_exact")
     if not _SECRET_RESOURCE_PATTERN.fullmatch(text):
         raise TenantProvisioningRuntimePolicyError("secret_resource_pattern_invalid")
@@ -52,7 +52,7 @@ def build_exact_tenant_secret_read_policy(
     This function is pure data construction. It creates no IAM client, performs no
     AWS call, and cannot attach or broaden a policy. The document grants only
     ``secretsmanager:GetSecretValue`` to the exact tenant-secret ARN family needed
-    to accommodate Secrets Manager's provider-generated suffix.
+    to accommodate Secrets Manager's six-character provider-generated suffix.
     """
 
     resource = normalize_tenant_secret_resource_pattern(secret_resource_pattern)
