@@ -33,6 +33,7 @@ class FakeProvisioningBackend:
             **(created or {}),
         }
         self.rollback_fail_at = rollback_fail_at
+        self.lock_held = False
 
     def _step(self, name):
         self.events.append(name)
@@ -41,15 +42,19 @@ class FakeProvisioningBackend:
 
     def _rollback(self, name):
         self.events.append(name)
+        if not self.lock_held:
+            raise RuntimeError("rollback_without_lock")
         if self.rollback_fail_at == name:
             raise RuntimeError(name)
 
     @contextmanager
     def lock(self, plan):
         self._step("lock_enter")
+        self.lock_held = True
         try:
             yield
         finally:
+            self.lock_held = False
             self.events.append("lock_exit")
 
     def ensure_database_role(self, plan):
@@ -217,7 +222,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         )
         self.assertEqual(backend.events, [])
 
-    def test_schema_failure_rolls_back_only_role_and_database_created_by_attempt(self):
+    def test_schema_failure_rolls_back_inside_lock_scope(self):
         backend = FakeProvisioningBackend(fail_at="apply_tenant_schema")
 
         with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
@@ -230,7 +235,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         self.assertEqual(caught.exception.code, "provisioning_step_failed")
         self.assertEqual(
             backend.events[-3:],
-            ["lock_exit", "rollback_database", "rollback_role"],
+            ["rollback_database", "rollback_role", "lock_exit"],
         )
         self.assertNotIn("rollback_secret", backend.events)
         self.assertNotIn("rollback_runtime_grant", backend.events)
@@ -250,16 +255,16 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         self.assertEqual(
             backend.events[-5:],
             [
-                "lock_exit",
                 "rollback_runtime_grant",
                 "rollback_secret",
                 "rollback_database",
                 "rollback_role",
+                "lock_exit",
             ],
         )
         self.assertNotIn("publish_group_db_config", backend.events)
 
-    def test_publish_failure_rolls_back_every_attempt_created_resource(self):
+    def test_publish_failure_rolls_back_every_attempt_created_resource_inside_lock(self):
         backend = FakeProvisioningBackend(fail_at="publish_group_db_config")
 
         with self.assertRaises(TenantProvisioningOrchestratorError):
@@ -272,11 +277,11 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         self.assertEqual(
             backend.events[-5:],
             [
-                "lock_exit",
                 "rollback_runtime_grant",
                 "rollback_secret",
                 "rollback_database",
                 "rollback_role",
+                "lock_exit",
             ],
         )
 
@@ -322,6 +327,10 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         self.assertIn("rollback_database", backend.events)
         self.assertNotIn("rollback_secret", backend.events)
         self.assertNotIn("rollback_role", backend.events)
+        self.assertLess(
+            backend.events.index("rollback_database"),
+            backend.events.index("lock_exit"),
+        )
 
     def test_rollback_failure_is_reported_as_incomplete(self):
         backend = FakeProvisioningBackend(
@@ -337,6 +346,8 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             )
 
         self.assertEqual(caught.exception.code, "rollback_incomplete")
-        # Best-effort rollback continues after one compensation failure.
+        # Best-effort rollback continues after one compensation failure while the
+        # lock remains held, then the context exits once cleanup is exhausted.
         self.assertIn("rollback_database", backend.events)
         self.assertIn("rollback_role", backend.events)
+        self.assertEqual(backend.events[-1], "lock_exit")
