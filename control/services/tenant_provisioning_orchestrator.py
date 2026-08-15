@@ -56,6 +56,8 @@ class TenantProvisioningBackend(Protocol):
 
     def grant_runtime_exact_secret_read(self, plan: TenantProvisioningPlan) -> bool: ...
 
+    def verify_runtime_exact_secret_grant(self, plan: TenantProvisioningPlan) -> None: ...
+
     def verify_runtime_resolution_and_connectivity(
         self,
         plan: TenantProvisioningPlan,
@@ -145,6 +147,12 @@ def provision_new_tenant(
     that the current attempt reports as newly created. Pre-existing/reconciled
     resources are never deleted by this orchestrator.
 
+    The runtime secret grant has its own mandatory post-grant verification gate.
+    Backends must read the resulting grant through their read-only verification
+    boundary and prove it is exact before runtime credential resolution or tenant
+    connectivity may be attempted. A grant that cannot be verified never reaches
+    GroupDBConfig publication.
+
     Publication has one additional fail-closed rule: if the publish call raises,
     the backend must perform a read-only exact-plan reconciliation before any
     destructive compensation is allowed. A confirmed commit is treated as
@@ -195,6 +203,7 @@ def provision_new_tenant(
                     runtime_grant_created=runtime_grant_created,
                 )
 
+                backend.verify_runtime_exact_secret_grant(plan)
                 backend.verify_runtime_resolution_and_connectivity(plan)
 
                 # Central metadata is the final mutation. If the call reports an
