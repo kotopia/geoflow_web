@@ -218,6 +218,7 @@ def inspect_tenant_provisioning_plan(group_id: object) -> TenantProvisioningPlan
 PROVISIONING_EXECUTION_SEQUENCE = (
     "validate_bound_read_only_readiness_attestation",
     "lock_new_group_provisioning",
+    "revalidate_read_only_readiness_under_lock",
     "create_database_role",
     "create_database",
     "enable_postgis",
