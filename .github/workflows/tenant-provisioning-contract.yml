@@ -62,6 +62,7 @@ jobs:
             control/services/tenant_provisioning_aws_readers.py \
             control/services/tenant_provisioning_postgres_readers.py \
             control/services/tenant_provisioning_publication_readers.py \
+            control/services/tenant_provisioning_read_only_stack.py \
             control/services/tenant_provisioning_orchestrator.py \
             control/services/disposable_postgres_tenant_backend.py \
             control/services/disposable_full_tenant_backend.py \
@@ -74,6 +75,7 @@ jobs:
             control/test_tenant_provisioning_aws_readers.py \
             control/test_tenant_provisioning_postgres_readers.py \
             control/test_tenant_provisioning_publication_readers.py \
+            control/test_tenant_provisioning_read_only_stack.py \
             control/test_tenant_provisioning_orchestrator.py \
             control/test_tenant_migration_context.py \
             scripts/ci/rehearse_disposable_tenant_provisioning.py \
@@ -88,6 +90,7 @@ jobs:
             control.test_tenant_provisioning_aws_readers \
             control.test_tenant_provisioning_postgres_readers \
             control.test_tenant_provisioning_publication_readers \
+            control.test_tenant_provisioning_read_only_stack \
             control.test_tenant_provisioning_orchestrator \
             control.test_tenant_migration_context
 
