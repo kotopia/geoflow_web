@@ -7,6 +7,7 @@ from control.services.tenant_provisioning_iam_readers import (
     AwsIamInlineTenantSecretGrantReadOnlyVerifier,
 )
 from control.services.tenant_provisioning_runtime_policy import (
+    TenantProvisioningRuntimePolicyError,
     build_exact_tenant_secret_read_policy,
 )
 
@@ -38,9 +39,12 @@ class FakeIamClient:
 
 class TenantProvisioningIamReadOnlyVerifierTests(SimpleTestCase):
     def setUp(self):
+        self.secret_id = (
+            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password"
+        )
         self.resource = (
             "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
-            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password-??????"
+            f"{self.secret_id}-??????"
         )
         self.policy = build_exact_tenant_secret_read_policy(
             secret_resource_pattern=self.resource,
@@ -51,6 +55,7 @@ class TenantProvisioningIamReadOnlyVerifierTests(SimpleTestCase):
             client,
             role_name="geoflow-runtime-role",
             policy_name="geoflow-tenant-db-secret-read",
+            secret_id=self.secret_id,
             secret_resource_pattern=self.resource,
         )
 
@@ -105,6 +110,24 @@ class TenantProvisioningIamReadOnlyVerifierTests(SimpleTestCase):
 
         self.assertFalse(self._verifier(client).exact_grant_ready())
 
+    def test_resource_for_different_plan_secret_is_rejected_before_provider_read(self):
+        client = FakeIamClient(response={"PolicyDocument": self.policy})
+        other_secret_id = (
+            "geoflow/tenant-db/33bfa40e-d2e5-4f75-a2dc-3945d815f863/password"
+        )
+
+        with self.assertRaises(TenantProvisioningRuntimePolicyError) as caught:
+            AwsIamInlineTenantSecretGrantReadOnlyVerifier(
+                client,
+                role_name="geoflow-runtime-role",
+                policy_name="geoflow-tenant-db-secret-read",
+                secret_id=other_secret_id,
+                secret_resource_pattern=self.resource,
+            )
+
+        self.assertEqual(caught.exception.code, "secret_resource_plan_mismatch")
+        self.assertEqual(client.calls, [])
+
     def test_malformed_provider_response_fails_closed(self):
         for response in (None, {}, {"PolicyDocument": "not-a-document"}):
             with self.subTest(response=response):
@@ -119,6 +142,7 @@ class TenantProvisioningIamReadOnlyVerifierTests(SimpleTestCase):
                 client,
                 role_name="",
                 policy_name="policy",
+                secret_id=self.secret_id,
                 secret_resource_pattern=self.resource,
             )
         with self.assertRaisesRegex(ValueError, "runtime_policy_name_required"):
@@ -126,6 +150,7 @@ class TenantProvisioningIamReadOnlyVerifierTests(SimpleTestCase):
                 client,
                 role_name="role",
                 policy_name="",
+                secret_id=self.secret_id,
                 secret_resource_pattern=self.resource,
             )
 
