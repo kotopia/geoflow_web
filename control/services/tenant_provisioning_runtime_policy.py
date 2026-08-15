@@ -7,6 +7,11 @@ from typing import Any, Mapping
 _POLICY_VERSION = "2012-10-17"
 _POLICY_SID = "GeoFlowTenantDbSecretRead"
 _GET_SECRET_VALUE = "secretsmanager:GetSecretValue"
+_TENANT_SECRET_ID_PATTERN = re.compile(
+    r"^geoflow/tenant-db/"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+    r"/password$"
+)
 _SECRET_RESOURCE_PATTERN = re.compile(
     r"^arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:[0-9]{12}:"
     r"secret:geoflow/tenant-db/"
@@ -21,6 +26,15 @@ class TenantProvisioningRuntimePolicyError(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def normalize_tenant_secret_id(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise TenantProvisioningRuntimePolicyError("secret_id_required")
+    if not _TENANT_SECRET_ID_PATTERN.fullmatch(text):
+        raise TenantProvisioningRuntimePolicyError("secret_id_invalid")
+    return text
 
 
 def normalize_tenant_secret_resource_pattern(value: object) -> str:
@@ -41,6 +55,21 @@ def normalize_tenant_secret_resource_pattern(value: object) -> str:
     if not _SECRET_RESOURCE_PATTERN.fullmatch(text):
         raise TenantProvisioningRuntimePolicyError("secret_resource_pattern_invalid")
     return text
+
+
+def normalize_exact_tenant_secret_resource_pattern(
+    *,
+    secret_id: object,
+    secret_resource_pattern: object,
+) -> str:
+    """Require the resource pattern to belong to the exact planned secret id."""
+
+    exact_secret_id = normalize_tenant_secret_id(secret_id)
+    resource = normalize_tenant_secret_resource_pattern(secret_resource_pattern)
+    expected_suffix = f":secret:{exact_secret_id}-??????"
+    if not resource.endswith(expected_suffix):
+        raise TenantProvisioningRuntimePolicyError("secret_resource_plan_mismatch")
+    return resource
 
 
 def build_exact_tenant_secret_read_policy(
