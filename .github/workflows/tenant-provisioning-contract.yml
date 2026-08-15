@@ -58,6 +58,7 @@ jobs:
           python -m py_compile \
             control/services/tenant_provisioning_contract.py \
             control/services/tenant_provisioning_backend_readiness.py \
+            control/services/tenant_provisioning_execution_readiness.py \
             control/services/tenant_provisioning_production_probe.py \
             control/services/tenant_provisioning_aws_readers.py \
             control/services/tenant_provisioning_iam_readers.py \
@@ -73,6 +74,7 @@ jobs:
             control/management/commands/check_tenant_provisioning_plan.py \
             control/test_tenant_provisioning_contract.py \
             control/test_tenant_provisioning_backend_readiness.py \
+            control/test_tenant_provisioning_execution_readiness.py \
             control/test_tenant_provisioning_production_probe.py \
             control/test_tenant_provisioning_aws_readers.py \
             control/test_tenant_provisioning_iam_readers.py \
@@ -91,6 +93,7 @@ jobs:
           python manage.py test \
             control.test_tenant_provisioning_contract \
             control.test_tenant_provisioning_backend_readiness \
+            control.test_tenant_provisioning_execution_readiness \
             control.test_tenant_provisioning_production_probe \
             control.test_tenant_provisioning_aws_readers \
             control.test_tenant_provisioning_iam_readers \
