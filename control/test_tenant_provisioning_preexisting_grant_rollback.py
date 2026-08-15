@@ -12,7 +12,10 @@ from control.services.tenant_provisioning_orchestrator import (
     TenantProvisioningOrchestratorError,
     provision_new_tenant,
 )
-from control.test_tenant_provisioning_orchestrator import FakeProvisioningBackend
+from control.test_tenant_provisioning_orchestrator import (
+    FakeProvisioningBackend,
+    build_test_execution_readiness,
+)
 
 
 @override_settings(
@@ -41,6 +44,7 @@ class PreexistingRuntimeGrantRollbackTests(SimpleTestCase):
             secret_reference_runtime_required=True,
         )
         self.plan = replace(planned, execution_available=True)
+        self.readiness = build_test_execution_readiness(self.plan)
 
     def test_failed_exact_readback_never_removes_preexisting_runtime_grant(self):
         # A retry may reconcile an already-correct IAM grant instead of creating
@@ -63,6 +67,7 @@ class PreexistingRuntimeGrantRollbackTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "provisioning_step_failed")
