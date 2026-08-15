@@ -4,6 +4,9 @@ import uuid
 
 from django.test import SimpleTestCase, override_settings
 
+from control.services.tenant_provisioning_backend_readiness import (
+    inspect_tenant_provisioning_backend_readiness,
+)
 from control.services.tenant_provisioning_contract import (
     TenantProvisioningSnapshot,
     build_tenant_provisioning_plan,
@@ -13,6 +16,32 @@ from control.services.tenant_provisioning_orchestrator import (
     TenantProvisioningOrchestratorError,
     provision_new_tenant,
 )
+
+
+class FakeReadOnlyReadinessProbe:
+    read_only = True
+
+    def database_target_safe(self, plan):
+        return True
+
+    def secret_target_safe(self, plan):
+        return True
+
+    def runtime_exact_secret_scope_ready(self, plan):
+        return True
+
+    def publication_target_still_available(self, plan):
+        return True
+
+
+def build_test_execution_readiness(plan):
+    """Produce a real read-only attestation for an otherwise identical disabled plan."""
+
+    disabled_plan = replace(plan, execution_available=False)
+    return inspect_tenant_provisioning_backend_readiness(
+        disabled_plan,
+        FakeReadOnlyReadinessProbe(),
+    )
 
 
 class FakeProvisioningBackend:
@@ -139,6 +168,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             secret_reference_runtime_required=True,
         )
         self.plan = replace(planned, execution_available=True)
+        self.readiness = build_test_execution_readiness(self.plan)
 
     def test_success_publishes_config_last_and_performs_no_rollback(self):
         backend = FakeProvisioningBackend()
@@ -147,6 +177,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             self.plan,
             backend,
             confirmation=PROVISIONING_CONFIRMATION,
+            readiness=self.readiness,
         )
 
         self.assertTrue(result.completed)
@@ -169,6 +200,52 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         )
         self.assertFalse(any(event.startswith("rollback_") for event in backend.events))
 
+    def test_missing_readiness_attestation_blocks_before_backend(self):
+        backend = FakeProvisioningBackend()
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(caught.exception.code, "readiness_attestation_required")
+        self.assertEqual(backend.events, [])
+
+    def test_stale_readiness_attestation_blocks_before_backend(self):
+        backend = FakeProvisioningBackend()
+        changed_target = replace(self.plan, db_host="changed.internal.example")
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                changed_target,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
+            )
+
+        self.assertEqual(caught.exception.code, "readiness_attestation_mismatch")
+        self.assertEqual(backend.events, [])
+
+    def test_readiness_collected_from_executable_plan_is_rejected(self):
+        backend = FakeProvisioningBackend()
+        invalid_readiness = inspect_tenant_provisioning_backend_readiness(
+            self.plan,
+            FakeReadOnlyReadinessProbe(),
+        )
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+                readiness=invalid_readiness,
+            )
+
+        self.assertEqual(caught.exception.code, "readiness_attestation_mismatch")
+        self.assertEqual(backend.events, [])
+
     def test_execution_unavailable_blocks_before_backend(self):
         backend = FakeProvisioningBackend()
         blocked_plan = replace(self.plan, execution_available=False)
@@ -178,6 +255,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 blocked_plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "execution_not_available")
@@ -191,6 +269,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation="wrong",
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "confirmation_mismatch")
@@ -205,6 +284,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "runtime_feature_disabled")
@@ -219,6 +299,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "runtime_provisioner_not_ready")
@@ -233,6 +314,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(
@@ -250,6 +332,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "dedicated_executor_mode_required")
@@ -263,6 +346,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "provisioning_step_failed")
@@ -281,6 +365,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "provisioning_step_failed")
@@ -307,6 +392,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(
@@ -329,6 +415,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "provisioning_step_failed")
@@ -353,6 +440,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
             self.plan,
             backend,
             confirmation=PROVISIONING_CONFIRMATION,
+            readiness=self.readiness,
         )
 
         self.assertTrue(result.completed)
@@ -379,6 +467,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "publication_outcome_unknown")
@@ -408,6 +497,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertFalse(any(event.startswith("rollback_") for event in backend.events))
@@ -428,6 +518,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertIn("rollback_runtime_grant", backend.events)
@@ -450,6 +541,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
+                readiness=self.readiness,
             )
 
         self.assertEqual(caught.exception.code, "rollback_incomplete")
