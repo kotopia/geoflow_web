@@ -1,11 +1,37 @@
 from __future__ import annotations
 
+from typing import Any
+
 from control.services.disposable_postgres_tenant_backend import (
     DisposablePostgresConfig,
     DisposablePostgresTenantBackend,
     DisposableTenantBackendError,
 )
 from control.services.tenant_provisioning_contract import TenantProvisioningPlan
+from control.services.tenant_provisioning_iam_readers import (
+    AwsIamInlineTenantSecretGrantReadOnlyVerifier,
+)
+from control.services.tenant_provisioning_runtime_policy import (
+    build_exact_tenant_secret_read_policy,
+)
+
+
+_SIMULATED_RUNTIME_ROLE = "geoflow-ci-runtime-role"
+_SIMULATED_RUNTIME_POLICY = "geoflow-ci-tenant-db-secret-read"
+_SIMULATED_AWS_REGION = "ap-northeast-2"
+_SIMULATED_AWS_ACCOUNT = "123456789012"
+
+
+class _SimulatedReadOnlyIamClient:
+    """In-memory GetRolePolicy-only client used by the disposable rehearsal."""
+
+    def __init__(self, policy_document: dict[str, Any]):
+        self._policy_document = policy_document
+        self.calls: list[tuple[str, str]] = []
+
+    def get_role_policy(self, *, RoleName: str, PolicyName: str) -> dict[str, Any]:
+        self.calls.append((RoleName, PolicyName))
+        return {"PolicyDocument": self._policy_document}
 
 
 class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
@@ -15,6 +41,11 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
     localhost-only disposable backend. Secrets Manager, runtime IAM, and central
     GroupDBConfig publication are represented only by in-memory state. No AWS API
     call or central metadata write exists in this class.
+
+    Runtime-IAM verification intentionally reuses the production-shaped read-only
+    verifier against a GetRolePolicy-only in-memory client after the simulated
+    grant is created. This rehearses the post-grant safety gate without creating
+    any production-capable IAM client or mutation path.
     """
 
     def __init__(
@@ -27,21 +58,35 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         self.fail_at = str(fail_at or "").strip() or None
         self._simulated_secret_id: str | None = None
         self._simulated_runtime_grant = False
+        self._simulated_runtime_policy: dict[str, Any] | None = None
+        self._simulated_iam_read_count = 0
         self._simulated_publication: tuple[str, str, str, int, str] | None = None
 
     def _maybe_fail(self, step: str) -> None:
         if self.fail_at == step:
             raise DisposableTenantBackendError(f"simulated_{step}_failure")
 
+    @staticmethod
+    def _secret_resource_pattern(plan: TenantProvisioningPlan) -> str:
+        return (
+            f"arn:aws:secretsmanager:{_SIMULATED_AWS_REGION}:"
+            f"{_SIMULATED_AWS_ACCOUNT}:secret:{plan.secret_id}-??????"
+        )
+
     @property
     def simulated_publication_complete(self) -> bool:
         return self._simulated_publication is not None
+
+    @property
+    def simulated_iam_read_count(self) -> int:
+        return self._simulated_iam_read_count
 
     @property
     def simulated_external_state_clear(self) -> bool:
         return (
             self._simulated_secret_id is None
             and not self._simulated_runtime_grant
+            and self._simulated_runtime_policy is None
             and self._simulated_publication is None
         )
 
@@ -61,19 +106,54 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         if self._simulated_secret_id != plan.secret_id:
             raise DisposableTenantBackendError("simulated_secret_required_before_grant")
         if self._simulated_runtime_grant:
+            if self._simulated_runtime_policy is None:
+                raise DisposableTenantBackendError("simulated_runtime_policy_missing")
             return False
+
+        resource_pattern = self._secret_resource_pattern(plan)
+        self._simulated_runtime_policy = build_exact_tenant_secret_read_policy(
+            secret_resource_pattern=resource_pattern,
+        )
         self._simulated_runtime_grant = True
         return True
+
+    def _verify_runtime_exact_secret_grant(self, plan: TenantProvisioningPlan) -> None:
+        """Rehearse the post-grant IAM readback with the real read-only verifier."""
+
+        self._operation_connection()
+        if self._simulated_secret_id != plan.secret_id:
+            raise DisposableTenantBackendError("simulated_runtime_secret_missing")
+        if not self._simulated_runtime_grant or self._simulated_runtime_policy is None:
+            raise DisposableTenantBackendError("simulated_runtime_grant_missing")
+
+        policy_document = self._simulated_runtime_policy
+        if self.fail_at == "verify_runtime_exact_secret_grant":
+            # Deliberately return a non-matching document through the read-only
+            # provider surface. This proves the verifier fails closed and the
+            # orchestrator compensates before publication.
+            policy_document = {"Version": "2012-10-17", "Statement": []}
+
+        client = _SimulatedReadOnlyIamClient(policy_document)
+        verifier = AwsIamInlineTenantSecretGrantReadOnlyVerifier(
+            client,
+            role_name=_SIMULATED_RUNTIME_ROLE,
+            policy_name=_SIMULATED_RUNTIME_POLICY,
+            secret_id=plan.secret_id,
+            secret_resource_pattern=self._secret_resource_pattern(plan),
+        )
+        ready = verifier.exact_grant_ready()
+        self._simulated_iam_read_count += len(client.calls)
+        if not ready:
+            raise DisposableTenantBackendError("simulated_runtime_grant_not_exact")
+        if len(client.calls) != 1:
+            raise DisposableTenantBackendError("simulated_runtime_grant_read_count_invalid")
 
     def verify_runtime_resolution_and_connectivity(
         self,
         plan: TenantProvisioningPlan,
     ) -> None:
         self._operation_connection()
-        if self._simulated_secret_id != plan.secret_id:
-            raise DisposableTenantBackendError("simulated_runtime_secret_missing")
-        if not self._simulated_runtime_grant:
-            raise DisposableTenantBackendError("simulated_runtime_grant_missing")
+        self._verify_runtime_exact_secret_grant(plan)
         self.verify_database_schema(plan)
         self._maybe_fail("verify_runtime_resolution_and_connectivity")
 
@@ -111,6 +191,7 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         if not self._simulated_runtime_grant:
             raise DisposableTenantBackendError("simulated_runtime_grant_missing")
         self._simulated_runtime_grant = False
+        self._simulated_runtime_policy = None
 
     def delete_external_secret(self, plan: TenantProvisioningPlan) -> None:
         self._operation_connection()

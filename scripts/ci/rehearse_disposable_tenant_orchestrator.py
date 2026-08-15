@@ -83,9 +83,13 @@ def main() -> int:
         TENANT_DB_REQUIRE_SECRET_REFERENCES=True,
         TENANT_PROVISIONING_EXECUTOR_MODE=True,
     ):
+        # First attempt deliberately returns a non-exact inline IAM policy through
+        # the GetRolePolicy-only fake. The production-shaped read-only verifier
+        # must reject it before DB-connectivity verification or publication, and
+        # the orchestrator must remove only resources owned by this attempt.
         failing_backend = DisposableFullTenantBackend(
             config,
-            fail_at="verify_runtime_resolution_and_connectivity",
+            fail_at="verify_runtime_exact_secret_grant",
         )
         try:
             provision_new_tenant(
@@ -99,6 +103,8 @@ def main() -> int:
         else:
             raise RuntimeError("simulated_failure_did_not_fail")
 
+        if failing_backend.simulated_iam_read_count != 1:
+            raise RuntimeError("failed_attempt_iam_readback_not_exactly_once")
         if not failing_backend.simulated_external_state_clear:
             raise RuntimeError("failed_attempt_external_cleanup_incomplete")
 
@@ -113,6 +119,8 @@ def main() -> int:
         )
         if not result.completed or not result.config_published:
             raise RuntimeError("orchestrator_success_result_invalid")
+        if success_backend.simulated_iam_read_count != 1:
+            raise RuntimeError("successful_attempt_iam_readback_not_exactly_once")
         if not success_backend.simulated_publication_complete:
             raise RuntimeError("simulated_publication_missing")
 
@@ -127,6 +135,7 @@ def main() -> int:
 
     print("tenant_orchestrator_ci_failure_rollback=yes")
     print("tenant_orchestrator_ci_retry_after_cleanup=yes")
+    print("tenant_orchestrator_ci_post_grant_iam_readback=read_only_exact")
     print("tenant_orchestrator_ci_publish_last_simulated=yes")
     print("tenant_orchestrator_ci_success_cleanup=yes")
     print("tenant_orchestrator_ci_aws_calls=not_performed")
