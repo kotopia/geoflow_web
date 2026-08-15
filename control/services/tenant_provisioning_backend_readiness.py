@@ -11,6 +11,17 @@ from control.services.tenant_provisioning_contract import TenantProvisioningPlan
 
 _PLAN_BINDING_VERSION = 1
 _EXECUTION_TARGET_BINDING_VERSION = 1
+_REQUIRED_EXECUTION_ATTESTATION_CHECKS = frozenset(
+    {
+        "execution_contract_still_disabled",
+        "execution_prerequisites_ready",
+        "runtime_exact_secret_grant_contract_present",
+        "database_target_safe",
+        "secret_target_safe",
+        "runtime_exact_secret_scope_ready",
+        "publication_target_still_available",
+    }
+)
 
 
 class TenantProvisioningBackendReadinessError(RuntimeError):
@@ -158,9 +169,10 @@ def readiness_allows_execution_candidate(
 
     Passing read-only readiness must itself never enable execution. This helper is
     only an attestation check for a later dedicated executor: readiness must have
-    passed while disabled, the supplied candidate must explicitly be executable,
-    and every execution-relevant field except that single switch must still match.
-    No backend or provider operation is performed here.
+    passed while disabled, contain the complete reviewed check set, the supplied
+    candidate must explicitly be executable, and every execution-relevant field
+    except that single switch must still match. No backend/provider operation is
+    performed here.
     """
 
     if not readiness.ready:
@@ -169,6 +181,14 @@ def readiness_allows_execution_candidate(
         return False
     if not plan.execution_available:
         return False
+
+    codes = [check.code for check in readiness.checks]
+    if len(codes) != len(set(codes)):
+        return False
+    passed_codes = {check.code for check in readiness.checks if check.ready}
+    if not _REQUIRED_EXECUTION_ATTESTATION_CHECKS.issubset(passed_codes):
+        return False
+
     expected = tenant_provisioning_execution_target_binding(plan)
     return bool(readiness.execution_target_binding) and hmac.compare_digest(
         readiness.execution_target_binding,
