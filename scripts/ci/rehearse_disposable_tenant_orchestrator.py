@@ -81,6 +81,7 @@ def main() -> int:
         ENABLE_TENANT_PROVISIONING=True,
         PROVISIONING_READY=True,
         TENANT_DB_REQUIRE_SECRET_REFERENCES=True,
+        TENANT_PROVISIONING_EXECUTOR_MODE=True,
     ):
         failing_backend = DisposableFullTenantBackend(
             config,
