@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 from control.services.tenant_provisioning_runtime_policy import (
     TenantProvisioningRuntimePolicyError,
     build_exact_tenant_secret_read_policy,
+    normalize_exact_tenant_secret_resource_pattern,
+    normalize_tenant_secret_id,
     normalize_tenant_secret_resource_pattern,
     runtime_policy_matches_exact_tenant_secret_read,
 )
@@ -12,9 +14,12 @@ from control.services.tenant_provisioning_runtime_policy import (
 
 class TenantProvisioningRuntimePolicyTests(SimpleTestCase):
     def setUp(self):
+        self.secret_id = (
+            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password"
+        )
         self.resource = (
             "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
-            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password-??????"
+            f"{self.secret_id}-??????"
         )
 
     def test_builds_only_get_secret_value_for_exact_tenant_secret_family(self):
@@ -42,6 +47,32 @@ class TenantProvisioningRuntimePolicyTests(SimpleTestCase):
                 secret_resource_pattern=self.resource,
             )
         )
+
+    def test_exact_resource_pattern_is_bound_to_planned_secret_id(self):
+        self.assertEqual(normalize_tenant_secret_id(self.secret_id), self.secret_id)
+        self.assertEqual(
+            normalize_exact_tenant_secret_resource_pattern(
+                secret_id=self.secret_id,
+                secret_resource_pattern=self.resource,
+            ),
+            self.resource,
+        )
+
+        other_secret_id = (
+            "geoflow/tenant-db/33bfa40e-d2e5-4f75-a2dc-3945d815f863/password"
+        )
+        with self.assertRaises(TenantProvisioningRuntimePolicyError) as caught:
+            normalize_exact_tenant_secret_resource_pattern(
+                secret_id=other_secret_id,
+                secret_resource_pattern=self.resource,
+            )
+        self.assertEqual(caught.exception.code, "secret_resource_plan_mismatch")
+
+    def test_invalid_secret_id_fails_closed(self):
+        for invalid in ("", "geoflow/tenant-db/*/password", "shared/password"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(TenantProvisioningRuntimePolicyError):
+                    normalize_tenant_secret_id(invalid)
 
     def test_provider_suffix_is_the_only_wildcard_allowed(self):
         invalid = (
