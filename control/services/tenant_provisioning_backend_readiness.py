@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from dataclasses import dataclass
 from typing import Protocol
 
 from control.services.tenant_provisioning_contract import TenantProvisioningPlan
+
+
+_PLAN_BINDING_VERSION = 1
 
 
 class TenantProvisioningBackendReadinessError(RuntimeError):
@@ -43,11 +49,63 @@ class TenantProvisioningBackendReadinessCheck:
 @dataclass(frozen=True)
 class TenantProvisioningBackendReadiness:
     checks: tuple[TenantProvisioningBackendReadinessCheck, ...]
+    plan_binding: str
     execution_available: bool = False
 
     @property
     def ready(self) -> bool:
         return bool(self.checks) and all(check.ready for check in self.checks)
+
+
+def tenant_provisioning_plan_binding(plan: TenantProvisioningPlan) -> str:
+    """Return a non-reversible binding for every execution-relevant plan field.
+
+    Readiness is transient evidence about one exact immutable plan. The binding
+    prevents a future executor from accidentally reusing a passing readiness
+    result after changing tenant identity, database target, secret reference, or
+    execution flags. Only the SHA-256 digest is carried in readiness output; raw
+    plan metadata is never copied into the attestation.
+    """
+
+    payload = {
+        "version": _PLAN_BINDING_VERSION,
+        "group_id": plan.group_id,
+        "group_code": plan.group_code,
+        "db_alias": plan.db_alias,
+        "db_name": plan.db_name,
+        "db_user": plan.db_user,
+        "db_host": plan.db_host,
+        "db_port": int(plan.db_port),
+        "secret_id": plan.secret_id,
+        "secret_reference": plan.secret_reference,
+        "provisioning_enabled": bool(plan.provisioning_enabled),
+        "provisioner_ready": bool(plan.provisioner_ready),
+        "secret_reference_runtime_required": bool(
+            plan.secret_reference_runtime_required
+        ),
+        "runtime_secret_grant_required": bool(plan.runtime_secret_grant_required),
+        "execution_available": bool(plan.execution_available),
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def readiness_matches_plan(
+    readiness: TenantProvisioningBackendReadiness,
+    plan: TenantProvisioningPlan,
+) -> bool:
+    """Verify that readiness belongs to the exact supplied immutable plan."""
+
+    expected = tenant_provisioning_plan_binding(plan)
+    return bool(readiness.plan_binding) and hmac.compare_digest(
+        readiness.plan_binding,
+        expected,
+    )
 
 
 def _probe_check(
@@ -78,6 +136,7 @@ def inspect_tenant_provisioning_backend_readiness(
     if bool(getattr(probe, "read_only", False)) is not True:
         raise TenantProvisioningBackendReadinessError("read_only_probe_required")
 
+    plan_binding = tenant_provisioning_plan_binding(plan)
     static_checks = (
         TenantProvisioningBackendReadinessCheck(
             code="execution_contract_still_disabled",
@@ -98,7 +157,10 @@ def inspect_tenant_provisioning_backend_readiness(
     # production reads and ensures readiness can never be used as an execution
     # switch.
     if not all(check.ready for check in static_checks):
-        return TenantProvisioningBackendReadiness(checks=static_checks)
+        return TenantProvisioningBackendReadiness(
+            checks=static_checks,
+            plan_binding=plan_binding,
+        )
 
     live_checks = (
         _probe_check(
@@ -118,4 +180,7 @@ def inspect_tenant_provisioning_backend_readiness(
             probe_call=lambda: probe.publication_target_still_available(plan),
         ),
     )
-    return TenantProvisioningBackendReadiness(checks=static_checks + live_checks)
+    return TenantProvisioningBackendReadiness(
+        checks=static_checks + live_checks,
+        plan_binding=plan_binding,
+    )
