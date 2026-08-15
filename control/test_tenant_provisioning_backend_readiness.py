@@ -6,6 +6,8 @@ from django.test import SimpleTestCase
 from control.services.tenant_provisioning_backend_readiness import (
     TenantProvisioningBackendReadinessError,
     inspect_tenant_provisioning_backend_readiness,
+    readiness_matches_plan,
+    tenant_provisioning_plan_binding,
 )
 from control.services.tenant_provisioning_contract import (
     TenantProvisioningSnapshot,
@@ -67,6 +69,7 @@ class TenantProvisioningBackendReadinessTests(SimpleTestCase):
         self.assertTrue(readiness.ready)
         self.assertFalse(readiness.execution_available)
         self.assertFalse(self.plan.execution_available)
+        self.assertTrue(readiness_matches_plan(readiness, self.plan))
         self.assertEqual(
             probe.calls,
             [
@@ -95,6 +98,7 @@ class TenantProvisioningBackendReadinessTests(SimpleTestCase):
 
         self.assertFalse(readiness.ready)
         self.assertFalse(readiness.execution_available)
+        self.assertTrue(readiness_matches_plan(readiness, executable_plan))
         self.assertEqual(probe.calls, [])
         checks = {check.code: check.ready for check in readiness.checks}
         self.assertFalse(checks["execution_contract_still_disabled"])
@@ -106,6 +110,7 @@ class TenantProvisioningBackendReadinessTests(SimpleTestCase):
         readiness = inspect_tenant_provisioning_backend_readiness(disabled_plan, probe)
 
         self.assertFalse(readiness.ready)
+        self.assertTrue(readiness_matches_plan(readiness, disabled_plan))
         self.assertEqual(probe.calls, [])
         checks = {check.code: check.ready for check in readiness.checks}
         self.assertFalse(checks["execution_prerequisites_ready"])
@@ -136,12 +141,48 @@ class TenantProvisioningBackendReadinessTests(SimpleTestCase):
         self.assertNotIn(self.plan.secret_id, rendered)
         self.assertNotIn(self.plan.db_host, rendered)
 
-    def test_readiness_result_contains_only_codes_and_booleans(self):
+    def test_plan_binding_is_stable_and_covers_execution_relevant_fields(self):
+        first = tenant_provisioning_plan_binding(self.plan)
+        second = tenant_provisioning_plan_binding(self.plan)
+
+        self.assertEqual(first, second)
+        self.assertRegex(first, r"^sha256:[0-9a-f]{64}$")
+        self.assertNotEqual(
+            first,
+            tenant_provisioning_plan_binding(
+                replace(self.plan, db_host="different.internal.example")
+            ),
+        )
+        self.assertNotEqual(
+            first,
+            tenant_provisioning_plan_binding(
+                replace(self.plan, execution_available=True)
+            ),
+        )
+        self.assertNotEqual(
+            first,
+            tenant_provisioning_plan_binding(
+                replace(self.plan, secret_reference=self.plan.secret_reference + "-other")
+            ),
+        )
+
+    def test_readiness_cannot_be_reused_for_modified_plan(self):
+        readiness = inspect_tenant_provisioning_backend_readiness(
+            self.plan,
+            FakeReadOnlyProbe(),
+        )
+        changed_plan = replace(self.plan, db_port=self.plan.db_port + 1)
+
+        self.assertTrue(readiness_matches_plan(readiness, self.plan))
+        self.assertFalse(readiness_matches_plan(readiness, changed_plan))
+
+    def test_readiness_result_exposes_only_codes_booleans_and_digest(self):
         readiness = inspect_tenant_provisioning_backend_readiness(
             self.plan,
             FakeReadOnlyProbe(),
         )
 
+        self.assertRegex(readiness.plan_binding, r"^sha256:[0-9a-f]{64}$")
         rendered = repr(readiness)
         self.assertNotIn(self.group_id, rendered)
         self.assertNotIn(self.plan.db_alias, rendered)
