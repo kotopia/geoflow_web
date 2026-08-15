@@ -94,6 +94,12 @@ def _validate_execution(plan: TenantProvisioningPlan, confirmation: object) -> N
         raise TenantProvisioningOrchestratorError(
             "runtime_secret_reference_mode_required"
         )
+    # The public Django runtime deliberately has no executor-mode setting. Even if
+    # its feature flag is accidentally enabled, orchestration must still fail
+    # before the backend lock or any mutation method can run. A future dedicated
+    # provisioning command/executor must opt into this setting explicitly.
+    if not bool(getattr(settings, "TENANT_PROVISIONING_EXECUTOR_MODE", False)):
+        raise TenantProvisioningOrchestratorError("dedicated_executor_mode_required")
 
 
 def _rollback_attempt(
