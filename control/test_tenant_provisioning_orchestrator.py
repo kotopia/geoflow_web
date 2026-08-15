@@ -82,6 +82,9 @@ class FakeProvisioningBackend:
         self._step("grant_runtime_exact_secret_read")
         return self.created["runtime_grant"]
 
+    def verify_runtime_exact_secret_grant(self, plan):
+        self._step("verify_runtime_exact_secret_grant")
+
     def verify_runtime_resolution_and_connectivity(self, plan):
         self._step("verify_runtime_resolution_and_connectivity")
 
@@ -158,6 +161,7 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 "apply_tenant_schema",
                 "ensure_external_secret",
                 "grant_runtime_exact_secret_read",
+                "verify_runtime_exact_secret_grant",
                 "verify_runtime_resolution_and_connectivity",
                 "publish_group_db_config",
                 "lock_exit",
@@ -268,6 +272,30 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         )
         self.assertNotIn("rollback_secret", backend.events)
         self.assertNotIn("rollback_runtime_grant", backend.events)
+
+    def test_exact_grant_verification_failure_rolls_back_before_runtime_resolution(self):
+        backend = FakeProvisioningBackend(fail_at="verify_runtime_exact_secret_grant")
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(caught.exception.code, "provisioning_step_failed")
+        self.assertNotIn("verify_runtime_resolution_and_connectivity", backend.events)
+        self.assertNotIn("publish_group_db_config", backend.events)
+        self.assertEqual(
+            backend.events[-5:],
+            [
+                "rollback_runtime_grant",
+                "rollback_secret",
+                "rollback_database",
+                "rollback_role",
+                "lock_exit",
+            ],
+        )
 
     def test_runtime_verification_failure_rolls_back_in_reverse_external_order(self):
         backend = FakeProvisioningBackend(
