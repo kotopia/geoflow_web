@@ -117,8 +117,8 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         self._simulated_runtime_grant = True
         return True
 
-    def _verify_runtime_exact_secret_grant(self, plan: TenantProvisioningPlan) -> None:
-        """Rehearse the post-grant IAM readback with the real read-only verifier."""
+    def verify_runtime_exact_secret_grant(self, plan: TenantProvisioningPlan) -> None:
+        """Rehearse the mandatory post-grant IAM readback safety gate."""
 
         self._operation_connection()
         if self._simulated_secret_id != plan.secret_id:
@@ -153,7 +153,6 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         plan: TenantProvisioningPlan,
     ) -> None:
         self._operation_connection()
-        self._verify_runtime_exact_secret_grant(plan)
         self.verify_database_schema(plan)
         self._maybe_fail("verify_runtime_resolution_and_connectivity")
 
