@@ -22,6 +22,7 @@ class FakeProvisioningBackend:
         fail_at=None,
         created=None,
         rollback_fail_at=None,
+        reconcile_fail=False,
     ):
         self.events = []
         self.fail_at = fail_at
@@ -33,7 +34,9 @@ class FakeProvisioningBackend:
             **(created or {}),
         }
         self.rollback_fail_at = rollback_fail_at
+        self.reconcile_fail = reconcile_fail
         self.lock_held = False
+        self.published = False
 
     def _step(self, name):
         self.events.append(name)
@@ -83,7 +86,18 @@ class FakeProvisioningBackend:
         self._step("verify_runtime_resolution_and_connectivity")
 
     def publish_group_db_config(self, plan):
-        self._step("publish_group_db_config")
+        self.events.append("publish_group_db_config")
+        if self.fail_at == "publish_group_db_config":
+            raise RuntimeError("publish_group_db_config")
+        self.published = True
+        if self.fail_at == "publish_group_db_config_after_commit":
+            raise RuntimeError("publish_group_db_config_after_commit")
+
+    def group_db_config_matches_plan(self, plan):
+        self.events.append("group_db_config_matches_plan")
+        if self.reconcile_fail:
+            raise RuntimeError("group_db_config_matches_plan")
+        return self.published
 
     def remove_runtime_secret_grant(self, plan):
         self._rollback("rollback_runtime_grant")
@@ -264,19 +278,21 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
         )
         self.assertNotIn("publish_group_db_config", backend.events)
 
-    def test_publish_failure_rolls_back_every_attempt_created_resource_inside_lock(self):
+    def test_publish_failure_reconciles_absence_before_rollback(self):
         backend = FakeProvisioningBackend(fail_at="publish_group_db_config")
 
-        with self.assertRaises(TenantProvisioningOrchestratorError):
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
             provision_new_tenant(
                 self.plan,
                 backend,
                 confirmation=PROVISIONING_CONFIRMATION,
             )
 
+        self.assertEqual(caught.exception.code, "provisioning_step_failed")
         self.assertEqual(
-            backend.events[-5:],
+            backend.events[-6:],
             [
+                "group_db_config_matches_plan",
                 "rollback_runtime_grant",
                 "rollback_secret",
                 "rollback_database",
@@ -284,6 +300,54 @@ class TenantProvisioningOrchestratorTests(SimpleTestCase):
                 "lock_exit",
             ],
         )
+
+    def test_publish_error_after_commit_reconciles_to_success_without_rollback(self):
+        backend = FakeProvisioningBackend(
+            fail_at="publish_group_db_config_after_commit"
+        )
+
+        result = provision_new_tenant(
+            self.plan,
+            backend,
+            confirmation=PROVISIONING_CONFIRMATION,
+        )
+
+        self.assertTrue(result.completed)
+        self.assertTrue(result.config_published)
+        self.assertTrue(backend.published)
+        self.assertEqual(
+            backend.events[-3:],
+            [
+                "publish_group_db_config",
+                "group_db_config_matches_plan",
+                "lock_exit",
+            ],
+        )
+        self.assertFalse(any(event.startswith("rollback_") for event in backend.events))
+
+    def test_unknown_publish_outcome_never_runs_destructive_rollback(self):
+        backend = FakeProvisioningBackend(
+            fail_at="publish_group_db_config",
+            reconcile_fail=True,
+        )
+
+        with self.assertRaises(TenantProvisioningOrchestratorError) as caught:
+            provision_new_tenant(
+                self.plan,
+                backend,
+                confirmation=PROVISIONING_CONFIRMATION,
+            )
+
+        self.assertEqual(caught.exception.code, "publication_outcome_unknown")
+        self.assertEqual(
+            backend.events[-3:],
+            [
+                "publish_group_db_config",
+                "group_db_config_matches_plan",
+                "lock_exit",
+            ],
+        )
+        self.assertFalse(any(event.startswith("rollback_") for event in backend.events))
 
     def test_reconciled_preexisting_resources_are_never_deleted(self):
         backend = FakeProvisioningBackend(

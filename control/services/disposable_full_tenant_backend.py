@@ -94,6 +94,18 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
             plan.secret_reference,
         )
 
+    def group_db_config_matches_plan(self, plan: TenantProvisioningPlan) -> bool:
+        """Read-only exact publication reconciliation for orchestrator safety."""
+
+        self._operation_connection()
+        return self._simulated_publication == (
+            plan.db_alias,
+            plan.db_name,
+            plan.db_host,
+            int(plan.db_port),
+            plan.secret_reference,
+        )
+
     def remove_runtime_secret_grant(self, plan: TenantProvisioningPlan) -> None:
         self._operation_connection()
         if not self._simulated_runtime_grant:
