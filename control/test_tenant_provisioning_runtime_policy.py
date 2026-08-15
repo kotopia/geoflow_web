@@ -14,7 +14,7 @@ class TenantProvisioningRuntimePolicyTests(SimpleTestCase):
     def setUp(self):
         self.resource = (
             "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
-            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password-*"
+            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password-??????"
         )
 
     def test_builds_only_get_secret_value_for_exact_tenant_secret_family(self):
@@ -46,7 +46,7 @@ class TenantProvisioningRuntimePolicyTests(SimpleTestCase):
     def test_provider_suffix_is_the_only_wildcard_allowed(self):
         invalid = (
             "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
-            "geoflow/tenant-db/*/password-*"
+            "geoflow/tenant-db/*/password-??????"
         )
 
         with self.assertRaises(TenantProvisioningRuntimePolicyError) as caught:
@@ -54,10 +54,29 @@ class TenantProvisioningRuntimePolicyTests(SimpleTestCase):
 
         self.assertEqual(caught.exception.code, "secret_resource_pattern_not_exact")
 
+    def test_suffix_must_be_exactly_six_single_character_wildcards(self):
+        too_short = (
+            "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
+            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password-?????"
+        )
+        broad_star = (
+            "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
+            "geoflow/tenant-db/2f0b2fc5-4baa-4fea-b4aa-2ba6e1e0dc11/password-*"
+        )
+
+        for invalid in (too_short, broad_star):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(TenantProvisioningRuntimePolicyError) as caught:
+                    normalize_tenant_secret_resource_pattern(invalid)
+                self.assertEqual(
+                    caught.exception.code,
+                    "secret_resource_pattern_not_exact",
+                )
+
     def test_non_tenant_secret_resource_is_rejected(self):
         invalid = (
             "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
-            "geoflow/shared/password-*"
+            "geoflow/shared/password-??????"
         )
 
         with self.assertRaises(TenantProvisioningRuntimePolicyError) as caught:
@@ -105,7 +124,7 @@ class TenantProvisioningRuntimePolicyTests(SimpleTestCase):
         )
         other = (
             "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:"
-            "geoflow/tenant-db/33bfa40e-d2e5-4f75-a2dc-3945d815f863/password-*"
+            "geoflow/tenant-db/33bfa40e-d2e5-4f75-a2dc-3945d815f863/password-??????"
         )
 
         self.assertFalse(
