@@ -7,10 +7,15 @@ from typing import Protocol
 from django.conf import settings
 
 from control.services.tenant_provisioning_backend_readiness import (
+    ReadOnlyTenantProvisioningProbe,
     TenantProvisioningBackendReadiness,
     readiness_allows_execution_candidate,
 )
 from control.services.tenant_provisioning_contract import TenantProvisioningPlan
+from control.services.tenant_provisioning_execution_readiness import (
+    TenantProvisioningExecutionReadinessError,
+    revalidate_tenant_provisioning_readiness,
+)
 
 
 PROVISIONING_CONFIRMATION = "NEW_TENANT_PROVISIONING"
@@ -47,6 +52,11 @@ class TenantProvisioningBackend(Protocol):
     """
 
     def lock(self, plan: TenantProvisioningPlan) -> AbstractContextManager[None]: ...
+
+    def read_only_readiness_probe(
+        self,
+        plan: TenantProvisioningPlan,
+    ) -> ReadOnlyTenantProvisioningProbe: ...
 
     def ensure_database_role(self, plan: TenantProvisioningPlan) -> bool: ...
 
@@ -120,6 +130,25 @@ def _validate_readiness_attestation(
         raise TenantProvisioningOrchestratorError("readiness_attestation_mismatch")
 
 
+def _revalidate_readiness_under_lock(
+    plan: TenantProvisioningPlan,
+    backend: TenantProvisioningBackend,
+    readiness: TenantProvisioningBackendReadiness,
+) -> None:
+    """Refresh race-sensitive readiness while locked, before the first mutation."""
+
+    try:
+        probe = backend.read_only_readiness_probe(plan)
+        revalidate_tenant_provisioning_readiness(plan, readiness, probe)
+    except TenantProvisioningExecutionReadinessError as exc:
+        raise TenantProvisioningOrchestratorError(exc.code) from exc
+    except Exception as exc:
+        # Backend/provider detail must never escape the orchestration surface.
+        raise TenantProvisioningOrchestratorError(
+            "readiness_revalidation_failed"
+        ) from exc
+
+
 def _rollback_attempt(
     backend: TenantProvisioningBackend,
     plan: TenantProvisioningPlan,
@@ -170,6 +199,12 @@ def provision_new_tenant(
     bound to the exact future execution target. A missing, stale, incomplete, or
     already-executable attestation fails closed before backend access.
 
+    After the per-group provisioning lock is acquired, the same execution target
+    is revalidated through a fresh read-only probe immediately before the first
+    mutation. This closes the race between the earlier attestation and execution.
+    A failed or unavailable JIT probe exits the lock without creating resources and
+    without invoking destructive rollback.
+
     The runtime secret grant has its own mandatory post-grant verification gate.
     Backends must read the resulting grant through their read-only verification
     boundary and prove it is exact before runtime credential resolution or tenant
@@ -197,6 +232,10 @@ def provision_new_tenant(
 
     try:
         with backend.lock(plan):
+            # The pre-lock validation above guarantees a non-None matching
+            # attestation. Revalidate it under the lock before entering the block
+            # whose failures may own resources and therefore trigger rollback.
+            _revalidate_readiness_under_lock(plan, backend, readiness)
             try:
                 role_created = bool(backend.ensure_database_role(plan))
                 resources = ProvisioningAttemptResources(role_created=role_created)
