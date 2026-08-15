@@ -216,6 +216,7 @@ def inspect_tenant_provisioning_plan(group_id: object) -> TenantProvisioningPlan
 
 
 PROVISIONING_EXECUTION_SEQUENCE = (
+    "validate_bound_read_only_readiness_attestation",
     "lock_new_group_provisioning",
     "create_database_role",
     "create_database",
@@ -224,6 +225,7 @@ PROVISIONING_EXECUTION_SEQUENCE = (
     "apply_tenant_schema",
     "create_external_secret",
     "grant_runtime_role_exact_secret_read",
+    "verify_runtime_exact_secret_grant_readback",
     "verify_runtime_secret_resolution_and_db_connectivity",
     "publish_group_db_config_last",
 )
