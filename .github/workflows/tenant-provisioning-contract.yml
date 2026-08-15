@@ -59,13 +59,15 @@ jobs:
             control/services/tenant_provisioning_contract.py \
             control/services/tenant_provisioning_orchestrator.py \
             control/services/disposable_postgres_tenant_backend.py \
+            control/services/disposable_full_tenant_backend.py \
             control/tenant_migration_context.py \
             control/db_router.py \
             control/management/commands/check_tenant_provisioning_plan.py \
             control/test_tenant_provisioning_contract.py \
             control/test_tenant_provisioning_orchestrator.py \
             control/test_tenant_migration_context.py \
-            scripts/ci/rehearse_disposable_tenant_provisioning.py
+            scripts/ci/rehearse_disposable_tenant_provisioning.py \
+            scripts/ci/rehearse_disposable_tenant_orchestrator.py
 
       - name: Run provisioning contract tests
         run: |
@@ -133,3 +135,6 @@ jobs:
 
       - name: Rehearse new tenant DB lifecycle in disposable PostGIS only
         run: python scripts/ci/rehearse_disposable_tenant_provisioning.py
+
+      - name: Rehearse full orchestrator with simulated external dependencies
+        run: python scripts/ci/rehearse_disposable_tenant_orchestrator.py
