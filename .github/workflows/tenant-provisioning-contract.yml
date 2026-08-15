@@ -60,6 +60,7 @@ jobs:
             control/services/tenant_provisioning_backend_readiness.py \
             control/services/tenant_provisioning_production_probe.py \
             control/services/tenant_provisioning_aws_readers.py \
+            control/services/tenant_provisioning_iam_readers.py \
             control/services/tenant_provisioning_runtime_policy.py \
             control/services/tenant_provisioning_postgres_readers.py \
             control/services/tenant_provisioning_publication_readers.py \
@@ -74,6 +75,7 @@ jobs:
             control/test_tenant_provisioning_backend_readiness.py \
             control/test_tenant_provisioning_production_probe.py \
             control/test_tenant_provisioning_aws_readers.py \
+            control/test_tenant_provisioning_iam_readers.py \
             control/test_tenant_provisioning_runtime_policy.py \
             control/test_tenant_provisioning_postgres_readers.py \
             control/test_tenant_provisioning_publication_readers.py \
@@ -90,6 +92,7 @@ jobs:
             control.test_tenant_provisioning_backend_readiness \
             control.test_tenant_provisioning_production_probe \
             control.test_tenant_provisioning_aws_readers \
+            control.test_tenant_provisioning_iam_readers \
             control.test_tenant_provisioning_runtime_policy \
             control.test_tenant_provisioning_postgres_readers \
             control.test_tenant_provisioning_publication_readers \
