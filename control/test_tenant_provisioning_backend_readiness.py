@@ -4,6 +4,8 @@ from dataclasses import replace
 from django.test import SimpleTestCase
 
 from control.services.tenant_provisioning_backend_readiness import (
+    TenantProvisioningBackendReadiness,
+    TenantProvisioningBackendReadinessCheck,
     TenantProvisioningBackendReadinessError,
     inspect_tenant_provisioning_backend_readiness,
     readiness_allows_execution_candidate,
@@ -178,6 +180,7 @@ class TenantProvisioningBackendReadinessTests(SimpleTestCase):
         self.assertRegex(disabled, r"^sha256:[0-9a-f]{64}$")
 
         changes = (
+            {"group_id": str(uuid.uuid4())},
             {"group_code": self.plan.group_code + "-other"},
             {"db_alias": self.plan.db_alias + "_other"},
             {"db_name": self.plan.db_name + "_other"},
@@ -234,6 +237,39 @@ class TenantProvisioningBackendReadinessTests(SimpleTestCase):
         self.assertFalse(readiness.ready)
         self.assertFalse(
             readiness_allows_execution_candidate(readiness, executable_plan)
+        )
+
+    def test_incomplete_or_duplicate_attestation_never_allows_candidate(self):
+        executable_plan = replace(self.plan, execution_available=True)
+        binding = tenant_provisioning_execution_target_binding(self.plan)
+
+        incomplete = TenantProvisioningBackendReadiness(
+            checks=(
+                TenantProvisioningBackendReadinessCheck(
+                    code="database_target_safe",
+                    ready=True,
+                ),
+            ),
+            plan_binding="sha256:" + "0" * 64,
+            execution_target_binding=binding,
+        )
+        self.assertTrue(incomplete.ready)
+        self.assertFalse(
+            readiness_allows_execution_candidate(incomplete, executable_plan)
+        )
+
+        complete = inspect_tenant_provisioning_backend_readiness(
+            self.plan,
+            FakeReadOnlyProbe(),
+        )
+        duplicated = TenantProvisioningBackendReadiness(
+            checks=complete.checks + (complete.checks[0],),
+            plan_binding=complete.plan_binding,
+            execution_target_binding=complete.execution_target_binding,
+        )
+        self.assertTrue(duplicated.ready)
+        self.assertFalse(
+            readiness_allows_execution_candidate(duplicated, executable_plan)
         )
 
     def test_readiness_cannot_be_reused_for_modified_plan(self):
