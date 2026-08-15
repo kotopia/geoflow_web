@@ -34,6 +34,45 @@ class _SimulatedReadOnlyIamClient:
         return {"PolicyDocument": self._policy_document}
 
 
+class _DisposableLockedReadOnlyReadinessProbe:
+    """CI-only JIT probe that performs no mutation and requires the held lock."""
+
+    read_only = True
+
+    def __init__(self, backend: "DisposableFullTenantBackend"):
+        self._backend = backend
+
+    def database_target_safe(self, plan: TenantProvisioningPlan) -> bool:
+        connection = self._backend._operation_connection()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM pg_database WHERE datname=%s",
+                [plan.db_name],
+            )
+            database_exists = cursor.fetchone() is not None
+            cursor.execute(
+                "SELECT 1 FROM pg_roles WHERE rolname=%s",
+                [plan.db_user],
+            )
+            role_exists = cursor.fetchone() is not None
+        return not database_exists and not role_exists
+
+    def secret_target_safe(self, plan: TenantProvisioningPlan) -> bool:
+        self._backend._operation_connection()
+        return self._backend._simulated_secret_id is None
+
+    def runtime_exact_secret_scope_ready(self, plan: TenantProvisioningPlan) -> bool:
+        self._backend._operation_connection()
+        # The disposable rehearsal has no live IAM identity. This positive result
+        # represents only the fake exact-scope boundary already covered by the
+        # production-shaped reader tests; no AWS call is possible here.
+        return True
+
+    def publication_target_still_available(self, plan: TenantProvisioningPlan) -> bool:
+        self._backend._operation_connection()
+        return self._backend._simulated_publication is None
+
+
 class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
     """CI-only full provisioning backend with simulated external dependencies.
 
@@ -46,6 +85,11 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
     verifier against a GetRolePolicy-only in-memory client after the simulated
     grant is created. This rehearses the post-grant safety gate without creating
     any production-capable IAM client or mutation path.
+
+    The JIT readiness probe is also read-only and can only be constructed while the
+    per-group advisory lock is held. It checks the disposable Postgres catalog with
+    SELECT statements and the simulated external/publication state before the first
+    provisioning mutation.
     """
 
     def __init__(
@@ -60,6 +104,7 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         self._simulated_runtime_grant = False
         self._simulated_runtime_policy: dict[str, Any] | None = None
         self._simulated_iam_read_count = 0
+        self._simulated_jit_revalidation_count = 0
         self._simulated_publication: tuple[str, str, str, int, str] | None = None
 
     def _maybe_fail(self, step: str) -> None:
@@ -82,6 +127,10 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
         return self._simulated_iam_read_count
 
     @property
+    def simulated_jit_revalidation_count(self) -> int:
+        return self._simulated_jit_revalidation_count
+
+    @property
     def simulated_external_state_clear(self) -> bool:
         return (
             self._simulated_secret_id is None
@@ -89,6 +138,11 @@ class DisposableFullTenantBackend(DisposablePostgresTenantBackend):
             and self._simulated_runtime_policy is None
             and self._simulated_publication is None
         )
+
+    def read_only_readiness_probe(self, plan: TenantProvisioningPlan):
+        self._operation_connection()
+        self._simulated_jit_revalidation_count += 1
+        return _DisposableLockedReadOnlyReadinessProbe(self)
 
     def ensure_external_secret(self, plan: TenantProvisioningPlan) -> bool:
         self._operation_connection()
