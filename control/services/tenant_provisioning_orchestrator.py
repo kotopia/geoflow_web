@@ -63,6 +63,8 @@ class TenantProvisioningBackend(Protocol):
 
     def publish_group_db_config(self, plan: TenantProvisioningPlan) -> None: ...
 
+    def group_db_config_matches_plan(self, plan: TenantProvisioningPlan) -> bool: ...
+
     def remove_runtime_secret_grant(self, plan: TenantProvisioningPlan) -> None: ...
 
     def delete_external_secret(self, plan: TenantProvisioningPlan) -> None: ...
@@ -132,10 +134,17 @@ def provision_new_tenant(
 ) -> TenantProvisioningResult:
     """Execute the reviewed new-tenant sequence through an injected backend.
 
-    The GroupDBConfig publication is deliberately the final operation. If any
-    operation before publication fails, compensation only removes resources that
-    the current attempt reports as newly created. Pre-existing/reconciled
+    The GroupDBConfig publication is deliberately the final mutating operation.
+    If an operation before publication fails, compensation only removes resources
+    that the current attempt reports as newly created. Pre-existing/reconciled
     resources are never deleted by this orchestrator.
+
+    Publication has one additional fail-closed rule: if the publish call raises,
+    the backend must perform a read-only exact-plan reconciliation before any
+    destructive compensation is allowed. A confirmed commit is treated as
+    success; a confirmed non-commit may be rolled back; an unknown publication
+    outcome is never rolled back automatically because that could delete resources
+    referenced by an already-committed GroupDBConfig.
 
     Compensation runs while the backend's per-group provisioning lock is still
     held. Concrete DB backends can therefore safely require that same lock for
@@ -146,6 +155,7 @@ def provision_new_tenant(
     _validate_execution(plan, confirmation)
     resources = ProvisioningAttemptResources()
     published = False
+    publication_outcome_known = True
 
     try:
         with backend.lock(plan):
@@ -181,17 +191,28 @@ def provision_new_tenant(
 
                 backend.verify_runtime_resolution_and_connectivity(plan)
 
-                # Central metadata is published only after every external/runtime
-                # dependency is proven ready. There are intentionally no operations
-                # after this publication inside the orchestrator.
-                backend.publish_group_db_config(plan)
-                published = True
+                # Central metadata is the final mutation. If the call reports an
+                # error after the DB commit became durable, reconcile read-only
+                # before deciding whether rollback is safe.
+                try:
+                    backend.publish_group_db_config(plan)
+                    published = True
+                except Exception as publish_exc:
+                    try:
+                        published = bool(backend.group_db_config_matches_plan(plan))
+                    except Exception as reconcile_exc:
+                        publication_outcome_known = False
+                        raise TenantProvisioningOrchestratorError(
+                            "publication_outcome_unknown"
+                        ) from reconcile_exc
+                    if not published:
+                        raise publish_exc
             except TenantProvisioningOrchestratorError:
-                if not published:
+                if not published and publication_outcome_known:
                     _rollback_attempt(backend, plan, resources)
                 raise
             except Exception as exc:
-                if not published:
+                if not published and publication_outcome_known:
                     try:
                         _rollback_attempt(backend, plan, resources)
                     except TenantProvisioningOrchestratorError as rollback_exc:
