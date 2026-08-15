@@ -136,14 +136,16 @@ def main() -> int:
         else:
             raise RuntimeError("simulated_failure_did_not_fail")
 
+        if failing_backend.simulated_jit_revalidation_count != 1:
+            raise RuntimeError("failed_attempt_jit_readiness_not_exactly_once")
         if failing_backend.simulated_iam_read_count != 1:
             raise RuntimeError("failed_attempt_iam_readback_not_exactly_once")
         if not failing_backend.simulated_external_state_clear:
             raise RuntimeError("failed_attempt_external_cleanup_incomplete")
 
         # Reusing the same deterministic plan proves the failed attempt removed
-        # its marker-owned role/database. Any residue causes the second create to
-        # fail closed before publication.
+        # its marker-owned role/database. Any residue causes the second JIT read to
+        # fail closed before the first mutation or publication.
         success_backend = DisposableFullTenantBackend(config)
         result = provision_new_tenant(
             plan,
@@ -153,6 +155,8 @@ def main() -> int:
         )
         if not result.completed or not result.config_published:
             raise RuntimeError("orchestrator_success_result_invalid")
+        if success_backend.simulated_jit_revalidation_count != 1:
+            raise RuntimeError("successful_attempt_jit_readiness_not_exactly_once")
         if success_backend.simulated_iam_read_count != 1:
             raise RuntimeError("successful_attempt_iam_readback_not_exactly_once")
         if not success_backend.simulated_publication_complete:
@@ -168,6 +172,7 @@ def main() -> int:
             raise RuntimeError("successful_rehearsal_cleanup_incomplete")
 
     print("tenant_orchestrator_ci_readiness_attestation=required_and_bound")
+    print("tenant_orchestrator_ci_jit_readiness=under_lock_before_first_mutation")
     print("tenant_orchestrator_ci_failure_rollback=yes")
     print("tenant_orchestrator_ci_retry_after_cleanup=yes")
     print("tenant_orchestrator_ci_post_grant_iam_readback=read_only_exact")
