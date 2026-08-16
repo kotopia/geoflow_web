@@ -1,9 +1,203 @@
 {% extends "geoflow_ops/base_tenant.html" %}
-{% load static %}
+{% load static humanize %}
 
 {% block content %}
-    <div class="container-fluid p-0">
-        <h1 class="h3 mb-3">홈 화면</h1>
-        <p>환영합니다! 이곳은 GeoFlow의 대시보드 홈입니다.</p>
+<div class="container-fluid p-0">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+    <div>
+      <h1 class="h3 mb-1">업무 대시보드</h1>
+      <div class="text-muted">계약·프로젝트·실행 업무를 현재 관리 대상 중심으로 봅니다.</div>
     </div>
+    <div class="d-flex gap-2">
+      {% if can_view_projects %}<a class="btn btn-outline-primary btn-sm" href="{% url 'tenant:project_list' %}">프로젝트 목록</a>{% endif %}
+      {% if can_view_contracts %}<a class="btn btn-outline-secondary btn-sm" href="{% url 'tenant:contract_list' %}">계약 목록</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small">연도</label>
+          <select name="year" class="form-select form-select-sm">
+            <option value="">전체</option>
+            {% for y in available_years %}
+              <option value="{{ y }}" {% if filters.year == y %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">시작 기준</label>
+          <input type="date" name="from" class="form-control form-control-sm" value="{{ filters.from }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">종료 기준</label>
+          <input type="date" name="to" class="form-control form-control-sm" value="{{ filters.to }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">프로젝트 상태</label>
+          <select name="status" class="form-select form-select-sm">
+            <option value="">현재 관리 대상</option>
+            <option value="planned" {% if filters.status == 'planned' %}selected{% endif %}>대기</option>
+            <option value="active" {% if filters.status == 'active' %}selected{% endif %}>진행</option>
+            <option value="pause" {% if filters.status == 'pause' %}selected{% endif %}>중지/보류</option>
+            <option value="complete" {% if filters.status == 'complete' %}selected{% endif %}>완료</option>
+            <option value="cancel" {% if filters.status == 'cancel' %}selected{% endif %}>취소</option>
+          </select>
+        </div>
+        {% if can_view_directory %}
+        <div class="col-md-2">
+          <label class="form-label small">업무 담당자</label>
+          <select name="assignee" class="form-select form-select-sm">
+            <option value="">전체</option>
+            {% for emp in employee_options %}
+              <option value="{{ emp.id }}" {% if filters.assignee == emp.id %}selected{% endif %}>
+                {{ emp.name }}{% if emp.title %} · {{ emp.title }}{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="col-md-2">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" value="1" name="include_completed" id="includeCompleted" {% if filters.include_completed %}checked{% endif %}>
+            <label class="form-check-label small" for="includeCompleted">완료/취소 포함</label>
+          </div>
+          <button class="btn btn-primary btn-sm w-100" type="submit">적용</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-sm-6 col-xl-2">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted small">관리 계약</div>
+        <div class="h3 mb-0">{% if can_view_contracts %}{{ contracts_count|intcomma }}{% else %}-{% endif %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-2">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted small">관리 프로젝트</div>
+        <div class="h3 mb-0">{% if can_view_projects %}{{ projects_count|intcomma }}{% else %}-{% endif %}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-2">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted small">미완료 업무</div>
+        <div class="h3 mb-0">{{ task_open_count|intcomma }}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-2">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted small">완료 업무</div>
+        <div class="h3 mb-0">{{ task_done_count|intcomma }}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-2">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted small">물량 차이</div>
+        <div class="h3 mb-0">{{ task_variance_count|intcomma }}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-2">
+      <div class="card h-100"><div class="card-body">
+        <div class="text-muted small">담당 미지정</div>
+        <div class="h3 mb-0">{{ task_unassigned_count|intcomma }}</div>
+      </div></div>
+    </div>
+  </div>
+
+  {% if can_view_projects %}
+  <div class="row g-3">
+    <div class="col-xl-7">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <div>
+            <h5 class="card-title mb-0">프로젝트 진행현황</h5>
+            <small class="text-muted">업무 항목 완료율 기준</small>
+          </div>
+          <span class="badge bg-light text-dark border">{{ project_rows|length }}건 표시</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>프로젝트</th>
+                  <th>상태</th>
+                  <th>업무</th>
+                  <th style="min-width:10rem;">완료율</th>
+                  <th>차이</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in project_rows %}
+                  <tr>
+                    <td>
+                      <a class="fw-semibold" href="{% url 'tenant:project_detail' pk=row.project.id %}">{{ row.project.name|default:row.project.contract.name|default:"프로젝트" }}</a>
+                      <div class="small text-muted">{{ row.project.contract.code|default:"-" }} · {{ row.project.contract.name|default:"-" }}</div>
+                    </td>
+                    <td>{{ row.project.status|default:"-" }}</td>
+                    <td>{{ row.task_done }}/{{ row.task_total }} <span class="small text-muted">미완료 {{ row.task_open }}</span></td>
+                    <td>
+                      <div class="d-flex align-items-center gap-2">
+                        <div class="progress flex-grow-1" style="height:6px;">
+                          <div class="progress-bar" role="progressbar" style="width:{{ row.progress_pct }}%;" aria-valuenow="{{ row.progress_pct }}" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                        <span class="small text-nowrap">{{ row.progress_pct }}%</span>
+                      </div>
+                    </td>
+                    <td>{% if row.variance_count %}<span class="badge bg-warning text-dark">{{ row.variance_count }}</span>{% else %}-{% endif %}</td>
+                  </tr>
+                {% empty %}
+                  <tr><td colspan="5" class="text-center text-muted py-5">조건에 맞는 프로젝트가 없습니다.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-xl-5">
+      <div class="card h-100">
+        <div class="card-header">
+          <h5 class="card-title mb-0">업무 큐</h5>
+          <small class="text-muted">진행중·보류·대기 순으로 최대 40건</small>
+        </div>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush">
+            {% for task in task_queue %}
+              <a class="list-group-item list-group-item-action" href="{% url 'tenant:project_detail' pk=task.project.id %}">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                  <div class="min-w-0">
+                    <div class="fw-semibold text-truncate">{{ task.l3_name|default:"업무" }}</div>
+                    <div class="small text-muted text-truncate">{{ task.project.name|default:task.project.contract.name }} · {{ task.l2_name }}</div>
+                  </div>
+                  {% if task.status == 'active' %}<span class="badge bg-primary">진행중</span>
+                  {% elif task.status == 'hold' %}<span class="badge bg-warning text-dark">보류</span>
+                  {% elif task.status == 'pending' %}<span class="badge bg-light text-dark border">대기</span>
+                  {% elif task.status == 'done' %}<span class="badge bg-success">완료</span>
+                  {% else %}<span class="badge bg-secondary">취소</span>{% endif %}
+                </div>
+                <div class="small mt-2">
+                  {% if can_view_directory %}담당 {{ task.assignee_name|default:"미지정" }}{% endif %}
+                  {% if task.design_qty is not None %}<span class="ms-2">설계 {{ task.design_qty }} {{ task.unit }}</span>{% endif %}
+                  {% if task.completed_qty is not None %}<span class="ms-2">실적 {{ task.completed_qty }} {{ task.unit }}</span>{% endif %}
+                  {% if task.has_variance %}<span class="badge bg-warning text-dark ms-2">물량 차이</span>{% endif %}
+                </div>
+              </a>
+            {% empty %}
+              <div class="list-group-item text-center text-muted py-5">대기 중인 업무가 없습니다.</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+    <div class="alert alert-light border">프로젝트 조회 권한이 없어 프로젝트 업무 현황은 표시하지 않습니다.</div>
+  {% endif %}
+</div>
 {% endblock %}
