@@ -12,6 +12,7 @@ on:
       - geoflow_ops/templates/geoflow_ops/events/_event_modal.html
       - geoflow_ops/templates/geoflow_ops/projects/project_detail.html
       - geoflow_ops/templates/geoflow_ops/projects/project_summary.html
+      - geoflow_ops/static/geoflow_ops/js/process-events-ui.js
       - geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
   workflow_dispatch:
     inputs:
