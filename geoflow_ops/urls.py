@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard
+from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_execution
 from . import security_views, upload_guard_views, employee_security_views, event_security_views
 from .views_home_security import tenant_home
 
@@ -26,8 +26,8 @@ urlpatterns = [
     path("projects/<uuid:pk>/", security_views.project_detail, name="project_detail"),
     path("projects/<uuid:pk>/json/", security_views.project_json, name="project_detail_json"),
 
-    path("projects/<uuid:pk>/summary/", security_views.project_summary, name="project_summary"),
-    path("projects/<uuid:pk>/summary-save/", security_views.project_summary_save, name="project_summary_save"),
+    path("projects/<uuid:pk>/summary/", views_execution.project_task_modal, name="project_summary"),
+    path("projects/<uuid:pk>/summary-save/", views_execution.project_task_save, name="project_summary_save"),
 
     path("projects/<uuid:pk>/scope-modal/", security_views.project_scope_modal, name="project_scope_modal"),
     path("projects/<uuid:pk>/scope-save/", security_views.project_scope_save, name="project_scope_save"),
