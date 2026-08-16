@@ -144,11 +144,14 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
         body = _function_source(ROOT / "views_workboard.py", "assignment_options")
         for guard in (
             "require_tenant_context(request)",
-            "authorize_scope_read(request, alias, scope_type, scope_id)",
-            "has_scope_permission(request, scope_type, write=True)",
+            "authorize_scope_write(request, alias, scope_type, scope_id)",
             'gf_has_perm(request, "directory.view")',
         ):
             self.assertIn(guard, body)
+        self.assertLess(
+            body.index("require_tenant_context(request)"),
+            body.index("authorize_scope_write(request, alias, scope_type, scope_id)"),
+        )
 
     def test_upload_routes_retain_entity_authorization(self):
         uploads = ROOT / "views_uploads.py"
