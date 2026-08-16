@@ -75,6 +75,7 @@ jobs:
           python manage.py test \
             geoflow_ops.test_phase4_event_workflow_foundation \
             geoflow_ops.test_phase4_cross_department_workboard \
+            geoflow_ops.test_phase4_contract_workboard_compat \
             geoflow_ops.test_phase4_event_production_audit_contract \
             geoflow_ops.test_phase4_event_production_activation_contract \
             geoflow_ops.test_event_api_security \
