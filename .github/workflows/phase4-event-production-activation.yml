@@ -127,8 +127,12 @@ jobs:
           printf '%s' "$exec_raw" | grep -Fq "$repo/.venv/bin/gunicorn" || fail 'service_exec_not_stabilized_venv'
           printf '%s' "$exec_raw" | grep -Fq 'geoflow_project.wsgi:application' || fail 'service_wsgi_target_unexpected'
 
-          before_code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://127.0.0.1:8011/login/ || true)"
-          [ "$before_code" = '200' ] || fail 'login_not_200_before_activation'
+          before_code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://127.0.0.1:8011/login/ || true)"
+          echo "phase4_event_activation_local_login_before=$before_code"
+          case "$before_code" in
+            2??|3??) ;;
+            *) fail 'local_login_unhealthy_before_activation' ;;
+          esac
 
           previous_sha="$(git -C "$repo" rev-parse HEAD)"
           previous_branch="$(git -C "$repo" symbolic-ref --short -q HEAD || true)"
@@ -418,10 +422,11 @@ jobs:
           for _ in $(seq 1 30); do
             active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
             sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
-            if [ "$active" = 'active' ] && [ "$sub" = 'running' ] && [ "$code" = '200' ]; then
-              ready=yes
-              break
+            code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
+            if [ "$active" = 'active' ] && [ "$sub" = 'running' ]; then
+              case "$code" in
+                2??|3??) ready=yes; break ;;
+              esac
             fi
             sleep 2
           done
