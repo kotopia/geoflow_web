@@ -281,14 +281,23 @@ class ProcessEvent(models.Model):
     stage = models.CharField(max_length=50, db_column="stage")
     event_type = models.CharField(max_length=50, db_column="event_type")
 
+    # Phase 4 business lineage. These stay UUIDs instead of database FKs because
+    # tenant installations may have legacy/custom physical constraints. The
+    # application validates scope and tenant ownership before writes.
+    contract_id = models.UUIDField(db_column="contract_id", null=True, blank=True)
+    project_id = models.UUIDField(db_column="project_id", null=True, blank=True)
+    owner_department_id = models.UUIDField(db_column="owner_department_id", null=True, blank=True)
+    assignee_employee_id = models.UUIDField(db_column="assignee_employee_id", null=True, blank=True)
+    payload = models.JSONField(db_column="payload", default=dict, blank=True)
+
     title = models.CharField(max_length=255, db_column="title", default="", blank=True)
     memo = models.TextField(db_column="memo", blank=True, default="")
 
     STATUS_CHOICES = [
-        ("draft", "Draft"),
-        ("open", "Open"),
-        ("done", "Done"),
-        ("void", "Void"),
+        ("draft", "작성중"),
+        ("open", "진행중"),
+        ("done", "완료"),
+        ("void", "취소"),
     ]
     status = models.CharField(max_length=20, db_column="status", choices=STATUS_CHOICES, default="draft")
 
@@ -306,6 +315,10 @@ class ProcessEvent(models.Model):
             models.Index(fields=["scope_type", "scope_id"], name="idx_event_scope"),
             models.Index(fields=["scope_type", "scope_id", "stage"], name="idx_event_scope_stage"),
             models.Index(fields=["status"], name="idx_event_status"),
+            models.Index(fields=["contract_id"], name="idx_event_contract"),
+            models.Index(fields=["project_id"], name="idx_event_project"),
+            models.Index(fields=["owner_department_id"], name="idx_event_owner_dept"),
+            models.Index(fields=["assignee_employee_id"], name="idx_event_assignee"),
         ]
 
 
