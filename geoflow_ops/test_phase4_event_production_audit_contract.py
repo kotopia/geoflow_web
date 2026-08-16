@@ -32,6 +32,10 @@ class Phase4EventProductionAuditContractTests(SimpleTestCase):
         self.assertIn("SHOW transaction_read_only", self.source)
         self.assertIn('central_cur.execute("SET LOCAL TRANSACTION READ ONLY")', self.source)
 
+    def test_schema_absent_tenant_still_counts_as_audited(self):
+        expected = '''if not events_present:\n                          conn.rollback()\n                          totals["audited_tenants"] += 1\n                          continue'''
+        self.assertIn(expected, self.source)
+
     def test_audit_does_not_select_business_text_or_payload_content(self):
         lowered = self.source.lower()
         self.assertNotIn("select title", lowered)
