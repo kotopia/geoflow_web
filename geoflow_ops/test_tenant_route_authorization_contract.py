@@ -78,6 +78,7 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
             "api/events/create/": "event_security_views.event_create",
             "api/events/list/": "event_security_views.event_list",
             "api/events/update/<uuid:event_id>/": "event_security_views.event_update",
+            "api/events/assignment-options/": "views_workboard.assignment_options",
             "api/events/delete/<uuid:event_id>/": "views_events.delete_event",
             "events/ui/modal/": "security_views.event_modal_ui",
         }
@@ -138,6 +139,16 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
                 body.index("_assignment_write_forbidden(request)"),
                 body.index(delegated),
             )
+
+    def test_assignment_options_require_tenant_scope_write_and_directory_read(self):
+        body = _function_source(ROOT / "views_workboard.py", "assignment_options")
+        for guard in (
+            "require_tenant_context(request)",
+            "authorize_scope_read(request, alias, scope_type, scope_id)",
+            "has_scope_permission(request, scope_type, write=True)",
+            'gf_has_perm(request, "directory.view")',
+        ):
+            self.assertIn(guard, body)
 
     def test_upload_routes_retain_entity_authorization(self):
         uploads = ROOT / "views_uploads.py"
