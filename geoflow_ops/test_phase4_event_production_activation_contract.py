@@ -26,6 +26,14 @@ class Phase4EventProductionActivationContractTests(SimpleTestCase):
         self.assertIn("http://127.0.0.1:8011/login/", self.source)
         self.assertIn("https://geoflow.co.kr/login/", self.source)
 
+    def test_local_health_uses_public_host_and_accepts_redirects(self):
+        self.assertIn("-H 'Host: geoflow.co.kr'", self.source)
+        self.assertIn('case "$before_code" in', self.source)
+        self.assertIn("2??|3??", self.source)
+        self.assertNotIn("login_not_200_before_activation", self.source)
+        self.assertNotIn("[ \"$code\" = '200' ]", self.source)
+        self.assertIn("[ \"$public_login\" = '200' ]", self.source)
+
     def test_activation_preserves_contract_one_to_many_project_shape(self):
         self.assertNotIn("unique (contract_id)", self.lowered)
         self.assertNotIn("unique(contract_id)", self.lowered)
