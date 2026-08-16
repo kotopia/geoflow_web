@@ -1,0 +1,406 @@
+name: Phase 4 event production read-only audit
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase4-event-production-readonly-audit.yml
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  event-production-readonly-audit:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || {
+            echo 'phase4_event_audit_blocker=release_advanced'
+            exit 2
+          }
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || {
+            echo 'phase4_event_audit_blocker=invalid_ssh_port'
+            exit 2
+          }
+          echo 'phase4_event_audit_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Audit active tenant event data read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+
+          reviewed_sha="$1"
+          service='geoflow-stabilized.service'
+
+          fail() {
+            echo "phase4_event_audit_blocker=$1"
+            exit 2
+          }
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'stabilized_service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'runtime_python_missing'
+
+          deployed_sha="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
+          [ -n "$deployed_sha" ] || fail 'deployed_sha_unavailable'
+          echo "phase4_event_audit_reviewed_sha=$reviewed_sha"
+          echo "phase4_event_audit_deployed_sha=$deployed_sha"
+
+          # Aggregate-only diagnostic. It never prints tenant/group/user identifiers,
+          # DB hosts/names/users, event titles/memos/payloads, or credential material.
+          "$python" - "$repo" <<'PY'
+          from collections import Counter
+          import os
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          import psycopg2
+          from django.db import connections, transaction
+
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import (
+              is_tenant_db_secret_reference,
+              resolve_tenant_db_password,
+          )
+
+          CANONICAL_STAGES = {
+              "pre_contract", "contract", "kickoff", "execution",
+              "inspection", "closeout", "billing",
+          }
+          LEGACY_STAGES = {"project", "blilling"}
+          VALID_STATUSES = {"draft", "open", "done", "void"}
+          REQUIRED_COLUMNS = {
+              "contract_id", "project_id", "owner_department_id",
+              "assignee_employee_id", "payload",
+          }
+          MIGRATION_NAME = "0019_phase4_event_workflow_foundation"
+
+          def text(value):
+              return str(value or "").strip()
+
+          def scalar(cur, sql, params=None):
+              cur.execute(sql, params or [])
+              return cur.fetchone()[0]
+
+          # Central metadata read is explicitly read-only too.
+          with transaction.atomic(using="default"):
+              with connections["default"].cursor() as central_cur:
+                  central_cur.execute("SET LOCAL TRANSACTION READ ONLY")
+                  rows = list(
+                      GroupDBConfig.objects.using("default")
+                      .select_related("group")
+                      .order_by("group_id")
+                  )
+
+          active_rows = [
+              row for row in rows
+              if text(getattr(row.group, "status", "")).lower() == "active"
+          ]
+
+          totals = Counter()
+          totals["configs"] = len(rows)
+          totals["active_tenants"] = len(active_rows)
+
+          for row in active_rows:
+              raw = text(row.db_password)
+              try:
+                  password = (
+                      resolve_tenant_db_password(raw)
+                      if is_tenant_db_secret_reference(raw)
+                      else raw
+                  )
+              except Exception:
+                  totals["secret_resolution_failed"] += 1
+                  continue
+
+              if not password:
+                  totals["secret_resolution_failed"] += 1
+                  continue
+
+              try:
+                  conn = psycopg2.connect(
+                      dbname=row.db_name,
+                      user=row.db_user,
+                      password=password,
+                      host=row.db_host,
+                      port=row.db_port,
+                      sslmode="require",
+                      connect_timeout=8,
+                  )
+              except Exception:
+                  totals["connection_failed"] += 1
+                  continue
+
+              try:
+                  conn.set_session(readonly=True, autocommit=False)
+                  with conn.cursor() as cur:
+                      cur.execute("SHOW transaction_read_only")
+                      readonly = text(cur.fetchone()[0]).lower() in {"on", "true", "yes", "1"}
+                      if not readonly:
+                          raise RuntimeError("tenant connection is not read-only")
+
+                      events_present = bool(scalar(cur, "SELECT to_regclass('ops.process_events') IS NOT NULL"))
+                      projects_present = bool(scalar(cur, "SELECT to_regclass('prj.projects') IS NOT NULL"))
+                      contracts_present = bool(scalar(cur, "SELECT to_regclass('ctr.contracts') IS NOT NULL"))
+
+                      totals["events_table_present"] += int(events_present)
+                      totals["projects_table_present"] += int(projects_present)
+                      totals["contracts_table_present"] += int(contracts_present)
+
+                      if projects_present and contracts_present:
+                          totals["project_total"] += int(scalar(cur, "SELECT COUNT(*) FROM prj.projects"))
+                          totals["project_null_contract"] += int(scalar(
+                              cur,
+                              "SELECT COUNT(*) FROM prj.projects WHERE contract_id IS NULL",
+                          ))
+                          totals["project_orphan_contract"] += int(scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM prj.projects p
+                                LEFT JOIN ctr.contracts c ON c.id = p.contract_id
+                               WHERE p.contract_id IS NOT NULL
+                                 AND c.id IS NULL
+                              """,
+                          ))
+                          totals["contracts_with_multiple_projects"] += int(scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM (
+                                  SELECT contract_id
+                                    FROM prj.projects
+                                   WHERE contract_id IS NOT NULL
+                                   GROUP BY contract_id
+                                  HAVING COUNT(*) > 1
+                                ) x
+                              """,
+                          ))
+                          totals["projects_under_multi_project_contracts"] += int(scalar(
+                              cur,
+                              """
+                              SELECT COALESCE(SUM(project_count), 0)
+                                FROM (
+                                  SELECT COUNT(*) AS project_count
+                                    FROM prj.projects
+                                   WHERE contract_id IS NOT NULL
+                                   GROUP BY contract_id
+                                  HAVING COUNT(*) > 1
+                                ) x
+                              """,
+                          ))
+
+                      if not events_present:
+                          continue
+
+                      cur.execute(
+                          """
+                          SELECT column_name
+                            FROM information_schema.columns
+                           WHERE table_schema = 'ops'
+                             AND table_name = 'process_events'
+                          """
+                      )
+                      event_columns = {text(r[0]) for r in cur.fetchall()}
+                      schema_ready = REQUIRED_COLUMNS.issubset(event_columns)
+                      totals["event_schema_ready"] += int(schema_ready)
+
+                      migration_applied = bool(scalar(
+                          cur,
+                          """
+                          SELECT EXISTS (
+                              SELECT 1
+                                FROM django_migrations
+                               WHERE app = 'webgisapp'
+                                 AND name = %s
+                          )
+                          """,
+                          [MIGRATION_NAME],
+                      ))
+                      totals["migration_0019_applied"] += int(migration_applied)
+
+                      totals["event_total"] += int(scalar(cur, "SELECT COUNT(*) FROM ops.process_events"))
+                      totals["event_contract_scope"] += int(scalar(
+                          cur,
+                          "SELECT COUNT(*) FROM ops.process_events WHERE scope_type = 'contract'",
+                      ))
+                      totals["event_project_scope"] += int(scalar(
+                          cur,
+                          "SELECT COUNT(*) FROM ops.process_events WHERE scope_type = 'project'",
+                      ))
+                      totals["event_other_scope"] += int(scalar(
+                          cur,
+                          "SELECT COUNT(*) FROM ops.process_events WHERE scope_type NOT IN ('contract','project')",
+                      ))
+                      totals["legacy_stage_project"] += int(scalar(
+                          cur,
+                          "SELECT COUNT(*) FROM ops.process_events WHERE stage = 'project'",
+                      ))
+                      totals["legacy_stage_blilling"] += int(scalar(
+                          cur,
+                          "SELECT COUNT(*) FROM ops.process_events WHERE stage = 'blilling'",
+                      ))
+                      totals["unknown_stage_rows"] += int(scalar(
+                          cur,
+                          """
+                          SELECT COUNT(*)
+                            FROM ops.process_events
+                           WHERE stage IS NULL
+                              OR stage = ''
+                              OR stage <> ALL(%s)
+                          """,
+                          [sorted(CANONICAL_STAGES | LEGACY_STAGES)],
+                      ))
+                      totals["invalid_status_rows"] += int(scalar(
+                          cur,
+                          """
+                          SELECT COUNT(*)
+                            FROM ops.process_events
+                           WHERE status IS NULL
+                              OR status = ''
+                              OR status <> ALL(%s)
+                          """,
+                          [sorted(VALID_STATUSES)],
+                      ))
+
+                      if projects_present:
+                          totals["project_scope_joinable_to_contract"] += int(scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ops.process_events e
+                                JOIN prj.projects p ON p.id = e.scope_id
+                               WHERE e.scope_type = 'project'
+                                 AND p.contract_id IS NOT NULL
+                              """,
+                          ))
+
+                      if schema_ready:
+                          totals["missing_contract_lineage"] += int(scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ops.process_events
+                               WHERE scope_type = 'contract'
+                                 AND contract_id IS NULL
+                              """,
+                          ))
+                          totals["missing_project_lineage"] += int(scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ops.process_events
+                               WHERE scope_type = 'project'
+                                 AND project_id IS NULL
+                              """,
+                          ))
+                          if projects_present:
+                              totals["project_contract_lineage_mismatch"] += int(scalar(
+                                  cur,
+                                  """
+                                  SELECT COUNT(*)
+                                    FROM ops.process_events e
+                                    JOIN prj.projects p ON p.id = e.scope_id
+                                   WHERE e.scope_type = 'project'
+                                     AND (
+                                          e.project_id IS DISTINCT FROM p.id
+                                          OR e.contract_id IS DISTINCT FROM p.contract_id
+                                     )
+                                  """,
+                              ))
+
+                  conn.rollback()
+                  totals["audited_tenants"] += 1
+              except Exception:
+                  conn.rollback()
+                  totals["audit_failed"] += 1
+              finally:
+                  conn.close()
+
+          ordered_keys = (
+              "configs", "active_tenants", "audited_tenants",
+              "secret_resolution_failed", "connection_failed", "audit_failed",
+              "events_table_present", "projects_table_present", "contracts_table_present",
+              "event_schema_ready", "migration_0019_applied",
+              "event_total", "event_contract_scope", "event_project_scope", "event_other_scope",
+              "legacy_stage_project", "legacy_stage_blilling", "unknown_stage_rows",
+              "invalid_status_rows", "missing_contract_lineage", "missing_project_lineage",
+              "project_scope_joinable_to_contract", "project_contract_lineage_mismatch",
+              "project_total", "project_null_contract", "project_orphan_contract",
+              "contracts_with_multiple_projects", "projects_under_multi_project_contracts",
+          )
+          for key in ordered_keys:
+              print(f"phase4_event_audit_{key}={int(totals[key])}")
+
+          if totals["audited_tenants"] != totals["active_tenants"]:
+              raise SystemExit("phase4_event_audit_blocker=not_all_active_tenants_audited")
+
+          print("phase4_event_production_readonly_audit_complete=yes")
+          PY
+          REMOTE
