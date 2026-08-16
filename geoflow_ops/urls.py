@@ -51,10 +51,10 @@ urlpatterns = [
     path("api/uploads/presign-get/<uuid:attachment_id>/", upload_guard_views.presign_get, name="upload_presign_get"),
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
 
-    path("api/events/create/", views_events.create_event, name="event_create"),
+    path("api/events/create/", event_security_views.event_create, name="event_create"),
     path("api/events/list/", event_security_views.event_list, name="event_list"),
     path("api/events/assignment-options/", views_workboard.assignment_options, name="event_assignment_options"),
-    path("api/events/update/<uuid:event_id>/", views_events.update_event, name="event_update"),
+    path("api/events/update/<uuid:event_id>/", event_security_views.event_update, name="event_update"),
     path("api/events/delete/<uuid:event_id>/", views_events.delete_event, name="event_delete"),
     path("events/ui/modal/", security_views.event_modal_ui, name="event_modal_ui"),
 ]
