@@ -9,6 +9,7 @@ from geoflow_ops.views_workboard import _event_filter
 
 
 ROOT = Path(__file__).resolve().parent
+REPO_ROOT = ROOT.parent
 
 
 def _q_leaves(node):
@@ -25,7 +26,7 @@ def _q_leaves(node):
 
 class IntegratedTimelineFilterTests(SimpleTestCase):
     @patch("geoflow_ops.views_workboard.has_scope_permission", return_value=True)
-    def test_contract_timeline_includes_project_events_only_with_project_read_permission(self, permission_mock):
+    def test_contract_timeline_includes_project_events_only_with_project_read_permission(self, _permission_mock):
         contract_id = uuid4()
         query, mode = _event_filter(object(), "tenant", "contract", contract_id)
         leaves = _q_leaves(query)
@@ -35,7 +36,6 @@ class IntegratedTimelineFilterTests(SimpleTestCase):
         self.assertIn(("scope_id", contract_id), leaves)
         self.assertIn(("scope_type", "project"), leaves)
         self.assertIn(("contract_id", contract_id), leaves)
-        permission_mock.assert_called_once_with(object(), "project", write=False) if False else None
 
     @patch("geoflow_ops.views_workboard.has_scope_permission", return_value=False)
     def test_contract_timeline_falls_back_to_contract_only_without_project_permission(self, _permission_mock):
@@ -123,3 +123,20 @@ class WorkboardSourceContracts(SimpleTestCase):
         self.assertIn("payload.owner_department_id", source)
         self.assertIn("payload.assignee_employee_id", source)
         self.assertIn("ev.can_write", source)
+
+    def test_production_deploy_is_exact_release_protected_and_application_only(self):
+        source = (
+            REPO_ROOT / ".github" / "workflows" / "phase4-workboard-production-deploy.yml"
+        ).read_text(encoding="utf-8")
+        lowered = source.lower()
+        self.assertIn("environment: production", source)
+        self.assertIn("service='geoflow-stabilized.service'", source)
+        self.assertIn('test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"', source)
+        self.assertIn("candidate_sha_not_current_release_head", source)
+        self.assertIn("https://geoflow.co.kr/login/", source)
+        self.assertNotIn("iroomsng", lowered)
+        self.assertNotIn(" manage.py migrate", lowered)
+        self.assertNotIn("migrate_all_tenants", lowered)
+        self.assertNotIn("psql ", lowered)
+        self.assertNotIn("delete from ", lowered)
+        self.assertNotIn("truncate ", lowered)
