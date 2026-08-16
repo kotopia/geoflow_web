@@ -28,7 +28,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("if (config.canAssign)", source)
         self.assertIn("payload.owner_department_id", source)
         self.assertIn("payload.assignee_employee_id", source)
-        self.assertIn("payload.due_at", source)
+        self.assertIn("due_at: fDue", source)
         self.assertIn("currentCanWrite", source)
 
     def test_contract_timeline_preserves_event_scope_for_merged_project_events(self):
