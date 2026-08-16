@@ -39,7 +39,6 @@ class Phase4TaskDashboardProductionActivationContractTests(SimpleTestCase):
             "drop table prj.scope_item",
         ):
             self.assertNotIn(token, self.lowered)
-        self.assertIn("event row count changed", self.source.replace("scope item", "event")) if False else None
         self.assertIn("scope item row count changed", self.source)
         self.assertIn("conn.rollback()", self.source)
         self.assertIn("conn.commit()", self.source)
