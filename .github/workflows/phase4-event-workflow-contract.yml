@@ -69,6 +69,8 @@ jobs:
             geoflow_ops/views_workboard.py \
             geoflow_ops/services/entity_access.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py
+          node --check geoflow_ops/static/geoflow_ops/js/process-events-ui.js
+          node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
 
       - name: Run Phase 4 event workflow regressions
         run: |
