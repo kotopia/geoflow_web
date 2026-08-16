@@ -11,13 +11,15 @@
     eventUpdateUrl: null,
     eventDeleteUrl: null,
     eventModalUiUrl: null,
+    assignmentOptionsUrl: null,
     presignPutUrl: null,
     commitUrl: null,
     containerSelector: '#eventModalMount',
     timelineListSelector: '#timelineList',
     timelineEmptySelector: '#timelineEmpty',
     addEventBtnSelector: '#btn-add-event',
-    canWrite: false
+    canWrite: false,
+    canAssign: false
   };
 
   var modalEl = null;
@@ -29,18 +31,37 @@
   var fStatus = null;
   var fTitle = null;
   var fOcc = null;
+  var fDue = null;
   var fMemo = null;
   var fScopeType = null;
   var fScopeId = null;
   var fCreatedAt = null;
   var fCreatedBy = null;
+  var fDept = null;
+  var fAssignee = null;
+  var assignmentHelp = null;
   var btnSave = null;
   var btnDel = null;
   var btnAttach = null;
   var attachSection = null;
   var attachList = null;
   var currentEventId = null;
+  var currentEvent = null;
+  var currentCanWrite = false;
   var isEditMode = false;
+  var assignmentEmployees = [];
+
+  var stageLabels = {
+    pre_contract: '계약전', contract: '계약', kickoff: '착수', execution: '수행',
+    inspection: '검사', closeout: '준공', billing: '청구/정산'
+  };
+  var statusLabels = { draft: '작성중', open: '진행중', done: '완료', void: '취소' };
+
+  function deriveAssignmentOptionsUrl(listUrl) {
+    var value = String(listUrl || '');
+    if (!value) return '';
+    return value.replace(/list\/?$/, 'assignment-options/');
+  }
 
   function loadConfigFromDom(selector) {
     var container = document.querySelector(selector);
@@ -53,6 +74,7 @@
     config.eventUpdateUrl = container.getAttribute('data-event-update-url') || container.getAttribute('data-events-update-url');
     config.eventDeleteUrl = container.getAttribute('data-event-delete-url') || container.getAttribute('data-events-delete-url');
     config.eventModalUiUrl = container.getAttribute('data-event-modal-ui-url') || container.getAttribute('data-events-modal-ui-url');
+    config.assignmentOptionsUrl = container.getAttribute('data-assignment-options-url') || deriveAssignmentOptionsUrl(config.eventListUrl);
     config.presignPutUrl = container.getAttribute('data-presign-put-url');
     config.commitUrl = container.getAttribute('data-commit-url');
     return !!(
@@ -87,11 +109,15 @@
     fStatus = document.getElementById('event-status');
     fTitle = document.getElementById('event-title');
     fOcc = document.getElementById('event-occurred-at');
+    fDue = document.getElementById('event-due-at');
     fMemo = document.getElementById('event-memo');
     fScopeType = document.getElementById('event-scope-type');
     fScopeId = document.getElementById('event-scope-id');
     fCreatedAt = document.getElementById('event-created-at');
     fCreatedBy = document.getElementById('event-created-by');
+    fDept = document.getElementById('event-owner-department');
+    fAssignee = document.getElementById('event-assignee-employee');
+    assignmentHelp = document.getElementById('event-assignment-help');
     btnSave = document.getElementById('btn-save-event');
     btnDel = document.getElementById('btn-delete-event-modal');
     btnAttach = document.getElementById('btn-timeline-attach');
@@ -103,32 +129,43 @@
     if (btnSave) btnSave.onclick = function(e) { e.preventDefault(); saveEvent(); };
     if (btnDel) btnDel.onclick = function(e) { e.preventDefault(); removeEvent(); };
     if (btnAttach) btnAttach.onclick = function(e) { e.preventDefault(); uploadFilesToEvent(); };
+    if (fDept) fDept.onchange = filterAssigneesByDepartment;
     applyWriteMode();
   }
 
   function applyWriteMode() {
-    var editable = [fStage, fType, fStatus, fTitle, fOcc, fMemo];
-    editable.forEach(function(el) { if (el) el.disabled = !config.canWrite; });
+    var editable = [fStage, fType, fStatus, fTitle, fOcc, fDue, fMemo];
+    editable.forEach(function(el) { if (el) el.disabled = !currentCanWrite; });
+    [fDept, fAssignee].forEach(function(el) {
+      if (el) el.disabled = !currentCanWrite || !config.canAssign;
+    });
     [btnSave, btnDel, btnAttach].forEach(function(el) {
       if (!el) return;
-      el.classList.toggle('d-none', !config.canWrite);
-      el.disabled = !config.canWrite;
+      el.classList.toggle('d-none', !currentCanWrite);
+      el.disabled = !currentCanWrite;
     });
     var add = document.querySelector(config.addEventBtnSelector);
     if (add) {
       add.classList.toggle('d-none', !config.canWrite);
       add.disabled = !config.canWrite;
     }
+    if (assignmentHelp) {
+      assignmentHelp.textContent = config.canAssign
+        ? '담당 부서와 담당자는 같은 tenant의 직원 디렉터리에서 선택합니다.'
+        : '디렉터리 조회 권한이 없어 담당자 배정은 변경할 수 없습니다.';
+    }
   }
 
-  function ensureModalLoaded() {
+  function ensureModalLoaded(scopeType, scopeId) {
     if (document.getElementById('eventModal')) {
       bindModalDomRefs();
       return Promise.resolve();
     }
     var mount = document.querySelector(config.containerSelector);
     if (!mount) return Promise.reject(new Error('Modal mount container not found'));
-    var url = config.eventModalUiUrl + '?scope_type=' + encodeURIComponent(config.scopeType) + '&scope_id=' + encodeURIComponent(config.scopeId);
+    var effectiveScopeType = scopeType || config.scopeType;
+    var effectiveScopeId = scopeId || config.scopeId;
+    var url = config.eventModalUiUrl + '?scope_type=' + encodeURIComponent(effectiveScopeType) + '&scope_id=' + encodeURIComponent(effectiveScopeId);
     return fetch(url, { method: 'GET', headers: { 'X-CSRFToken': config.csrfToken }, credentials: 'same-origin' })
       .then(function(r) {
         if (!r.ok) throw new Error('Modal UI load failed (' + r.status + ')');
@@ -141,6 +178,65 @@
         if (!modalEl) throw new Error('eventModal not found');
         eventModal = bootstrap.Modal.getOrCreateInstance(modalEl);
         bindModalDomRefs();
+      });
+  }
+
+  function replaceOptions(select, rows, selected, labelBuilder) {
+    if (!select) return;
+    select.replaceChildren();
+    var empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '미지정';
+    select.appendChild(empty);
+    rows.forEach(function(row) {
+      var option = document.createElement('option');
+      option.value = row.id;
+      option.textContent = labelBuilder(row);
+      if (selected && String(selected) === String(row.id)) option.selected = true;
+      select.appendChild(option);
+    });
+  }
+
+  function populateAssignmentSelects(departments, employees, selectedDept, selectedEmployee) {
+    replaceOptions(fDept, departments, selectedDept, function(row) { return row.name || row.id; });
+    replaceOptions(fAssignee, employees, selectedEmployee, function(row) {
+      return (row.name || row.id) + (row.title ? ' · ' + row.title : '');
+    });
+  }
+
+  function filterAssigneesByDepartment() {
+    if (!fAssignee) return;
+    var selectedEmployee = fAssignee.value;
+    var departmentId = fDept ? fDept.value : '';
+    var rows = assignmentEmployees.filter(function(row) {
+      return !departmentId || !row.department_id || String(row.department_id) === String(departmentId);
+    });
+    replaceOptions(fAssignee, rows, selectedEmployee, function(row) {
+      return (row.name || row.id) + (row.title ? ' · ' + row.title : '');
+    });
+  }
+
+  function loadAssignmentOptions(scopeType, scopeId, selectedDept, selectedEmployee) {
+    config.canAssign = false;
+    assignmentEmployees = [];
+    if (!config.assignmentOptionsUrl || !currentCanWrite || ['contract', 'project'].indexOf(scopeType) < 0) {
+      populateAssignmentSelects([], [], selectedDept, selectedEmployee);
+      applyWriteMode();
+      return Promise.resolve();
+    }
+    var url = config.assignmentOptionsUrl + '?scope_type=' + encodeURIComponent(scopeType) + '&scope_id=' + encodeURIComponent(scopeId);
+    return fetch(url, { method: 'GET', headers: { 'X-CSRFToken': config.csrfToken }, credentials: 'same-origin' })
+      .then(function(r) { if (!r.ok) throw new Error('assignment options failed'); return r.json(); })
+      .then(function(data) {
+        config.canAssign = !!data.can_assign;
+        assignmentEmployees = data.employees || [];
+        populateAssignmentSelects(data.departments || [], assignmentEmployees, selectedDept, selectedEmployee);
+        applyWriteMode();
+      })
+      .catch(function() {
+        config.canAssign = false;
+        populateAssignmentSelects([], [], selectedDept, selectedEmployee);
+        applyWriteMode();
       });
   }
 
@@ -177,7 +273,7 @@
           .catch(function() { showAlert('파일을 열 수 없습니다.'); });
       });
       actions.appendChild(open);
-      if (config.canWrite) {
+      if (currentCanWrite) {
         var remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'btn btn-sm btn-outline-danger';
@@ -200,8 +296,12 @@
     clearAlert();
     isEditMode = false;
     currentEventId = null;
-    [[fId, ''], [fStage, ''], [fType, ''], [fStatus, 'draft'], [fTitle, ''], [fOcc, ''], [fMemo, ''], [fScopeType, config.scopeType], [fScopeId, config.scopeId], [fCreatedAt, ''], [fCreatedBy, '']]
+    currentEvent = null;
+    currentCanWrite = config.canWrite;
+    [[fId, ''], [fStage, ''], [fType, ''], [fStatus, 'draft'], [fTitle, ''], [fOcc, ''], [fDue, ''],
+     [fMemo, ''], [fScopeType, config.scopeType], [fScopeId, config.scopeId], [fCreatedAt, ''], [fCreatedBy, '']]
       .forEach(function(pair) { if (pair[0]) pair[0].value = pair[1] || ''; });
+    populateAssignmentSelects([], [], '', '');
     setAttachMode(false);
     if (attachList) attachList.replaceChildren();
     var label = document.getElementById('eventModalLabel');
@@ -212,13 +312,16 @@
   function loadEventToModal(ev) {
     clearAlert();
     isEditMode = true;
+    currentEvent = ev;
     currentEventId = ev.id;
+    currentCanWrite = ev.can_write === undefined ? config.canWrite : !!ev.can_write;
     if (fId) fId.value = ev.id || '';
     if (fStage) fStage.value = ev.stage || '';
     if (fType) fType.value = ev.event_type || '';
     if (fStatus) fStatus.value = ev.status || '';
     if (fTitle) fTitle.value = ev.title || '';
     if (fOcc) fOcc.value = ev.occurred_at ? String(ev.occurred_at).slice(0, 10) : '';
+    if (fDue) fDue.value = ev.due_at ? String(ev.due_at).slice(0, 10) : '';
     if (fMemo) fMemo.value = ev.memo || '';
     if (fScopeType) fScopeType.value = ev.scope_type || config.scopeType;
     if (fScopeId) fScopeId.value = ev.scope_id || config.scopeId;
@@ -227,21 +330,32 @@
     setAttachMode(true);
     renderAttachments(ev.attachments || []);
     var label = document.getElementById('eventModalLabel');
-    if (label) label.textContent = config.canWrite ? '이벤트 수정' : '이벤트 보기';
+    if (label) label.textContent = currentCanWrite ? '이벤트 수정' : '이벤트 보기';
     applyWriteMode();
   }
 
   function openCreateModal() {
     if (!config.canWrite) return;
-    ensureModalLoaded().then(function() {
+    ensureModalLoaded(config.scopeType, config.scopeId).then(function() {
       resetModal();
+      return loadAssignmentOptions(config.scopeType, config.scopeId, '', '');
+    }).then(function() {
       if (eventModal) eventModal.show();
     }).catch(function() { alert('이벤트 팝업을 열 수 없습니다.'); });
   }
 
   function openEditModal(ev) {
-    ensureModalLoaded().then(function() {
+    var scopeType = ev.scope_type || config.scopeType;
+    var scopeId = ev.scope_id || config.scopeId;
+    ensureModalLoaded(scopeType, scopeId).then(function() {
       loadEventToModal(ev);
+      return loadAssignmentOptions(
+        scopeType,
+        scopeId,
+        ev.owner_department_id || '',
+        ev.assignee_employee_id || ''
+      );
+    }).then(function() {
       if (eventModal) eventModal.show();
     }).catch(function() { alert('이벤트 팝업을 열 수 없습니다.'); });
   }
@@ -294,6 +408,26 @@
         header.appendChild(date);
       }
       card.appendChild(header);
+
+      var meta = document.createElement('div');
+      meta.className = 'small text-muted mb-1';
+      var scopeLabel = ev.scope_type === 'contract'
+        ? '계약'
+        : (ev.project_name ? '프로젝트 ' + ev.project_name : (ev.scope_type === 'project' ? '프로젝트' : ev.scope_type));
+      meta.textContent = scopeLabel + ' · ' + (stageLabels[ev.stage] || ev.stage || '-') + ' · ' + (statusLabels[ev.status] || ev.status || '-');
+      card.appendChild(meta);
+
+      if (ev.owner_department_name || ev.assignee_employee_name || ev.due_at) {
+        var assignment = document.createElement('div');
+        assignment.className = 'small mb-1';
+        var parts = [];
+        if (ev.owner_department_name) parts.push('부서 ' + ev.owner_department_name);
+        if (ev.assignee_employee_name) parts.push('담당 ' + ev.assignee_employee_name + (ev.assignee_employee_title ? ' ' + ev.assignee_employee_title : ''));
+        if (ev.due_at) parts.push('예정 ' + String(ev.due_at).slice(0, 10));
+        assignment.textContent = parts.join(' · ');
+        card.appendChild(assignment);
+      }
+
       if (ev.memo) {
         var memo = document.createElement('p');
         memo.className = 'mb-1';
@@ -351,6 +485,7 @@
       .then(function(r) { if (!r.ok) throw new Error('load failed'); return r.json(); })
       .then(function(data) {
         config.canWrite = !!data.can_write;
+        currentCanWrite = config.canWrite;
         applyWriteMode();
         var events = data.events || [];
         renderTimeline(events);
@@ -362,20 +497,27 @@
   }
 
   function saveEvent() {
-    if (!config.canWrite) return;
+    if (!currentCanWrite) return;
     clearAlert();
     var eventId = (fId && fId.value) ? fId.value : currentEventId;
     var isUpdate = !!eventId;
+    var scopeType = isUpdate && currentEvent ? currentEvent.scope_type : config.scopeType;
+    var scopeId = isUpdate && currentEvent ? currentEvent.scope_id : config.scopeId;
     var payload = {
-      scope_type: config.scopeType,
-      scope_id: config.scopeId,
+      scope_type: scopeType,
+      scope_id: scopeId,
       stage: fStage ? fStage.value : '',
       event_type: fType ? fType.value : '',
       status: fStatus ? fStatus.value : 'draft',
       title: fTitle ? fTitle.value : '',
       occurred_at: fOcc && fOcc.value ? fOcc.value : null,
+      due_at: fDue && fDue.value ? fDue.value : null,
       memo: fMemo ? fMemo.value : ''
     };
+    if (config.canAssign) {
+      payload.owner_department_id = fDept && fDept.value ? fDept.value : null;
+      payload.assignee_employee_id = fAssignee && fAssignee.value ? fAssignee.value : null;
+    }
     if (!payload.stage || !payload.event_type) {
       showAlert('단계와 이벤트 유형을 선택하세요.');
       return;
@@ -388,23 +530,24 @@
       credentials: 'same-origin',
       body: JSON.stringify(payload)
     }).then(function(r) {
-      if (!r.ok) throw new Error('save failed');
+      if (!r.ok) return r.json().catch(function() { return {}; }).then(function(data) { throw new Error(data.error || 'save failed'); });
       return r.json();
     }).then(function(data) {
       currentEventId = data.event_id || (data.event && data.event.id) || currentEventId;
       isEditMode = true;
+      if (!isUpdate && data.event) currentEvent = data.event;
       if (fId) fId.value = currentEventId || '';
       return loadEvents(true);
-    }).catch(function() {
-      showAlert('이벤트 저장에 실패했습니다.');
+    }).catch(function(err) {
+      showAlert(err.message || '이벤트 저장에 실패했습니다.');
     }).finally(function() {
-      if (btnSave) btnSave.disabled = !config.canWrite;
+      if (btnSave) btnSave.disabled = !currentCanWrite;
     });
   }
 
   function removeEvent() {
-    if (!config.canWrite || !currentEventId) return;
-    if (!confirm('정말 이 이벤트를 삭제하시겠습니까?')) return;
+    if (!currentCanWrite || !currentEventId) return;
+    if (!confirm('이 이벤트를 취소 처리할까요? 이력은 삭제되지 않습니다.')) return;
     fetch(urlWithId(config.eventDeleteUrl, currentEventId), {
       method: 'POST',
       headers: { 'X-CSRFToken': config.csrfToken },
@@ -413,13 +556,14 @@
       if (!r.ok) throw new Error('delete failed');
       if (eventModal) eventModal.hide();
       currentEventId = null;
+      currentEvent = null;
       isEditMode = false;
       return loadEvents(false);
-    }).catch(function() { showAlert('이벤트 삭제에 실패했습니다.'); });
+    }).catch(function() { showAlert('이벤트 취소 처리에 실패했습니다.'); });
   }
 
   function uploadFilesToEvent() {
-    if (!config.canWrite || !currentEventId || !window.uploadToEvent) return;
+    if (!currentCanWrite || !currentEventId || !window.uploadToEvent) return;
     var input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
