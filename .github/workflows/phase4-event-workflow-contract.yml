@@ -60,12 +60,13 @@ jobs:
       # The repository has pre-existing migration-state drift outside this Phase 4
       # scope. The release migration-rehearsal job already applies the complete
       # migration graph against disposable Postgres/PostGIS. Keep this contract
-      # focused on the files and behavior introduced by the event workflow change.
-      - name: Compile event workflow and migration
+      # focused on the files and behavior introduced by the event/workboard change.
+      - name: Compile event workflow and workboard
         run: |
           python -m py_compile \
             geoflow_ops/process_workflow.py \
             geoflow_ops/views_events.py \
+            geoflow_ops/views_workboard.py \
             geoflow_ops/services/entity_access.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py
 
@@ -73,6 +74,7 @@ jobs:
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_event_workflow_foundation \
+            geoflow_ops.test_phase4_cross_department_workboard \
             geoflow_ops.test_phase4_event_production_audit_contract \
             geoflow_ops.test_phase4_event_production_activation_contract \
             geoflow_ops.test_event_api_security \
