@@ -9,10 +9,11 @@ from django.db import connections
 from control.gf_authz.permissions import gf_has_perm
 from control.middleware import current_db_alias
 
-from geoflow_ops.models import Contract, MyOrgUnit, ProcessEvent
+from geoflow_ops.models import Contract, MyOrgUnit, ProcessEvent, Project
 
 SCOPE_PERMISSIONS = {
     "contract": {"read": "contracts.view", "write": "contracts.edit"},
+    "project": {"read": "projects.view", "write": "projects.edit"},
     "employee": {"read": "directory.view", "write": "directory.edit"},
     "orgunit": {"read": "directory.view", "write": "directory.edit"},
 }
@@ -44,6 +45,8 @@ def scope_exists(alias: str, scope_type: str, scope_id: UUID) -> bool:
     scope_type = str(scope_type or "").strip().lower()
     if scope_type == "contract":
         return Contract.objects.using(alias).filter(pk=scope_id).exists()
+    if scope_type == "project":
+        return Project.objects.using(alias).filter(pk=scope_id).exists()
     if scope_type == "orgunit":
         return MyOrgUnit.objects.using(alias).filter(pk=scope_id).exists()
     if scope_type == "employee":
