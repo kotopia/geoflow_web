@@ -67,8 +67,29 @@
             <input type="text" class="form-control" id="event-title" placeholder="(선택)">
           </div>
           <div class="col-md-4">
-            <label class="form-label">일자</label>
+            <label class="form-label">발생일</label>
             <input type="date" class="form-control" id="event-occurred-at">
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">담당 부서</label>
+            <select class="form-select" id="event-owner-department">
+              <option value="">미지정</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">담당자</label>
+            <select class="form-select" id="event-assignee-employee">
+              <option value="">미지정</option>
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">완료 예정일</label>
+            <input type="date" class="form-control" id="event-due-at">
+          </div>
+          <div class="col-md-6 d-flex align-items-end">
+            <div class="text-muted small pb-2" id="event-assignment-help">부서/담당자 배정은 디렉터리 조회 권한이 있을 때 사용할 수 있습니다.</div>
           </div>
 
           <div class="col-12">
