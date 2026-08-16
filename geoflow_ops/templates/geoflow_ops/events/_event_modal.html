@@ -14,38 +14,51 @@
 
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label">Stage</label>
+            <label class="form-label">업무 단계</label>
             <select class="form-select" id="event-stage">
               <option value="pre_contract">계약전</option>
               <option value="contract">계약</option>
-              <option value="project">진행</option>
-              <option value="closeout">준공/검수</option>
-              <option value="blilling">청구/정산</option>
+              <option value="kickoff">착수</option>
+              <option value="execution">수행</option>
+              <option value="inspection">검사</option>
+              <option value="closeout">준공</option>
+              <option value="billing">청구/정산</option>
             </select>
           </div>
           <div class="col-md-4">
-            <label class="form-label">Type</label>
+            <label class="form-label">업무 유형</label>
             <select class="form-select" id="event-type">
               <option value="estimate">견적제출</option>
               <option value="contract_doc">계약체결</option>
-              <option value="kickoff">착수계</option>
-              <option value="progress_report">공정보고</option>
+              <option value="contract_change">계약변경</option>
+              <option value="period_extension">기간연장</option>
               <option value="suspend">중지</option>
+              <option value="resume">재개</option>
+              <option value="contract_cancel">계약취소</option>
+              <option value="kickoff">착수</option>
+              <option value="kickoff_doc">착수계</option>
+              <option value="progress_report">공정보고</option>
+              <option value="inspection_request">검사요청</option>
+              <option value="inspection">검사완료</option>
+              <option value="correction_request">보완요청</option>
+              <option value="reinspection">재검사</option>
               <option value="completion_doc">준공계</option>
-              <option value="inspection">검수</option>
+              <option value="delivery">납품완료</option>
               <option value="advance_payment">선금</option>
-              <option value="invoice">기성/청구</option>
-              <option value="payment">지급완료</option>
+              <option value="progress_invoice">기성청구</option>
+              <option value="invoice">청구</option>
+              <option value="tax_invoice">세금계산서</option>
+              <option value="payment">입금/지급완료</option>
               <option value="etc">기타</option>
             </select>
           </div>
           <div class="col-md-4">
-            <label class="form-label">Status</label>
+            <label class="form-label">진행 상태</label>
             <select class="form-select" id="event-status">
-              <option value="draft">초안</option>
-              <option value="open">승인</option>
+              <option value="draft">작성중</option>
+              <option value="open">진행중</option>
               <option value="done">완료</option>
-              <option value="void">반려</option>
+              <option value="void">취소</option>
             </select>
           </div>
 
@@ -97,7 +110,7 @@
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-danger me-auto d-none" id="btn-delete-event-modal">이벤트 삭제</button>
+        <button type="button" class="btn btn-outline-danger me-auto d-none" id="btn-delete-event-modal">취소 처리</button>
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
         <button type="button" class="btn btn-primary" id="btn-save-event">저장</button>
       </div>
