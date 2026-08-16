@@ -9,7 +9,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from control.gf_authz.permissions import gf_has_perm
 
-from . import views_catalog, views_contracts, views_myinfo, views_projects
+from . import views_catalog, views_contracts, views_execution, views_myinfo, views_projects
 from .models import Contract
 from .services.contract_project_pair import (
     contract_id_from_create_response,
@@ -130,14 +130,14 @@ def project_json(request, pk):
 @require_GET
 def project_summary(request, pk):
     _require(request, "projects.edit")
-    return views_projects.project_summary(request, pk)
+    return views_execution.project_task_modal(request, pk)
 
 
 @login_required
 @require_POST
 def project_summary_save(request, pk):
     _require(request, "projects.edit")
-    return views_projects.project_summary_save(request, pk)
+    return views_execution.project_task_save(request, pk)
 
 
 @login_required
