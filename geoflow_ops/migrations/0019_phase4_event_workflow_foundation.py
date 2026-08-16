@@ -107,6 +107,21 @@ class Migration(migrations.Migration):
                     name="payload",
                     field=models.JSONField(blank=True, db_column="payload", default=dict),
                 ),
+                migrations.AlterField(
+                    model_name="processevent",
+                    name="status",
+                    field=models.CharField(
+                        choices=[
+                            ("draft", "작성중"),
+                            ("open", "진행중"),
+                            ("done", "완료"),
+                            ("void", "취소"),
+                        ],
+                        db_column="status",
+                        default="draft",
+                        max_length=20,
+                    ),
+                ),
                 migrations.AddIndex(
                     model_name="processevent",
                     index=models.Index(fields=["contract_id"], name="idx_event_contract"),
