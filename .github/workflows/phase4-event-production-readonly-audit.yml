@@ -257,6 +257,8 @@ jobs:
                           ))
 
                       if not events_present:
+                          conn.rollback()
+                          totals["audited_tenants"] += 1
                           continue
 
                       cur.execute(
