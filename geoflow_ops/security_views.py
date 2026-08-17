@@ -213,14 +213,14 @@ def project_scope_summary(request, pk):
 @login_required
 @require_POST
 def project_member_save(request, pk):
-    _require(request, "projects.edit")
+    _require(request, "projects.view")
     return views_project_members.project_member_save(request, pk)
 
 
 @login_required
 @require_POST
 def project_member_revoke(request, pk, member_id):
-    _require(request, "projects.edit")
+    _require(request, "projects.view")
     return views_project_members.project_member_revoke(request, pk, member_id)
 
 
