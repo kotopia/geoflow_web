@@ -95,15 +95,40 @@ def _fallback_for(system_key: str):
     return ()
 
 
-def settings_options(alias: str | None, system_key: str, *, include_inactive: bool = False):
-    """Return stable machine code + tenant-editable label pairs."""
+def _configured_rows(alias: str, system_key: str):
+    """Load the category identified by system_key.
 
-    fallback = list(_fallback_for(system_key))
-    if not alias or not _table_exists(alias, "ops.settings_nodes"):
-        return fallback
-
-    try:
-        with connections[alias].cursor() as cur:
+    For event.type.<stage>, custom tenant stages can use a child category under
+    the locked `event.type` root whose code exactly matches the stage code. This
+    keeps custom hierarchy tenant-editable without requiring tenants to author
+    internal `system_key` values themselves.
+    """
+    with connections[alias].cursor() as cur:
+        if system_key.startswith("event.type."):
+            stage = system_key[len("event.type."):]
+            cur.execute(
+                """
+                SELECT child.code, child.name, child.active
+                  FROM ops.settings_nodes category
+                  JOIN ops.settings_nodes child ON child.parent_id = category.id
+                 WHERE category.active = true
+                   AND (
+                        category.system_key = %s
+                        OR (
+                            category.system_key IS NULL
+                            AND category.code = %s
+                            AND category.parent_id = (
+                                SELECT id FROM ops.settings_nodes
+                                 WHERE system_key='event.type'
+                                 LIMIT 1
+                            )
+                        )
+                   )
+                 ORDER BY child.ord, child.name, child.code
+                """,
+                [system_key, stage],
+            )
+        else:
             cur.execute(
                 """
                 SELECT child.code, child.name, child.active
@@ -115,7 +140,18 @@ def settings_options(alias: str | None, system_key: str, *, include_inactive: bo
                 """,
                 [system_key],
             )
-            rows = cur.fetchall()
+        return cur.fetchall()
+
+
+def settings_options(alias: str | None, system_key: str, *, include_inactive: bool = False):
+    """Return stable machine code + tenant-editable label pairs."""
+
+    fallback = list(_fallback_for(system_key))
+    if not alias or not _table_exists(alias, "ops.settings_nodes"):
+        return fallback
+
+    try:
+        rows = _configured_rows(alias, system_key)
     except Exception:
         return fallback
     if not rows:
