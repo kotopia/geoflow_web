@@ -66,12 +66,15 @@ jobs:
             geoflow_ops/views_projects.py \
             geoflow_ops/security_views.py \
             control/services/route_security_preflight.py \
-            geoflow_ops/migrations/0022_phase4_project_participation_scope.py
+            geoflow_ops/migrations/0022_phase4_project_participation_scope.py \
+            geoflow_ops/test_phase4_project_participation_scope.py \
+            geoflow_ops/test_phase4_project_participation_production_activation_contract.py
 
       - name: Run project participation regressions
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_project_participation_scope \
+            geoflow_ops.test_phase4_project_participation_production_activation_contract \
             control.test_route_security_preflight \
             geoflow_ops.test_tenant_route_authorization_contract \
             geoflow_ops.test_event_upload_route_boundaries
