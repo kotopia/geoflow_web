@@ -76,8 +76,16 @@ class ContractForm(forms.ModelForm):
         self.fields["start_date"].required = False
         self.fields["end_date"].required = False
 
-        status_choices = settings_options(alias, "contract.status")
-        kind_choices = settings_options(alias, "contract.kind")
+        status_choices = list(settings_options(alias, "contract.status"))
+        kind_choices = list(settings_options(alias, "contract.kind"))
+
+        current_status = normalize_contract_status(getattr(self.instance, "status", ""))
+        if current_status and current_status not in {code for code, _ in status_choices}:
+            status_choices.append((current_status, f"{current_status} (기존값)"))
+        current_kind = str(getattr(self.instance, "kind", "") or "").strip()
+        if current_kind and current_kind not in {code for code, _ in kind_choices}:
+            kind_choices.append((current_kind, f"{current_kind} (기존값)"))
+
         self.fields["status"] = forms.ChoiceField(
             choices=[("", "---------"), *status_choices], required=False
         )
@@ -87,18 +95,9 @@ class ContractForm(forms.ModelForm):
         self.fields["status"].widget.attrs.update({"class": "form-select"})
         self.fields["kind"].widget.attrs.update({"class": "form-select"})
 
-        # Known historical aliases such as `completed` are presented using the
-        # canonical machine code (`complete`) without losing unknown/custom rows.
-        current_status = normalize_contract_status(getattr(self.instance, "status", ""))
         if current_status:
             self.initial["status"] = current_status
-
-        current_kind = str(getattr(self.instance, "kind", "") or "").strip()
-        if current_kind and current_kind not in {code for code, _ in kind_choices}:
-            self.fields["kind"].choices = [
-                *self.fields["kind"].choices,
-                (current_kind, current_kind),
-            ]
+        if current_kind:
             self.initial["kind"] = current_kind
 
         if "client" in self.fields:
