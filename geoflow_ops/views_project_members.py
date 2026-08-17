@@ -118,15 +118,20 @@ def project_member_options(alias: str, project_id) -> list[dict]:
 def project_member_context(request, alias: str, project_id) -> dict:
     policy = project_access_policy(request, alias)
     members = project_member_rows(alias, project_id)
+    can_manage = policy.can_manage_members(project_id)
+    assignable_roles = set(policy.assignable_member_roles(project_id))
+    for member in members:
+        member["can_revoke"] = bool(can_manage and member["member_role"] in assignable_roles)
+
     roles_present = {row["member_role"] for row in members if row["membership_status"] == "active"}
     return {
         "project_members": members,
-        "project_member_options": project_member_options(alias, project_id) if policy.can_manage_members(project_id) else [],
+        "project_member_options": project_member_options(alias, project_id) if can_manage else [],
         "project_member_roles": [
             {"code": code, "label": MEMBER_ROLE_LABELS[code]}
             for code in policy.assignable_member_roles(project_id)
         ],
-        "can_manage_project_members": policy.can_manage_members(project_id),
+        "can_manage_project_members": can_manage,
         "can_edit_project": policy.can_edit_project(project_id),
         "can_webgis_write": policy.can_webgis_write(project_id),
         "project_has_pm": "project_manager" in roles_present,
@@ -176,6 +181,8 @@ def project_member_save(request, pk):
 
     if not employee_id and not invite_email:
         return HttpResponseBadRequest("직원 또는 외부 초대 이메일을 선택하세요.")
+    if not employee_id and member_role not in {"worker", "viewer"}:
+        raise PermissionDenied("외부 인력은 Worker 또는 Viewer로만 초대할 수 있습니다.")
 
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
@@ -265,6 +272,8 @@ def project_member_revoke(request, pk, member_id):
     policy = project_access_policy(request, alias)
     if not policy.can_manage_members(project.pk):
         raise PermissionDenied("Permission denied")
+    if not _table_exists(alias, "prj.project_members"):
+        return HttpResponseBadRequest("프로젝트 참여 기능이 아직 준비되지 않았습니다.")
 
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
