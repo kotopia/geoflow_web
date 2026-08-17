@@ -21,6 +21,8 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         self.assertIn("project_leader", migration)
         self.assertIn("worker", migration)
         self.assertIn("viewer", migration)
+        # The schema keeps the historical invited state for backward compatibility,
+        # even though new project participation now requires an employee profile.
         self.assertIn("invited", migration)
         self.assertIn("active", migration)
         self.assertIn("revoked", migration)
@@ -91,18 +93,17 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
             "project_access_api",
         ):
             self.assertIn(f"def {name}", boundary)
-        self.assertIn('def project_member_save(request, pk):\n    _require(request, "projects.view")', boundary)
-        self.assertIn('def project_member_revoke(request, pk, member_id):\n    _require(request, "projects.view")', boundary)
+        self.assertIn('def project_member_save(request, pk):\n    _require_project(request, pk, write=True)', boundary)
+        self.assertIn('def project_member_revoke(request, pk, member_id):\n    _require_project(request, pk, write=True)', boundary)
 
         members = source("geoflow_ops/views_project_members.py")
         self.assertIn("policy.can_manage_members(project.pk)", members)
         self.assertIn("policy.assignable_member_roles(project.pk)", members)
         self.assertIn('member["can_revoke"]', members)
         self.assertIn("membership_status='revoked'", members)
-        self.assertIn("membership_status='invited'", members)
         self.assertIn("Project Manager와 Project Leader는 프로젝트별 1명씩", members)
-        self.assertIn('member_role not in {"worker", "viewer"}', members)
-        self.assertIn("외부 인력은 Worker 또는 Viewer로만 초대", members)
+        self.assertIn('employee_id = _uuid(request.POST.get("employee_id"))', members)
+        self.assertNotIn('request.POST.get("invite_email")', members)
 
     def test_webgis_scope_api_exposes_only_authorized_projects_and_write_flag(self):
         members = source("geoflow_ops/views_project_members.py")
@@ -116,17 +117,18 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         self.assertIn('"api/projects/mine/"', urls)
         self.assertIn('"api/projects/<uuid:pk>/access/"', urls)
 
-    def test_project_detail_has_participant_ui_and_external_invite_is_not_auto_activated(self):
+    def test_project_detail_uses_employee_profiles_for_all_participants(self):
         panel = source("geoflow_ops/templates/geoflow_ops/projects/_project_members_panel.html")
-        for label in ("프로젝트 참여자", "PM 미지정", "Leader 미지정", "내부 직원 참여", "외부 인력 초대 등록"):
+        for label in ("프로젝트 참여자", "PM 미지정", "Leader 미지정", "직원 참여 등록"):
             self.assertIn(label, panel)
         self.assertIn("WebGIS", panel)
-        self.assertIn("초대 대기", panel)
-        self.assertIn("계정 초대/수락 흐름", panel)
+        self.assertIn("계약직·일용직·파견·용역·프리랜서", panel)
         self.assertIn("{% if member.can_revoke %}", panel)
+        self.assertNotIn('name="invite_email"', panel)
 
         members = source("geoflow_ops/views_project_members.py")
-        self.assertIn("VALUES (%s, %s, 'invited', %s, %s, true)", members)
+        self.assertIn("직원 페이지에 등록된 참여자를 선택하세요.", members)
+        self.assertNotIn("VALUES (%s, %s, 'invited', %s, %s, true)", members)
         policy = source("geoflow_ops/services/project_access.py")
         self.assertIn("membership_status='active'", policy)
 
