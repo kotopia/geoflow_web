@@ -26,11 +26,15 @@ from collections import defaultdict
 from control.gf_authz.permissions import gf_perm_required
 from control.gf_authz.query import gf_scope_queryset
 from .views_catalog import build_scope_groups
+from .views_project_members import project_member_context
+from .services.project_access import project_access_policy
 from control.catalog import services_tenant as cat_svc
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+
 def _alias(request):
     return current_db_alias()
+
 
 class ProjectListView(ListView):
     model = Project
@@ -40,7 +44,8 @@ class ProjectListView(ListView):
 
     def get_queryset(self):
         alias = _alias(self.request)
-        return (
+        policy = project_access_policy(self.request, alias)
+        queryset = (
             Project.objects.using(alias)
             .select_related(
                 "contract",
@@ -48,12 +53,14 @@ class ProjectListView(ListView):
                 "contract__sub_client",
                 "contract__org_unit"
             )
-            .order_by("-contract__code", "contract__name")
         )
-    
+        visible_ids = policy.visible_project_ids()
+        if visible_ids is not None:
+            queryset = queryset.filter(pk__in=visible_ids)
+        return queryset.order_by("-contract__code", "contract__name")
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        # self.object_list 는 get_queryset() 이후 이미 채워짐
         counts = {"total": 0, "planned": 0, "active": 0, "pause": 0, "cancel": 0, "complete": 0}
         syn = {
             "planned": {"planned"},
@@ -65,13 +72,20 @@ class ProjectListView(ListView):
         for p in self.object_list:
             s = (getattr(p.contract, "status", "") or "").lower()
             counts["total"] += 1
-            if   s in syn["planned"]:  counts["planned"]  += 1
-            elif s in syn["active"]:   counts["active"]   += 1
-            elif s in syn["pause"]:    counts["pause"]    += 1
-            elif s in syn["cancel"]:   counts["cancel"]   += 1
-            elif s in syn["complete"]: counts["complete"] += 1
+            if s in syn["planned"]:
+                counts["planned"] += 1
+            elif s in syn["active"]:
+                counts["active"] += 1
+            elif s in syn["pause"]:
+                counts["pause"] += 1
+            elif s in syn["cancel"]:
+                counts["cancel"] += 1
+            elif s in syn["complete"]:
+                counts["complete"] += 1
         ctx["status_counts"] = counts
+        ctx["project_access"] = project_access_policy(self.request, _alias(self.request))
         return ctx
+
 
 @login_required
 @gf_perm_required("projects.view")
@@ -84,7 +98,7 @@ def project_list(request):
 def project_json(request, pk):
     alias = _alias(request)
     obj = (
-        Project.objects.using(_alias(request))
+        Project.objects.using(alias)
         .select_related(
             "contract",
             "contract__client",
@@ -93,7 +107,13 @@ def project_json(request, pk):
         )
         .get(pk=pk)
     )
+    policy = project_access_policy(request, alias)
+    member = policy.membership(obj.pk)
     d = {
+        "project_id": str(obj.pk),
+        "project_code": obj.code,
+        "project_name": obj.name,
+        "project_status": obj.status,
         "contract_code": obj.contract.code,
         "contract_name": obj.contract.name,
         "start_date": obj.contract.start_date.isoformat() if obj.contract.start_date else None,
@@ -104,12 +124,15 @@ def project_json(request, pk):
         "sub_client_name": obj.contract.sub_client.name if obj.contract.sub_client else None,
         "org_unit_name": obj.contract.org_unit.name if obj.contract.org_unit else None,
         "status": obj.contract.status,
+        "member_role": member["member_role"] if member else None,
+        "can_edit_project": policy.can_edit_project(obj.pk),
+        "can_webgis_write": policy.can_webgis_write(obj.pk),
     }
     return JsonResponse(d)
 
 
-# views_projects.py
-from .forms import ProjectNoteForm  # ← 새 폼 임포트
+from .forms import ProjectNoteForm
+
 
 @gf_perm_required("projects.view")
 def project_detail_page(request, pk):
@@ -120,13 +143,13 @@ def project_detail_page(request, pk):
         ),
         pk=pk,
     )
+    policy = project_access_policy(request, alias)
+    member_ctx = project_member_context(request, alias, obj.pk)
 
-    # --- POST: 비고만 저장 ---
     if request.method == "POST":
         form = ProjectNoteForm(request.POST, instance=obj)
         if form.is_valid():
             inst = form.save(commit=False)
-            # 안전장치: 혹시라도 폼에 contract가 추가되더라도 기존 값을 유지
             inst.contract_id = obj.contract_id
             inst.save(using=alias, update_fields=["description", "updated_at"])
             messages.success(request, "저장했습니다.")
@@ -134,21 +157,30 @@ def project_detail_page(request, pk):
 
         errors_json = form.errors.get_json_data()
         flat_errors = [e["message"] for _, errs in errors_json.items() for e in errs]
-        return render(
-            request,
-            "geoflow_ops/projects/project_detail.html",
-            {"obj": obj, "edit_mode": True, "form": form, "errors": flat_errors},
-        )
+        context = {
+            "obj": obj,
+            "edit_mode": True,
+            "form": form,
+            "errors": flat_errors,
+            "scope_groups": build_scope_groups(alias, obj.pk),
+            "project_access": policy,
+            **member_ctx,
+        }
+        return render(request, "geoflow_ops/projects/project_detail.html", context)
 
-    # --- GET ---
-    edit_mode = str(request.GET.get("edit", "")).lower() in ("1", "true", "yes")
-    context = {"obj": obj, "edit_mode": edit_mode}
+    requested_edit = str(request.GET.get("edit", "")).lower() in ("1", "true", "yes")
+    edit_mode = bool(requested_edit and policy.can_edit_project(obj.pk))
+    context = {
+        "obj": obj,
+        "edit_mode": edit_mode,
+        "project_access": policy,
+        **member_ctx,
+    }
     if edit_mode:
         context["form"] = ProjectNoteForm(instance=obj)
 
     context["scope_groups"] = build_scope_groups(alias, obj.pk)
     return render(request, "geoflow_ops/projects/project_detail.html", context)
-
 
 
 # :::::::::: CATALOG 관련 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -161,6 +193,7 @@ def _to_decimal(v):
     except (InvalidOperation, ValueError):
         return None
 
+
 @login_required
 @gf_perm_required("projects.edit")
 def project_summary(request, pk):
@@ -171,6 +204,7 @@ def project_summary(request, pk):
         "project": prj,
         "scope_groups": scope_groups,
     })
+
 
 @login_required
 @gf_perm_required("projects.edit")
@@ -185,17 +219,15 @@ def project_summary_save(request, pk):
     alias = _alias(request)
     project = get_object_or_404(Project.objects.using(alias), pk=pk)
 
-    # 1) rows[...] 묶음 파싱
     row_re = re.compile(r"^rows\[(.+?)\]\[(\w+)\]$")
     rows: Dict[str, Dict[str, str]] = {}
     for k, v in request.POST.items():
         m = row_re.match(k)
         if not m:
             continue
-        key, field = m.group(1), m.group(2)  # key: item_id 또는 "L2CODE|L3CODE"
+        key, field = m.group(1), m.group(2)
         rows.setdefault(key, {})[field] = v
 
-    # 2) 숫자 변환
     def to_decimal(val):
         if val in (None, "", "null"):
             return None
@@ -206,27 +238,23 @@ def project_summary_save(request, pk):
 
     central = cat_svc.CENTRAL_ALIAS
 
-    # 3) 각 행 저장 (이번 수정의 핵심: "제출 여부"를 기준으로 저장하므로 None도 저장)
     for key, data in rows.items():
-        item_id = data.get("item_id")  # 있으면 기존 항목
+        item_id = data.get("item_id")
         l2_code = data.get("l2_code")
         l3_code = data.get("l3_code")
 
-        # 원본 문자열 및 "제출 여부" 플래그
-        progress_raw  = data.get("progress", None)
+        progress_raw = data.get("progress", None)
         completed_raw = data.get("completed", None)
-        note_raw      = data.get("note", None)
+        note_raw = data.get("note", None)
 
-        progress_is_set  = ("progress"  in data)  # 제출만 됐으면 None도 저장
-        completed_is_set = ("completed" in data)
-        note_is_set      = ("note"      in data)
+        progress_is_set = "progress" in data
+        completed_is_set = "completed" in data
+        note_is_set = "note" in data
 
-        # 값 변환(숫자 or None)
-        progress  = to_decimal(progress_raw)
+        progress = to_decimal(progress_raw)
         completed = to_decimal(completed_raw)
-        note      = (note_raw.strip() or None) if isinstance(note_raw, str) else None
+        note = (note_raw.strip() or None) if isinstance(note_raw, str) else None
 
-        # (A) 기존 항목이면 id로 갱신
         if item_id:
             try:
                 psi = ProjectScopeItem.objects.using(alias).get(pk=item_id, project_id=project.pk)
@@ -236,24 +264,22 @@ def project_summary_save(request, pk):
             update_fields: List[str] = []
 
             if hasattr(psi, "progress_qty") and progress_is_set:
-                psi.progress_qty = progress          # None 포함 저장
+                psi.progress_qty = progress
                 update_fields.append("progress_qty")
 
             if completed_is_set:
-                psi.completed_qty = completed        # None 포함 저장
+                psi.completed_qty = completed
                 update_fields.append("completed_qty")
 
             if hasattr(psi, "note") and note_is_set:
-                psi.note = note                      # None 포함 저장
+                psi.note = note
                 update_fields.append("note")
 
             if update_fields:
                 psi.save(update_fields=update_fields)
             continue
 
-        # (B) 신규/코드 기반 저장: "L2CODE|L3CODE" → 중앙에서 id 매핑
         if not (l2_code and l3_code):
-            # key가 "L2CODE|L3CODE" 형태인 경우 split
             if "|" in key:
                 l2_code, l3_code = key.split("|", 1)
             if not (l2_code and l3_code):
@@ -262,7 +288,7 @@ def project_summary_save(request, pk):
         l2 = CategoryNode.objects.using(central).filter(code=l2_code).first()
         l3 = CategoryFacetOption.objects.using(central).filter(code=l3_code).first()
         if not l2 or not l3:
-            continue  # 잘못된 코드면 스킵
+            continue
 
         base = {
             "project_id": project.pk,
@@ -271,7 +297,6 @@ def project_summary_save(request, pk):
             "lv4_id": None,
         }
 
-        # defaults는 "제출된 필드만" 포함 (None도 값으로 저장됨)
         defaults: Dict[str, Any] = {}
         if hasattr(ProjectScopeItem, "progress_qty") and progress_is_set:
             defaults["progress_qty"] = progress
@@ -284,5 +309,4 @@ def project_summary_save(request, pk):
             ProjectScopeItem.objects.using(alias).update_or_create(**base, defaults=defaults)
 
     messages.success(request, "현재 업무를 저장했습니다.")
-    # 모달 제출은 AJAX로 가로채므로 리다이렉트 응답을 반환해도 OK
     return redirect("tenant:project_summary", pk=project.pk)
