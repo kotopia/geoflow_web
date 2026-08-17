@@ -24,7 +24,7 @@
                 align-items: center; justify-content: center;
                 background-color: rgba(255,255,255,.6);
                 backdrop-filter: blur(2px);
-                z-index: 2000; /* modal(1050)보다 위 */
+                z-index: 2000;
             }
         </style>
 
@@ -40,6 +40,21 @@
         </div>
         </div>
 
+        {{ gf_contract_status_labels|json_script:"gf-contract-status-labels" }}
+        {{ gf_contract_kind_labels|json_script:"gf-contract-kind-labels" }}
+        <script>
+          (function () {
+            function parsed(id) {
+              var el = document.getElementById(id);
+              if (!el) return {};
+              try { return JSON.parse(el.textContent || '{}'); } catch (e) { return {}; }
+            }
+            window.GEOFLOW_TENANT_VOCABULARY = {
+              contractStatus: parsed('gf-contract-status-labels'),
+              contractKind: parsed('gf-contract-kind-labels')
+            };
+          })();
+        </script>
         <script src="{% static 'control/js/app.js' %}"></script>
         <script src="{% static 'control/js/datatables.js' %}"></script>
         <script src="{% static 'geoflow_ops/js/project-members-ui.js' %}"></script>
