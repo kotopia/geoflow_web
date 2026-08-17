@@ -5,9 +5,18 @@ from django.core.exceptions import PermissionDenied
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods
 
+from control.gf_authz.permissions import gf_has_perm
+
 from . import views_employee_profile, views_employee_role_request
 from .services.employee_access import employee_access_policy
 from .services.entity_access import require_tenant_context
+
+
+def _require(request, permission: str) -> None:
+    """Compatibility permission wrapper retained for shared route-contract tests."""
+    require_tenant_context(request)
+    if not gf_has_perm(request, permission):
+        raise PermissionDenied("Permission denied")
 
 
 def _policy(request):
