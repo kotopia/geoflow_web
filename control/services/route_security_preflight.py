@@ -50,6 +50,7 @@ ROUTE_SECURITY_BOUNDARIES = (
     (f"/api/uploads/delete/{_UUID}/", "tenant:upload_delete", "geoflow_ops.views_uploads", "delete_attachment"),
     ("/api/events/create/", "tenant:event_create", "geoflow_ops.event_security_views", "event_create"),
     ("/api/events/list/", "tenant:event_list", "geoflow_ops.event_security_views", "event_list"),
+    ("/api/events/workflow-options/", "tenant:event_workflow_options", "geoflow_ops.event_security_views", "workflow_options"),
     (f"/api/events/update/{_UUID}/", "tenant:event_update", "geoflow_ops.event_security_views", "event_update"),
     ("/api/events/assignment-options/", "tenant:event_assignment_options", "geoflow_ops.views_workboard", "assignment_options"),
     (f"/api/events/delete/{_UUID}/", "tenant:event_delete", "geoflow_ops.views_events", "delete_event"),

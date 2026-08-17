@@ -113,9 +113,11 @@ class WorkboardSourceContracts(SimpleTestCase):
 
     def test_integrated_timeline_preserves_per_event_write_authorization(self):
         source = (ROOT / "views_workboard.py").read_text(encoding="utf-8")
-        self.assertIn('item["can_write"] = bool(has_scope_permission(request, event.scope_type, write=True))', source)
+        self.assertIn("authorize_scope_write(request, alias, event.scope_type, event.scope_id)", source)
+        self.assertIn("scope_can_write = bool(authorize_scope_write(request, alias, scope_type, scope_id))", source)
         self.assertIn("authorize_scope_read(request, alias, scope_type, scope_id)", source)
         self.assertIn("require_tenant_context(request)", source)
+        self.assertNotIn('item["can_write"] = bool(has_scope_permission(request, event.scope_type, write=True))', source)
 
     def test_assignment_write_routes_use_server_side_directory_guard(self):
         guard_source = (ROOT / "event_security_views.py").read_text(encoding="utf-8")
@@ -143,6 +145,19 @@ class WorkboardSourceContracts(SimpleTestCase):
             'id="workflowAssignee"',
             'id="workflowOpenCount"',
             'data-assignment-options-url=',
+            "process-workboard-ui.js",
+            "ProcessWorkboardUI.init",
+        ):
+            self.assertIn(token, source)
+        self.assertNotIn("ProcessEventsUI.init", source)
+
+    def test_contract_detail_uses_same_configurable_workboard_client(self):
+        source = (
+            ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html"
+        ).read_text(encoding="utf-8")
+        for token in (
+            'data-assignment-options-url=',
+            'data-workflow-options-url=',
             "process-workboard-ui.js",
             "ProcessWorkboardUI.init",
         ):

@@ -114,11 +114,15 @@ def settings_node_save(request):
                     return HttpResponseBadRequest("환경설정 항목을 찾을 수 없습니다.")
                 locked = bool(existing[0])
                 if locked:
-                    # Stable system categories keep their machine identity and hierarchy.
+                    # Machine identity/hierarchy remains immutable. System group
+                    # and category nodes cannot be disabled because applications
+                    # need the namespace, while value nodes may be activated or
+                    # deactivated by the tenant.
                     code = existing[1]
                     parent_id = _uuid_or_none(existing[2])
                     node_type = existing[3]
-                    active = True
+                    if node_type != "value":
+                        active = True
                 cur.execute(
                     """
                     UPDATE ops.settings_nodes

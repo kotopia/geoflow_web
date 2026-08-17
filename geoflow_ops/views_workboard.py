@@ -174,7 +174,9 @@ def workboard_event_list(request):
     result = []
     for event in events:
         item = _event_payload(event, attachments=attachments.get(str(event.id), []))
-        item["can_write"] = bool(has_scope_permission(request, event.scope_type, write=True))
+        item["can_write"] = bool(
+            authorize_scope_write(request, alias, event.scope_type, event.scope_id)
+        )
         item["owner_department_name"] = departments.get(str(event.owner_department_id), "") if event.owner_department_id else ""
         employee = employees.get(str(event.assignee_employee_id), {}) if event.assignee_employee_id else {}
         item["assignee_employee_name"] = employee.get("name", "")
@@ -182,14 +184,12 @@ def workboard_event_list(request):
         item["project_name"] = projects.get(str(event.project_id), "") if event.project_id else ""
         result.append(item)
 
+    scope_can_write = bool(authorize_scope_write(request, alias, scope_type, scope_id))
     return JsonResponse(
         {
             "events": result,
-            "can_write": bool(has_scope_permission(request, scope_type, write=True)),
-            "can_assign": bool(
-                has_scope_permission(request, scope_type, write=True)
-                and can_read_directory
-            ),
+            "can_write": scope_can_write,
+            "can_assign": bool(scope_can_write and can_read_directory),
             "timeline_mode": timeline_mode,
         }
     )

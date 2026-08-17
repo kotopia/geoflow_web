@@ -11,6 +11,7 @@
     eventUpdateUrl: null,
     eventDeleteUrl: null,
     eventModalUiUrl: null,
+    workflowOptionsUrl: '/api/events/workflow-options/',
     assignmentOptionsUrl: null,
     presignPutUrl: null,
     commitUrl: null,
@@ -28,6 +29,7 @@
   var currentEvent = null;
   var currentCanWrite = false;
   var assignmentEmployees = [];
+  var workflowPromise = null;
 
   var fId, fStage, fType, fStatus, fTitle, fOcc, fDue, fMemo;
   var fScopeType, fScopeId, fCreatedAt, fCreatedBy, fDept, fAssignee;
@@ -38,6 +40,55 @@
     inspection: '검사', closeout: '준공', billing: '청구/정산'
   };
   var statusLabels = { draft: '작성중', open: '진행중', done: '완료', void: '취소' };
+  var eventTypeLabels = {};
+  var workflowOptions = {
+    stages: [
+      {code:'pre_contract', label:'계약전'}, {code:'contract', label:'계약'},
+      {code:'kickoff', label:'착수'}, {code:'execution', label:'수행'},
+      {code:'inspection', label:'검사'}, {code:'closeout', label:'준공'},
+      {code:'billing', label:'청구/정산'}
+    ],
+    statuses: [
+      {code:'draft', label:'작성중'}, {code:'open', label:'진행중'},
+      {code:'done', label:'완료'}, {code:'void', label:'취소'}
+    ],
+    types_by_stage: {
+      pre_contract: [{code:'estimate',label:'견적제출'},{code:'etc',label:'기타'}],
+      contract: [
+        {code:'contract_doc',label:'계약체결'},{code:'contract_change',label:'계약변경'},
+        {code:'period_extension',label:'기간연장'},{code:'suspend',label:'중지'},
+        {code:'resume',label:'재개'},{code:'contract_cancel',label:'계약취소'},
+        {code:'etc',label:'기타'}
+      ],
+      kickoff: [{code:'kickoff',label:'착수'},{code:'kickoff_doc',label:'착수계'},{code:'etc',label:'기타'}],
+      execution: [{code:'progress_report',label:'공정보고'},{code:'etc',label:'기타'}],
+      inspection: [
+        {code:'inspection_request',label:'검사요청'},{code:'inspection',label:'검사완료'},
+        {code:'correction_request',label:'보완요청'},{code:'reinspection',label:'재검사'},
+        {code:'etc',label:'기타'}
+      ],
+      closeout: [{code:'completion_doc',label:'준공계'},{code:'delivery',label:'납품완료'},{code:'etc',label:'기타'}],
+      billing: [
+        {code:'advance_payment',label:'선금'},{code:'progress_invoice',label:'기성청구'},
+        {code:'invoice',label:'청구'},{code:'tax_invoice',label:'세금계산서'},
+        {code:'payment',label:'입금/지급완료'},{code:'etc',label:'기타'}
+      ]
+    }
+  };
+
+  function refreshWorkflowLabels() {
+    stageLabels = {};
+    statusLabels = {};
+    eventTypeLabels = {};
+    (workflowOptions.stages || []).forEach(function(row) { stageLabels[row.code] = row.label || row.code; });
+    (workflowOptions.statuses || []).forEach(function(row) { statusLabels[row.code] = row.label || row.code; });
+    Object.keys(workflowOptions.types_by_stage || {}).forEach(function(stage) {
+      (workflowOptions.types_by_stage[stage] || []).forEach(function(row) {
+        eventTypeLabels[row.code] = row.label || row.code;
+      });
+    });
+  }
+  refreshWorkflowLabels();
 
   function loadConfigFromDom(selector) {
     var container = document.querySelector(selector);
@@ -50,6 +101,7 @@
     config.eventUpdateUrl = container.getAttribute('data-event-update-url') || container.getAttribute('data-events-update-url');
     config.eventDeleteUrl = container.getAttribute('data-event-delete-url') || container.getAttribute('data-events-delete-url');
     config.eventModalUiUrl = container.getAttribute('data-event-modal-ui-url') || container.getAttribute('data-events-modal-ui-url');
+    config.workflowOptionsUrl = container.getAttribute('data-workflow-options-url') || config.workflowOptionsUrl;
     config.assignmentOptionsUrl = container.getAttribute('data-assignment-options-url');
     config.presignPutUrl = container.getAttribute('data-presign-put-url');
     config.commitUrl = container.getAttribute('data-commit-url');
@@ -74,6 +126,71 @@
     if (!elAlert) return;
     elAlert.textContent = '';
     elAlert.classList.add('d-none');
+  }
+
+  function appendOption(select, code, label, selected) {
+    if (!select) return;
+    var option = document.createElement('option');
+    option.value = code;
+    option.textContent = label || code;
+    option.selected = String(selected || '') === String(code);
+    select.appendChild(option);
+  }
+
+  function populateEventTypes(stage, selectedType, preserveHistorical) {
+    if (!fType) return;
+    var rows = (workflowOptions.types_by_stage || {})[stage] || [];
+    fType.replaceChildren();
+    rows.forEach(function(row) { appendOption(fType, row.code, row.label, selectedType); });
+    var found = rows.some(function(row) { return String(row.code) === String(selectedType || ''); });
+    if (preserveHistorical && selectedType && !found) {
+      appendOption(fType, selectedType, eventTypeLabels[selectedType] || selectedType + ' (기존값)', selectedType);
+    }
+    if (!fType.value && rows.length) fType.value = rows[0].code;
+  }
+
+  function applyWorkflowSelects(selectedStage, selectedType, selectedStatus, preserveHistorical) {
+    if (!fStage || !fStatus) return;
+    var stages = workflowOptions.stages || [];
+    var statuses = workflowOptions.statuses || [];
+    fStage.replaceChildren();
+    stages.forEach(function(row) { appendOption(fStage, row.code, row.label, selectedStage); });
+    var stageFound = stages.some(function(row) { return String(row.code) === String(selectedStage || ''); });
+    if (preserveHistorical && selectedStage && !stageFound) {
+      appendOption(fStage, selectedStage, stageLabels[selectedStage] || selectedStage + ' (기존값)', selectedStage);
+    }
+    if (!fStage.value && stages.length) fStage.value = stages[0].code;
+
+    fStatus.replaceChildren();
+    statuses.forEach(function(row) { appendOption(fStatus, row.code, row.label, selectedStatus); });
+    var statusFound = statuses.some(function(row) { return String(row.code) === String(selectedStatus || ''); });
+    if (preserveHistorical && selectedStatus && !statusFound) {
+      appendOption(fStatus, selectedStatus, statusLabels[selectedStatus] || selectedStatus + ' (기존값)', selectedStatus);
+    }
+    if (!fStatus.value && statuses.length) fStatus.value = statuses[0].code;
+
+    populateEventTypes(fStage.value, selectedType, preserveHistorical);
+  }
+
+  function loadWorkflowOptions() {
+    if (workflowPromise) return workflowPromise;
+    workflowPromise = fetch(config.workflowOptionsUrl, {
+      method: 'GET',
+      headers: { 'X-CSRFToken': config.csrfToken },
+      credentials: 'same-origin'
+    }).then(function(r) {
+      if (!r.ok) throw new Error('workflow options failed');
+      return r.json();
+    }).then(function(data) {
+      if (Array.isArray(data.stages) && data.stages.length) workflowOptions.stages = data.stages;
+      if (Array.isArray(data.statuses) && data.statuses.length) workflowOptions.statuses = data.statuses;
+      if (data.types_by_stage && typeof data.types_by_stage === 'object') workflowOptions.types_by_stage = data.types_by_stage;
+      refreshWorkflowLabels();
+      return workflowOptions;
+    }).catch(function() {
+      return workflowOptions;
+    });
+    return workflowPromise;
   }
 
   function bindModalDomRefs() {
@@ -106,13 +223,18 @@
     if (btnDel) btnDel.onclick = function(e) { e.preventDefault(); voidEvent(); };
     if (btnAttach) btnAttach.onclick = function(e) { e.preventDefault(); uploadFilesToEvent(); };
     if (fDept) fDept.onchange = filterAssigneesByDepartment;
+    if (fStage) {
+      fStage.onchange = function() {
+        populateEventTypes(fStage.value, '', false);
+      };
+    }
     applyWriteMode();
   }
 
   function ensureModalLoaded(scopeType, scopeId) {
     if (document.getElementById('eventModal')) {
       bindModalDomRefs();
-      return Promise.resolve();
+      return loadWorkflowOptions();
     }
     var mount = document.querySelector(config.containerSelector);
     if (!mount) return Promise.reject(new Error('Modal mount container not found'));
@@ -128,6 +250,7 @@
         if (!modalEl) throw new Error('eventModal not found');
         eventModal = bootstrap.Modal.getOrCreateInstance(modalEl);
         bindModalDomRefs();
+        return loadWorkflowOptions();
       });
   }
 
@@ -249,8 +372,14 @@
     currentEventId = null;
     currentEvent = null;
     currentCanWrite = config.canWrite;
-    [[fId, ''], [fStage, 'execution'], [fType, 'progress_report'], [fStatus, 'draft'],
-     [fTitle, ''], [fOcc, ''], [fDue, ''], [fMemo, ''], [fScopeType, config.scopeType],
+    var preferredStage = (workflowOptions.types_by_stage || {}).execution ? 'execution' : ((workflowOptions.stages || [])[0] || {}).code;
+    var preferredStatus = (workflowOptions.statuses || []).some(function(row) { return row.code === 'draft'; }) ? 'draft' : (((workflowOptions.statuses || [])[0] || {}).code || '');
+    var preferredTypes = (workflowOptions.types_by_stage || {})[preferredStage] || [];
+    var preferredType = preferredTypes.some(function(row) { return row.code === 'progress_report'; })
+      ? 'progress_report'
+      : ((preferredTypes[0] || {}).code || '');
+    applyWorkflowSelects(preferredStage || '', preferredType, preferredStatus, false);
+    [[fId, ''], [fTitle, ''], [fOcc, ''], [fDue, ''], [fMemo, ''], [fScopeType, config.scopeType],
      [fScopeId, config.scopeId], [fCreatedAt, ''], [fCreatedBy, '']]
       .forEach(function(pair) { if (pair[0]) pair[0].value = pair[1] || ''; });
     setAttachMode(false);
@@ -265,10 +394,8 @@
     currentEvent = ev;
     currentEventId = ev.id;
     currentCanWrite = !!ev.can_write;
+    applyWorkflowSelects(ev.stage || '', ev.event_type || '', ev.status || '', true);
     if (fId) fId.value = ev.id || '';
-    if (fStage) fStage.value = ev.stage || '';
-    if (fType) fType.value = ev.event_type || '';
-    if (fStatus) fStatus.value = ev.status || '';
     if (fTitle) fTitle.value = ev.title || '';
     if (fOcc) fOcc.value = ev.occurred_at ? String(ev.occurred_at).slice(0, 10) : '';
     if (fDue) fDue.value = ev.due_at ? String(ev.due_at).slice(0, 10) : '';
@@ -331,7 +458,7 @@
     var assignee = document.getElementById('workflowAssignee');
     var count = document.getElementById('workflowOpenCount');
     if (stage) stage.textContent = latest ? (stageLabels[latest.stage] || latest.stage || '-') : '등록 전';
-    if (nextTask) nextTask.textContent = next ? (next.title || next.event_type || '업무') : '대기 업무 없음';
+    if (nextTask) nextTask.textContent = next ? (next.title || eventTypeLabels[next.event_type] || next.event_type || '업무') : '대기 업무 없음';
     if (assignee) {
       assignee.textContent = next && next.assignee_employee_name
         ? next.assignee_employee_name + (next.owner_department_name ? ' · ' + next.owner_department_name : '')
@@ -365,7 +492,7 @@
       var header = document.createElement('div');
       header.className = 'd-flex justify-content-between gap-2 flex-wrap';
       var title = document.createElement('strong');
-      title.textContent = ev.title || ev.event_type || '업무 이벤트';
+      title.textContent = ev.title || eventTypeLabels[ev.event_type] || ev.event_type || '업무 이벤트';
       var date = document.createElement('span');
       date.className = 'small text-muted';
       date.textContent = String(ev.occurred_at || ev.created_at || '').slice(0, 10);
@@ -453,6 +580,11 @@
       showAlert('단계와 업무 유형을 선택하세요.');
       return;
     }
+    var allowedTypes = (workflowOptions.types_by_stage || {})[payload.stage] || [];
+    if (!allowedTypes.some(function(row) { return String(row.code) === String(payload.event_type); })) {
+      showAlert('선택한 업무 단계에서 사용할 수 없는 업무 유형입니다.');
+      return;
+    }
     if (btnSave) btnSave.disabled = true;
     var url = isUpdate ? urlWithId(config.eventUpdateUrl, eventId) : config.eventCreateUrl;
     fetch(url, {
@@ -521,13 +653,15 @@
     if (!loadConfigFromDom(config.containerSelector)) return;
     var add = document.querySelector(config.addEventBtnSelector);
     if (add) add.addEventListener('click', openCreateModal);
-    loadEvents().catch(function() {
-      var empty = document.querySelector(config.timelineEmptySelector);
-      if (empty) {
-        empty.textContent = '업무 이벤트를 불러올 수 없습니다.';
-        empty.classList.remove('d-none');
-      }
-    });
+    loadWorkflowOptions()
+      .then(function() { return loadEvents(); })
+      .catch(function() {
+        var empty = document.querySelector(config.timelineEmptySelector);
+        if (empty) {
+          empty.textContent = '업무 이벤트를 불러올 수 없습니다.';
+          empty.classList.remove('d-none');
+        }
+      });
   }
 
   window.ProcessWorkboardUI = {

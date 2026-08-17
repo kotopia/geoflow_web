@@ -44,6 +44,15 @@ def _require_project(request, pk, *, write: bool) -> str:
     )
     if not allowed:
         raise PermissionDenied("Permission denied")
+
+    # Exact-project bridge for older internal views that still carry a generic
+    # projects.view/edit decorator. It is request-local and never broadens to a
+    # different project or a tenant-wide permission.
+    request._gf_project_scope_authorized = {
+        "project_id": str(pk),
+        "read": True,
+        "write": bool(write),
+    }
     return alias
 
 
@@ -213,14 +222,14 @@ def project_scope_summary(request, pk):
 @login_required
 @require_POST
 def project_member_save(request, pk):
-    _require(request, "projects.view")
+    _require_project(request, pk, write=True)
     return views_project_members.project_member_save(request, pk)
 
 
 @login_required
 @require_POST
 def project_member_revoke(request, pk, member_id):
-    _require(request, "projects.view")
+    _require_project(request, pk, write=True)
     return views_project_members.project_member_revoke(request, pk, member_id)
 
 
@@ -234,7 +243,7 @@ def my_projects_api(request):
 @login_required
 @require_GET
 def project_access_api(request, pk):
-    _require(request, "projects.view")
+    _require_project(request, pk, write=False)
     return views_project_members.project_access_api(request, pk)
 
 

@@ -2,6 +2,7 @@ from django.db import connections
 from control.middleware import current_db_alias
 
 from .services.employee_access import employee_access_policy
+from .services.tenant_settings import settings_options
 
 
 def _employee_access_context(request, alias=None):
@@ -28,6 +29,25 @@ def _employee_access_context(request, alias=None):
         return base
 
 
+def _tenant_vocabulary_context():
+    """Small shared label map used by list/detail UI.
+
+    Machine codes remain stable while tenant settings may rename their displayed
+    labels. Fail back to the reviewed defaults if the tenant settings schema is
+    not available in the current request scope.
+    """
+    try:
+        alias = current_db_alias()
+        if not alias:
+            return {"gf_contract_status_labels": {}, "gf_contract_kind_labels": {}}
+        return {
+            "gf_contract_status_labels": dict(settings_options(alias, "contract.status")),
+            "gf_contract_kind_labels": dict(settings_options(alias, "contract.kind")),
+        }
+    except Exception:
+        return {"gf_contract_status_labels": {}, "gf_contract_kind_labels": {}}
+
+
 def topbar_user(request):
     """Topbar and tenant navigation context.
 
@@ -36,8 +56,9 @@ def topbar_user(request):
     authorization source.
     """
     access = _employee_access_context(request)
+    vocabulary = _tenant_vocabulary_context()
     if not getattr(request, "user", None) or not request.user.is_authenticated:
-        return {"topbar_user_name": "", "avatar_attachment_id": None, **access}
+        return {"topbar_user_name": "", "avatar_attachment_id": None, **access, **vocabulary}
 
     fallback_email = (getattr(request.user, "email", "") or "").strip()
 
@@ -51,15 +72,21 @@ def topbar_user(request):
                 "topbar_user_name": cached_name,
                 "avatar_attachment_id": cached_avatar,
                 **access,
+                **vocabulary,
             }
 
         alias = current_db_alias()
         if not alias:
-            return {"topbar_user_name": fallback_email, "avatar_attachment_id": None, **access}
+            return {
+                "topbar_user_name": fallback_email,
+                "avatar_attachment_id": None,
+                **access,
+                **vocabulary,
+            }
 
         user_email = fallback_email
         if not user_email:
-            return {"topbar_user_name": "", "avatar_attachment_id": None, **access}
+            return {"topbar_user_name": "", "avatar_attachment_id": None, **access, **vocabulary}
 
         topbar_name = user_email
         avatar_attachment_id = None
@@ -119,7 +146,17 @@ def topbar_user(request):
 
         request.session["topbar_name"] = topbar_name
         request.session["topbar_avatar_attachment_id"] = avatar_attachment_id
-        return {"topbar_user_name": topbar_name, "avatar_attachment_id": avatar_attachment_id, **access}
+        return {
+            "topbar_user_name": topbar_name,
+            "avatar_attachment_id": avatar_attachment_id,
+            **access,
+            **vocabulary,
+        }
 
     except Exception:
-        return {"topbar_user_name": fallback_email, "avatar_attachment_id": None, **access}
+        return {
+            "topbar_user_name": fallback_email,
+            "avatar_attachment_id": None,
+            **access,
+            **vocabulary,
+        }

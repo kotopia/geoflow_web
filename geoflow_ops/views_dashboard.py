@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import date
-from decimal import Decimal
 
 from django.db import connections
 from django.db.models import Q
@@ -21,7 +20,7 @@ PROJECT_STATUS_GROUPS = {
     "active": {"active", "진행", "진행중"},
     "pause": {"pause", "paused", "중지", "보류"},
     "complete": {"complete", "completed", "완료"},
-    "cancel": {"cancel", "canceled", "취소"},
+    "cancel": {"cancel", "canceled", "cancelled", "취소"},
 }
 TASK_STATUS_LABELS = {
     "pending": "대기",
@@ -159,7 +158,8 @@ def tenant_dashboard(request):
         if project_status in PROJECT_STATUS_GROUPS:
             qs = qs.filter(status__in=PROJECT_STATUS_GROUPS[project_status])
         if not include_completed and not project_status:
-            qs = qs.exclude(status__in=PROJECT_STATUS_GROUPS["complete"] | PROJECT_STATUS_GROUPS["cancel"])
+            terminal = PROJECT_STATUS_GROUPS["complete"] | PROJECT_STATUS_GROUPS["cancel"]
+            qs = qs.exclude(status__in=terminal).exclude(contract__status__in=terminal)
 
         if assignee and can_view_directory:
             with connections[alias].cursor() as cur:
@@ -252,7 +252,8 @@ def tenant_dashboard(request):
         if date_to:
             contract_qs = contract_qs.filter(Q(start_date__lte=date_to) | Q(start_date__isnull=True))
         if not include_completed:
-            contract_qs = contract_qs.exclude(status__in=PROJECT_STATUS_GROUPS["complete"] | PROJECT_STATUS_GROUPS["cancel"])
+            terminal = PROJECT_STATUS_GROUPS["complete"] | PROJECT_STATUS_GROUPS["cancel"]
+            contract_qs = contract_qs.exclude(status__in=terminal)
         contracts_count = contract_qs.count()
 
     available_years = []

@@ -1,4 +1,4 @@
-name: Phase 4 event workflow contract
+name: Phase 4 configurable workflow contract
 
 on:
   pull_request:
@@ -13,13 +13,13 @@ permissions:
   contents: read
 
 jobs:
-  phase4-event-workflow-contract:
+  phase4-configurable-workflow-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DJANGO_SECRET_KEY: ci-phase4-event-workflow-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
+      DJANGO_SECRET_KEY: ci-phase4-configurable-workflow-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
       DJANGO_DEBUG: "0"
-      DJANGO_ALLOWED_HOSTS: geoflow.co.kr
+      DJANGO_ALLOWED_HOSTS: testserver,geoflow.co.kr
       DJANGO_CSRF_TRUSTED_ORIGINS: https://geoflow.co.kr
       CENTRAL_DB_NAME: ci-central
       CENTRAL_DB_USER: ci-central-user
@@ -57,36 +57,29 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip check
 
-      # The repository has pre-existing migration-state drift outside this Phase 4
-      # scope. The release migration-rehearsal job applies the complete graph to
-      # disposable Postgres/PostGIS. Keep this contract focused on the current
-      # event/workboard/task-execution boundary.
-      - name: Compile Phase 4 workflow modules
+      - name: Compile configurable workflow boundary
         run: |
           python -m py_compile \
-            geoflow_ops/process_workflow.py \
+            control/gf_authz/permissions.py \
+            control/services/route_security_preflight.py \
+            geoflow_ops/forms.py \
+            geoflow_ops/security_views.py \
             geoflow_ops/event_security_views.py \
-            geoflow_ops/views_events.py \
-            geoflow_ops/views_workboard.py \
-            geoflow_ops/views_execution.py \
             geoflow_ops/views_dashboard.py \
-            geoflow_ops/views_home_security.py \
-            geoflow_ops/services/entity_access.py \
+            geoflow_ops/views_project_members.py \
+            geoflow_ops/views_settings.py \
             geoflow_ops/services/tenant_settings.py \
-            geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py \
-            geoflow_ops/migrations/0020_phase4_project_task_execution.py \
-            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py
-          node --check geoflow_ops/static/geoflow_ops/js/process-events-ui.js
-          node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
+            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py \
+            geoflow_ops/test_phase4_settings_workflow_fixes.py \
+            geoflow_ops/test_phase4_configurable_workflow_production_activation_contract.py
 
-      - name: Run Phase 4 workflow regressions
+      - name: Run configurable workflow regressions
         run: |
           python manage.py test \
-            geoflow_ops.test_phase4_event_workflow_foundation \
-            geoflow_ops.test_phase4_cross_department_workboard \
-            geoflow_ops.test_phase4_contract_workboard_compat \
-            geoflow_ops.test_phase4_task_execution_dashboard \
-            geoflow_ops.test_phase4_event_production_audit_contract \
-            geoflow_ops.test_phase4_event_production_activation_contract \
-            geoflow_ops.test_event_api_security \
-            geoflow_ops.test_event_upload_route_boundaries
+            geoflow_ops.test_phase4_settings_workflow_fixes \
+            geoflow_ops.test_phase4_configurable_workflow_production_activation_contract \
+            geoflow_ops.test_phase4_project_participation_scope \
+            geoflow_ops.test_phase4_employee_settings_foundation \
+            geoflow_ops.test_tenant_route_authorization_contract \
+            geoflow_ops.test_event_upload_route_boundaries \
+            control.test_route_security_preflight
