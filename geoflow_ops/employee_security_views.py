@@ -11,8 +11,6 @@ from . import views_employee_profile, views_employee_role_request
 from .services.employee_access import employee_access_policy
 from .services.entity_access import require_tenant_context
 
-ROLE_ASSIGN_PERMISSION = "directory.roles.assign"
-
 
 def _require(request, permission: str) -> None:
     """Compatibility permission wrapper retained for shared route-contract tests."""
@@ -61,8 +59,14 @@ def employee_detail(request, emp_id):
     _, policy = _policy(request)
     if not policy.can_view(emp_id):
         raise PermissionDenied("Permission denied")
-    if request.method == "POST" and not policy.can_edit(emp_id):
-        raise PermissionDenied("Permission denied")
+    if request.method == "POST":
+        if not policy.can_edit(emp_id):
+            raise PermissionDenied("Permission denied")
+        # Keep the established directory.edit boundary for manager-controlled
+        # organization/grade/employment fields. Self-service writes are still
+        # allowed by policy, but those fields are not accepted by the profile view.
+        if policy.can_edit_admin_fields(emp_id) and not gf_has_perm(request, "directory.edit"):
+            raise PermissionDenied("Permission denied")
     return views_employee_profile.employees_detail(request, emp_id)
 
 
@@ -83,7 +87,7 @@ def employee_role_request(request, emp_id):
     if (
         not policy.can_assign_roles
         or not policy.can_edit_admin_fields(emp_id)
-        or not gf_has_perm(request, ROLE_ASSIGN_PERMISSION)
+        or not gf_has_perm(request, "directory.roles.assign")
     ):
         raise PermissionDenied("Permission denied")
     return views_employee_role_request.employees_request_role_safe(request, emp_id)
