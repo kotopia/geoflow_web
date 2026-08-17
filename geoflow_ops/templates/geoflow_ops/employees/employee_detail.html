@@ -1,130 +1,166 @@
 {% extends "geoflow_ops/base_tenant.html" %}
 {% load static acl_tags %}
 
-{% block title %}{% if create_mode %}구성원 등록{% else %}구성원 상세{% endif %}{% endblock %}
+{% block title %}{% if create_mode %}직원 등록{% else %}직원 상세{% endif %} | GeoFlow{% endblock %}
 
 {% block content %}
-<div class="container-fluid px-4">
+<div class="container-fluid p-0">
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h3 mb-0">{% if create_mode %}구성원 등록{% else %}구성원 상세{% endif %}</h1>
+    <div>
+      <h1 class="h3 mb-1">{% if create_mode %}직원 등록{% else %}직원 상세{% endif %}</h1>
+      {% if not create_mode %}<div class="text-muted">기본 인사정보와 학력·자격·기술등급·이전회사 경력을 관리합니다.</div>{% endif %}
+    </div>
     <div class="d-flex gap-2">
-      {% if not create_mode and not edit_mode %}
-        {% has_perm 'directory.edit' as can_manage %}
-        {% if can_manage %}<button id="btn-edit" type="button" class="btn btn-primary btn-sm">편집</button>{% endif %}
-        {% has_perm 'directory.roles.assign' as can_assign_roles %}
-        {% if can_assign_roles %}<a href="{% url 'tenant:employees_request_role' profile.id %}" class="btn btn-outline-primary btn-sm">권한 요청</a>{% endif %}
-      {% endif %}
-      <a href="{% url 'tenant:employees_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+      {% if not create_mode and not edit_mode and can_edit_profile %}<a href="?edit=1" class="btn btn-primary btn-sm">편집</a>{% endif %}
+      {% if not create_mode and can_assign_roles %}<a href="{% url 'tenant:employees_request_role' profile.id %}" class="btn btn-outline-primary btn-sm">권한 요청</a>{% endif %}
+      {% if can_list_employees %}<a href="{% url 'tenant:employees_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>{% endif %}
     </div>
   </div>
 
   <div class="row g-3">
-    <div class="col-lg-4">
+    <div class="col-xl-3 col-lg-4">
       <div class="card mb-3">
-        <div class="card-header"><h5 class="card-title mb-0">프로필</h5></div>
         <div class="card-body text-center">
           {% if photo_url %}
-            <img id="employee-photo" src="{{ photo_url }}" alt="Profile" class="img-fluid rounded-circle mb-2" style="width:160px;height:160px;object-fit:cover;" data-att-id="{{ photo_attachment.id }}">
+            <img src="{{ photo_url }}" alt="Profile" class="img-fluid rounded-circle mb-3" style="width:150px;height:150px;object-fit:cover;">
           {% else %}
-            <img id="employee-photo" src="{% static 'control/img/avatars/avatar-4.jpg' %}" alt="Profile" class="img-fluid rounded-circle mb-2" style="width:160px;height:160px;object-fit:cover;">
+            <img src="{% static 'control/img/avatars/avatar-4.jpg' %}" alt="Profile" class="img-fluid rounded-circle mb-3" style="width:150px;height:150px;object-fit:cover;">
           {% endif %}
-          <h5 class="card-title mb-0">{{ profile.name|default:"(이름 없음)" }}</h5>
-          <div class="text-muted">{{ profile.title|default:"-" }}</div>
-          {% if edit_mode and not create_mode %}
-          <div class="mt-3">
-            <input type="file" id="photo-upload-input" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp">
-            <button type="button" id="btn-upload-photo" class="btn btn-sm btn-primary mt-2 w-100">사진 업로드</button>
-          </div>
+          <h5 class="mb-1">{{ profile.name|default:"(이름 없음)" }}</h5>
+          <div class="text-muted">{{ profile.title|default:profile.position_grade|default:"-" }}</div>
+          {% if edit_mode and not create_mode and can_edit_profile %}
+            <div class="mt-3 text-start">
+              <label class="form-label small">프로필 사진</label>
+              <input type="file" id="photo-upload-input" class="form-control form-control-sm" accept="image/jpeg,image/png,image/webp">
+              <button type="button" id="btn-upload-photo" class="btn btn-sm btn-outline-primary mt-2 w-100">사진 업로드</button>
+            </div>
           {% endif %}
         </div>
-        <div class="card-body border-top">
-          <ul class="list-unstyled mb-0">
-            <li class="mb-1"><span data-feather="briefcase" class="feather-sm me-1"></span>{% with id=profile.org_unit_id %}{% for ou in org_units %}{% if ou.id == id %}{{ ou.name }}{% endif %}{% empty %}-{% endfor %}{% endwith %}</li>
-            <li class="mb-1"><span data-feather="phone" class="feather-sm me-1"></span>{{ profile.phone|default:"-" }}</li>
-            <li class="mb-1"><span data-feather="mail" class="feather-sm me-1"></span>{{ profile.email|default:"-" }}</li>
-          </ul>
+        <div class="card-body border-top small">
+          <div class="mb-2"><span class="text-muted">이메일</span><br>{{ profile.email|default:"-" }}</div>
+          <div class="mb-2"><span class="text-muted">전화</span><br>{{ profile.phone|default:"-" }}</div>
+          <div><span class="text-muted">사번</span><br>{{ profile.emp_no|default:"-" }}</div>
         </div>
       </div>
 
       {% if not create_mode %}
       <div class="card">
-        <div class="card-header"><h5 class="card-title mb-0">문서 (PDF)</h5></div>
+        <div class="card-header"><h5 class="card-title mb-0">첨부 문서</h5></div>
         <div class="card-body">
-          {% if doc_attachment %}
-            <div class="d-flex justify-content-between align-items-center mb-2 small border-bottom pb-2" data-doc-item="{{ doc_attachment.id }}">
-              <div class="text-truncate flex-grow-1 me-2" title="{{ doc_attachment.original_name }}">{{ doc_attachment.original_name }}</div>
-              <div class="d-flex gap-2">
-                <button type="button" class="btn btn-link btn-sm p-0 btn-preview-doc" data-att-id="{{ doc_attachment.id }}" title="미리보기"><i class="fas fa-eye"></i></button>
-                <button type="button" class="btn btn-link btn-sm p-0 text-success btn-download-doc" data-att-id="{{ doc_attachment.id }}" title="다운로드"><i class="fas fa-download"></i></button>
-                {% if edit_mode %}<button type="button" class="btn btn-link btn-sm p-0 text-danger btn-delete-doc" data-att-id="{{ doc_attachment.id }}" title="삭제"><i class="fas fa-trash"></i></button>{% endif %}
+          {% for att in doc_attachments %}
+            <div class="d-flex align-items-center justify-content-between gap-2 border-bottom pb-2 mb-2" data-doc-item="{{ att.id }}">
+              <div class="text-truncate small" title="{{ att.original_name }}">{{ att.original_name }}</div>
+              <div class="d-flex gap-2 flex-shrink-0">
+                <a href="{% url 'tenant:upload_preview' att.id %}" target="_blank" rel="noopener" class="btn btn-link btn-sm p-0" title="미리보기"><i class="fas fa-eye"></i></a>
+                <button type="button" class="btn btn-link btn-sm p-0 text-success btn-download-doc" data-att-id="{{ att.id }}" title="다운로드"><i class="fas fa-download"></i></button>
+                {% if edit_mode and can_edit_profile %}<button type="button" class="btn btn-link btn-sm p-0 text-danger btn-delete-doc" data-att-id="{{ att.id }}" title="숨김/삭제"><i class="fas fa-trash"></i></button>{% endif %}
               </div>
             </div>
-          {% else %}<div class="text-muted small">등록된 문서가 없습니다.</div>{% endif %}
-          {% if edit_mode %}
-          <div class="mt-3">
-            <input type="file" id="employee-doc-input" class="form-control form-control-sm" accept="application/pdf">
-            <button type="button" id="btn-upload-doc" class="btn btn-sm btn-primary mt-2 w-100">문서 업로드</button>
-          </div>
+          {% empty %}<div class="text-muted small">등록된 문서가 없습니다.</div>{% endfor %}
+          {% if edit_mode and can_edit_profile %}
+            <div class="mt-3">
+              <input type="file" id="employee-doc-input" class="form-control form-control-sm" accept="application/pdf">
+              <button type="button" id="btn-upload-doc" class="btn btn-sm btn-outline-primary mt-2 w-100">PDF 업로드</button>
+            </div>
           {% endif %}
         </div>
       </div>
       {% endif %}
     </div>
 
-    <div class="col-lg-8">
-      <div class="card"><div class="card-body">
-        {% if not create_mode and not edit_mode %}
-        <div id="view-mode">
-          <h5 class="card-title">기본정보</h5>
-          <div class="row g-3">
-            <div class="col-md-6"><div class="text-muted small">성명</div><div class="form-control-plaintext">{{ profile.name|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">이메일</div><div class="form-control-plaintext">{{ profile.email|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">전화</div><div class="form-control-plaintext">{{ profile.phone|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">직함</div><div class="form-control-plaintext">{{ profile.title|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">역할 코드</div><div class="form-control-plaintext">{{ profile.role_code|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">사번</div><div class="form-control-plaintext">{{ profile.emp_no|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">본사/지점</div><div class="form-control-plaintext">{% with id=profile.org_unit_id %}{% for ou in org_units %}{% if ou.id == id %}{{ ou.name }}{% endif %}{% empty %}-{% endfor %}{% endwith %}</div></div>
-            <div class="col-md-6"><div class="text-muted small">부서</div><div class="form-control-plaintext">{% with id=profile.department_id %}{% for d in departments %}{% if d.id == id %}{{ d.name }}{% endif %}{% empty %}-{% endfor %}{% endwith %}</div></div>
-            <div class="col-md-6"><div class="text-muted small">직급</div><div class="form-control-plaintext">{{ profile.position_grade|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">고용형태</div><div class="form-control-plaintext">{{ profile.emp_type|default:"-" }}</div></div>
-            <div class="col-md-6"><div class="text-muted small">상태</div><div class="form-control-plaintext">{{ profile.status|default:"-" }}</div></div>
-            <div class="col-md-3"><div class="text-muted small">입사일</div><div class="form-control-plaintext">{{ profile.hire_date|date:"Y-m-d"|default:"-" }}</div></div>
-            {% if profile.status == '퇴사' %}<div class="col-md-3"><div class="text-muted small">퇴사일</div><div class="form-control-plaintext">{{ profile.term_date|date:"Y-m-d"|default:"-" }}</div></div>{% endif %}
+    <div class="col-xl-9 col-lg-8">
+      {% if create_mode %}
+        <div class="card"><div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+            <h5 class="card-title">기본정보</h5>
+            {% include "geoflow_ops/employees/_employee_profile_form.html" with create_mode=True can_edit_admin_fields=True %}
+            <div class="mt-4 text-end">
+              <a href="{% url 'tenant:employees_list' %}" class="btn btn-outline-secondary">취소</a>
+              <button type="submit" class="btn btn-primary">등록</button>
+            </div>
+          </form>
+        </div></div>
+      {% else %}
+        <ul class="nav nav-tabs mb-3" id="employeeTabs" role="tablist">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-basic" type="button">기본정보</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-education" type="button">학력 <span class="badge bg-light text-dark border">{{ education|length }}</span></button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-qualification" type="button">자격 <span class="badge bg-light text-dark border">{{ qualifications|length }}</span></button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-grade" type="button">기술등급 <span class="badge bg-light text-dark border">{{ technical_grades|length }}</span></button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-career" type="button">경력 <span class="badge bg-light text-dark border">{{ careers|length }}</span></button></li>
+        </ul>
+
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="tab-basic">
+            <div class="card"><div class="card-body">
+              {% if edit_mode %}
+                <form method="post">
+                  {% csrf_token %}<input type="hidden" name="section" value="profile">
+                  <h5 class="card-title">기본정보</h5>
+                  {% include "geoflow_ops/employees/_employee_profile_form.html" %}
+                  <div class="mt-4 text-end">
+                    <a href="{% url 'tenant:employees_detail' profile.id %}" class="btn btn-outline-secondary">취소</a>
+                    <button type="submit" class="btn btn-primary">저장</button>
+                  </div>
+                </form>
+              {% else %}
+                <h5 class="card-title">기본정보</h5>
+                <div class="row g-3">
+                  <div class="col-md-4"><div class="text-muted small">성명</div><div class="form-control-plaintext">{{ profile.name|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">이메일</div><div class="form-control-plaintext">{{ profile.email|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">전화</div><div class="form-control-plaintext">{{ profile.phone|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">직위/직책</div><div class="form-control-plaintext">{{ profile.title|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">직급</div><div class="form-control-plaintext">{{ profile.position_grade|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">사번</div><div class="form-control-plaintext">{{ profile.emp_no|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">본사/지점</div><div class="form-control-plaintext">{% for ou in org_units %}{% if ou.id == profile.org_unit_id %}{{ ou.name }}{% endif %}{% empty %}-{% endfor %}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">부서</div><div class="form-control-plaintext">{% for d in departments %}{% if d.id == profile.department_id %}{{ d.name }}{% endif %}{% empty %}-{% endfor %}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">고용형태</div><div class="form-control-plaintext">{{ profile.emp_type|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">재직상태</div><div class="form-control-plaintext">{{ profile.status|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">입사일</div><div class="form-control-plaintext">{{ profile.hire_date|date:"Y-m-d"|default:"-" }}</div></div>
+                  <div class="col-md-4"><div class="text-muted small">퇴사일</div><div class="form-control-plaintext">{{ profile.term_date|date:"Y-m-d"|default:"-" }}</div></div>
+                  {% if can_assign_roles %}<div class="col-md-12"><div class="text-muted small">권한 역할</div><div class="form-control-plaintext">{% for role in employee_roles %}<span class="badge bg-light text-dark border me-1">{{ role.code|default:role }}</span>{% empty %}{{ profile.role_code|default:"-" }}{% endfor %}</div></div>{% endif %}
+                </div>
+              {% endif %}
+            </div></div>
+          </div>
+
+          <div class="tab-pane fade" id="tab-education">
+            <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">학력</h5>{% if edit_mode %}<button type="button" class="btn btn-sm btn-outline-primary" data-reset-history="education">학력 추가</button>{% endif %}</div><div class="card-body">
+              <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>학교</th><th>학위</th><th>전공</th><th>기간</th><th>상태</th>{% if edit_mode %}<th style="width:120px"></th>{% endif %}</tr></thead><tbody>
+              {% for row in education %}<tr><td>{{ row.school_name }}{% if row.school_type %}<div class="small text-muted">{{ row.school_type }}</div>{% endif %}</td><td>{{ row.degree|default:"-" }}</td><td>{{ row.major|default:"-" }}</td><td>{{ row.admission_date|date:"Y-m-d"|default:"-" }} ~ {{ row.graduation_date|date:"Y-m-d"|default:"-" }}</td><td>{{ row.education_status|default:"-" }}</td>{% if edit_mode %}<td class="text-end"><button type="button" class="btn btn-link btn-sm history-edit" data-section="education" data-record-id="{{ row.id }}" data-school-name="{{ row.school_name }}" data-school-type="{{ row.school_type }}" data-degree="{{ row.degree }}" data-major="{{ row.major }}" data-admission-date="{{ row.admission_date|date:'Y-m-d' }}" data-graduation-date="{{ row.graduation_date|date:'Y-m-d' }}" data-education-status="{{ row.education_status }}" data-note="{{ row.note }}">수정</button>{% include "geoflow_ops/employees/_history_archive_button.html" with section="education" record_id=row.id only %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="6" class="text-center text-muted py-4">등록된 학력이 없습니다.</td></tr>{% endfor %}
+              </tbody></table></div>
+              {% if edit_mode %}{% include "geoflow_ops/employees/_education_form.html" %}{% endif %}
+            </div></div>
+          </div>
+
+          <div class="tab-pane fade" id="tab-qualification">
+            <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">자격</h5>{% if edit_mode %}<button type="button" class="btn btn-sm btn-outline-primary" data-reset-history="qualification">자격 추가</button>{% endif %}</div><div class="card-body">
+              <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>자격명</th><th>발급기관</th><th>번호</th><th>취득일</th><th>유효기간</th>{% if edit_mode %}<th style="width:120px"></th>{% endif %}</tr></thead><tbody>
+              {% for row in qualifications %}<tr><td>{{ row.qualification_name }}</td><td>{{ row.issuer|default:"-" }}</td><td>{{ row.license_no|default:"-" }}</td><td>{{ row.acquired_date|date:"Y-m-d"|default:"-" }}</td><td>{{ row.expiry_date|date:"Y-m-d"|default:"-" }}</td>{% if edit_mode %}<td class="text-end"><button type="button" class="btn btn-link btn-sm history-edit" data-section="qualification" data-record-id="{{ row.id }}" data-qualification-name="{{ row.qualification_name }}" data-issuer="{{ row.issuer }}" data-license-no="{{ row.license_no }}" data-acquired-date="{{ row.acquired_date|date:'Y-m-d' }}" data-expiry-date="{{ row.expiry_date|date:'Y-m-d' }}" data-note="{{ row.note }}">수정</button>{% include "geoflow_ops/employees/_history_archive_button.html" with section="qualification" record_id=row.id only %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="6" class="text-center text-muted py-4">등록된 자격이 없습니다.</td></tr>{% endfor %}
+              </tbody></table></div>
+              {% if edit_mode %}{% include "geoflow_ops/employees/_qualification_form.html" %}{% endif %}
+            </div></div>
+          </div>
+
+          <div class="tab-pane fade" id="tab-grade">
+            <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">기술등급</h5>{% if edit_mode %}<button type="button" class="btn btn-sm btn-outline-primary" data-reset-history="technical_grade">기술등급 추가</button>{% endif %}</div><div class="card-body">
+              <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>분야</th><th>등급</th><th>인정일</th><th>인정기관</th>{% if edit_mode %}<th style="width:120px"></th>{% endif %}</tr></thead><tbody>
+              {% for row in technical_grades %}<tr><td>{{ row.field_name|default:"-" }}</td><td>{{ row.grade_code }}</td><td>{{ row.recognized_date|date:"Y-m-d"|default:"-" }}</td><td>{{ row.issuer|default:"-" }}</td>{% if edit_mode %}<td class="text-end"><button type="button" class="btn btn-link btn-sm history-edit" data-section="technical_grade" data-record-id="{{ row.id }}" data-field-name="{{ row.field_name }}" data-grade-code="{{ row.grade_code }}" data-recognized-date="{{ row.recognized_date|date:'Y-m-d' }}" data-issuer="{{ row.issuer }}" data-note="{{ row.note }}">수정</button>{% include "geoflow_ops/employees/_history_archive_button.html" with section="technical_grade" record_id=row.id only %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="5" class="text-center text-muted py-4">등록된 기술등급이 없습니다.</td></tr>{% endfor %}
+              </tbody></table></div>
+              {% if edit_mode %}{% include "geoflow_ops/employees/_technical_grade_form.html" %}{% endif %}
+            </div></div>
+          </div>
+
+          <div class="tab-pane fade" id="tab-career">
+            <div class="card"><div class="card-header d-flex justify-content-between align-items-center"><div><h5 class="card-title mb-0">이전회사 경력</h5><div class="small text-muted">GeoFlow 내부 프로젝트 참여이력은 추후 프로젝트 배정에서 자동 누적합니다.</div></div>{% if edit_mode %}<button type="button" class="btn btn-sm btn-outline-primary" data-reset-history="career">경력 추가</button>{% endif %}</div><div class="card-body">
+              <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>회사</th><th>부서</th><th>직위/직책</th><th>근무기간</th><th>담당업무</th>{% if edit_mode %}<th style="width:120px"></th>{% endif %}</tr></thead><tbody>
+              {% for row in careers %}<tr><td>{{ row.company_name }}</td><td>{{ row.department|default:"-" }}</td><td>{{ row.position_title|default:"-" }}</td><td>{{ row.started_on|date:"Y-m-d"|default:"-" }} ~ {{ row.ended_on|date:"Y-m-d"|default:"-" }}</td><td>{{ row.duties|default:"-"|truncatechars:60 }}</td>{% if edit_mode %}<td class="text-end"><button type="button" class="btn btn-link btn-sm history-edit" data-section="career" data-record-id="{{ row.id }}" data-company-name="{{ row.company_name }}" data-department="{{ row.department }}" data-position-title="{{ row.position_title }}" data-started-on="{{ row.started_on|date:'Y-m-d' }}" data-ended-on="{{ row.ended_on|date:'Y-m-d' }}" data-duties="{{ row.duties }}" data-note="{{ row.note }}">수정</button>{% include "geoflow_ops/employees/_history_archive_button.html" with section="career" record_id=row.id only %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="6" class="text-center text-muted py-4">등록된 이전회사 경력이 없습니다.</td></tr>{% endfor %}
+              </tbody></table></div>
+              {% if edit_mode %}{% include "geoflow_ops/employees/_career_form.html" %}{% endif %}
+            </div></div>
           </div>
         </div>
-        {% endif %}
-
-        {% if edit_mode %}
-        <form id="edit-mode" method="post" action="">
-          {% csrf_token %}
-          <div class="row g-3">
-            <div class="col-12"><h5 class="card-title mb-0">기본정보</h5></div>
-            <div class="col-md-4"><label class="form-label">이메일</label><input type="email" name="email" value="{{ profile.email }}" class="form-control" {% if not create_mode %}readonly{% endif %} required></div>
-            <div class="col-md-4"><label class="form-label">이름</label><input type="text" name="name" value="{{ profile.name }}" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">전화</label><input type="text" name="phone" value="{{ profile.phone }}" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">직함</label><input type="text" name="title" value="{{ profile.title }}" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">역할 코드</label><input type="text" name="role_code" value="{{ profile.role_code }}" class="form-control" {% if not create_mode %}readonly{% endif %}></div>
-
-            <div class="col-12 mt-3"><h5 class="card-title mb-0">조직</h5></div>
-            <div class="col-md-6"><label class="form-label">본사/지점</label><select name="org_unit_id" id="org_unit_select" class="form-select"><option value="">- 선택 -</option>{% for ou in org_units %}<option value="{{ ou.id }}" {% if ou.id == profile.org_unit_id %}selected{% endif %}>{{ ou.name }}</option>{% endfor %}</select></div>
-            <div class="col-md-6"><label class="form-label">부서</label><select name="department_id" id="dept_select" class="form-select"><option value="">- 선택 -</option>{% for d in departments %}<option value="{{ d.id }}" {% if d.id == profile.department_id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select></div>
-            <div class="col-md-6"><label class="form-label">직속 관리자</label><select name="manager_id" class="form-select"><option value="">- 선택 -</option>{% for m in managers %}<option value="{{ m.id }}" {% if m.id == profile.manager_id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></div>
-
-            <div class="col-12 mt-3"><h5 class="card-title mb-0">인사정보</h5></div>
-            <div class="col-md-4"><label class="form-label">직급</label><select name="position_grade" id="position_grade" class="form-select"><option value="">- 선택 -</option></select></div>
-            <div class="col-md-4"><label class="form-label">고용형태</label><select name="emp_type" id="employment_type" class="form-select"><option value="">- 선택 -</option></select></div>
-            <div class="col-md-4"><label class="form-label">사번</label><input type="text" name="emp_no" value="{{ profile.emp_no }}" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">입사일</label><input type="date" name="hire_date" value="{{ profile.hire_date|date:'Y-m-d' }}" class="form-control"></div>
-            <div class="col-md-4" id="term_date_wrap"><label class="form-label">퇴사일</label><input type="date" name="term_date" value="{{ profile.term_date|date:'Y-m-d' }}" class="form-control"></div>
-            <div class="col-md-4"><label class="form-label">상태</label><select name="status" id="hr_status" class="form-select"><option value="">- 선택 -</option></select></div>
-          </div>
-          <div class="mt-4 text-end">
-            <button class="btn btn-primary btn-sm" type="submit">저장</button>
-            {% if create_mode %}<a href="{% url 'tenant:employees_list' %}" class="btn btn-outline-secondary btn-sm">취소</a>{% else %}<a href="{% url 'tenant:employees_detail' profile.id %}" class="btn btn-outline-secondary btn-sm">취소</a>{% endif %}
-          </div>
-        </form>
-        {% endif %}
-      </div></div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -134,42 +170,79 @@
 {{ block.super }}
 <script src="{% static 'geoflow_ops/js/upload-utils.js' %}"></script>
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-  var editButton = document.getElementById("btn-edit");
-  if (editButton) editButton.addEventListener("click", function () { var url = new URL(window.location.href); url.searchParams.set("edit", "1"); window.location.assign(url.toString()); });
-
+document.addEventListener('DOMContentLoaded', function () {
   function fillSelect(select, items, selected) {
-    select.replaceChildren();
-    var empty = document.createElement("option"); empty.value = ""; empty.textContent = "- 선택 -"; select.appendChild(empty);
-    items.forEach(function (item) { var option = document.createElement("option"); option.value = item.id; option.textContent = item.text; if (selected && String(selected) === String(item.id)) option.selected = true; select.appendChild(option); });
-  }
-  function loadOptions(category, select, selected) {
     if (!select) return;
-    fetch("{% url 'tenant:hr_options' 'REPLACE' %}".replace("REPLACE", category), {credentials: "same-origin"})
-      .then(function (response) { if (!response.ok) throw new Error("option load failed"); return response.json(); })
-      .then(function (data) { fillSelect(select, data.results || [], selected); }).catch(function () {});
+    const placeholder = select.querySelector('option[value=""]') ? select.querySelector('option[value=""]').cloneNode(true) : null;
+    select.replaceChildren();
+    if (placeholder) select.appendChild(placeholder);
+    (items || []).forEach(function (item) {
+      const option = document.createElement('option'); option.value = item.id; option.textContent = item.text;
+      if (selected && String(selected) === String(item.id)) option.selected = true;
+      select.appendChild(option);
+    });
   }
-  var gradeSelect = document.getElementById("position_grade");
-  var typeSelect = document.getElementById("employment_type");
-  var statusSelect = document.getElementById("hr_status");
-  var termWrap = document.getElementById("term_date_wrap");
-  loadOptions("position_grade", gradeSelect, "{{ profile.position_grade|default_if_none:'' }}");
-  loadOptions("employment_type", typeSelect, "{{ profile.emp_type|default_if_none:'' }}");
-  loadOptions("status", statusSelect, "{{ profile.status|default_if_none:'' }}");
-  function syncTermDate() { if (termWrap) termWrap.style.display = statusSelect && statusSelect.value === "퇴사" ? "" : "none"; }
-  if (statusSelect) statusSelect.addEventListener("change", syncTermDate); syncTermDate();
+  function loadOption(category, id, selected) {
+    const select = document.getElementById(id); if (!select) return;
+    fetch("{% url 'tenant:hr_options' 'REPLACE' %}".replace('REPLACE', category), {credentials:'same-origin'})
+      .then(r => r.ok ? r.json() : Promise.reject()).then(data => fillSelect(select, data.results || [], selected)).catch(function () {});
+  }
+  loadOption('position_title', 'position_title_select', "{{ profile.title|default_if_none:'' }}");
+  loadOption('position_grade', 'position_grade_select', "{{ profile.position_grade|default_if_none:'' }}");
+  loadOption('employment_type', 'employment_type_select', "{{ profile.emp_type|default_if_none:'' }}");
+  loadOption('status', 'employment_status_select', "{{ profile.status|default_if_none:'' }}");
 
-  var csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
-  var csrfToken = csrfInput ? csrfInput.value : "{{ csrf_token }}";
-  var employeeId = "{{ profile.id|default_if_none:'' }}";
-  var photoButton = document.getElementById("btn-upload-photo");
-  var photoInput = document.getElementById("photo-upload-input");
-  if (photoButton && photoInput) photoButton.addEventListener("click", function () { var file = photoInput.files[0]; if (!file || !employeeId || !window.uploadImageWithThumbnail) return; window.uploadImageWithThumbnail({file:file, entityType:"employee", entityId:employeeId, purpose:"photo", csrfToken:csrfToken}).then(function () { location.reload(); }).catch(function () { alert("사진 업로드에 실패했습니다."); }); });
-  var docButton = document.getElementById("btn-upload-doc");
-  var docInput = document.getElementById("employee-doc-input");
-  if (docButton && docInput) docButton.addEventListener("click", function () { var file = docInput.files[0]; if (!file || !employeeId || !window.uploadSingleFile) return; window.uploadSingleFile({file:file, entityType:"employee", entityId:employeeId, purpose:"doc", filename:file.name, csrfToken:csrfToken}).then(function () { location.reload(); }).catch(function () { alert("문서 업로드에 실패했습니다."); }); });
-  document.querySelectorAll(".btn-preview-doc, .btn-download-doc").forEach(function (button) { button.addEventListener("click", function () { var attachmentId = button.dataset.attId; var mode = button.classList.contains("btn-download-doc") ? "download" : "inline"; if (!attachmentId || !window.getPresignedGetUrl) return; window.getPresignedGetUrl(attachmentId, csrfToken, mode).then(function (url) { window.open(url, "_blank", "noopener"); }).catch(function () { alert("문서를 열 수 없습니다."); }); }); });
-  document.querySelectorAll(".btn-delete-doc").forEach(function (button) { button.addEventListener("click", function () { var attachmentId = button.dataset.attId; if (!attachmentId || !window.deleteAttachment || !confirm("문서를 삭제할까요?")) return; window.deleteAttachment(attachmentId, csrfToken).then(function () { location.reload(); }).catch(function () { alert("문서 삭제에 실패했습니다."); }); }); });
+  const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+  const csrfToken = csrfInput ? csrfInput.value : "{{ csrf_token }}";
+  const employeeId = "{{ profile.id|default_if_none:'' }}";
+  const photoButton = document.getElementById('btn-upload-photo');
+  const photoInput = document.getElementById('photo-upload-input');
+  if (photoButton && photoInput) photoButton.addEventListener('click', function () {
+    const file = photoInput.files[0]; if (!file || !window.uploadImageWithThumbnail) return;
+    window.uploadImageWithThumbnail({file:file, entityType:'employee', entityId:employeeId, purpose:'photo', csrfToken:csrfToken})
+      .then(() => location.reload()).catch(() => alert('사진 업로드에 실패했습니다.'));
+  });
+  const docButton = document.getElementById('btn-upload-doc');
+  const docInput = document.getElementById('employee-doc-input');
+  if (docButton && docInput) docButton.addEventListener('click', function () {
+    const file = docInput.files[0]; if (!file || !window.uploadSingleFile) return;
+    window.uploadSingleFile({file:file, entityType:'employee', entityId:employeeId, purpose:'doc', filename:file.name, csrfToken:csrfToken})
+      .then(() => location.reload()).catch(() => alert('문서 업로드에 실패했습니다.'));
+  });
+  document.querySelectorAll('.btn-download-doc').forEach(function (button) {
+    button.addEventListener('click', function () {
+      window.getPresignedGetUrl(button.dataset.attId, csrfToken, 'download')
+        .then(function (url) { window.location.assign(url); })
+        .catch(function () { alert('문서를 다운로드할 수 없습니다.'); });
+    });
+  });
+  document.querySelectorAll('.btn-delete-doc').forEach(function (button) {
+    button.addEventListener('click', function () {
+      if (!confirm('이 문서를 숨김 처리할까요?')) return;
+      window.deleteAttachment(button.dataset.attId, csrfToken).then(() => location.reload()).catch(() => alert('문서 처리에 실패했습니다.'));
+    });
+  });
+
+  function resetHistory(section) {
+    const form = document.querySelector('[data-history-form="' + section + '"]'); if (!form) return;
+    form.reset(); const record = form.querySelector('[name="record_id"]'); if (record) record.value = '';
+    form.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+  document.querySelectorAll('[data-reset-history]').forEach(function (button) {
+    button.addEventListener('click', function () { resetHistory(button.dataset.resetHistory); });
+  });
+  document.querySelectorAll('.history-edit').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const form = document.querySelector('[data-history-form="' + button.dataset.section + '"]'); if (!form) return;
+      form.querySelector('[name="record_id"]').value = button.dataset.recordId || '';
+      Object.keys(button.dataset).forEach(function (key) {
+        if (key === 'section' || key === 'recordId') return;
+        const snake = key.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+        const input = form.querySelector('[name="' + snake + '"]'); if (input) input.value = button.dataset[key] || '';
+      });
+      form.scrollIntoView({behavior:'smooth', block:'center'});
+    });
+  });
 });
 </script>
-{% endblock scripts %}
+{% endblock %}
