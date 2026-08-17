@@ -13,6 +13,34 @@
     return columns.length > 1 ? columns[1] : null;
   }
 
+  async function fetchJson(url) {
+    var response = await fetch(url, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "X-Requested-With": "XMLHttpRequest" }
+    });
+    if (!response.ok) return null;
+    return response.json();
+  }
+
+  async function applyProjectControls() {
+    var projectId = projectDetailId();
+    if (!projectId) return;
+    var url = window.location.pathname.replace(/\/$/, "") + "/json/";
+    try {
+      var data = await fetchJson(url);
+      if (!data) return;
+      if (!data.can_edit_project) {
+        document.querySelectorAll('a[href="?edit=1"], #btn-summary-modal, #btn-scope-modal, #btn-add-event').forEach(function (el) {
+          el.classList.add("d-none");
+        });
+      }
+      document.body.dataset.projectWebgisWrite = data.can_webgis_write ? "1" : "0";
+    } catch (error) {
+      console.warn("Project access controls could not be resolved.", error);
+    }
+  }
+
   async function loadProjectMembers() {
     var projectId = projectDetailId();
     if (!projectId || document.getElementById("projectMembersCard")) return;
@@ -45,5 +73,8 @@
     }
   }
 
-  document.addEventListener("DOMContentLoaded", loadProjectMembers);
+  document.addEventListener("DOMContentLoaded", function () {
+    applyProjectControls();
+    loadProjectMembers();
+  });
 })();
