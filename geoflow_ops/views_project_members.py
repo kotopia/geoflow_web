@@ -5,7 +5,7 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
 from django.http import HttpResponseBadRequest, JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import Project
@@ -83,7 +83,7 @@ def project_member_rows(alias: str, project_id) -> list[dict]:
 
 
 def project_member_options(alias: str, project_id) -> list[dict]:
-    if not _table_exists(alias, "hr.employee_profile"):
+    if not _table_exists(alias, "hr.employee_profile") or not _table_exists(alias, "prj.project_members"):
         return []
     with connections[alias].cursor() as cur:
         cur.execute(
@@ -139,6 +139,20 @@ def _require_project(alias: str, project_id):
     if not project:
         raise PermissionDenied("Project not found.")
     return project
+
+
+@require_GET
+def project_members_panel(request, pk):
+    alias = require_tenant_context(request)
+    project = _require_project(alias, pk)
+    policy = project_access_policy(request, alias)
+    if not policy.can_view(project.pk):
+        raise PermissionDenied("Permission denied")
+    context = {
+        "project": project,
+        **project_member_context(request, alias, project.pk),
+    }
+    return render(request, "geoflow_ops/projects/_project_members_panel.html", context)
 
 
 @require_POST
