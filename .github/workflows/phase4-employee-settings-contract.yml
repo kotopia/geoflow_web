@@ -75,5 +75,6 @@ jobs:
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_employee_settings_foundation \
+            geoflow_ops.test_phase4_employee_settings_production_activation_contract \
             geoflow_ops.test_tenant_route_authorization_contract \
             geoflow_ops.test_event_upload_route_boundaries
