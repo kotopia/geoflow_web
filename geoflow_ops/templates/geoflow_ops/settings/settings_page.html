@@ -4,12 +4,14 @@
 
 {% block content %}
 <div class="container-fluid p-0">
-  <div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="d-flex align-items-center justify-content-between mb-3 gap-3 flex-wrap">
     <div>
       <h1 class="h3 mb-1">환경설정</h1>
       <div class="text-muted">인사·계약·프로젝트·업무·GIS에서 공통으로 사용하는 계층형 코드 체계입니다.</div>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" id="btn-tree-expand" class="btn btn-outline-secondary btn-sm">전체 펼치기</button>
+      <button type="button" id="btn-tree-collapse" class="btn btn-outline-secondary btn-sm">전체 접기</button>
       <button type="button" id="btn-root-add" class="btn btn-outline-primary btn-sm">최상위 추가</button>
       <button type="button" id="btn-child-add" class="btn btn-primary btn-sm" disabled>선택 항목 하위 추가</button>
     </div>
@@ -18,13 +20,14 @@
   <div class="row g-3">
     <div class="col-lg-7">
       <div class="card h-100">
-        <div class="card-header">
+        <div class="card-header d-flex justify-content-between align-items-center">
           <h5 class="card-title mb-0">설정 트리</h5>
+          <small class="text-muted">▸ / ▾ 버튼으로 하위 항목을 접거나 펼칠 수 있습니다.</small>
         </div>
         <div class="card-body p-0">
-          <div class="table-responsive">
+          <div class="table-responsive" style="max-height: calc(100vh - 220px); overflow-y:auto;">
             <table class="table table-hover align-middle mb-0" id="settings-tree-table">
-              <thead>
+              <thead class="sticky-top bg-white">
                 <tr>
                   <th>이름</th>
                   <th style="width:150px">코드</th>
@@ -58,7 +61,7 @@
                   <option value="{{ node.id }}">{{ node.name }} ({{ node.code }})</option>
                 {% endfor %}
               </select>
-              <div class="form-text">계층 깊이는 제한하지 않습니다.</div>
+              <div class="form-text">대분류 → 분류 → 값 구조로 구성할 수 있으며 필요한 경우 분류 단계는 확장할 수 있습니다.</div>
             </div>
 
             <div class="row g-3">
@@ -100,7 +103,7 @@
             </div>
 
             <div class="alert alert-light border small mt-3 d-none" id="settings-locked-help">
-              시스템 기본 분류는 코드·상위분류·유형을 변경할 수 없으며 이름과 순서만 조정할 수 있습니다.
+              시스템 기본 항목은 코드·상위분류·유형을 변경할 수 없습니다. 값 항목은 표시 이름·순서·사용 여부를 조정할 수 있습니다.
             </div>
             <div class="mt-4 d-flex justify-content-end gap-2">
               <button type="button" id="btn-form-reset" class="btn btn-outline-secondary btn-sm">초기화</button>
@@ -122,7 +125,9 @@
 document.addEventListener('DOMContentLoaded', function () {
   const nodes = JSON.parse(document.getElementById('settings-nodes-data').textContent || '[]');
   const byParent = new Map();
+  const byId = new Map();
   nodes.forEach(function (node) {
+    byId.set(node.id, node);
     const key = node.parent_id || '';
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key).push(node);
@@ -133,7 +138,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
   const tbody = document.getElementById('settings-tree-body');
   const childAdd = document.getElementById('btn-child-add');
+  const collapsed = new Set();
   let selected = null;
+
+  nodes.forEach(function (node) {
+    if ((byParent.get(node.id) || []).length) collapsed.add(node.id);
+  });
 
   function typeLabel(type) {
     if (type === 'group') return '대분류';
@@ -141,23 +151,79 @@ document.addEventListener('DOMContentLoaded', function () {
     return '값';
   }
 
+  function hasChildren(node) {
+    return (byParent.get(node.id) || []).length > 0;
+  }
+
+  function isVisible(node) {
+    let parentId = node.parent_id || '';
+    while (parentId) {
+      if (collapsed.has(parentId)) return false;
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      parentId = parent.parent_id || '';
+    }
+    return true;
+  }
+
+  function refreshTreeVisibility() {
+    tbody.querySelectorAll('tr[data-node-id]').forEach(function (tr) {
+      const node = byId.get(tr.dataset.nodeId);
+      tr.classList.toggle('d-none', !node || !isVisible(node));
+      const toggle = tr.querySelector('[data-tree-toggle]');
+      if (toggle && node) {
+        toggle.textContent = collapsed.has(node.id) ? '▸' : '▾';
+        toggle.setAttribute('aria-label', collapsed.has(node.id) ? '하위 항목 펼치기' : '하위 항목 접기');
+      }
+    });
+  }
+
   function appendRows(parentId, depth) {
     (byParent.get(parentId || '') || []).forEach(function (node) {
       const tr = document.createElement('tr');
       tr.dataset.nodeId = node.id;
+      tr.dataset.parentId = node.parent_id || '';
+      tr.dataset.depth = String(depth);
       tr.style.cursor = 'pointer';
+
       const name = document.createElement('td');
-      name.innerHTML = '<span class="text-muted me-2">' + '&nbsp;&nbsp;'.repeat(depth) + (depth ? '↳' : '') + '</span>';
+      const wrap = document.createElement('div');
+      wrap.className = 'd-flex align-items-center';
+      wrap.style.paddingLeft = (depth * 18) + 'px';
+
+      if (hasChildren(node)) {
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'btn btn-link btn-sm text-decoration-none p-0 me-2';
+        toggle.dataset.treeToggle = '1';
+        toggle.style.width = '18px';
+        toggle.addEventListener('click', function (event) {
+          event.stopPropagation();
+          if (collapsed.has(node.id)) collapsed.delete(node.id);
+          else collapsed.add(node.id);
+          refreshTreeVisibility();
+        });
+        wrap.appendChild(toggle);
+      } else {
+        const spacer = document.createElement('span');
+        spacer.className = 'me-2';
+        spacer.style.width = '18px';
+        spacer.textContent = '·';
+        wrap.appendChild(spacer);
+      }
+
       const strong = document.createElement('span');
       strong.className = node.active ? 'fw-semibold' : 'text-muted text-decoration-line-through';
       strong.textContent = node.name;
-      name.appendChild(strong);
+      wrap.appendChild(strong);
       if (node.locked) {
         const lock = document.createElement('span');
         lock.className = 'badge bg-light text-dark border ms-2';
         lock.textContent = '기본';
-        name.appendChild(lock);
+        wrap.appendChild(lock);
       }
+      name.appendChild(wrap);
+
       const code = document.createElement('td'); code.textContent = node.code;
       const type = document.createElement('td'); type.textContent = typeLabel(node.node_type);
       const ord = document.createElement('td'); ord.className = 'text-center'; ord.textContent = String(node.ord || 0);
@@ -170,18 +236,19 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  function setLocked(locked) {
+  function setLocked(node) {
+    const locked = !!(node && node.locked);
     ['settings-parent-id', 'settings-code', 'settings-node-type'].forEach(function (id) {
-      const el = document.getElementById(id); if (el) el.disabled = !!locked;
+      const el = document.getElementById(id); if (el) el.disabled = locked;
     });
     const active = document.getElementById('settings-active');
-    if (active) active.disabled = !!locked;
+    if (active) active.disabled = !!(locked && node.node_type !== 'value');
     document.getElementById('settings-locked-help').classList.toggle('d-none', !locked);
   }
 
   function selectNode(node, tr) {
     selected = node;
-    childAdd.disabled = false;
+    childAdd.disabled = node.node_type === 'value';
     tbody.querySelectorAll('tr').forEach(function (row) { row.classList.remove('table-primary'); });
     tr.classList.add('table-primary');
     document.getElementById('settings-form-title').textContent = '환경설정 수정';
@@ -194,12 +261,12 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('settings-description').value = node.description || '';
     document.getElementById('settings-ord').value = node.ord || 0;
     document.getElementById('settings-active').checked = !!node.active;
-    setLocked(!!node.locked);
+    setLocked(node);
   }
 
   function resetForm(parentId) {
     selected = null;
-    childAdd.disabled = !parentId;
+    childAdd.disabled = true;
     tbody.querySelectorAll('tr').forEach(function (row) { row.classList.remove('table-primary'); });
     document.getElementById('settings-form-title').textContent = parentId ? '하위 환경설정 추가' : '최상위 환경설정 추가';
     document.getElementById('settings-node-id').value = '';
@@ -211,17 +278,26 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('settings-description').value = '';
     document.getElementById('settings-ord').value = 0;
     document.getElementById('settings-active').checked = true;
-    setLocked(false);
+    setLocked(null);
   }
 
+  document.getElementById('btn-tree-expand').addEventListener('click', function () {
+    collapsed.clear();
+    refreshTreeVisibility();
+  });
+  document.getElementById('btn-tree-collapse').addEventListener('click', function () {
+    nodes.forEach(function (node) { if (hasChildren(node)) collapsed.add(node.id); });
+    refreshTreeVisibility();
+  });
   document.getElementById('btn-root-add').addEventListener('click', function () { resetForm(''); });
-  childAdd.addEventListener('click', function () { if (selected) resetForm(selected.id); });
+  childAdd.addEventListener('click', function () { if (selected && selected.node_type !== 'value') resetForm(selected.id); });
   document.getElementById('btn-form-reset').addEventListener('click', function () { resetForm(''); });
   document.getElementById('settings-node-form').addEventListener('submit', function () {
     document.querySelectorAll('#settings-node-form :disabled').forEach(function (el) { el.disabled = false; });
   });
 
   appendRows('', 0);
+  refreshTreeVisibility();
   resetForm('');
 });
 </script>
