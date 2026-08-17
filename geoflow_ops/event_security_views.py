@@ -10,19 +10,29 @@ from django.views.decorators.http import require_GET, require_POST
 from control.gf_authz.permissions import gf_has_perm
 
 from . import views_events, views_workboard
+from .models import ProcessEvent
+from .process_workflow import default_stage_for_event, normalize_stage
 from .services.entity_access import require_tenant_context
+from .services.tenant_settings import (
+    event_type_allowed,
+    event_workflow_options,
+    settings_codes,
+)
 
 
 ASSIGNMENT_FIELDS = {"owner_department_id", "assignee_employee_id"}
 
 
-def _payload_contains_assignment_write(request) -> bool:
-    """Detect assignment mutations without weakening the canonical event parser."""
-
+def _payload(request):
     try:
         data = json.loads(request.body or b"{}")
     except (TypeError, ValueError, json.JSONDecodeError):
-        return False
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _payload_contains_assignment_write(request) -> bool:
+    data = _payload(request)
     return isinstance(data, dict) and bool(ASSIGNMENT_FIELDS.intersection(data))
 
 
@@ -32,33 +42,115 @@ def _assignment_write_forbidden(request) -> bool:
     )
 
 
+def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
+    if creating:
+        event_type = str(data.get("event_type") or "").strip()
+        stage = normalize_stage(data.get("stage"))
+        if not stage and event_type:
+            stage = default_stage_for_event(event_type) or ""
+        status = str(data.get("status") or "draft").strip()
+
+        if stage not in settings_codes(alias, "event.stage"):
+            return "Invalid stage"
+        if status not in settings_codes(alias, "event.status"):
+            return "Invalid status"
+        if not event_type_allowed(alias, stage, event_type):
+            return "Invalid event type for stage"
+        return None
+
+    if existing is None:
+        return None
+
+    stage_changed = "stage" in data
+    type_changed = "event_type" in data
+    status_changed = "status" in data
+
+    # Existing historical/custom combinations remain readable/editable for
+    # unrelated fields. The configured workflow is enforced only when the
+    # workflow vocabulary itself is changed.
+    if stage_changed or type_changed:
+        stage = normalize_stage(data.get("stage") if stage_changed else existing.stage)
+        event_type = str(
+            data.get("event_type") if type_changed else existing.event_type
+        ).strip()
+        if stage not in settings_codes(alias, "event.stage"):
+            return "Invalid stage"
+        if not event_type_allowed(alias, stage, event_type):
+            return "Invalid event type for stage"
+
+    if status_changed:
+        status = str(data.get("status") or "").strip()
+        if status not in settings_codes(alias, "event.status"):
+            return "Invalid status"
+    return None
+
+
 @never_cache
 @login_required
 @require_GET
 def event_list(request):
-    """Return the cross-department tenant workboard timeline without caching."""
-
     require_tenant_context(request)
     return views_workboard.workboard_event_list(request)
+
+
+@never_cache
+@login_required
+@require_GET
+def workflow_options(request):
+    alias = require_tenant_context(request)
+    options = event_workflow_options(alias)
+    return JsonResponse(
+        {
+            "stages": [
+                {"code": code, "label": label}
+                for code, label in options["stages"]
+            ],
+            "statuses": [
+                {"code": code, "label": label}
+                for code, label in options["statuses"]
+            ],
+            "types_by_stage": {
+                stage: [
+                    {"code": code, "label": label}
+                    for code, label in rows
+                ]
+                for stage, rows in options["types_by_stage"].items()
+            },
+        }
+    )
 
 
 @login_required
 @require_POST
 def event_create(request):
-    """Guard assignment writes with tenant-directory read permission."""
-
-    require_tenant_context(request)
+    alias = require_tenant_context(request)
     if _assignment_write_forbidden(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
+
+    data = _payload(request)
+    if data is not None:
+        error = _workflow_error(alias, data, creating=True)
+        if error:
+            return JsonResponse({"error": error}, status=400)
     return views_events.create_event(request)
 
 
 @login_required
 @require_POST
 def event_update(request, event_id):
-    """Guard assignment changes before delegating to the canonical event API."""
-
-    require_tenant_context(request)
+    alias = require_tenant_context(request)
     if _assignment_write_forbidden(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
+
+    data = _payload(request)
+    if data is not None:
+        existing = ProcessEvent.objects.using(alias).filter(pk=event_id).first()
+        error = _workflow_error(
+            alias,
+            data,
+            existing=existing,
+            creating=False,
+        )
+        if error:
+            return JsonResponse({"error": error}, status=400)
     return views_events.update_event(request, event_id)
