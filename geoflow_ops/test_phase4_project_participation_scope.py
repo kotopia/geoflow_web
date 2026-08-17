@@ -54,7 +54,9 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         self.assertIn('if self.mode == "leader":', policy)
         self.assertIn('if self.mode == "viewer":', policy)
         self.assertIn('member["member_role"] in {"project_manager", "project_leader", "worker"}', policy)
-        self.assertIn('membership_status=\'active\'', policy)
+        self.assertIn("active_memberships_for_request", policy)
+        self.assertIn("_gf_project_memberships_cache", policy)
+        self.assertIn("membership_status='active'", policy)
 
     def test_project_list_is_scoped_for_worker_and_viewer_modes(self):
         view = source("geoflow_ops/views_projects.py")
@@ -69,6 +71,8 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         self.assertIn('if scope_type == "project":', entity)
         self.assertIn("project_access_policy(request, alias).can_view(scope_id)", entity)
         self.assertIn("project_access_policy(request, alias).can_edit_project(scope_id)", entity)
+        self.assertIn("has_scope_permission(request, scope_type, write=False)", entity)
+        self.assertIn("Project writes are no longer a tenant-wide projects.edit decision", entity)
         self.assertIn("authorize_attachment_read", entity)
         self.assertIn("authorize_attachment_write", entity)
         self.assertIn("authorize_event_read", entity)
@@ -87,13 +91,18 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
             "project_access_api",
         ):
             self.assertIn(f"def {name}", boundary)
+        self.assertIn('def project_member_save(request, pk):\n    _require(request, "projects.view")', boundary)
+        self.assertIn('def project_member_revoke(request, pk, member_id):\n    _require(request, "projects.view")', boundary)
 
         members = source("geoflow_ops/views_project_members.py")
         self.assertIn("policy.can_manage_members(project.pk)", members)
         self.assertIn("policy.assignable_member_roles(project.pk)", members)
+        self.assertIn('member["can_revoke"]', members)
         self.assertIn("membership_status='revoked'", members)
         self.assertIn("membership_status='invited'", members)
         self.assertIn("Project Manager와 Project Leader는 프로젝트별 1명씩", members)
+        self.assertIn('member_role not in {"worker", "viewer"}', members)
+        self.assertIn("외부 인력은 Worker 또는 Viewer로만 초대", members)
 
     def test_webgis_scope_api_exposes_only_authorized_projects_and_write_flag(self):
         members = source("geoflow_ops/views_project_members.py")
@@ -114,6 +123,7 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         self.assertIn("WebGIS", panel)
         self.assertIn("초대 대기", panel)
         self.assertIn("계정 초대/수락 흐름", panel)
+        self.assertIn("{% if member.can_revoke %}", panel)
 
         members = source("geoflow_ops/views_project_members.py")
         self.assertIn("VALUES (%s, %s, 'invited', %s, %s, true)", members)
@@ -133,8 +143,6 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
             self.assertIn(path, preflight)
 
     def test_iroomsng_legacy_webgis_is_not_modified_by_this_scope(self):
-        # This phase intentionally establishes GeoFlow project participation/API
-        # boundaries only. Existing iroomsng WebGIS migration/reuse is deferred.
         migration = source("geoflow_ops/migrations/0022_phase4_project_participation_scope.py").lower()
         self.assertNotIn("iroomsng", migration)
 
