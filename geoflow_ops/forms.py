@@ -2,47 +2,34 @@ from __future__ import annotations
 from django import forms
 from .models import Contract, Partner, Project, MyOrgUnit
 from control.middleware import current_db_alias
+from .services.tenant_settings import (
+    CONTRACT_KIND_FALLBACK,
+    CONTRACT_STATUS_FALLBACK,
+    normalize_contract_status,
+    settings_options,
+)
 
-STATUS_CHOICES = [
-    ("planned", "계약전"),
-    ("active", "진행"),
-    ("completed", "완료"),
-    ("cancel", "취소"),
-    ("pause", "중지"),
-]
+STATUS_CHOICES = list(CONTRACT_STATUS_FALLBACK)
+KIND_CHOICES = list(CONTRACT_KIND_FALLBACK)
 
-KIND_CHOICES = [
-    ("총액", "총액계약"),
-    ("공동", "공동계약"),
-    ("장기계속", "장기계속계약"),
-    ("단가", "단가계약"),
-    ("하도급", "하도급계약"),
-]
 
 class ISODateInput(forms.DateInput):
     input_type = "text"
     format = "%Y-%m-%d"
 
     def __init__(self, *args, **kwargs):
-        # ✅ DateInput은 format만 받습니다. is_localized 인자 금지
         kwargs.setdefault("format", self.format)
         super().__init__(*args, **kwargs)
-        # ✅ 로케일 표기 방지: 위젯 속성으로 지정
         self.is_localized = False
-
-        # UX: 숫자 키패드/마스크와 잘 맞는 속성
         self.attrs.setdefault("placeholder", "YYYY-MM-DD")
         self.attrs.setdefault("inputmode", "numeric")
         self.attrs.setdefault("pattern", "[0-9]*")
-        # (선택) 자동완성 방지
-        # self.attrs.setdefault("autocomplete", "off")
 
 
 class ContractForm(forms.ModelForm):
     status = forms.ChoiceField(choices=STATUS_CHOICES, required=False)
     kind = forms.ChoiceField(choices=KIND_CHOICES, required=False)
 
-    # ✅ 필드에서 localize=False로 로케일 포맷 비활성화
     start_date = forms.DateField(
         required=False,
         input_formats=["%Y-%m-%d", "%Y%m%d"],
@@ -71,12 +58,11 @@ class ContractForm(forms.ModelForm):
             "end_date": forms.TextInput(attrs={"class": "form-control"}),
             "kind": forms.Select(attrs={"class": "form-select"}),
             "amount": forms.NumberInput(attrs={"class": "form-control"}),
-            "client": forms.Select(attrs={"class": "form-select"}),      # Choices.js가 나중에 덮어씀
-            "sub_client": forms.Select(attrs={"class": "form-select"}),  # 동일
-            "org_unit": forms.Select(attrs={"class": "form-select"}),    # 🔹 우리 회사(본사/지사)
+            "client": forms.Select(attrs={"class": "form-select"}),
+            "sub_client": forms.Select(attrs={"class": "form-select"}),
+            "org_unit": forms.Select(attrs={"class": "form-select"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
-
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -87,14 +73,34 @@ class ContractForm(forms.ModelForm):
             partner_type = getattr(p, "type", None) or getattr(p, "kind", None)
             return f"{name} ({partner_type})" if partner_type else name
 
-        # (명시 안 해도 위에서 required=False 지정했지만, 일관성 유지)
         self.fields["start_date"].required = False
         self.fields["end_date"].required = False
 
-        # 상태 필드 재정의(기존 코드 유지)
-        self.fields["status"] = forms.ChoiceField(choices=STATUS_CHOICES, required=False)
+        status_choices = settings_options(alias, "contract.status")
+        kind_choices = settings_options(alias, "contract.kind")
+        self.fields["status"] = forms.ChoiceField(
+            choices=[("", "---------"), *status_choices], required=False
+        )
+        self.fields["kind"] = forms.ChoiceField(
+            choices=[("", "---------"), *kind_choices], required=False
+        )
+        self.fields["status"].widget.attrs.update({"class": "form-select"})
+        self.fields["kind"].widget.attrs.update({"class": "form-select"})
 
-        # 파트너 선택은 테넌트 DB 기준으로
+        # Known historical aliases such as `completed` are presented using the
+        # canonical machine code (`complete`) without losing unknown/custom rows.
+        current_status = normalize_contract_status(getattr(self.instance, "status", ""))
+        if current_status:
+            self.initial["status"] = current_status
+
+        current_kind = str(getattr(self.instance, "kind", "") or "").strip()
+        if current_kind and current_kind not in {code for code, _ in kind_choices}:
+            self.fields["kind"].choices = [
+                *self.fields["kind"].choices,
+                (current_kind, current_kind),
+            ]
+            self.initial["kind"] = current_kind
+
         if "client" in self.fields:
             self.fields["client"].queryset = Partner.objects.using(alias).all().order_by("name")
             self.fields["client"].label_from_instance = _partner_label
@@ -103,7 +109,7 @@ class ContractForm(forms.ModelForm):
             self.fields["sub_client"].label_from_instance = _partner_label
 
     def clean_code(self):
-        code = (self.cleaned_data.get('code') or '').strip()
+        code = (self.cleaned_data.get("code") or "").strip()
         if not code:
             raise forms.ValidationError("계약번호를 입력하세요.")
         alias = current_db_alias()
@@ -114,23 +120,24 @@ class ContractForm(forms.ModelForm):
             raise forms.ValidationError(f"이미 사용 중인 계약번호입니다: {code}")
         return code
 
+    def clean_status(self):
+        return normalize_contract_status(self.cleaned_data.get("status"))
+
     def clean(self):
         cd = super().clean()
-        status = (cd.get("status") or "").strip()
-        sdate  = cd.get("start_date")
-        edate  = cd.get("end_date")
+        status = normalize_contract_status(cd.get("status"))
+        cd["status"] = status
+        sdate = cd.get("start_date")
+        edate = cd.get("end_date")
 
-        # 상태별 날짜 요구사항 (기존 로직 유지)
-        if status in ("active",):
-            if not sdate:
-                self.add_error("start_date", "진행 상태는 시작일이 필요합니다.")
-        if status in ("completed",):
+        if status == "active" and not sdate:
+            self.add_error("start_date", "진행 상태는 시작일이 필요합니다.")
+        if status == "complete":
             if not sdate:
                 self.add_error("start_date", "완료 상태는 시작일이 필요합니다.")
             if not edate:
                 self.add_error("end_date", "완료 상태는 종료일이 필요합니다.")
 
-        # 날짜 논리 검증
         if sdate and edate and edate < sdate:
             self.add_error("end_date", "종료일은 시작일 이후여야 합니다.")
         return cd
@@ -147,9 +154,16 @@ class PartnerForm(forms.ModelForm):
 
 
 class ProjectForm(forms.ModelForm):
-    # 프로젝트 폼도 동일하게 ISO 위젯을 쓰려면 아래처럼 교체 가능
-    start_date = forms.DateField(required=False, input_formats=["%Y-%m-%d", "%Y%m%d"], widget=ISODateInput())
-    end_date   = forms.DateField(required=False, input_formats=["%Y-%m-%d", "%Y%m%d"], widget=ISODateInput())
+    start_date = forms.DateField(
+        required=False,
+        input_formats=["%Y-%m-%d", "%Y%m%d"],
+        widget=ISODateInput(),
+    )
+    end_date = forms.DateField(
+        required=False,
+        input_formats=["%Y-%m-%d", "%Y%m%d"],
+        widget=ISODateInput(),
+    )
 
     class Meta:
         model = Project
@@ -158,19 +172,21 @@ class ProjectForm(forms.ModelForm):
             "start_date", "end_date",
             "status", "description", "org_unit_id",
         ]
-        # widgets = { "start_date": forms.DateInput(attrs={"type": "date"}), "end_date": forms.DateInput(attrs={"type": "date"}) }
-        # ↑ 위젯 충돌 방지를 위해 주석 처리/제거
-    
+
+
 class ProjectNoteForm(forms.ModelForm):
     class Meta:
         model = Project
-        fields = ["description"]  # ← 딱 비고만
+        fields = ["description"]
+
 
 class MyOrgUnitForm(forms.ModelForm):
     class Meta:
         model = MyOrgUnit
-        fields = ["name", "type", "biz_no", "rep_name", "phone", "email",
-                  "address", "label", "description"]
+        fields = [
+            "name", "type", "biz_no", "rep_name", "phone", "email",
+            "address", "label", "description",
+        ]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "type": forms.TextInput(attrs={"class": "form-control"}),
@@ -178,8 +194,7 @@ class MyOrgUnitForm(forms.ModelForm):
             "rep_name": forms.TextInput(attrs={"class": "form-control"}),
             "phone": forms.TextInput(attrs={"class": "form-control"}),
             "email": forms.EmailInput(attrs={"class": "form-control"}),
-            "address": forms.TextInput(attrs={"class": "form-control"}),  # ⬅ 한 줄
+            "address": forms.TextInput(attrs={"class": "form-control"}),
             "label": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
         }
-
