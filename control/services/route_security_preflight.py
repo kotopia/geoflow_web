@@ -6,6 +6,7 @@ from django.urls import Resolver404, resolve
 
 
 _UUID = "00000000-0000-0000-0000-000000000001"
+_UUID2 = "00000000-0000-0000-0000-000000000002"
 ROUTE_SECURITY_BOUNDARIES = (
     ("/login/", "login", "control.views_login_security", "login_view"),
     ("/control/logout/", "control:logout", "control.views_session", "logout_view"),
@@ -20,9 +21,15 @@ ROUTE_SECURITY_BOUNDARIES = (
     (f"/partners/{_UUID}/json/", "tenant:partner_detail_json", "geoflow_ops.security_views", "partner_json"),
     ("/partners/options/", "tenant:partner_options", "geoflow_ops.security_views", "partner_options"),
     ("/projects/", "tenant:project_list", "geoflow_ops.security_views", "project_list"),
+    (f"/projects/{_UUID}/", "tenant:project_detail", "geoflow_ops.security_views", "project_detail"),
     (f"/projects/{_UUID}/json/", "tenant:project_detail_json", "geoflow_ops.security_views", "project_json"),
+    (f"/projects/{_UUID}/members/", "tenant:project_members_panel", "geoflow_ops.security_views", "project_members_panel"),
+    (f"/projects/{_UUID}/members/save/", "tenant:project_member_save", "geoflow_ops.security_views", "project_member_save"),
+    (f"/projects/{_UUID}/members/{_UUID2}/revoke/", "tenant:project_member_revoke", "geoflow_ops.security_views", "project_member_revoke"),
     (f"/projects/{_UUID}/summary/", "tenant:project_summary", "geoflow_ops.security_views", "project_summary"),
     (f"/projects/{_UUID}/summary-save/", "tenant:project_summary_save", "geoflow_ops.security_views", "project_summary_save"),
+    ("/api/projects/mine/", "tenant:my_projects_api", "geoflow_ops.security_views", "my_projects_api"),
+    (f"/api/projects/{_UUID}/access/", "tenant:project_access_api", "geoflow_ops.security_views", "project_access_api"),
     ("/catalog/board/", "tenant:catalog_board", "geoflow_ops.security_views", "catalog_board"),
     (f"/projects/{_UUID}/scope-modal/", "tenant:project_scope_modal", "geoflow_ops.security_views", "project_scope_modal"),
     (f"/projects/{_UUID}/scope-data/", "tenant:project_scope_data", "geoflow_ops.security_views", "project_scope_data"),
