@@ -88,7 +88,9 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
     var status = canonicalStatus(rawStatus);
     var mode = norm(el.getAttribute("data-render")) || "badge";
     var info = BADGE[status];
-    var custom = el.closest && el.closest("#datatables-contracts") ? contractLabels()[status] : null;
+    var contractVocabulary = el.getAttribute("data-vocabulary") === "contract";
+    var contractTable = !!(el.closest && el.closest("#datatables-contracts"));
+    var custom = (contractVocabulary || contractTable) ? contractLabels()[status] : null;
     var label = custom || (info ? info.label : (status || "—"));
     var cls = info ? info.cls : "badge bg-light text-dark border";
     var icon = info ? info.icon : "fa-question-circle";
