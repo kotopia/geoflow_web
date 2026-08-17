@@ -80,11 +80,13 @@ def _fallback_for(system_key: str):
     if system_key.startswith("event.type."):
         stage = system_key.rsplit(".", 1)[-1]
         labels = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
-        return tuple(
+        rows = [
             (event_type, labels.get(event_type, event_type))
             for event_type, default_stage in EVENT_DEFAULT_STAGE.items()
             if default_stage == stage
-        )
+        ]
+        rows.append(("etc", labels.get("etc", "기타")))
+        return tuple(rows)
     return ()
 
 
