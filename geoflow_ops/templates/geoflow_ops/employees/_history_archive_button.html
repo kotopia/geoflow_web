@@ -1,0 +1,7 @@
+<form method="post" class="d-inline" onsubmit="return confirm('이 이력 항목을 숨김 처리할까요?');">
+  {% csrf_token %}
+  <input type="hidden" name="section" value="{{ section }}">
+  <input type="hidden" name="action" value="archive">
+  <input type="hidden" name="record_id" value="{{ record_id }}">
+  <button type="submit" class="btn btn-link btn-sm text-danger">숨김</button>
+</form>
