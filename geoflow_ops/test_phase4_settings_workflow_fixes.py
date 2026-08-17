@@ -32,12 +32,15 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         settings = source("geoflow_ops/services/tenant_settings.py")
         dashboard = source("geoflow_ops/views_dashboard.py")
         migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
+        detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
         self.assertIn('(\"complete\", \"완료\")', settings)
         self.assertNotIn('(\"completed\", \"완료\")', forms)
         self.assertIn('status == "complete"', forms)
         self.assertIn('qs = qs.exclude(status__in=terminal).exclude(contract__status__in=terminal)', dashboard)
         self.assertIn("WHEN 'completed' THEN 'complete'", migration)
         self.assertIn("WHEN '완료' THEN 'complete'", migration)
+        self.assertNotIn('option value="completed"', detail)
+        self.assertIn("for value, label in form.status.field.choices", detail)
         for destructive in ("delete from ctr.contracts", "truncate ctr.contracts", "drop table ctr.contracts"):
             self.assertNotIn(destructive, migration.lower())
 
@@ -45,8 +48,13 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         forms = source("geoflow_ops/forms.py")
         service = source("geoflow_ops/services/tenant_settings.py")
         migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
+        detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
         self.assertIn('settings_options(alias, "contract.status")', forms)
         self.assertIn('settings_options(alias, "contract.kind")', forms)
+        self.assertIn("for value, label in form.status.field.choices", detail)
+        self.assertIn("for value, label in form.kind.field.choices", detail)
+        self.assertIn("process-workboard-ui.js", detail)
+        self.assertIn("data-workflow-options-url", detail)
         for key in (
             "contract.status", "contract.kind", "event.stage", "event.type", "event.status",
             "event.type.pre_contract", "event.type.contract", "event.type.kickoff",
@@ -56,6 +64,8 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
             self.assertIn(key, migration)
         self.assertIn("def event_workflow_options", service)
         self.assertIn("def event_type_allowed", service)
+        self.assertIn("category.code = %s", service)
+        self.assertIn("category.system_key IS NULL", service)
 
     def test_event_type_is_filtered_by_stage_in_ui_and_rejected_server_side(self):
         event_guard = source("geoflow_ops/event_security_views.py")
@@ -70,6 +80,12 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("fStage.onchange", js)
         self.assertIn("types_by_stage", js)
         self.assertIn('"api/events/workflow-options/"', urls)
+
+    def test_workboard_write_flags_use_exact_scope_authorization(self):
+        workboard = source("geoflow_ops/views_workboard.py")
+        self.assertIn("authorize_scope_write(request, alias, event.scope_type, event.scope_id)", workboard)
+        self.assertIn("scope_can_write = bool(authorize_scope_write(request, alias, scope_type, scope_id))", workboard)
+        self.assertNotIn('item["can_write"] = bool(has_scope_permission(request, event.scope_type, write=True))', workboard)
 
     def test_settings_tree_has_expand_and_collapse_controls(self):
         template = source("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
