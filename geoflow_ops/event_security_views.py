@@ -61,27 +61,29 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
     if existing is None:
         return None
 
-    stage_changed = "stage" in data
-    type_changed = "event_type" in data
-    status_changed = "status" in data
+    existing_stage = normalize_stage(existing.stage)
+    existing_type = str(existing.event_type or "").strip()
+    existing_status = str(existing.status or "").strip()
 
-    # Existing historical/custom combinations remain readable/editable for
-    # unrelated fields. The configured workflow is enforced only when the
-    # workflow vocabulary itself is changed.
+    incoming_stage = normalize_stage(data.get("stage")) if "stage" in data else existing_stage
+    incoming_type = str(data.get("event_type") or "").strip() if "event_type" in data else existing_type
+    incoming_status = str(data.get("status") or "").strip() if "status" in data else existing_status
+
+    stage_changed = incoming_stage != existing_stage
+    type_changed = incoming_type != existing_type
+    status_changed = incoming_status != existing_status
+
+    # Existing historical/custom combinations remain editable for unrelated
+    # fields. The configured workflow is enforced only when the workflow value
+    # actually changes, not merely because the UI resubmits the current value.
     if stage_changed or type_changed:
-        stage = normalize_stage(data.get("stage") if stage_changed else existing.stage)
-        event_type = str(
-            data.get("event_type") if type_changed else existing.event_type
-        ).strip()
-        if stage not in settings_codes(alias, "event.stage"):
+        if incoming_stage not in settings_codes(alias, "event.stage"):
             return "Invalid stage"
-        if not event_type_allowed(alias, stage, event_type):
+        if not event_type_allowed(alias, incoming_stage, incoming_type):
             return "Invalid event type for stage"
 
-    if status_changed:
-        status = str(data.get("status") or "").strip()
-        if status not in settings_codes(alias, "event.status"):
-            return "Invalid status"
+    if status_changed and incoming_status not in settings_codes(alias, "event.status"):
+        return "Invalid status"
     return None
 
 
