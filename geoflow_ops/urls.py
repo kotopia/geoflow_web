@@ -64,6 +64,7 @@ urlpatterns = [
 
     path("api/events/create/", event_security_views.event_create, name="event_create"),
     path("api/events/list/", event_security_views.event_list, name="event_list"),
+    path("api/events/workflow-options/", event_security_views.workflow_options, name="event_workflow_options"),
     path("api/events/assignment-options/", views_workboard.assignment_options, name="event_assignment_options"),
     path("api/events/update/<uuid:event_id>/", event_security_views.event_update, name="event_update"),
     path("api/events/delete/<uuid:event_id>/", views_events.delete_event, name="event_delete"),
