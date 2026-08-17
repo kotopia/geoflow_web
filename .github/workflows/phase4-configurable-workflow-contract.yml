@@ -70,12 +70,14 @@ jobs:
             geoflow_ops/views_settings.py \
             geoflow_ops/services/tenant_settings.py \
             geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py \
-            geoflow_ops/test_phase4_settings_workflow_fixes.py
+            geoflow_ops/test_phase4_settings_workflow_fixes.py \
+            geoflow_ops/test_phase4_configurable_workflow_production_activation_contract.py
 
       - name: Run configurable workflow regressions
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_settings_workflow_fixes \
+            geoflow_ops.test_phase4_configurable_workflow_production_activation_contract \
             geoflow_ops.test_phase4_project_participation_scope \
             geoflow_ops.test_phase4_employee_settings_foundation \
             geoflow_ops.test_tenant_route_authorization_contract \
