@@ -25,6 +25,7 @@ urlpatterns = [
     path("projects/", security_views.project_list, name="project_list"),
     path("projects/<uuid:pk>/", security_views.project_detail, name="project_detail"),
     path("projects/<uuid:pk>/json/", security_views.project_json, name="project_detail_json"),
+    path("projects/<uuid:pk>/members/", security_views.project_members_panel, name="project_members_panel"),
     path("projects/<uuid:pk>/members/save/", security_views.project_member_save, name="project_member_save"),
     path("projects/<uuid:pk>/members/<uuid:member_id>/revoke/", security_views.project_member_revoke, name="project_member_revoke"),
 
