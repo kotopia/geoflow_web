@@ -54,10 +54,14 @@
             </td>
             {% if can_manage_project_members %}
             <td class="text-end">
+              {% if member.can_revoke %}
               <form method="post" action="{% url 'tenant:project_member_revoke' pk=project.id member_id=member.id %}" class="d-inline">
                 {% csrf_token %}
                 <button class="btn btn-sm btn-outline-danger" type="submit">해제</button>
               </form>
+              {% else %}
+              <span class="text-muted small">-</span>
+              {% endif %}
             </td>
             {% endif %}
           </tr>
