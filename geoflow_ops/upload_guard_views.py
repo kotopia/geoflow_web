@@ -6,6 +6,7 @@ import logging
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
@@ -101,6 +102,22 @@ def _guard_upload_payload(request):
     return None
 
 
+def _attachment_for_read(request, attachment_id):
+    try:
+        alias = require_tenant_context(request)
+    except Exception:
+        return None, None, _json_error("Forbidden", status=403)
+
+    attachment = Attachment.objects.using(alias).filter(pk=attachment_id).first()
+    if not attachment:
+        return alias, None, _json_error("Attachment not found", status=404)
+    if attachment.deleted_at or attachment.is_deleted or not attachment.active:
+        return alias, None, _json_error("Attachment has been deleted", status=410)
+    if not authorize_attachment_read(request, alias, attachment):
+        return alias, None, _json_error("Forbidden", status=403)
+    return alias, attachment, None
+
+
 @login_required
 @require_POST
 def presign_put(request):
@@ -129,18 +146,9 @@ def commit(request):
 @login_required
 @require_GET
 def presign_get(request, attachment_id):
-    try:
-        alias = require_tenant_context(request)
-    except Exception:
-        return _json_error("Forbidden", status=403)
-
-    attachment = Attachment.objects.using(alias).filter(pk=attachment_id).first()
-    if not attachment:
-        return _json_error("Attachment not found", status=404)
-    if attachment.deleted_at or attachment.is_deleted or not attachment.active:
-        return _json_error("Attachment has been deleted", status=410)
-    if not authorize_attachment_read(request, alias, attachment):
-        return _json_error("Forbidden", status=403)
+    _, attachment, error = _attachment_for_read(request, attachment_id)
+    if error:
+        return error
 
     mode = str(request.GET.get("mode") or "inline").strip().lower()
     if mode not in {"inline", "download"}:
@@ -170,4 +178,44 @@ def presign_get(request, attachment_id):
             "mime_type": mime_type,
             "effective_mode": "inline" if inline_allowed else "download",
         }
+    )
+
+
+@never_cache
+@login_required
+@require_GET
+def preview(request, attachment_id):
+    """Render an authenticated preview shell instead of navigating to a download URL.
+
+    The eye action lands on this HTML page. PDF/image content is embedded with an
+    explicit inline response disposition, while the download action continues to
+    use presign_get(mode=download). This keeps the two user actions distinct even
+    when browser download preferences differ.
+    """
+
+    _, attachment, error = _attachment_for_read(request, attachment_id)
+    if error:
+        return error
+    mime_type = _normalize_mime(attachment.mime_type)
+    if mime_type not in INLINE_SAFE_MIME_TYPES:
+        return _json_error("Preview is not supported for this file type", status=415)
+    try:
+        preview_url = generate_presigned_get_url(
+            attachment.object_key,
+            expires_in=3600,
+            content_type=mime_type,
+            disposition="inline",
+            filename=attachment.original_name,
+        )
+    except Exception:
+        logger.exception("guarded preview presign failed")
+        return _json_error("Failed to generate preview URL", status=500)
+    return render(
+        request,
+        "geoflow_ops/attachments/preview.html",
+        {
+            "attachment": attachment,
+            "preview_url": preview_url,
+            "mime_type": mime_type,
+        },
     )
