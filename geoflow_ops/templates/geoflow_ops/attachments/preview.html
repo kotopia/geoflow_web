@@ -1,0 +1,26 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block title %}첨부파일 미리보기 | GeoFlow{% endblock %}
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h1 class="h4 mb-1">첨부파일 미리보기</h1>
+      <div class="text-muted small">{{ attachment.original_name }}</div>
+    </div>
+    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.close()">닫기</button>
+  </div>
+  <div class="card">
+    <div class="card-body p-0" style="height:calc(100vh - 170px); min-height:520px;">
+      {% if mime_type == 'application/pdf' %}
+        <iframe src="{{ preview_url }}" title="{{ attachment.original_name }}" style="width:100%;height:100%;border:0;"></iframe>
+      {% elif mime_type|slice:':6' == 'image/' %}
+        <div class="h-100 d-flex align-items-center justify-content-center p-3 bg-light">
+          <img src="{{ preview_url }}" alt="{{ attachment.original_name }}" style="max-width:100%;max-height:100%;object-fit:contain;">
+        </div>
+      {% else %}
+        <iframe src="{{ preview_url }}" title="{{ attachment.original_name }}" style="width:100%;height:100%;border:0;"></iframe>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
