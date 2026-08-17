@@ -11,6 +11,8 @@ from . import views_employee_profile, views_employee_role_request
 from .services.employee_access import employee_access_policy
 from .services.entity_access import require_tenant_context
 
+ROLE_ASSIGN_PERMISSION = "directory.roles.assign"
+
 
 def _require(request, permission: str) -> None:
     """Compatibility permission wrapper retained for shared route-contract tests."""
@@ -78,6 +80,10 @@ def hr_options(request, category):
 @require_http_methods(["GET", "POST"])
 def employee_role_request(request, emp_id):
     _, policy = _policy(request)
-    if not policy.can_assign_roles or not policy.can_edit_admin_fields(emp_id):
+    if (
+        not policy.can_assign_roles
+        or not policy.can_edit_admin_fields(emp_id)
+        or not gf_has_perm(request, ROLE_ASSIGN_PERMISSION)
+    ):
         raise PermissionDenied("Permission denied")
     return views_employee_role_request.employees_request_role_safe(request, emp_id)
