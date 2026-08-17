@@ -65,14 +65,17 @@ jobs:
         run: |
           python -m py_compile \
             geoflow_ops/process_workflow.py \
+            geoflow_ops/event_security_views.py \
             geoflow_ops/views_events.py \
             geoflow_ops/views_workboard.py \
             geoflow_ops/views_execution.py \
             geoflow_ops/views_dashboard.py \
             geoflow_ops/views_home_security.py \
             geoflow_ops/services/entity_access.py \
+            geoflow_ops/services/tenant_settings.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py \
-            geoflow_ops/migrations/0020_phase4_project_task_execution.py
+            geoflow_ops/migrations/0020_phase4_project_task_execution.py \
+            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py
           node --check geoflow_ops/static/geoflow_ops/js/process-events-ui.js
           node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
 
