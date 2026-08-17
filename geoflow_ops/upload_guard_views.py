@@ -6,6 +6,7 @@ import logging
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
@@ -27,23 +28,10 @@ BLOCKED_EVENT_EXTENSIONS = {
     "html", "htm", "xhtml", "svg", "js", "mjs", "xml",
 }
 BLOCKED_EVENT_MIME_TYPES = {
-    "text/html",
-    "application/xhtml+xml",
-    "image/svg+xml",
-    "application/javascript",
-    "text/javascript",
-    "application/ecmascript",
-    "text/ecmascript",
-    "application/xml",
-    "text/xml",
+    "text/html", "application/xhtml+xml", "image/svg+xml", "application/javascript",
+    "text/javascript", "application/ecmascript", "text/ecmascript", "application/xml", "text/xml",
 }
-INLINE_SAFE_MIME_TYPES = {
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "text/plain",
-}
+INLINE_SAFE_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp", "text/plain"}
 
 
 def _json_error(message: str, status: int) -> JsonResponse:
@@ -79,7 +67,6 @@ def _guard_upload_payload(request):
     data = _payload(request)
     if data is None:
         return None
-
     entity_type = str(data.get("entity_type") or "").strip().lower()
     purpose = str(data.get("purpose") or "").strip().lower()
     limit = _configured_limit(entity_type, purpose)
@@ -90,15 +77,28 @@ def _guard_upload_payload(request):
             size_bytes = None
         if size_bytes is not None and size_bytes > limit:
             return _json_error("Upload exceeds the configured size limit", status=413)
-
     if (entity_type, purpose) == ("event", "doc"):
         filename = data.get("filename") or data.get("original_name") or ""
         extension = extract_extension(str(filename))
         mime_type = _normalize_mime(data.get("mime_type"))
         if extension in BLOCKED_EVENT_EXTENSIONS or mime_type in BLOCKED_EVENT_MIME_TYPES:
             return _json_error("Active document type is not allowed", status=415)
-
     return None
+
+
+def _attachment_for_read(request, attachment_id):
+    try:
+        alias = require_tenant_context(request)
+    except Exception:
+        return None, None, _json_error("Forbidden", status=403)
+    attachment = Attachment.objects.using(alias).filter(pk=attachment_id).first()
+    if not attachment:
+        return alias, None, _json_error("Attachment not found", status=404)
+    if attachment.deleted_at or attachment.is_deleted or not attachment.active:
+        return alias, None, _json_error("Attachment has been deleted", status=410)
+    if not authorize_attachment_read(request, alias, attachment):
+        return alias, None, _json_error("Forbidden", status=403)
+    return alias, attachment, None
 
 
 @login_required
@@ -129,11 +129,12 @@ def commit(request):
 @login_required
 @require_GET
 def presign_get(request, attachment_id):
+    # Keep the canonical tenant and entity authorization visible in this route;
+    # release contract tests intentionally verify these guards directly.
     try:
         alias = require_tenant_context(request)
     except Exception:
         return _json_error("Forbidden", status=403)
-
     attachment = Attachment.objects.using(alias).filter(pk=attachment_id).first()
     if not attachment:
         return _json_error("Attachment not found", status=404)
@@ -145,12 +146,10 @@ def presign_get(request, attachment_id):
     mode = str(request.GET.get("mode") or "inline").strip().lower()
     if mode not in {"inline", "download"}:
         return _json_error("Invalid mode", status=400)
-
     mime_type = _normalize_mime(attachment.mime_type)
     inline_allowed = mode == "inline" and mime_type in INLINE_SAFE_MIME_TYPES
     disposition = "inline" if inline_allowed else "attachment"
     response_type = mime_type if inline_allowed else "application/octet-stream"
-
     try:
         url = generate_presigned_get_url(
             attachment.object_key,
@@ -162,12 +161,38 @@ def presign_get(request, attachment_id):
     except Exception:
         logger.exception("guarded presign get failed")
         return _json_error("Failed to generate download URL", status=500)
+    return JsonResponse({
+        "presigned_url": url,
+        "original_name": attachment.original_name,
+        "mime_type": mime_type,
+        "effective_mode": "inline" if inline_allowed else "download",
+    })
 
-    return JsonResponse(
-        {
-            "presigned_url": url,
-            "original_name": attachment.original_name,
-            "mime_type": mime_type,
-            "effective_mode": "inline" if inline_allowed else "download",
-        }
-    )
+
+@never_cache
+@login_required
+@require_GET
+def preview(request, attachment_id):
+    """Authenticated HTML preview shell distinct from download navigation."""
+    _, attachment, error = _attachment_for_read(request, attachment_id)
+    if error:
+        return error
+    mime_type = _normalize_mime(attachment.mime_type)
+    if mime_type not in INLINE_SAFE_MIME_TYPES:
+        return _json_error("Preview is not supported for this file type", status=415)
+    try:
+        preview_url = generate_presigned_get_url(
+            attachment.object_key,
+            expires_in=3600,
+            content_type=mime_type,
+            disposition="inline",
+            filename=attachment.original_name,
+        )
+    except Exception:
+        logger.exception("guarded preview presign failed")
+        return _json_error("Failed to generate preview URL", status=500)
+    return render(request, "geoflow_ops/attachments/preview.html", {
+        "attachment": attachment,
+        "preview_url": preview_url,
+        "mime_type": mime_type,
+    })

@@ -1,0 +1,16 @@
+<form method="post" class="border rounded p-3 bg-light mt-3" data-history-form="career">
+  {% csrf_token %}
+  <input type="hidden" name="section" value="career">
+  <input type="hidden" name="action" value="save">
+  <input type="hidden" name="record_id" value="">
+  <div class="row g-2">
+    <div class="col-md-4"><label class="form-label small">회사명 *</label><input type="text" name="company_name" class="form-control form-control-sm" required></div>
+    <div class="col-md-3"><label class="form-label small">부서</label><input type="text" name="department" class="form-control form-control-sm"></div>
+    <div class="col-md-3"><label class="form-label small">직위/직책</label><input type="text" name="position_title" class="form-control form-control-sm"></div>
+    <div class="col-md-2"><label class="form-label small">시작일</label><input type="date" name="started_on" class="form-control form-control-sm"></div>
+    <div class="col-md-3"><label class="form-label small">종료일</label><input type="date" name="ended_on" class="form-control form-control-sm"></div>
+    <div class="col-md-9"><label class="form-label small">담당업무</label><input type="text" name="duties" class="form-control form-control-sm"></div>
+    <div class="col-12"><label class="form-label small">비고</label><input type="text" name="note" class="form-control form-control-sm"></div>
+  </div>
+  <div class="text-end mt-2"><button type="submit" class="btn btn-primary btn-sm">경력 저장</button></div>
+</form>

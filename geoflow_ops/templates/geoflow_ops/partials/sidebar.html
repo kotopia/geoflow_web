@@ -3,60 +3,52 @@
 
 <nav id="sidebar" class="sidebar js-sidebar">
   <div class="sidebar-content js-simplebar">
-    <a class="sidebar-brand" href="{% url 'tenant:home' %}">
-      <span class="align-middle">GeoFlow</span>
-    </a>
+    <a class="sidebar-brand" href="{% url 'tenant:home' %}"><span class="align-middle">GeoFlow</span></a>
 
     <ul class="sidebar-nav">
       <li class="sidebar-item">
         <a class="sidebar-link" href="{% url 'tenant:home' %}">
-          <i class="align-middle" data-feather="sliders"></i>
-          <span class="align-middle">Dashboard</span>
+          <i class="align-middle" data-feather="sliders"></i><span class="align-middle">Dashboard</span>
         </a>
       </li>
 
       <li class="sidebar-header">Contract</li>
       <li class="sidebar-item">
         <a data-bs-target="#contract-menu" data-bs-toggle="collapse" class="sidebar-link collapsed">
-          <i class="align-middle" data-feather="file-text"></i>
-          <span class="align-middle">Contract</span>
+          <i class="align-middle" data-feather="file-text"></i><span class="align-middle">Contract</span>
         </a>
         <ul id="contract-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
-          <li class="sidebar-item">
-            <a class="sidebar-link" href="{% url 'tenant:contract_list' %}">Contract List</a>
-          </li>
-          <li class="sidebar-item">
-            <a class="sidebar-link" href="{% url 'tenant:partner_list' %}">Partners</a>
-          </li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:contract_list' %}">Contract List</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:partner_list' %}">Partners</a></li>
         </ul>
       </li>
 
       <li class="sidebar-item">
         <a class="sidebar-link" href="{% url 'tenant:project_list' %}">
-          <i class="align-middle" data-feather="folder"></i>
-          <span class="align-middle">Projects</span>
+          <i class="align-middle" data-feather="folder"></i><span class="align-middle">Projects</span>
         </a>
       </li>
 
       <li class="sidebar-header">Employee</li>
       <li class="sidebar-item">
         <a data-bs-target="#employee-menu" data-bs-toggle="collapse" class="sidebar-link collapsed">
-          <i class="align-middle" data-feather="users"></i>
-          <span class="align-middle">Employee</span>
+          <i class="align-middle" data-feather="users"></i><span class="align-middle">Employee</span>
         </a>
         <ul id="employee-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
-          <li class="sidebar-item">
-            <a class="sidebar-link" href="{% url 'tenant:employees_list' %}">
-              <i class="align-middle" data-feather="users"></i> <span class="align-middle">직원</span>
-            </a>
-          </li>
-          <li class="sidebar-item">
-            <a class="sidebar-link" href="{% url 'tenant:employees_create' %}">
-              <i class="align-middle" data-feather="user-plus"></i> <span class="align-middle">직원 생성</span>
-            </a>
-          </li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:employees_me' %}">내 정보</a></li>
+          {% if employee_can_list %}<li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:employees_list' %}">직원 목록</a></li>{% endif %}
+          {% if employee_can_create %}<li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:employees_create' %}">직원 등록</a></li>{% endif %}
         </ul>
       </li>
+
+      {% if employee_can_manage_settings %}
+      <li class="sidebar-header">System</li>
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'tenant:settings_page' %}">
+          <i class="align-middle" data-feather="settings"></i><span class="align-middle">환경설정</span>
+        </a>
+      </li>
+      {% endif %}
     </ul>
   </div>
 </nav>

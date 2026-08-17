@@ -1,0 +1,14 @@
+<form method="post" class="border rounded p-3 bg-light mt-3" data-history-form="technical_grade">
+  {% csrf_token %}
+  <input type="hidden" name="section" value="technical_grade">
+  <input type="hidden" name="action" value="save">
+  <input type="hidden" name="record_id" value="">
+  <div class="row g-2">
+    <div class="col-md-4"><label class="form-label small">기술분야</label><input type="text" name="field_name" class="form-control form-control-sm" placeholder="측량/공간정보 등"></div>
+    <div class="col-md-3"><label class="form-label small">기술등급 *</label><select name="grade_code" class="form-select form-select-sm" required><option value="">- 선택 -</option>{% for item in technical_grade_options %}<option value="{{ item.code }}">{{ item.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label small">인정일</label><input type="date" name="recognized_date" class="form-control form-control-sm"></div>
+    <div class="col-md-3"><label class="form-label small">인정기관</label><input type="text" name="issuer" class="form-control form-control-sm"></div>
+    <div class="col-12"><label class="form-label small">비고</label><input type="text" name="note" class="form-control form-control-sm"></div>
+  </div>
+  <div class="text-end mt-2"><button type="submit" class="btn btn-primary btn-sm">기술등급 저장</button></div>
+</form>

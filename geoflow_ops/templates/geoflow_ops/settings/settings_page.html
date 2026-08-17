@@ -1,0 +1,228 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
+{% block title %}환경설정 | GeoFlow{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h1 class="h3 mb-1">환경설정</h1>
+      <div class="text-muted">인사·계약·프로젝트·업무·GIS에서 공통으로 사용하는 계층형 코드 체계입니다.</div>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="button" id="btn-root-add" class="btn btn-outline-primary btn-sm">최상위 추가</button>
+      <button type="button" id="btn-child-add" class="btn btn-primary btn-sm" disabled>선택 항목 하위 추가</button>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header">
+          <h5 class="card-title mb-0">설정 트리</h5>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" id="settings-tree-table">
+              <thead>
+                <tr>
+                  <th>이름</th>
+                  <th style="width:150px">코드</th>
+                  <th style="width:100px">유형</th>
+                  <th style="width:80px" class="text-center">순서</th>
+                  <th style="width:90px" class="text-center">상태</th>
+                </tr>
+              </thead>
+              <tbody id="settings-tree-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card sticky-top" style="top:1rem;">
+        <div class="card-header">
+          <h5 class="card-title mb-0" id="settings-form-title">환경설정 항목</h5>
+        </div>
+        <div class="card-body">
+          <form method="post" action="{% url 'tenant:settings_node_save' %}" id="settings-node-form">
+            {% csrf_token %}
+            <input type="hidden" name="node_id" id="settings-node-id">
+
+            <div class="mb-3">
+              <label class="form-label">상위 항목</label>
+              <select class="form-select" name="parent_id" id="settings-parent-id">
+                <option value="">최상위</option>
+                {% for node in settings_nodes %}
+                  <option value="{{ node.id }}">{{ node.name }} ({{ node.code }})</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">계층 깊이는 제한하지 않습니다.</div>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">코드</label>
+                <input type="text" class="form-control" name="code" id="settings-code" maxlength="100" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">유형</label>
+                <select class="form-select" name="node_type" id="settings-node-type" required>
+                  <option value="group">대분류</option>
+                  <option value="category">중/소분류</option>
+                  <option value="value">값</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label">표시 이름</label>
+                <input type="text" class="form-control" name="name" id="settings-name" maxlength="200" required>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label">저장 값</label>
+                <input type="text" class="form-control" name="value" id="settings-value">
+                <div class="form-text">값 항목이면 비워둘 때 코드가 그대로 사용될 수 있습니다.</div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">정렬순서</label>
+                <input type="number" class="form-control" name="ord" id="settings-ord" value="0">
+              </div>
+              <div class="col-12">
+                <label class="form-label">설명</label>
+                <textarea class="form-control" name="description" id="settings-description" rows="3"></textarea>
+              </div>
+              <div class="col-12">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="active" value="1" id="settings-active" checked>
+                  <label class="form-check-label" for="settings-active">사용</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="alert alert-light border small mt-3 d-none" id="settings-locked-help">
+              시스템 기본 분류는 코드·상위분류·유형을 변경할 수 없으며 이름과 순서만 조정할 수 있습니다.
+            </div>
+            <div class="mt-4 d-flex justify-content-end gap-2">
+              <button type="button" id="btn-form-reset" class="btn btn-outline-secondary btn-sm">초기화</button>
+              <button type="submit" class="btn btn-primary btn-sm">저장</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{ settings_nodes|json_script:"settings-nodes-data" }}
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const nodes = JSON.parse(document.getElementById('settings-nodes-data').textContent || '[]');
+  const byParent = new Map();
+  nodes.forEach(function (node) {
+    const key = node.parent_id || '';
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key).push(node);
+  });
+  byParent.forEach(function (items) {
+    items.sort(function (a, b) { return (a.ord - b.ord) || a.name.localeCompare(b.name); });
+  });
+
+  const tbody = document.getElementById('settings-tree-body');
+  const childAdd = document.getElementById('btn-child-add');
+  let selected = null;
+
+  function typeLabel(type) {
+    if (type === 'group') return '대분류';
+    if (type === 'category') return '분류';
+    return '값';
+  }
+
+  function appendRows(parentId, depth) {
+    (byParent.get(parentId || '') || []).forEach(function (node) {
+      const tr = document.createElement('tr');
+      tr.dataset.nodeId = node.id;
+      tr.style.cursor = 'pointer';
+      const name = document.createElement('td');
+      name.innerHTML = '<span class="text-muted me-2">' + '&nbsp;&nbsp;'.repeat(depth) + (depth ? '↳' : '') + '</span>';
+      const strong = document.createElement('span');
+      strong.className = node.active ? 'fw-semibold' : 'text-muted text-decoration-line-through';
+      strong.textContent = node.name;
+      name.appendChild(strong);
+      if (node.locked) {
+        const lock = document.createElement('span');
+        lock.className = 'badge bg-light text-dark border ms-2';
+        lock.textContent = '기본';
+        name.appendChild(lock);
+      }
+      const code = document.createElement('td'); code.textContent = node.code;
+      const type = document.createElement('td'); type.textContent = typeLabel(node.node_type);
+      const ord = document.createElement('td'); ord.className = 'text-center'; ord.textContent = String(node.ord || 0);
+      const active = document.createElement('td'); active.className = 'text-center';
+      active.innerHTML = node.active ? '<span class="badge bg-success">사용</span>' : '<span class="badge bg-secondary">중지</span>';
+      tr.append(name, code, type, ord, active);
+      tr.addEventListener('click', function () { selectNode(node, tr); });
+      tbody.appendChild(tr);
+      appendRows(node.id, depth + 1);
+    });
+  }
+
+  function setLocked(locked) {
+    ['settings-parent-id', 'settings-code', 'settings-node-type'].forEach(function (id) {
+      const el = document.getElementById(id); if (el) el.disabled = !!locked;
+    });
+    const active = document.getElementById('settings-active');
+    if (active) active.disabled = !!locked;
+    document.getElementById('settings-locked-help').classList.toggle('d-none', !locked);
+  }
+
+  function selectNode(node, tr) {
+    selected = node;
+    childAdd.disabled = false;
+    tbody.querySelectorAll('tr').forEach(function (row) { row.classList.remove('table-primary'); });
+    tr.classList.add('table-primary');
+    document.getElementById('settings-form-title').textContent = '환경설정 수정';
+    document.getElementById('settings-node-id').value = node.id;
+    document.getElementById('settings-parent-id').value = node.parent_id || '';
+    document.getElementById('settings-code').value = node.code || '';
+    document.getElementById('settings-name').value = node.name || '';
+    document.getElementById('settings-node-type').value = node.node_type || 'value';
+    document.getElementById('settings-value').value = node.value || '';
+    document.getElementById('settings-description').value = node.description || '';
+    document.getElementById('settings-ord').value = node.ord || 0;
+    document.getElementById('settings-active').checked = !!node.active;
+    setLocked(!!node.locked);
+  }
+
+  function resetForm(parentId) {
+    selected = null;
+    childAdd.disabled = !parentId;
+    tbody.querySelectorAll('tr').forEach(function (row) { row.classList.remove('table-primary'); });
+    document.getElementById('settings-form-title').textContent = parentId ? '하위 환경설정 추가' : '최상위 환경설정 추가';
+    document.getElementById('settings-node-id').value = '';
+    document.getElementById('settings-parent-id').value = parentId || '';
+    document.getElementById('settings-code').value = '';
+    document.getElementById('settings-name').value = '';
+    document.getElementById('settings-node-type').value = parentId ? 'value' : 'group';
+    document.getElementById('settings-value').value = '';
+    document.getElementById('settings-description').value = '';
+    document.getElementById('settings-ord').value = 0;
+    document.getElementById('settings-active').checked = true;
+    setLocked(false);
+  }
+
+  document.getElementById('btn-root-add').addEventListener('click', function () { resetForm(''); });
+  childAdd.addEventListener('click', function () { if (selected) resetForm(selected.id); });
+  document.getElementById('btn-form-reset').addEventListener('click', function () { resetForm(''); });
+  document.getElementById('settings-node-form').addEventListener('submit', function () {
+    document.querySelectorAll('#settings-node-form :disabled').forEach(function (el) { el.disabled = false; });
+  });
+
+  appendRows('', 0);
+  resetForm('');
+});
+</script>
+{% endblock %}

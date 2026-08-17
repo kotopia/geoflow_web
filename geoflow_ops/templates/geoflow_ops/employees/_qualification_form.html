@@ -1,0 +1,15 @@
+<form method="post" class="border rounded p-3 bg-light mt-3" data-history-form="qualification">
+  {% csrf_token %}
+  <input type="hidden" name="section" value="qualification">
+  <input type="hidden" name="action" value="save">
+  <input type="hidden" name="record_id" value="">
+  <div class="row g-2">
+    <div class="col-md-4"><label class="form-label small">자격명 *</label><input type="text" name="qualification_name" class="form-control form-control-sm" required></div>
+    <div class="col-md-3"><label class="form-label small">발급기관</label><input type="text" name="issuer" class="form-control form-control-sm"></div>
+    <div class="col-md-3"><label class="form-label small">자격번호</label><input type="text" name="license_no" class="form-control form-control-sm"></div>
+    <div class="col-md-2"><label class="form-label small">취득일</label><input type="date" name="acquired_date" class="form-control form-control-sm"></div>
+    <div class="col-md-3"><label class="form-label small">유효기간</label><input type="date" name="expiry_date" class="form-control form-control-sm"></div>
+    <div class="col-md-9"><label class="form-label small">비고</label><input type="text" name="note" class="form-control form-control-sm"></div>
+  </div>
+  <div class="text-end mt-2"><button type="submit" class="btn btn-primary btn-sm">자격 저장</button></div>
+</form>

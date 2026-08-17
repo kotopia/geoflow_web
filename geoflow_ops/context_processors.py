@@ -1,19 +1,43 @@
 from django.db import connections
 from control.middleware import current_db_alias
 
+from .services.employee_access import employee_access_policy
+
+
+def _employee_access_context(request, alias=None):
+    base = {
+        "employee_self_id": None,
+        "employee_can_list": False,
+        "employee_can_create": False,
+        "employee_can_manage_settings": False,
+    }
+    if not getattr(request, "user", None) or not request.user.is_authenticated:
+        return base
+    try:
+        alias = alias or current_db_alias()
+        if not alias:
+            return base
+        policy = employee_access_policy(request, alias)
+        return {
+            "employee_self_id": policy.self_employee_id,
+            "employee_can_list": policy.can_list,
+            "employee_can_create": policy.can_create,
+            "employee_can_manage_settings": policy.can_manage_settings,
+        }
+    except Exception:
+        return base
+
 
 def topbar_user(request):
+    """Topbar and tenant navigation context.
+
+    The employee access flags are calculated from the same server-side role policy
+    used by employee routes; the sidebar therefore never becomes an independent
+    authorization source.
     """
-    Topbar 전역 컨텍스트
-    - 로그인 사용자의 이름/아바타 attachment id 제공
-    - 세션 캐시 우선 사용
-    - 예외는 외부로 전파하지 않음
-    """
+    access = _employee_access_context(request)
     if not getattr(request, "user", None) or not request.user.is_authenticated:
-        return {
-            "topbar_user_name": "",
-            "avatar_attachment_id": None,
-        }
+        return {"topbar_user_name": "", "avatar_attachment_id": None, **access}
 
     fallback_email = (getattr(request.user, "email", "") or "").strip()
 
@@ -26,21 +50,16 @@ def topbar_user(request):
             return {
                 "topbar_user_name": cached_name,
                 "avatar_attachment_id": cached_avatar,
+                **access,
             }
 
         alias = current_db_alias()
         if not alias:
-            return {
-                "topbar_user_name": fallback_email,
-                "avatar_attachment_id": None,
-            }
+            return {"topbar_user_name": fallback_email, "avatar_attachment_id": None, **access}
 
         user_email = fallback_email
         if not user_email:
-            return {
-                "topbar_user_name": "",
-                "avatar_attachment_id": None,
-            }
+            return {"topbar_user_name": "", "avatar_attachment_id": None, **access}
 
         topbar_name = user_email
         avatar_attachment_id = None
@@ -49,9 +68,9 @@ def topbar_user(request):
             cur.execute(
                 """
                 SELECT id::text, COALESCE(name, '')
-                FROM hr.employee_profile
-                WHERE lower(email) = lower(%s)
-                LIMIT 1
+                  FROM hr.employee_profile
+                 WHERE lower(email) = lower(%s)
+                 LIMIT 1
                 """,
                 [user_email],
             )
@@ -65,14 +84,14 @@ def topbar_user(request):
                 cur.execute(
                     """
                     SELECT id::text
-                    FROM ops.attachments
-                    WHERE entity_type = 'employee'
-                      AND entity_id::text = %s
-                      AND purpose = 'thumb'
-                      AND active = true
-                      AND (deleted_at IS NULL OR is_deleted = false)
-                    ORDER BY created_at DESC
-                    LIMIT 1
+                      FROM ops.attachments
+                     WHERE entity_type = 'employee'
+                       AND entity_id::text = %s
+                       AND purpose IN ('photo_thumb', 'thumb')
+                       AND active = true
+                       AND deleted_at IS NULL
+                     ORDER BY ord, created_at DESC
+                     LIMIT 1
                     """,
                     [employee_id],
                 )
@@ -82,14 +101,14 @@ def topbar_user(request):
                     cur.execute(
                         """
                         SELECT id::text
-                        FROM ops.attachments
-                        WHERE entity_type = 'employee'
-                          AND entity_id::text = %s
-                          AND purpose = 'photo'
-                          AND active = true
-                          AND (deleted_at IS NULL OR is_deleted = false)
-                        ORDER BY created_at DESC
-                        LIMIT 1
+                          FROM ops.attachments
+                         WHERE entity_type = 'employee'
+                           AND entity_id::text = %s
+                           AND purpose = 'photo'
+                           AND active = true
+                           AND deleted_at IS NULL
+                         ORDER BY ord, created_at DESC
+                         LIMIT 1
                         """,
                         [employee_id],
                     )
@@ -100,14 +119,7 @@ def topbar_user(request):
 
         request.session["topbar_name"] = topbar_name
         request.session["topbar_avatar_attachment_id"] = avatar_attachment_id
-
-        return {
-            "topbar_user_name": topbar_name,
-            "avatar_attachment_id": avatar_attachment_id,
-        }
+        return {"topbar_user_name": topbar_name, "avatar_attachment_id": avatar_attachment_id, **access}
 
     except Exception:
-        return {
-            "topbar_user_name": fallback_email,
-            "avatar_attachment_id": None,
-        }
+        return {"topbar_user_name": fallback_email, "avatar_attachment_id": None, **access}
