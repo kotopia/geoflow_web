@@ -59,10 +59,12 @@ class Phase4TaskMigrationContractTests(SimpleTestCase):
         self.assertIn("project task update lost scope", source)
         self.assertIn('gf_perm_required("projects.edit")', source)
 
-    def test_dashboard_is_permission_aware_and_uses_project_status(self):
+    def test_dashboard_is_permission_aware_and_hides_terminal_business_lineage(self):
         source = (ROOT / "views_dashboard.py").read_text(encoding="utf-8")
         self.assertIn('gf_has_perm(request, "projects.view")', source)
         self.assertIn('gf_has_perm(request, "contracts.view")', source)
         self.assertIn('gf_has_perm(request, "directory.view")', source)
         self.assertIn("qs.exclude(status__in=", source)
-        self.assertNotIn("contract__status__in", source)
+        # Project execution status remains independent, but a terminal Contract
+        # must also remove its project from the default management dashboard.
+        self.assertIn("exclude(contract__status__in=terminal)", source)
