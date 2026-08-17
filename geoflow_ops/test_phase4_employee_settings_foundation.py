@@ -66,10 +66,12 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
         boundary = source("geoflow_ops/employee_security_views.py")
         self.assertIn("if not policy.can_list", boundary)
         self.assertIn("if not policy.can_view(emp_id)", boundary)
-        self.assertIn('request.method == "POST" and not policy.can_edit(emp_id)', boundary)
+        self.assertIn('if request.method == "POST":', boundary)
+        self.assertIn("if not policy.can_edit(emp_id)", boundary)
+        self.assertIn('gf_has_perm(request, "directory.edit")', boundary)
         self.assertIn("if not policy.can_create", boundary)
         self.assertIn("not policy.can_assign_roles", boundary)
-        self.assertIn('ROLE_ASSIGN_PERMISSION = "directory.roles.assign"', boundary)
+        self.assertIn('gf_has_perm(request, "directory.roles.assign")', boundary)
 
     def test_self_service_does_not_allow_self_promotion_fields(self):
         view = source("geoflow_ops/views_employee_profile.py")
