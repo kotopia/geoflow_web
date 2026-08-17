@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard
-from . import security_views, upload_guard_views, employee_security_views, event_security_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -35,11 +35,15 @@ urlpatterns = [
     path("projects/<uuid:pk>/scope-data/", security_views.project_scope_data, name="project_scope_data"),
 
     path("employees/", employee_security_views.employee_list, name="employees_list"),
+    path("employees/me/", employee_security_views.employee_me, name="employees_me"),
     path("employees/new/", employee_security_views.employee_create, name="employees_create"),
     path("employees/<uuid:emp_id>/", employee_security_views.employee_detail, name="employees_detail"),
     path("employees/<uuid:emp_id>/request-role/", employee_security_views.employee_role_request, name="employees_request_role"),
 
     path("api/hr/options/<str:category>/", employee_security_views.hr_options, name="hr_options"),
+
+    path("settings/", settings_security_views.settings_page, name="settings_page"),
+    path("settings/node/save/", settings_security_views.settings_node_save, name="settings_node_save"),
 
     path("myinfo/org-units/", security_views.orgunit_list,  name="myinfo_orgunit_list"),
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),
@@ -49,6 +53,7 @@ urlpatterns = [
     path("api/uploads/presign-put/", upload_guard_views.presign_put, name="upload_presign_put"),
     path("api/uploads/commit/", upload_guard_views.commit, name="upload_commit"),
     path("api/uploads/presign-get/<uuid:attachment_id>/", upload_guard_views.presign_get, name="upload_presign_get"),
+    path("attachments/preview/<uuid:attachment_id>/", upload_guard_views.preview, name="upload_preview"),
     path("api/uploads/delete/<uuid:attachment_id>/", views_uploads.delete_attachment, name="upload_delete"),
 
     path("api/events/create/", event_security_views.event_create, name="event_create"),
