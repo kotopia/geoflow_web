@@ -68,6 +68,14 @@ def authorize_scope_read(request, alias: str, scope_type: str, scope_id: UUID) -
             scope_exists(alias, scope_type, scope_id)
             and employee_access_policy(request, alias).can_view(scope_id)
         )
+    if scope_type == "project":
+        from .project_access import project_access_policy
+
+        return bool(
+            has_scope_permission(request, scope_type, write=False)
+            and scope_exists(alias, scope_type, scope_id)
+            and project_access_policy(request, alias).can_view(scope_id)
+        )
     return has_scope_permission(request, scope_type, write=False) and scope_exists(
         alias, scope_type, scope_id
     )
@@ -81,6 +89,14 @@ def authorize_scope_write(request, alias: str, scope_type: str, scope_id: UUID) 
         return bool(
             scope_exists(alias, scope_type, scope_id)
             and employee_access_policy(request, alias).can_edit(scope_id)
+        )
+    if scope_type == "project":
+        from .project_access import project_access_policy
+
+        return bool(
+            has_scope_permission(request, scope_type, write=True)
+            and scope_exists(alias, scope_type, scope_id)
+            and project_access_policy(request, alias).can_edit_project(scope_id)
         )
     return has_scope_permission(request, scope_type, write=True) and scope_exists(
         alias, scope_type, scope_id
