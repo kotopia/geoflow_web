@@ -25,6 +25,9 @@ urlpatterns = [
     path("projects/", security_views.project_list, name="project_list"),
     path("projects/<uuid:pk>/", security_views.project_detail, name="project_detail"),
     path("projects/<uuid:pk>/json/", security_views.project_json, name="project_detail_json"),
+    path("projects/<uuid:pk>/members/", security_views.project_members_panel, name="project_members_panel"),
+    path("projects/<uuid:pk>/members/save/", security_views.project_member_save, name="project_member_save"),
+    path("projects/<uuid:pk>/members/<uuid:member_id>/revoke/", security_views.project_member_revoke, name="project_member_revoke"),
 
     path("projects/<uuid:pk>/summary/", security_views.project_summary, name="project_summary"),
     path("projects/<uuid:pk>/summary-save/", security_views.project_summary_save, name="project_summary_save"),
@@ -33,6 +36,9 @@ urlpatterns = [
     path("projects/<uuid:pk>/scope-save/", security_views.project_scope_save, name="project_scope_save"),
     path("projects/<uuid:pk>/scope-summary/", security_views.project_scope_summary, name="project_scope_summary"),
     path("projects/<uuid:pk>/scope-data/", security_views.project_scope_data, name="project_scope_data"),
+
+    path("api/projects/mine/", security_views.my_projects_api, name="my_projects_api"),
+    path("api/projects/<uuid:pk>/access/", security_views.project_access_api, name="project_access_api"),
 
     path("employees/", employee_security_views.employee_list, name="employees_list"),
     path("employees/me/", employee_security_views.employee_me, name="employees_me"),

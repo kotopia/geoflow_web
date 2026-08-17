@@ -1,0 +1,433 @@
+name: Phase 4 project participation production activation
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase4-project-participation-production-activation.yml
+      - geoflow_ops/migrations/0022_phase4_project_participation_scope.py
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  project-participation-production-activation:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || {
+            echo 'project_participation_activation_blocker=release_advanced'
+            exit 2
+          }
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || {
+            echo 'project_participation_activation_blocker=invalid_ssh_port'
+            exit 2
+          }
+          echo 'project_participation_activation_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Apply 0022 project participation schema and deploy exact release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+
+          candidate_sha="$1"
+          service='geoflow-stabilized.service'
+          expected_branch='release/stabilized-deploy'
+
+          fail() {
+            echo "project_participation_activation_blocker=$1"
+            exit 2
+          }
+
+          command -v git >/dev/null 2>&1 || fail 'git_missing'
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          command -v curl >/dev/null 2>&1 || fail 'curl_missing'
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'stabilized_service_not_running_before_activation'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          [ -f "$repo/manage.py" ] || fail 'manage_py_missing'
+          [ -f "$repo/requirements.txt" ] || fail 'requirements_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+
+          origin="$(git -C "$repo" remote get-url origin 2>/dev/null || true)"
+          case "$origin" in
+            https://github.com/kotopia/geoflow_web|https://github.com/kotopia/geoflow_web.git|git@github.com:kotopia/geoflow_web.git) ;;
+            *) fail 'unexpected_repository_origin' ;;
+          esac
+
+          dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+          [ "$dirty_count" = '0' ] || fail 'production_worktree_dirty'
+
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'stabilized_venv_python_missing'
+          [ -x "$repo/.venv/bin/gunicorn" ] || fail 'stabilized_gunicorn_missing'
+
+          exec_raw="$(systemctl show "$service" -p ExecStart --value 2>/dev/null || true)"
+          printf '%s' "$exec_raw" | grep -Fq "$repo/.venv/bin/gunicorn" || fail 'service_exec_not_stabilized_venv'
+          printf '%s' "$exec_raw" | grep -Fq 'geoflow_project.wsgi:application' || fail 'service_wsgi_target_unexpected'
+
+          before_code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://127.0.0.1:8011/login/ || true)"
+          case "$before_code" in
+            2??|3??) ;;
+            *) fail 'local_login_unhealthy_before_activation' ;;
+          esac
+
+          previous_sha="$(git -C "$repo" rev-parse HEAD)"
+          previous_branch="$(git -C "$repo" symbolic-ref --short -q HEAD || true)"
+          echo "project_participation_activation_previous_sha=$previous_sha"
+          echo "project_participation_activation_candidate_sha=$candidate_sha"
+
+          "$python" - "$repo" <<'PY'
+          from collections import Counter
+          import os
+          import sys
+
+          repo = sys.argv[1]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          import psycopg2
+          from django.db import connections, transaction
+
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import (
+              is_tenant_db_secret_reference,
+              resolve_tenant_db_password,
+          )
+
+          APP = "webgisapp"
+          DEPENDENCY = "0021_phase4_employee_settings_foundation"
+          MIGRATION = "0022_phase4_project_participation_scope"
+
+          def text(value):
+              return str(value or "").strip()
+
+          def scalar(cur, sql, params=None):
+              cur.execute(sql, params or [])
+              row = cur.fetchone()
+              return row[0] if row else None
+
+          def relation_exists(cur, relation):
+              return bool(scalar(cur, "SELECT to_regclass(%s) IS NOT NULL", [relation]))
+
+          def execute_0022(cur):
+              cur.execute("CREATE SCHEMA IF NOT EXISTS prj")
+              cur.execute("""
+                  CREATE TABLE IF NOT EXISTS prj.project_members (
+                      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                      project_id uuid NOT NULL,
+                      employee_id uuid NULL,
+                      member_role varchar(32) NOT NULL DEFAULT 'worker',
+                      membership_status varchar(20) NOT NULL DEFAULT 'active',
+                      invite_email text NULL,
+                      invite_name text NULL,
+                      is_external boolean NOT NULL DEFAULT false,
+                      note text NULL,
+                      created_at timestamptz NOT NULL DEFAULT now(),
+                      updated_at timestamptz NOT NULL DEFAULT now(),
+                      CONSTRAINT project_members_role_ck CHECK (
+                          member_role IN ('project_manager', 'project_leader', 'worker', 'viewer')
+                      ),
+                      CONSTRAINT project_members_status_ck CHECK (
+                          membership_status IN ('invited', 'active', 'revoked')
+                      ),
+                      CONSTRAINT project_members_identity_ck CHECK (
+                          employee_id IS NOT NULL OR NULLIF(BTRIM(invite_email), '') IS NOT NULL
+                      )
+                  )
+              """)
+              cur.execute("CREATE INDEX IF NOT EXISTS idx_project_members_project_active ON prj.project_members (project_id, membership_status, member_role)")
+              cur.execute("CREATE INDEX IF NOT EXISTS idx_project_members_employee_active ON prj.project_members (employee_id, membership_status, project_id) WHERE employee_id IS NOT NULL")
+              cur.execute("CREATE INDEX IF NOT EXISTS idx_project_members_invite_email ON prj.project_members (lower(invite_email), membership_status, project_id) WHERE invite_email IS NOT NULL")
+              cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_project_employee ON prj.project_members (project_id, employee_id) WHERE employee_id IS NOT NULL AND membership_status <> 'revoked'")
+              cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_project_invite_email ON prj.project_members (project_id, lower(invite_email)) WHERE invite_email IS NOT NULL AND membership_status <> 'revoked'")
+              cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_one_active_pm ON prj.project_members (project_id) WHERE member_role='project_manager' AND membership_status='active'")
+              cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_one_active_leader ON prj.project_members (project_id) WHERE member_role='project_leader' AND membership_status='active'")
+
+          with transaction.atomic(using="default"):
+              with connections["default"].cursor() as central_cur:
+                  central_cur.execute("SET LOCAL TRANSACTION READ ONLY")
+                  rows = list(
+                      GroupDBConfig.objects.using("default")
+                      .select_related("group")
+                      .order_by("group_id")
+                  )
+
+          active_rows = [row for row in rows if text(getattr(row.group, "status", "")).lower() == "active"]
+          totals = Counter()
+          totals["configs"] = len(rows)
+          totals["active_tenants"] = len(active_rows)
+
+          for row in active_rows:
+              raw = text(row.db_password)
+              try:
+                  password = resolve_tenant_db_password(raw) if is_tenant_db_secret_reference(raw) else raw
+              except Exception:
+                  totals["secret_resolution_failed"] += 1
+                  continue
+              if not password:
+                  totals["secret_resolution_failed"] += 1
+                  continue
+
+              try:
+                  conn = psycopg2.connect(
+                      dbname=row.db_name,
+                      user=row.db_user,
+                      password=password,
+                      host=row.db_host,
+                      port=row.db_port,
+                      sslmode="require",
+                      connect_timeout=8,
+                  )
+              except Exception:
+                  totals["connection_failed"] += 1
+                  continue
+
+              try:
+                  conn.autocommit = False
+                  with conn.cursor() as cur:
+                      cur.execute("SET LOCAL lock_timeout = '5s'")
+                      cur.execute("SET LOCAL statement_timeout = '60s'")
+                      cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ["geoflow:webgisapp:0022"])
+
+                      project_present = relation_exists(cur, "prj.projects")
+                      employee_present = relation_exists(cur, "hr.employee_profile")
+                      attachment_present = relation_exists(cur, "ops.attachments")
+                      if not project_present and not employee_present and not attachment_present:
+                          conn.rollback()
+                          totals["schema_absent_skipped"] += 1
+                          continue
+                      if not project_present or not employee_present or not attachment_present:
+                          raise RuntimeError("partial tenant project/employee schema cannot be skipped")
+
+                      dependency_applied = bool(scalar(
+                          cur,
+                          "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
+                          [APP, DEPENDENCY],
+                      ))
+                      if not dependency_applied:
+                          raise RuntimeError("0021 dependency not applied")
+
+                      already_applied = bool(scalar(
+                          cur,
+                          "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
+                          [APP, MIGRATION],
+                      ))
+
+                      projects_before = int(scalar(cur, "SELECT COUNT(*) FROM prj.projects"))
+                      employees_before = int(scalar(cur, "SELECT COUNT(*) FROM hr.employee_profile"))
+                      attachments_before = int(scalar(cur, "SELECT COUNT(*) FROM ops.attachments"))
+                      members_before = int(scalar(cur, "SELECT COUNT(*) FROM prj.project_members")) if relation_exists(cur, "prj.project_members") else 0
+
+                      if not already_applied:
+                          execute_0022(cur)
+                          cur.execute("""
+                              INSERT INTO django_migrations (app, name, applied)
+                              SELECT %s, %s, NOW()
+                               WHERE NOT EXISTS (
+                                   SELECT 1 FROM django_migrations WHERE app=%s AND name=%s
+                               )
+                          """, [APP, MIGRATION, APP, MIGRATION])
+
+                      if not relation_exists(cur, "prj.project_members"):
+                          raise RuntimeError("0022 project_members table missing")
+
+                      projects_after = int(scalar(cur, "SELECT COUNT(*) FROM prj.projects"))
+                      employees_after = int(scalar(cur, "SELECT COUNT(*) FROM hr.employee_profile"))
+                      attachments_after = int(scalar(cur, "SELECT COUNT(*) FROM ops.attachments"))
+                      members_after = int(scalar(cur, "SELECT COUNT(*) FROM prj.project_members"))
+
+                      if projects_after != projects_before:
+                          raise RuntimeError("project row count changed")
+                      if employees_after != employees_before:
+                          raise RuntimeError("employee row count changed")
+                      if attachments_after != attachments_before:
+                          raise RuntimeError("attachment row count changed")
+                      if already_applied and members_after != members_before:
+                          raise RuntimeError("existing project member row count changed")
+                      if not already_applied and members_before != 0:
+                          raise RuntimeError("unexpected pre-existing project member rows")
+
+                      invalid_role = int(scalar(cur, """
+                          SELECT COUNT(*) FROM prj.project_members
+                           WHERE member_role NOT IN ('project_manager','project_leader','worker','viewer')
+                      """))
+                      invalid_status = int(scalar(cur, """
+                          SELECT COUNT(*) FROM prj.project_members
+                           WHERE membership_status NOT IN ('invited','active','revoked')
+                      """))
+                      duplicate_responsibility = int(scalar(cur, """
+                          SELECT COUNT(*) FROM (
+                              SELECT project_id, member_role
+                                FROM prj.project_members
+                               WHERE membership_status='active'
+                                 AND member_role IN ('project_manager','project_leader')
+                               GROUP BY project_id, member_role
+                              HAVING COUNT(*) > 1
+                          ) d
+                      """))
+                      if invalid_role or invalid_status or duplicate_responsibility:
+                          raise RuntimeError("project member integrity verification failed")
+
+                      migration_recorded = bool(scalar(
+                          cur,
+                          "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
+                          [APP, MIGRATION],
+                      ))
+                      if not migration_recorded:
+                          raise RuntimeError("0022 migration record missing")
+
+                  conn.commit()
+                  totals["already_applied" if already_applied else "migrated"] += 1
+                  totals["project_rows_verified"] += projects_before
+                  totals["employee_rows_verified"] += employees_before
+                  totals["attachment_rows_verified"] += attachments_before
+                  totals["member_rows_verified"] += members_after
+              except Exception:
+                  conn.rollback()
+                  totals["migration_failed"] += 1
+              finally:
+                  conn.close()
+
+          for key in (
+              "configs", "active_tenants", "migrated", "already_applied", "schema_absent_skipped",
+              "secret_resolution_failed", "connection_failed", "migration_failed",
+              "project_rows_verified", "employee_rows_verified", "attachment_rows_verified", "member_rows_verified",
+          ):
+              print(f"project_participation_activation_{key}={int(totals[key])}")
+
+          if totals["secret_resolution_failed"] or totals["connection_failed"] or totals["migration_failed"]:
+              raise SystemExit("project_participation_activation_blocker=tenant_migration_failure")
+          accounted = totals["migrated"] + totals["already_applied"] + totals["schema_absent_skipped"]
+          if accounted != totals["active_tenants"]:
+              raise SystemExit("project_participation_activation_blocker=not_all_active_tenants_accounted")
+          print("project_participation_activation_db_complete=yes")
+          PY
+
+          git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
+          fetched_sha="$(git -C "$repo" rev-parse FETCH_HEAD)"
+          [ "$fetched_sha" = "$candidate_sha" ] || fail 'candidate_sha_not_current_release_head'
+
+          rollback_needed=0
+          rollback_code() {
+            set +e
+            if [ "$rollback_needed" -eq 1 ]; then
+              echo 'project_participation_activation_code_rollback_started=yes'
+              if [ -n "$previous_branch" ]; then
+                git -C "$repo" checkout -B "$previous_branch" "$previous_sha" >/dev/null 2>&1
+              else
+                git -C "$repo" checkout --detach "$previous_sha" >/dev/null 2>&1
+              fi
+              "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt" >/dev/null 2>&1
+              "$python" "$repo/manage.py" collectstatic --noinput >/dev/null 2>&1
+              sudo -n systemctl restart "$service"
+              sleep 3
+              echo "project_participation_activation_rollback_service_state=$(systemctl is-active "$service" 2>/dev/null || true)"
+              echo 'project_participation_activation_code_rollback_completed=yes'
+            fi
+          }
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then rollback_code; fi
+            exit "$rc"
+          }
+          trap on_exit EXIT
+          rollback_needed=1
+
+          git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
+          [ "$(git -C "$repo" rev-parse HEAD)" = "$candidate_sha" ] || fail 'candidate_checkout_failed'
+
+          "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
+          "$python" -m pip check
+          "$python" "$repo/manage.py" check
+          "$python" "$repo/manage.py" collectstatic --noinput
+          sudo -n systemctl restart "$service"
+
+          ready=no
+          for _ in $(seq 1 30); do
+            active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+            sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+            code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
+            if [ "$active" = 'active' ] && [ "$sub" = 'running' ]; then
+              case "$code" in
+                2??|3??) ready=yes; break ;;
+              esac
+            fi
+            sleep 2
+          done
+          [ "$ready" = yes ] || fail 'stabilized_service_failed_post_restart_healthcheck'
+
+          public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
+          echo "project_participation_activation_public_login_status=$public_login"
+          [ "$public_login" = '200' ] || fail 'public_login_not_200_after_activation'
+
+          rollback_needed=0
+          trap - EXIT
+          echo "project_participation_activation_deployed_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo "project_participation_activation_deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
+          echo 'project_participation_production_activation_complete=yes'
+          REMOTE

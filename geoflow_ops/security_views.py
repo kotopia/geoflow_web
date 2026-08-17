@@ -9,19 +9,42 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from control.gf_authz.permissions import gf_has_perm
 
-from . import views_catalog, views_contracts, views_execution, views_myinfo, views_projects
+from . import (
+    views_catalog,
+    views_contracts,
+    views_execution,
+    views_myinfo,
+    views_project_members,
+    views_projects,
+)
 from .models import Contract
 from .services.contract_project_pair import (
     contract_id_from_create_response,
     create_project_for_new_contract,
 )
-from .services.entity_access import authorize_scope_read, require_tenant_context
+from .services.entity_access import (
+    authorize_scope_read,
+    authorize_scope_write,
+    require_tenant_context,
+)
 
 
 def _require(request, code: str) -> None:
     require_tenant_context(request)
     if not gf_has_perm(request, code):
         raise PermissionDenied("Permission denied")
+
+
+def _require_project(request, pk, *, write: bool) -> str:
+    alias = require_tenant_context(request)
+    allowed = (
+        authorize_scope_write(request, alias, "project", pk)
+        if write
+        else authorize_scope_read(request, alias, "project", pk)
+    )
+    if not allowed:
+        raise PermissionDenied("Permission denied")
+    return alias
 
 
 @login_required
@@ -113,30 +136,35 @@ def project_list(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def project_detail(request, pk):
-    _require(request, "projects.view")
-    if request.method == "POST" and not gf_has_perm(request, "projects.edit"):
-        raise PermissionDenied("Permission denied")
+    _require_project(request, pk, write=request.method == "POST")
     return views_projects.project_detail_page(request, pk)
 
 
 @login_required
 @require_GET
 def project_json(request, pk):
-    _require(request, "projects.view")
+    _require_project(request, pk, write=False)
     return views_projects.project_json(request, pk)
 
 
 @login_required
 @require_GET
+def project_members_panel(request, pk):
+    _require_project(request, pk, write=False)
+    return views_project_members.project_members_panel(request, pk)
+
+
+@login_required
+@require_GET
 def project_summary(request, pk):
-    _require(request, "projects.edit")
+    _require_project(request, pk, write=True)
     return views_execution.project_task_modal(request, pk)
 
 
 @login_required
 @require_POST
 def project_summary_save(request, pk):
-    _require(request, "projects.edit")
+    _require_project(request, pk, write=True)
     return views_execution.project_task_save(request, pk)
 
 
@@ -147,38 +175,67 @@ def catalog_board(request):
     project_id = request.GET.get("project_id")
     if project_id:
         try:
-            UUID(str(project_id))
+            project_uuid = UUID(str(project_id))
         except (TypeError, ValueError, AttributeError):
             raise PermissionDenied("Permission denied")
+        _require_project(request, project_uuid, write=False)
     return views_catalog.catalog_board(request)
 
 
 @login_required
 @require_GET
 def project_scope_modal(request, pk):
-    _require(request, "projects.edit")
+    _require_project(request, pk, write=True)
     return views_catalog.project_scope_modal(request, pk)
 
 
 @login_required
 @require_GET
 def project_scope_data(request, pk):
-    _require(request, "projects.edit")
+    _require_project(request, pk, write=True)
     return views_catalog.project_scope_data(request, pk)
 
 
 @login_required
 @require_POST
 def project_scope_save(request, pk):
-    _require(request, "projects.edit")
+    _require_project(request, pk, write=True)
     return views_catalog.project_scope_save(request, pk)
 
 
 @login_required
 @require_GET
 def project_scope_summary(request, pk):
-    _require(request, "projects.view")
+    _require_project(request, pk, write=False)
     return views_catalog.project_scope_summary(request, pk)
+
+
+@login_required
+@require_POST
+def project_member_save(request, pk):
+    _require(request, "projects.view")
+    return views_project_members.project_member_save(request, pk)
+
+
+@login_required
+@require_POST
+def project_member_revoke(request, pk, member_id):
+    _require(request, "projects.view")
+    return views_project_members.project_member_revoke(request, pk, member_id)
+
+
+@login_required
+@require_GET
+def my_projects_api(request):
+    _require(request, "projects.view")
+    return views_project_members.my_projects_api(request)
+
+
+@login_required
+@require_GET
+def project_access_api(request, pk):
+    _require(request, "projects.view")
+    return views_project_members.project_access_api(request, pk)
 
 
 @login_required

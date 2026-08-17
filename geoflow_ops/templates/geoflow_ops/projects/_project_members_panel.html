@@ -1,0 +1,137 @@
+<div class="card mt-3" id="projectMembersCard">
+  <div class="card-header d-flex justify-content-between align-items-start gap-3">
+    <div>
+      <h5 class="card-title mb-1">프로젝트 참여자</h5>
+      <small class="text-muted">이 참여 범위가 WebGIS의 프로젝트 조회·편집 권한 기준으로 사용됩니다.</small>
+    </div>
+    <div class="d-flex gap-1 flex-wrap justify-content-end">
+      {% if project_has_pm %}
+        <span class="badge bg-success">PM 지정</span>
+      {% else %}
+        <span class="badge bg-warning text-dark">PM 미지정</span>
+      {% endif %}
+      {% if project_has_leader %}
+        <span class="badge bg-success">Leader 지정</span>
+      {% else %}
+        <span class="badge bg-warning text-dark">Leader 미지정</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-3">
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>이름</th>
+            <th>직급/직책</th>
+            <th>상태</th>
+            {% if can_manage_project_members %}<th class="text-end">관리</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for member in project_members %}
+          <tr>
+            <td><span class="badge bg-light text-dark border">{{ member.member_role_label }}</span></td>
+            <td>
+              <div class="fw-semibold">{{ member.name|default:member.email }}</div>
+              <div class="small text-muted">{{ member.email }}</div>
+              {% if member.is_external %}<span class="badge bg-info text-dark">외부</span>{% endif %}
+            </td>
+            <td>
+              {{ member.position_grade|default:"-" }}
+              {% if member.title %}<span class="text-muted"> / {{ member.title }}</span>{% endif %}
+            </td>
+            <td>
+              {% if member.membership_status == 'active' %}
+                <span class="badge bg-success">참여중</span>
+              {% elif member.membership_status == 'invited' %}
+                <span class="badge bg-warning text-dark">초대 대기</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ member.membership_status }}</span>
+              {% endif %}
+            </td>
+            {% if can_manage_project_members %}
+            <td class="text-end">
+              {% if member.can_revoke %}
+              <form method="post" action="{% url 'tenant:project_member_revoke' pk=project.id member_id=member.id %}" class="d-inline">
+                {% csrf_token %}
+                <button class="btn btn-sm btn-outline-danger" type="submit">해제</button>
+              </form>
+              {% else %}
+              <span class="text-muted small">-</span>
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="text-center text-muted py-3">등록된 프로젝트 참여자가 없습니다.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if can_manage_project_members %}
+    <div class="border rounded p-3 bg-light">
+      <div class="fw-semibold mb-2">내부 직원 참여</div>
+      <form method="post" action="{% url 'tenant:project_member_save' pk=project.id %}" class="row g-2 align-items-end">
+        {% csrf_token %}
+        <div class="col-md-7">
+          <label class="form-label small">직원</label>
+          <select class="form-select form-select-sm" name="employee_id" required>
+            <option value="">직원 선택</option>
+            {% for employee in project_member_options %}
+              <option value="{{ employee.id }}">{{ employee.name }}{% if employee.position_grade %} · {{ employee.position_grade }}{% endif %} ({{ employee.email }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">프로젝트 역할</label>
+          <select class="form-select form-select-sm" name="member_role" required>
+            {% for role in project_member_roles %}
+              <option value="{{ role.code }}">{{ role.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-sm btn-primary" type="submit">참여 추가</button>
+        </div>
+      </form>
+
+      <hr class="my-3">
+      <div class="fw-semibold mb-1">외부 인력 초대 등록</div>
+      <div class="small text-muted mb-2">현재 단계에서는 초대 대기 상태로만 등록하며, 계정 초대/수락 흐름은 WebGIS 계정 연동 단계에서 활성화합니다.</div>
+      <form method="post" action="{% url 'tenant:project_member_save' pk=project.id %}" class="row g-2 align-items-end">
+        {% csrf_token %}
+        <div class="col-md-3">
+          <label class="form-label small">이름</label>
+          <input class="form-control form-control-sm" type="text" name="invite_name" placeholder="외부 작업자 이름">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small">이메일</label>
+          <input class="form-control form-control-sm" type="email" name="invite_email" required placeholder="worker@example.com">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">프로젝트 역할</label>
+          <select class="form-select form-select-sm" name="member_role" required>
+            {% for role in project_member_roles %}
+              {% if role.code == 'worker' or role.code == 'viewer' %}
+              <option value="{{ role.code }}">{{ role.label }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2 d-grid">
+          <button class="btn btn-sm btn-outline-primary" type="submit">초대 등록</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="small text-muted mt-3">
+      WebGIS 권한: PM/관리자는 전체 관리, Project Leader는 전체 조회·참여 프로젝트 편집,
+      Worker는 참여 프로젝트 WebGIS 편집, Viewer는 참여 프로젝트 조회만 가능합니다.
+    </div>
+  </div>
+</div>
