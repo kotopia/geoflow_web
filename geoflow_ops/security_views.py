@@ -149,6 +149,13 @@ def project_json(request, pk):
 
 @login_required
 @require_GET
+def project_members_panel(request, pk):
+    _require_project(request, pk, write=False)
+    return views_project_members.project_members_panel(request, pk)
+
+
+@login_required
+@require_GET
 def project_summary(request, pk):
     _require_project(request, pk, write=True)
     return views_execution.project_task_modal(request, pk)
