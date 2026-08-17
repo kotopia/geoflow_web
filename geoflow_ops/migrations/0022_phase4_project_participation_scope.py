@@ -50,6 +50,12 @@ class Migration(migrations.Migration):
             CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_project_invite_email
                 ON prj.project_members (project_id, lower(invite_email))
                 WHERE invite_email IS NOT NULL AND membership_status <> 'revoked';
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_one_active_pm
+                ON prj.project_members (project_id)
+                WHERE member_role='project_manager' AND membership_status='active';
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_project_members_one_active_leader
+                ON prj.project_members (project_id)
+                WHERE member_role='project_leader' AND membership_status='active';
 
             COMMENT ON TABLE prj.project_members IS
                 'Tenant-local project participation boundary used by Project/WebGIS authorization.';
