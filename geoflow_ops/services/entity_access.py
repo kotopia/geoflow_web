@@ -60,12 +60,28 @@ def scope_exists(alias: str, scope_type: str, scope_id: UUID) -> bool:
 
 
 def authorize_scope_read(request, alias: str, scope_type: str, scope_id: UUID) -> bool:
+    scope_type = str(scope_type or "").strip().lower()
+    if scope_type == "employee":
+        from .employee_access import employee_access_policy
+
+        return bool(
+            scope_exists(alias, scope_type, scope_id)
+            and employee_access_policy(request, alias).can_view(scope_id)
+        )
     return has_scope_permission(request, scope_type, write=False) and scope_exists(
         alias, scope_type, scope_id
     )
 
 
 def authorize_scope_write(request, alias: str, scope_type: str, scope_id: UUID) -> bool:
+    scope_type = str(scope_type or "").strip().lower()
+    if scope_type == "employee":
+        from .employee_access import employee_access_policy
+
+        return bool(
+            scope_exists(alias, scope_type, scope_id)
+            and employee_access_policy(request, alias).can_edit(scope_id)
+        )
     return has_scope_permission(request, scope_type, write=True) and scope_exists(
         alias, scope_type, scope_id
     )
