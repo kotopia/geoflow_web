@@ -54,11 +54,16 @@ CONTRACT_STATUS_ALIASES = {
 }
 
 
-def _table_exists(alias: str, relation: str) -> bool:
-    with connections[alias].cursor() as cur:
-        cur.execute("SELECT to_regclass(%s) IS NOT NULL", [relation])
-        row = cur.fetchone()
-    return bool(row and row[0])
+def _table_exists(alias: str | None, relation: str) -> bool:
+    if not alias:
+        return False
+    try:
+        with connections[alias].cursor() as cur:
+            cur.execute("SELECT to_regclass(%s) IS NOT NULL", [relation])
+            row = cur.fetchone()
+        return bool(row and row[0])
+    except Exception:
+        return False
 
 
 def normalize_contract_status(value: object) -> str:
@@ -90,31 +95,29 @@ def _fallback_for(system_key: str):
     return ()
 
 
-def settings_options(alias: str, system_key: str, *, include_inactive: bool = False):
-    """Return stable machine code + tenant-editable label pairs.
-
-    System-bound nodes keep their code/hierarchy stable. Tenants may change labels,
-    ordering, and whether a value is active. If the settings table/category is not
-    available yet, reviewed application fallbacks are used.
-    """
+def settings_options(alias: str | None, system_key: str, *, include_inactive: bool = False):
+    """Return stable machine code + tenant-editable label pairs."""
 
     fallback = list(_fallback_for(system_key))
-    if not _table_exists(alias, "ops.settings_nodes"):
+    if not alias or not _table_exists(alias, "ops.settings_nodes"):
         return fallback
 
-    with connections[alias].cursor() as cur:
-        cur.execute(
-            """
-            SELECT child.code, child.name, child.active
-              FROM ops.settings_nodes category
-              JOIN ops.settings_nodes child ON child.parent_id = category.id
-             WHERE category.system_key = %s
-               AND category.active = true
-             ORDER BY child.ord, child.name, child.code
-            """,
-            [system_key],
-        )
-        rows = cur.fetchall()
+    try:
+        with connections[alias].cursor() as cur:
+            cur.execute(
+                """
+                SELECT child.code, child.name, child.active
+                  FROM ops.settings_nodes category
+                  JOIN ops.settings_nodes child ON child.parent_id = category.id
+                 WHERE category.system_key = %s
+                   AND category.active = true
+                 ORDER BY child.ord, child.name, child.code
+                """,
+                [system_key],
+            )
+            rows = cur.fetchall()
+    except Exception:
+        return fallback
     if not rows:
         return fallback
     return [
@@ -124,11 +127,11 @@ def settings_options(alias: str, system_key: str, *, include_inactive: bool = Fa
     ]
 
 
-def settings_codes(alias: str, system_key: str, *, include_inactive: bool = False) -> set[str]:
+def settings_codes(alias: str | None, system_key: str, *, include_inactive: bool = False) -> set[str]:
     return {code for code, _label in settings_options(alias, system_key, include_inactive=include_inactive)}
 
 
-def event_workflow_options(alias: str):
+def event_workflow_options(alias: str | None):
     stages = settings_options(alias, "event.stage")
     statuses = settings_options(alias, "event.status")
     types_by_stage = {
@@ -142,7 +145,7 @@ def event_workflow_options(alias: str):
     }
 
 
-def event_type_allowed(alias: str, stage: str, event_type: str) -> bool:
+def event_type_allowed(alias: str | None, stage: str, event_type: str) -> bool:
     stage = str(stage or "").strip()
     event_type = str(event_type or "").strip()
     if not stage or not event_type:
