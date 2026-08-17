@@ -40,73 +40,84 @@ def _login_identity(request) -> str:
     return str(getattr(user, "email", None) or getattr(user, "username", None) or "").strip().lower()
 
 
-def _membership_row(alias: str, request, project_id) -> dict | None:
+def _current_employee_id(alias: str, request) -> str | None:
+    cache = getattr(request, "_gf_project_employee_id_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(request, "_gf_project_employee_id_cache", cache)
+    if alias not in cache:
+        cache[alias] = current_employee_id(alias, request)
+    return cache[alias]
+
+
+def active_memberships_for_request(alias: str, request) -> dict[str, dict]:
+    """Load all active project memberships for this login once per request."""
+    cache = getattr(request, "_gf_project_memberships_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(request, "_gf_project_memberships_cache", cache)
+    if alias in cache:
+        return cache[alias]
+
     if not _table_exists(alias, "prj.project_members"):
-        return None
-    employee_id = current_employee_id(alias, request)
+        cache[alias] = {}
+        return cache[alias]
+
+    employee_id = _current_employee_id(alias, request)
     identity = _login_identity(request)
     if not employee_id and not identity:
-        return None
+        cache[alias] = {}
+        return cache[alias]
+
     with connections[alias].cursor() as cur:
         cur.execute(
             """
             SELECT id::text, project_id::text, employee_id::text, member_role,
                    membership_status, invite_email, invite_name, is_external
               FROM prj.project_members
-             WHERE project_id=%s
-               AND membership_status='active'
+             WHERE membership_status='active'
                AND (
                     (%s IS NOT NULL AND employee_id=%s::uuid)
                     OR (%s <> '' AND employee_id IS NULL AND lower(invite_email)=lower(%s))
                )
-             ORDER BY CASE member_role
+             ORDER BY project_id,
+                      CASE member_role
                         WHEN 'project_manager' THEN 1
                         WHEN 'project_leader' THEN 2
                         WHEN 'worker' THEN 3
                         ELSE 4
                       END,
                       updated_at DESC
-             LIMIT 1
-            """,
-            [str(project_id), employee_id, employee_id, identity, identity],
-        )
-        row = cur.fetchone()
-    if not row:
-        return None
-    return {
-        "id": row[0],
-        "project_id": row[1],
-        "employee_id": row[2],
-        "member_role": row[3],
-        "membership_status": row[4],
-        "invite_email": row[5] or "",
-        "invite_name": row[6] or "",
-        "is_external": bool(row[7]),
-    }
-
-
-def active_project_ids_for_request(alias: str, request) -> list[str]:
-    if not _table_exists(alias, "prj.project_members"):
-        return []
-    employee_id = current_employee_id(alias, request)
-    identity = _login_identity(request)
-    if not employee_id and not identity:
-        return []
-    with connections[alias].cursor() as cur:
-        cur.execute(
-            """
-            SELECT DISTINCT project_id::text
-              FROM prj.project_members
-             WHERE membership_status='active'
-               AND (
-                    (%s IS NOT NULL AND employee_id=%s::uuid)
-                    OR (%s <> '' AND employee_id IS NULL AND lower(invite_email)=lower(%s))
-               )
-             ORDER BY project_id::text
             """,
             [employee_id, employee_id, identity, identity],
         )
-        return [row[0] for row in cur.fetchall()]
+        rows = cur.fetchall()
+
+    memberships: dict[str, dict] = {}
+    for row in rows:
+        project_id = row[1]
+        if project_id in memberships:
+            continue
+        memberships[project_id] = {
+            "id": row[0],
+            "project_id": project_id,
+            "employee_id": row[2],
+            "member_role": row[3],
+            "membership_status": row[4],
+            "invite_email": row[5] or "",
+            "invite_name": row[6] or "",
+            "is_external": bool(row[7]),
+        }
+    cache[alias] = memberships
+    return memberships
+
+
+def _membership_row(alias: str, request, project_id) -> dict | None:
+    return active_memberships_for_request(alias, request).get(str(project_id))
+
+
+def active_project_ids_for_request(alias: str, request) -> list[str]:
+    return sorted(active_memberships_for_request(alias, request).keys())
 
 
 @dataclass(frozen=True)
@@ -179,7 +190,7 @@ class ProjectAccessPolicy:
 
 def project_access_policy(request, alias: str) -> ProjectAccessPolicy:
     roles = effective_roles(request)
-    employee_id = current_employee_id(alias, request)
+    employee_id = _current_employee_id(alias, request)
 
     if roles & FULL_PROJECT_ROLES:
         mode = "full"
