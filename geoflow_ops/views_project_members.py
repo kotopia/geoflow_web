@@ -49,7 +49,8 @@ def project_member_rows(alias: str, project_id) -> list[dict]:
                    m.membership_status,
                    m.is_external,
                    COALESCE(e.position_grade, ''),
-                   COALESCE(e.title, '')
+                   COALESCE(e.title, ''),
+                   COALESCE(e.emp_type, '')
               FROM prj.project_members m
               LEFT JOIN hr.employee_profile e ON e.id=m.employee_id
              WHERE m.project_id=%s
@@ -77,6 +78,8 @@ def project_member_rows(alias: str, project_id) -> list[dict]:
             "is_external": bool(row[6]),
             "position_grade": row[7] or "",
             "title": row[8] or "",
+            "emp_type": row[9] or "",
+            "legacy_invite": not bool(row[1]),
         }
         for row in rows
     ]
@@ -88,7 +91,7 @@ def project_member_options(alias: str, project_id) -> list[dict]:
     with connections[alias].cursor() as cur:
         cur.execute(
             """
-            SELECT e.id::text, e.name, e.email, e.position_grade, e.title
+            SELECT e.id::text, e.name, e.email, e.position_grade, e.title, e.emp_type
               FROM hr.employee_profile e
              WHERE COALESCE(e.status, '재직') <> '퇴사'
                AND NOT EXISTS (
@@ -110,6 +113,7 @@ def project_member_options(alias: str, project_id) -> list[dict]:
             "email": row[2] or "",
             "position_grade": row[3] or "",
             "title": row[4] or "",
+            "emp_type": row[5] or "",
         }
         for row in rows
     ]
@@ -176,23 +180,23 @@ def project_member_save(request, pk):
         raise PermissionDenied("해당 프로젝트 역할을 지정할 권한이 없습니다.")
 
     employee_id = _uuid(request.POST.get("employee_id"))
-    invite_email = str(request.POST.get("invite_email") or "").strip().lower()
-    invite_name = str(request.POST.get("invite_name") or "").strip()
-
-    if not employee_id and not invite_email:
-        return HttpResponseBadRequest("직원 또는 외부 초대 이메일을 선택하세요.")
-    if not employee_id and member_role not in {"worker", "viewer"}:
-        raise PermissionDenied("외부 인력은 Worker 또는 Viewer로만 초대할 수 있습니다.")
+    if not employee_id:
+        return HttpResponseBadRequest("직원 페이지에 등록된 참여자를 선택하세요.")
 
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
-            if employee_id:
-                cur.execute(
-                    "SELECT 1 FROM hr.employee_profile WHERE id=%s LIMIT 1",
-                    [str(employee_id)],
-                )
-                if cur.fetchone() is None:
-                    return HttpResponseBadRequest("직원을 찾을 수 없습니다.")
+            cur.execute(
+                """
+                SELECT 1
+                  FROM hr.employee_profile
+                 WHERE id=%s
+                   AND COALESCE(status, '재직') <> '퇴사'
+                 LIMIT 1
+                """,
+                [str(employee_id)],
+            )
+            if cur.fetchone() is None:
+                return HttpResponseBadRequest("현재 프로젝트에 참여시킬 수 있는 직원을 찾을 수 없습니다.")
 
             if member_role in {"project_manager", "project_leader"}:
                 cur.execute(
@@ -202,65 +206,42 @@ def project_member_save(request, pk):
                      WHERE project_id=%s
                        AND member_role=%s
                        AND membership_status='active'
-                       AND NOT (
-                            (%s IS NOT NULL AND employee_id=%s::uuid)
-                            OR (%s <> '' AND employee_id IS NULL AND lower(invite_email)=lower(%s))
-                       )
+                       AND employee_id <> %s
                      LIMIT 1
                     """,
-                    [str(project.pk), member_role, str(employee_id) if employee_id else None,
-                     str(employee_id) if employee_id else None, invite_email, invite_email],
+                    [str(project.pk), member_role, str(employee_id)],
                 )
                 if cur.fetchone():
                     return HttpResponseBadRequest(
                         "Project Manager와 Project Leader는 프로젝트별 1명씩 지정합니다. 기존 담당자를 먼저 변경/해제하세요."
                     )
 
-            if employee_id:
+            cur.execute(
+                """
+                UPDATE prj.project_members
+                   SET member_role=%s,
+                       membership_status='active',
+                       is_external=false,
+                       invite_email=NULL,
+                       invite_name=NULL,
+                       updated_at=now()
+                 WHERE project_id=%s
+                   AND employee_id=%s
+                   AND membership_status <> 'revoked'
+             RETURNING id
+                """,
+                [member_role, str(project.pk), str(employee_id)],
+            )
+            row = cur.fetchone()
+            if not row:
                 cur.execute(
                     """
-                    UPDATE prj.project_members
-                       SET member_role=%s, membership_status='active', is_external=false,
-                           invite_email=NULL, invite_name=NULL, updated_at=now()
-                     WHERE project_id=%s AND employee_id=%s AND membership_status <> 'revoked'
-                 RETURNING id
+                    INSERT INTO prj.project_members
+                        (project_id, employee_id, member_role, membership_status, is_external)
+                    VALUES (%s, %s, %s, 'active', false)
                     """,
-                    [member_role, str(project.pk), str(employee_id)],
+                    [str(project.pk), str(employee_id), member_role],
                 )
-                row = cur.fetchone()
-                if not row:
-                    cur.execute(
-                        """
-                        INSERT INTO prj.project_members
-                            (project_id, employee_id, member_role, membership_status, is_external)
-                        VALUES (%s, %s, %s, 'active', false)
-                        """,
-                        [str(project.pk), str(employee_id), member_role],
-                    )
-            else:
-                cur.execute(
-                    """
-                    UPDATE prj.project_members
-                       SET member_role=%s, membership_status='invited', is_external=true,
-                           invite_name=%s, updated_at=now()
-                     WHERE project_id=%s
-                       AND employee_id IS NULL
-                       AND lower(invite_email)=lower(%s)
-                       AND membership_status <> 'revoked'
-                 RETURNING id
-                    """,
-                    [member_role, invite_name or None, str(project.pk), invite_email],
-                )
-                row = cur.fetchone()
-                if not row:
-                    cur.execute(
-                        """
-                        INSERT INTO prj.project_members
-                            (project_id, member_role, membership_status, invite_email, invite_name, is_external)
-                        VALUES (%s, %s, 'invited', %s, %s, true)
-                        """,
-                        [str(project.pk), member_role, invite_email, invite_name or None],
-                    )
 
     return redirect("tenant:project_detail", pk=project.pk)
 
