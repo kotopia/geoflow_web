@@ -6,7 +6,7 @@ import logging
 from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
-from django.db import connections
+from django.db import connections, transaction
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -20,6 +20,11 @@ from .services.entity_access import (
     get_event_for_access,
     has_scope_permission,
     require_tenant_context,
+)
+from .services.event_handoff import (
+    complete_prior_handoff_events,
+    default_event_status,
+    default_owner_department_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,9 +145,11 @@ def _validate_mutable_fields(data, *, creating: bool, alias: str):
             cleaned["stage"] = default_stage_for_event(event_type) or ""
         if not cleaned.get("stage") or not event_type:
             return None, "stage and event_type are required"
-
-    if creating or "status" in data:
-        status = str(data.get("status") or "draft")
+        # Status is workflow metadata, not a required user decision. Request-like
+        # handoff events start open; ordinary records are complete when recorded.
+        cleaned["status"] = default_event_status(event_type)
+    elif "status" in data:
+        status = str(data.get("status") or "").strip()
         if status not in ALLOWED_STATUSES:
             return None, "Invalid status"
         cleaned["status"] = status
@@ -234,20 +241,33 @@ def create_event(request):
     if scope_type == "project" and project_id is None:
         return _json_error("Invalid scope")
 
+    if cleaned.get("owner_department_id") is None and scope_type in {"contract", "project"}:
+        automatic_department = default_owner_department_id(
+            alias,
+            scope_type,
+            scope_id,
+            cleaned.get("stage"),
+            cleaned.get("event_type"),
+        )
+        if automatic_department:
+            cleaned["owner_department_id"] = automatic_department
+
     user_name = (
         getattr(request.user, "username", None)
         or getattr(request.user, "email", None)
         or "unknown"
     )
     try:
-        event = ProcessEvent.objects.using(alias).create(
-            scope_type=scope_type,
-            scope_id=scope_id,
-            contract_id=contract_id,
-            project_id=project_id,
-            created_by=user_name,
-            **cleaned,
-        )
+        with transaction.atomic(using=alias):
+            event = ProcessEvent.objects.using(alias).create(
+                scope_type=scope_type,
+                scope_id=scope_id,
+                contract_id=contract_id,
+                project_id=project_id,
+                created_by=user_name,
+                **cleaned,
+            )
+            complete_prior_handoff_events(alias, event)
     except Exception:
         logger.exception("event create failed")
         return _json_error("Failed to create event", status=500)
