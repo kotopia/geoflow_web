@@ -132,8 +132,3 @@ class ContractDocumentAccessContractTests(SimpleTestCase):
         migration = (ROOT / "migrations" / "0024_phase4_workflow_handoff_and_contract_access.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS ops.contract_document_access_requests", migration)
         self.assertNotIn("INSERT INTO ops.contract_document_access_requests", migration)
-
-
-class PlaceholderTests(SimpleTestCase):
-    def test_placeholder_for_remaining_original_module_contracts(self):
-        self.assertTrue(True)
