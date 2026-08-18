@@ -17,6 +17,16 @@ PROJECT_ROLES = frozenset({
 })
 
 
+def _request_table_exists(alias: str) -> bool:
+    try:
+        with connections[alias].cursor() as cur:
+            cur.execute("SELECT to_regclass('ops.contract_document_access_requests') IS NOT NULL")
+            row = cur.fetchone()
+        return bool(row and row[0])
+    except Exception:
+        return False
+
+
 def can_approve_contract_document_access(request) -> bool:
     roles = effective_roles(request)
     return bool(roles & MANAGEMENT_ROLES or gf_has_perm(request, "contracts.edit"))
@@ -35,11 +45,13 @@ def access_request_state(alias: str, request, contract_id) -> dict:
 
     # Non-project roles retain the existing contracts.view semantics.
     if not (roles & PROJECT_ROLES):
-        return {
-            "allowed": bool(gf_has_perm(request, "contracts.view")),
-            "status": "direct" if gf_has_perm(request, "contracts.view") else "none",
-            "request_id": None,
-        }
+        allowed = bool(gf_has_perm(request, "contracts.view"))
+        return {"allowed": allowed, "status": "direct" if allowed else "none", "request_id": None}
+
+    # Project roles never gain contract-document access just from a broad legacy
+    # contracts.view permission. Before 0024 is applied, fail closed.
+    if not _request_table_exists(alias):
+        return {"allowed": False, "status": "none", "request_id": None}
 
     employee_id = _requester_employee_id(alias, request)
     if not employee_id:
