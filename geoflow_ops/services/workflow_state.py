@@ -58,6 +58,15 @@ def _stage_label(stage: str) -> str:
     }.get(stage, stage or "미등록")
 
 
+def _major_phase_for_event(event) -> str | None:
+    stage = normalize_stage(event.stage)
+    # "착수계" is management administration and stays in the Contract phase.
+    # The actual project "착수" event means execution has started.
+    if stage == "kickoff" and str(event.event_type or "").strip() == "kickoff":
+        return "execution"
+    return STAGE_MAJOR_PHASE.get(stage)
+
+
 def _fallback(contract_id: str, status: object) -> ContractWorkflowState:
     normalized = normalize_contract_status(status)
     major = STATUS_FALLBACK_PHASE.get(normalized, "contract")
@@ -93,7 +102,7 @@ def contract_workflow_states(alias: str, contracts: Iterable[object]) -> dict[st
         ProcessEvent.objects.using(alias)
         .filter(contract_id__in=contract_ids)
         .exclude(status="void")
-        .only("contract_id", "stage", "status", "occurred_at", "created_at")
+        .only("contract_id", "stage", "event_type", "status", "occurred_at", "created_at")
         .order_by("contract_id", "occurred_at", "created_at")
     )
     grouped = defaultdict(list)
@@ -104,8 +113,7 @@ def contract_workflow_states(alias: str, contracts: Iterable[object]) -> dict[st
         major = None
         major_rank = -1
         for event in rows:
-            stage = normalize_stage(event.stage)
-            candidate = STAGE_MAJOR_PHASE.get(stage)
+            candidate = _major_phase_for_event(event)
             if not candidate:
                 continue
             rank = MAJOR_PHASE_RANK[candidate]
