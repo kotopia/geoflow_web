@@ -7,7 +7,7 @@
   <div class="d-flex align-items-center justify-content-between mb-3 gap-3 flex-wrap">
     <div>
       <h1 class="h3 mb-1">환경설정</h1>
-      <div class="text-muted">인사·계약·프로젝트·업무·GIS에서 공통으로 사용하는 설정과 담당부서를 관리합니다.</div>
+      <div class="text-muted">계약·프로젝트·업무·GIS에서 공통으로 사용하는 코드와 업무 규칙을 관리합니다.</div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <button type="button" id="btn-tree-expand" class="btn btn-outline-secondary btn-sm">전체 펼치기</button>
@@ -17,61 +17,9 @@
     </div>
   </div>
 
-  <div class="card mb-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <div>
-        <h5 class="card-title mb-1">담당부서</h5>
-        <div class="text-muted small">이벤트 담당부서와 직원 소속부서가 같은 HR 부서 원장을 사용합니다.</div>
-      </div>
-      <span class="badge bg-light text-dark border">관리부 · GIS사업부 · 지적사업부</span>
-    </div>
-    <div class="card-body">
-      <div class="table-responsive mb-3">
-        <table class="table table-sm align-middle mb-0">
-          <thead><tr><th>회사</th><th>부서명</th><th class="text-center">사용</th><th class="text-end">저장</th></tr></thead>
-          <tbody>
-            {% for department in departments %}
-            <tr>
-              <td colspan="4" class="p-0 border-0">
-                <form method="post" action="{% url 'tenant:settings_department_save' %}" class="row g-2 align-items-center py-2 border-bottom mx-0">
-                  {% csrf_token %}
-                  <input type="hidden" name="department_id" value="{{ department.id }}">
-                  <div class="col-md-4">
-                    <select name="org_unit_id" class="form-select form-select-sm" required>
-                      {% for org in org_units %}
-                      <option value="{{ org.id }}" {% if org.id == department.org_unit_id %}selected{% endif %}>{{ org.name }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                  <div class="col-md-4"><input name="name" class="form-control form-control-sm" value="{{ department.name }}" required></div>
-                  <div class="col-md-2 text-center">
-                    <div class="form-check form-switch d-inline-flex"><input class="form-check-input" type="checkbox" name="active" value="1" {% if department.active %}checked{% endif %}></div>
-                  </div>
-                  <div class="col-md-2 text-end"><button class="btn btn-outline-primary btn-sm" type="submit">저장</button></div>
-                </form>
-              </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="4" class="text-muted text-center py-3">등록된 담당부서가 없습니다.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <form method="post" action="{% url 'tenant:settings_department_save' %}" class="row g-2 align-items-end">
-        {% csrf_token %}
-        <div class="col-md-4">
-          <label class="form-label small">회사</label>
-          <select name="org_unit_id" class="form-select form-select-sm" required>
-            <option value="">선택</option>
-            {% for org in org_units %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="col-md-4"><label class="form-label small">새 담당부서</label><input name="name" class="form-control form-control-sm" required></div>
-        <div class="col-md-2"><div class="form-check form-switch mb-1"><input class="form-check-input" type="checkbox" name="active" value="1" checked><label class="form-check-label small">사용</label></div></div>
-        <div class="col-md-2 text-end"><button class="btn btn-primary btn-sm" type="submit">부서 추가</button></div>
-      </form>
-    </div>
+  <div class="alert alert-light border d-flex justify-content-between align-items-center gap-3 flex-wrap">
+    <div><strong>회사·부서·직급·직위</strong>는 설정값이 아니라 실제 조직·인사 마스터로 관리합니다.</div>
+    <a href="{% url 'tenant:myinfo_orgunit_list' %}" class="btn btn-outline-primary btn-sm">나의 기업정보로 이동</a>
   </div>
 
   <div class="row g-3">
