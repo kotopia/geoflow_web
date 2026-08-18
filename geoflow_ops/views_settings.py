@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.contrib import messages
 from django.db import connections, transaction
@@ -222,8 +222,27 @@ def department_save(request):
                 messages.success(request, "담당부서를 수정했습니다.")
             else:
                 cur.execute(
-                    "INSERT INTO hr.departments (org_unit_id, name, active) VALUES (%s, %s, %s)",
-                    [str(org_unit_id), name, active],
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                          FROM information_schema.columns
+                         WHERE table_schema='hr'
+                           AND table_name='departments'
+                           AND column_name='code'
+                    )
+                    """
                 )
+                legacy_code_column = bool(cur.fetchone()[0])
+                if legacy_code_column:
+                    department_code = f"dept-{uuid4().hex}"
+                    cur.execute(
+                        "INSERT INTO hr.departments (org_unit_id, code, name, active) VALUES (%s, %s, %s, %s)",
+                        [str(org_unit_id), department_code, name, active],
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO hr.departments (org_unit_id, name, active) VALUES (%s, %s, %s)",
+                        [str(org_unit_id), name, active],
+                    )
                 messages.success(request, "담당부서를 추가했습니다.")
     return redirect("tenant:settings_page")
