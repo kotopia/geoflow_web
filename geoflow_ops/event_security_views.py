@@ -48,14 +48,13 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
         stage = normalize_stage(data.get("stage"))
         if not stage and event_type:
             stage = default_stage_for_event(event_type) or ""
-        status = str(data.get("status") or "draft").strip()
 
         if stage not in settings_codes(alias, "event.stage"):
             return "Invalid stage"
-        if status not in settings_codes(alias, "event.status"):
-            return "Invalid status"
         if not event_type_allowed(alias, stage, event_type):
             return "Invalid event type for stage"
+        # Create status is derived by the server from event type. The client no
+        # longer decides whether a new business record starts open or done.
         return None
 
     if existing is None:
