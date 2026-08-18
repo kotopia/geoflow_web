@@ -160,31 +160,34 @@
     </div>
 
     <div class="col-md-6 col-lg-6">
-      <div class="card">
+      <div class="card" id="project-execution-card"
+           data-state-url="{% url 'tenant:project_execution_state' obj.id %}">
         <div class="card-header">
           <div class="d-flex justify-content-between align-items-start gap-3">
             <div>
-              <h5 class="card-title mb-1">프로젝트 업무 흐름</h5>
-              <small class="text-muted">카탈로그 실행업무와 부서 간 이벤트 이관을 기준으로 표시합니다.</small>
+              <h5 class="card-title mb-1">프로젝트 실행 흐름</h5>
+              <small class="text-muted">현재 업무범위에 선택된 카탈로그 업무의 실행상태를 기준으로 표시합니다.</small>
             </div>
-            <span class="badge bg-light text-dark border"><span id="workflowOpenCount">0</span>건 대기</span>
+            <span class="badge bg-light text-dark border"><span id="executionOpenCount">0</span>건 대기</span>
           </div>
         </div>
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-4">
-              <div class="small text-muted">현재 세부단계</div>
-              <div id="workflowStage" class="fw-semibold mt-1">등록 전</div>
+              <div class="small text-muted">현재 실행업무</div>
+              <div id="executionCurrentTask" class="fw-semibold mt-1">확인 중</div>
+              <div id="executionCurrentStatus" class="small text-muted mt-1"></div>
             </div>
             <div class="col-md-4">
               <div class="small text-muted">다음 업무</div>
-              <div id="workflowNextTask" class="fw-semibold mt-1">대기 업무 없음</div>
+              <div id="executionNextTask" class="fw-semibold mt-1">확인 중</div>
             </div>
             <div class="col-md-4">
               <div class="small text-muted">담당</div>
-              <div id="workflowAssignee" class="fw-semibold mt-1">미지정</div>
+              <div id="executionAssignee" class="fw-semibold mt-1">미지정</div>
             </div>
           </div>
+          <div class="small text-muted mt-3">예: GIS 프로젝트라면 기준점·측량·정위치·구조화 같은 실제 카탈로그 업무가 그대로 흐름이 됩니다. 부서 간 이관은 아래 이벤트 타임라인에서 관리합니다.</div>
         </div>
       </div>
 
@@ -275,6 +278,26 @@
       window.GeoFlowListCore && GeoFlowListCore.renderBadges(document);
       if (window.ProcessWorkboardUI) {
         window.ProcessWorkboardUI.init('#eventModalMount');
+      }
+
+      var executionCard = document.getElementById('project-execution-card');
+      if (executionCard && executionCard.dataset.stateUrl) {
+        fetch(executionCard.dataset.stateUrl, {credentials: 'same-origin'})
+          .then(function(response) {
+            if (!response.ok) throw new Error('execution state failed');
+            return response.json();
+          })
+          .then(function(state) {
+            document.getElementById('executionCurrentTask').textContent = state.current_task || '-';
+            document.getElementById('executionCurrentStatus').textContent = state.current_status || '';
+            document.getElementById('executionNextTask').textContent = state.next_task || '대기 업무 없음';
+            document.getElementById('executionAssignee').textContent = state.assignee || '미지정';
+            document.getElementById('executionOpenCount').textContent = String(state.open_count || 0);
+          })
+          .catch(function() {
+            document.getElementById('executionCurrentTask').textContent = '확인 불가';
+            document.getElementById('executionNextTask').textContent = '-';
+          });
       }
 
       var panel = document.getElementById('project-contract-documents-panel');
