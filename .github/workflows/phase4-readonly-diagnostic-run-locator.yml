@@ -1,0 +1,35 @@
+name: Phase 4 read-only diagnostic run locator
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  locate:
+    if: github.event.issue.title == '[phase4-readonly-diagnostic-run-locate]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Locate latest read-only diagnostic run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-tenant-readonly-diagnostic.yml/runs?event=issues&per_page=20")"
+          row="$(printf '%s' "$runs" | jq -c '[.workflow_runs[] | select(.display_title == "[phase4-tenant-readonly-diagnose-975c2cc]")] | sort_by(.id) | reverse | .[0] // empty')"
+          test -n "$row" || { echo 'phase4_diag_locator=no_matching_run'; exit 2; }
+          run_id="$(printf '%s' "$row" | jq -r '.id')"
+          run_number="$(printf '%s' "$row" | jq -r '.run_number')"
+          status="$(printf '%s' "$row" | jq -r '.status')"
+          conclusion="$(printf '%s' "$row" | jq -r '.conclusion // "none"')"
+          actor="$(printf '%s' "$row" | jq -r '.actor.login // "unknown"')"
+          pending="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/pending_deployments" || printf '[]')"
+          env_name="$(printf '%s' "$pending" | jq -r '.[0].environment.name // "none"')"
+          can_approve="$(printf '%s' "$pending" | jq -r '.[0].current_user_can_approve // false')"
+          body="phase4_readonly_diag_locator run_id=${run_id} run_number=${run_number} status=${status} conclusion=${conclusion} actor=${actor} pending_env=${env_name} current_token_can_approve=${can_approve}"
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/175/comments" -f body="$body" >/dev/null
