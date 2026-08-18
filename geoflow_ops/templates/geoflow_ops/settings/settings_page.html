@@ -7,7 +7,7 @@
   <div class="d-flex align-items-center justify-content-between mb-3 gap-3 flex-wrap">
     <div>
       <h1 class="h3 mb-1">환경설정</h1>
-      <div class="text-muted">인사·계약·프로젝트·업무·GIS에서 공통으로 사용하는 계층형 코드 체계입니다.</div>
+      <div class="text-muted">인사·계약·프로젝트·업무·GIS에서 공통으로 사용하는 계층형 코드와 담당부서를 관리합니다.</div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <button type="button" id="btn-tree-expand" class="btn btn-outline-secondary btn-sm">전체 펼치기</button>
@@ -111,6 +111,90 @@
             </div>
           </form>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mt-3" id="department-settings-card">
+    <div class="card-header d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div>
+        <h5 class="card-title mb-1">담당부서</h5>
+        <small class="text-muted">직원 소속과 이벤트 담당부서가 같은 부서 원장을 사용합니다. 중지한 부서는 새 업무 배정 목록에서 숨겨집니다.</small>
+      </div>
+      <span class="badge bg-light text-dark border">관리부 · GIS사업부 · 지적사업부 기본 제공</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{% url 'tenant:settings_department_save' %}" class="row g-2 align-items-end mb-4">
+        {% csrf_token %}
+        <div class="col-md-4">
+          <label class="form-label">조직</label>
+          <select class="form-select" name="org_unit_id" required>
+            <option value="">선택</option>
+            {% for org in org_units %}
+              <option value="{{ org.id }}">{{ org.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">담당부서 이름</label>
+          <input class="form-control" type="text" name="name" maxlength="200" placeholder="예: GIS사업부" required>
+        </div>
+        <div class="col-md-1">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="active" value="1" id="new-department-active" checked>
+            <label class="form-check-label" for="new-department-active">사용</label>
+          </div>
+        </div>
+        <div class="col-md-2 text-end">
+          <button class="btn btn-primary w-100" type="submit">부서 추가</button>
+        </div>
+      </form>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th style="min-width:180px">조직</th>
+              <th style="min-width:220px">담당부서</th>
+              <th style="width:100px">사용</th>
+              <th style="width:100px" class="text-end">저장</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for department in departments %}
+            <tr>
+              <td>
+                <select class="form-select form-select-sm" name="org_unit_id" form="department-form-{{ department.id }}" required>
+                  {% for org in org_units %}
+                    <option value="{{ org.id }}" {% if org.id == department.org_unit_id %}selected{% endif %}>{{ org.name }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+              <td>
+                <input class="form-control form-control-sm" type="text" name="name"
+                       form="department-form-{{ department.id }}" maxlength="200"
+                       value="{{ department.name }}" required>
+              </td>
+              <td>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" name="active" value="1"
+                         form="department-form-{{ department.id }}"
+                         {% if department.active %}checked{% endif %}>
+                </div>
+              </td>
+              <td class="text-end">
+                <form id="department-form-{{ department.id }}" method="post" action="{% url 'tenant:settings_department_save' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="department_id" value="{{ department.id }}">
+                  <button class="btn btn-outline-primary btn-sm" type="submit">저장</button>
+                </form>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-4">등록된 담당부서가 없습니다.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
