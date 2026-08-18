@@ -12,12 +12,12 @@ permissions:
 
 jobs:
   locate-current-production-run:
-    if: github.event.issue.title == '[phase4-current-run-locate-3a7bedd]'
+    if: github.event.issue.title == '[phase4-current-run-locate-f369e680]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      EXPECTED_RELEASE_SHA: 3a7bedd67b7e36607642a7952e90f3e75e10c7d1
+      EXPECTED_RELEASE_SHA: f369e6809dffb181c74e88ba3e502860f14c0b48
       REPORT_ISSUE: '158'
 
     steps:
