@@ -116,6 +116,7 @@ def _project_business_department(alias: str, project_id: str | None) -> str | No
             SELECT e.department_id::text
               FROM prj.project_members m
               JOIN hr.employee_profile e ON e.id=m.employee_id
+              JOIN hr.departments d ON d.id=e.department_id AND d.active=true
              WHERE m.project_id=%s::uuid
                AND m.membership_status='active'
                AND m.employee_id IS NOT NULL
