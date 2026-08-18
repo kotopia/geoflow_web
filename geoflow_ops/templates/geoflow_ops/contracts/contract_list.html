@@ -49,7 +49,8 @@
             <th>계약금액</th>
             <th>발주처</th>
             <th>계약자</th>
-            <th>상태</th>
+            <th>업무흐름</th>
+            <th>운영상태</th>
           </tr>
         </thead>
         <tbody>
@@ -70,8 +71,12 @@
               {% endif %}
             </td>
             <td data-col="orgunit">{{ c.org_unit.label }}</td>
+            <td data-col="workflow" class="text-center" data-contract-workflow-id="{{ c.id }}">
+              <span class="badge bg-light text-dark border" data-workflow-major>불러오는 중</span>
+              <div class="small text-muted mt-1" data-workflow-detail></div>
+            </td>
             <td data-col="status" class="text-center">
-              <span class="gf-status" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span>
+              <span class="gf-status" data-vocabulary="contract" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span>
             </td>
           </tr>
           {% endfor %}
@@ -92,6 +97,26 @@
         const code = cell.getAttribute('data-kind-code') || '';
         if (code && kindLabels[code]) cell.textContent = kindLabels[code];
       });
+
+      fetch("{% url 'tenant:contract_workflow_states' %}", {credentials: 'same-origin'})
+        .then(function(r){ if (!r.ok) throw new Error('workflow state failed'); return r.json(); })
+        .then(function(data){
+          const states = data.states || {};
+          document.querySelectorAll('[data-contract-workflow-id]').forEach(function(cell){
+            const state = states[cell.getAttribute('data-contract-workflow-id')];
+            const major = cell.querySelector('[data-workflow-major]');
+            const detail = cell.querySelector('[data-workflow-detail]');
+            if (!state) {
+              if (major) major.textContent = '미등록';
+              return;
+            }
+            if (major) major.textContent = state.major_label || '미등록';
+            if (detail) detail.textContent = state.detail_label || '';
+          });
+        })
+        .catch(function(){
+          document.querySelectorAll('[data-workflow-major]').forEach(function(el){ el.textContent = '확인 불가'; });
+        });
 
       const tbody = document.querySelector('#datatables-contracts tbody');
       if (!tbody) return;
