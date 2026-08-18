@@ -234,7 +234,11 @@ def create_event(request):
         return _json_error("Invalid scope")
     if not cleaned.get("owner_department_id"):
         default_department = default_owner_department_id(
-            alias, request, event_type=cleaned.get("event_type") or "", scope_type=scope_type
+            alias,
+            request,
+            event_type=cleaned.get("event_type") or "",
+            scope_type=scope_type,
+            scope_id=scope_id,
         )
         if default_department:
             cleaned["owner_department_id"] = UUID(default_department)
@@ -302,7 +306,7 @@ def update_event(request, event_id):
     for key, value in cleaned.items():
         setattr(event, key, value)
     if event.scope_type == "project" and event.event_type == "inspection_request" and event.status == "done":
-        management_department = route_project_inspection_request_to_management(alias)
+        management_department = route_project_inspection_request_to_management(alias, event.scope_id)
         if management_department:
             event.owner_department_id = UUID(management_department)
     try:
