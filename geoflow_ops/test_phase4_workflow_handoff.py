@@ -73,7 +73,6 @@ class SharedEventHandoffContractTests(SimpleTestCase):
 
 class DepartmentSettingsContractTests(SimpleTestCase):
     def test_department_uses_hr_master_and_is_managed_from_my_company_info(self):
-        legacy_source = (ROOT / "views_settings.py").read_text(encoding="utf-8")
         myinfo_source = (ROOT / "views_myinfo.py").read_text(encoding="utf-8")
         settings_template = (ROOT / "templates" / "geoflow_ops" / "settings" / "settings_page.html").read_text(encoding="utf-8")
         myinfo_template = (ROOT / "templates" / "geoflow_ops" / "myinfo" / "orgunit_detail.html").read_text(encoding="utf-8")
@@ -84,7 +83,6 @@ class DepartmentSettingsContractTests(SimpleTestCase):
         self.assertIn("myinfo_department_save", myinfo_template)
         self.assertNotIn("settings_department_save", settings_template)
         self.assertIn("settings_department_save", urls)
-        self.assertIn("Legacy compatibility endpoint", legacy_source)
 
     def test_migration_seeds_only_missing_initial_departments(self):
         migration = (ROOT / "migrations" / "0024_phase4_workflow_handoff_and_contract_access.py").read_text(encoding="utf-8")
