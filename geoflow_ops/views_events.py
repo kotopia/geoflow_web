@@ -146,9 +146,11 @@ def _validate_mutable_fields(data, *, creating: bool, alias: str):
             return None, "stage and event_type are required"
 
     if creating or "status" in data:
-        # New events are work items by default. Draft remains available only
-        # when explicitly chosen; status is a secondary workflow flag.
+        # Status is secondary. New events always enter the active queue; a
+        # stale/default draft value from older clients is normalized to open.
         status = str(data.get("status") or "open")
+        if creating and status == "draft":
+            status = "open"
         if status not in ALLOWED_STATUSES:
             return None, "Invalid status"
         cleaned["status"] = status
@@ -190,12 +192,8 @@ def _event_payload(event, *, attachments=None):
         "scope_id": str(event.scope_id),
         "contract_id": str(event.contract_id) if event.contract_id else None,
         "project_id": str(event.project_id) if event.project_id else None,
-        "owner_department_id": (
-            str(event.owner_department_id) if event.owner_department_id else None
-        ),
-        "assignee_employee_id": (
-            str(event.assignee_employee_id) if event.assignee_employee_id else None
-        ),
+        "owner_department_id": str(event.owner_department_id) if event.owner_department_id else None,
+        "assignee_employee_id": str(event.assignee_employee_id) if event.assignee_employee_id else None,
         "stage": event.stage,
         "event_type": event.event_type,
         "title": event.title,
@@ -219,55 +217,36 @@ def create_event(request):
         alias = require_tenant_context(request)
     except Exception:
         return _json_error("Forbidden", status=403)
-
     data = _parse_json(request)
     if data is None:
         return _json_error("Invalid JSON")
-
     scope_type = str(data.get("scope_type") or "").strip().lower()
     scope_id = _parse_uuid(data.get("scope_id"))
     if scope_type not in ALLOWED_SCOPE_TYPES or scope_id is None:
         return _json_error("Invalid scope")
-
     if not authorize_scope_write(request, alias, scope_type, scope_id):
         return _json_error("Forbidden", status=403)
-
     cleaned, error = _validate_mutable_fields(data, creating=True, alias=alias)
     if error:
         return _json_error(error)
-
     contract_id, project_id = _derive_lineage(alias, scope_type, scope_id)
     if scope_type == "project" and project_id is None:
         return _json_error("Invalid scope")
-
     if not cleaned.get("owner_department_id"):
         default_department = default_owner_department_id(
-            alias,
-            request,
-            event_type=cleaned.get("event_type") or "",
-            scope_type=scope_type,
+            alias, request, event_type=cleaned.get("event_type") or "", scope_type=scope_type
         )
         if default_department:
             cleaned["owner_department_id"] = UUID(default_department)
-
-    user_name = (
-        getattr(request.user, "username", None)
-        or getattr(request.user, "email", None)
-        or "unknown"
-    )
+    user_name = getattr(request.user, "username", None) or getattr(request.user, "email", None) or "unknown"
     try:
         event = ProcessEvent.objects.using(alias).create(
-            scope_type=scope_type,
-            scope_id=scope_id,
-            contract_id=contract_id,
-            project_id=project_id,
-            created_by=user_name,
-            **cleaned,
+            scope_type=scope_type, scope_id=scope_id, contract_id=contract_id,
+            project_id=project_id, created_by=user_name, **cleaned,
         )
     except Exception:
         logger.exception("event create failed")
         return _json_error("Failed to create event", status=500)
-
     payload = _event_payload(event)
     return JsonResponse({"event_id": str(event.id), "event": payload, **payload})
 
@@ -279,47 +258,27 @@ def list_events(request):
         alias = require_tenant_context(request)
     except Exception:
         return _json_error("Forbidden", status=403)
-
     scope_type = str(request.GET.get("scope_type") or "").strip().lower()
     scope_id = _parse_uuid(request.GET.get("scope_id"))
     if scope_type not in ALLOWED_SCOPE_TYPES or scope_id is None:
         return _json_error("Invalid scope")
     if not authorize_scope_read(request, alias, scope_type, scope_id):
         return _json_error("Forbidden", status=403)
-
     try:
-        events = list(
-            ProcessEvent.objects.using(alias)
-            .filter(scope_type=scope_type, scope_id=scope_id)
-            .order_by("stage", "occurred_at", "created_at")
-        )
+        events = list(ProcessEvent.objects.using(alias).filter(scope_type=scope_type, scope_id=scope_id).order_by("stage", "occurred_at", "created_at"))
         result = []
         for event in events:
-            links = (
-                ProcessEventAttachment.objects.using(alias)
-                .filter(event=event)
-                .select_related("attachment")
-                .order_by("ord", "created_at")
-            )
+            links = ProcessEventAttachment.objects.using(alias).filter(event=event).select_related("attachment").order_by("ord", "created_at")
             attachments = []
             for link in links:
                 att = link.attachment
                 if att.deleted_at:
                     continue
-                attachments.append(
-                    {
-                        "id": str(att.id),
-                        "original_name": att.original_name,
-                        "mime_type": att.mime_type or "",
-                        "size_bytes": att.size_bytes,
-                        "role": link.role,
-                    }
-                )
+                attachments.append({"id": str(att.id), "original_name": att.original_name, "mime_type": att.mime_type or "", "size_bytes": att.size_bytes, "role": link.role})
             result.append(_event_payload(event, attachments=attachments))
     except Exception:
         logger.exception("event list failed")
         return _json_error("Failed to list events", status=500)
-
     can_write = has_scope_permission(request, scope_type, write=True)
     return JsonResponse({"events": result, "can_write": bool(can_write)})
 
@@ -331,32 +290,21 @@ def update_event(request, event_id):
         alias = require_tenant_context(request)
     except Exception:
         return _json_error("Forbidden", status=403)
-
     event = get_event_for_access(request, alias, event_id, write=True)
     if not event:
         return _json_error("Forbidden", status=403)
-
     data = _parse_json(request)
     if data is None:
         return _json_error("Invalid JSON")
     cleaned, error = _validate_mutable_fields(data, creating=False, alias=alias)
     if error:
         return _json_error(error)
-
     for key, value in cleaned.items():
         setattr(event, key, value)
-
-    # The Project execution chain ends at inspection-request completion. At
-    # that point ownership returns to management for inspection/closeout.
-    if (
-        event.scope_type == "project"
-        and event.event_type == "inspection_request"
-        and event.status == "done"
-    ):
+    if event.scope_type == "project" and event.event_type == "inspection_request" and event.status == "done":
         management_department = route_project_inspection_request_to_management(alias)
         if management_department:
             event.owner_department_id = UUID(management_department)
-
     try:
         event.save(using=alias)
     except Exception:
@@ -369,21 +317,14 @@ def update_event(request, event_id):
 @require_POST
 def delete_event(request, event_id):
     """Void an event instead of erasing cross-department business history."""
-
     try:
         alias = require_tenant_context(request)
     except Exception:
         return _json_error("Forbidden", status=403)
-
     event = get_event_for_access(request, alias, event_id, write=True)
     if not event:
         return _json_error("Forbidden", status=403)
-
-    actor = (
-        getattr(request.user, "username", None)
-        or getattr(request.user, "email", None)
-        or "unknown"
-    )
+    actor = getattr(request.user, "username", None) or getattr(request.user, "email", None) or "unknown"
     payload = dict(event.payload or {})
     payload["voided_at"] = timezone.now().isoformat()
     payload["voided_by"] = actor
