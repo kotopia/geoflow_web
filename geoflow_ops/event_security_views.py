@@ -106,11 +106,23 @@ def event_list(request):
 def workflow_options(request):
     alias = require_tenant_context(request)
     options = event_workflow_options(alias)
+    scope_type = str(request.GET.get("scope_type") or "").strip().lower()
+    types_by_stage = {}
+    for stage, rows in options["types_by_stage"].items():
+        if scope_type in {"contract", "project"}:
+            rows = [
+                (code, label)
+                for code, label in rows
+                if event_type_allowed_for_scope(scope_type, code)
+            ]
+        types_by_stage[stage] = rows
+
     return JsonResponse(
         {
             "stages": [
                 {"code": code, "label": label}
                 for code, label in options["stages"]
+                if types_by_stage.get(code)
             ],
             "statuses": [
                 {"code": code, "label": label}
@@ -121,7 +133,8 @@ def workflow_options(request):
                     {"code": code, "label": label}
                     for code, label in rows
                 ]
-                for stage, rows in options["types_by_stage"].items()
+                for stage, rows in types_by_stage.items()
+                if rows
             },
         }
     )
