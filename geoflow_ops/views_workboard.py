@@ -217,6 +217,7 @@ def assignment_options(request):
             """
             SELECT id::text, name, org_unit_id::text
               FROM hr.departments
+             WHERE active=true
              ORDER BY name
             """
         )
