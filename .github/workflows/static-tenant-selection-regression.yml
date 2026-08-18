@@ -111,3 +111,28 @@ jobs:
             gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_pending_approver_dispatch_failed dispatcher_run_id=${GITHUB_RUN_ID} target_release_sha=4be43c6bce382a2193e19d0537e291a84bedbc6f exit_code=${rc}" >/dev/null || true
             exit "$rc"
           fi
+
+      - name: Report protected bot dispatch start
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[phase4-protected-bot-dispatch]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_protected_bot_dispatch_started dispatcher_run_id=${GITHUB_RUN_ID} release_sha=${GITHUB_SHA}" >/dev/null
+
+      - name: Dispatch original Environment-protected Phase 4 workflow as bot
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[phase4-protected-bot-dispatch]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload='{"ref":"release/stabilized-deploy","inputs":{"ssh_port":"22"}}'
+          if printf '%s' "$payload" | gh api --method POST -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2026-03-10' --input - "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-workflow-handoff-production-activation.yml/dispatches"; then
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_protected_bot_dispatched dispatcher_run_id=${GITHUB_RUN_ID} release_sha=${GITHUB_SHA}" >/dev/null
+          else
+            rc=$?
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_protected_bot_dispatch_failed dispatcher_run_id=${GITHUB_RUN_ID} release_sha=${GITHUB_SHA} exit_code=${rc}" >/dev/null || true
+            exit "$rc"
+          fi
