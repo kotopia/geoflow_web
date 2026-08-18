@@ -27,8 +27,15 @@ jobs:
         run: |
           set -euo pipefail
           runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXPECTED_SHA}&per_page=100")"
-          run="$(printf '%s' "$runs" | jq -c --arg path "$WORKFLOW_PATH" '[.workflow_runs[] | select(.path == $path)] | sort_by(.run_number) | last // empty')"
-          test -n "$run" || { echo 'myinfo_hr_locator_blocker=run_not_found'; exit 2; }
+          run="$(printf '%s' "$runs" | jq -c --arg path "$WORKFLOW_PATH" '[.workflow_runs[] | select((.path | split("@")[0]) == $path)] | sort_by(.run_number) | last // empty')"
+
+          if [ -z "$run" ]; then
+            names="$(printf '%s' "$runs" | jq -r '[.workflow_runs[] | (.name + "#" + (.run_number|tostring) + ":" + (.status // "unknown"))] | join(",")')"
+            body="myinfo_hr_activation_locator expected_sha=${EXPECTED_SHA} result=run_not_found observed_runs=${names:-none}"
+            gh issue comment "$AUDIT_ISSUE" --body "$body"
+            echo "$body"
+            exit 0
+          fi
 
           run_id="$(printf '%s' "$run" | jq -r '.id')"
           run_number="$(printf '%s' "$run" | jq -r '.run_number')"
