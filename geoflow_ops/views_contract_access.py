@@ -9,6 +9,8 @@ from django.db import connections, transaction
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
 
+from control.gf_authz.permissions import gf_has_perm
+
 from .services.contract_access import can_approve_contract_document_access
 from .services.employee_access import current_employee_id
 from .services.entity_access import require_tenant_context
@@ -18,6 +20,13 @@ from .services.entity_access import require_tenant_context
 @require_POST
 def request_contract_document_access(request, contract_id: UUID):
     alias = require_tenant_context(request)
+    if not gf_has_perm(request, "contracts.view"):
+        raise PermissionDenied("Permission denied")
+    with connections[alias].cursor() as cur:
+        cur.execute("SELECT 1 FROM ctr.contracts WHERE id=%s LIMIT 1", [str(contract_id)])
+        if not cur.fetchone():
+            raise PermissionDenied("Contract not found")
+
     employee_id = current_employee_id(alias, request)
     if not employee_id:
         raise PermissionDenied("Employee profile required")
