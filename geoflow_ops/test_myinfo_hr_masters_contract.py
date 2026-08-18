@@ -17,12 +17,22 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("system_default boolean NOT NULL DEFAULT false", source)
         for value in ("임원", "부장", "차장", "과장", "대리", "주임", "사원", "인턴"):
             self.assertIn(value, source)
-        for value in ("대표이사", "본부장", "부문장", "실장", "팀장", "파트장", "팀원"):
+        for value in ("대표", "대표이사", "본부장", "부문장", "실장", "팀장", "파트장", "팀원"):
             self.assertIn(value, source)
         lowered = source.lower()
         self.assertNotIn("delete from hr.employee_profile", lowered)
         self.assertNotIn("update hr.employee_profile", lowered)
         self.assertNotIn("drop table hr.departments", lowered)
+
+    def test_migration_preserves_legacy_and_employee_values_without_rewriting_employees(self):
+        source = self._read("geoflow_ops/migrations/0025_myinfo_hr_masters.py")
+        self.assertIn("category.system_key = 'hr.position_grade'", source)
+        self.assertIn("category.system_key = 'hr.position_title'", source)
+        self.assertIn("SELECT DISTINCT btrim(position_grade) AS name", source)
+        self.assertIn("SELECT DISTINCT btrim(title) AS name", source)
+        self.assertIn("UPDATE hr.job_grades master", source)
+        self.assertIn("UPDATE hr.job_positions master", source)
+        self.assertNotIn("UPDATE hr.employee_profile", source.upper())
 
     def test_myinfo_owns_department_grade_and_position_management(self):
         template = self._read("geoflow_ops/templates/geoflow_ops/myinfo/orgunit_detail.html")
@@ -44,6 +54,13 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("master_table_exists(alias, category)", source)
         self.assertIn("list_master_options(alias, category, active_only=True)", source)
         self.assertIn("return views_employee_profile.hr_options(request, category)", source)
+
+    def test_used_grade_or_position_cannot_be_disabled(self):
+        source = self._read("geoflow_ops/views_myinfo.py")
+        self.assertIn('"position_grade": "position_grade"', source)
+        self.assertIn('"position_title": "title"', source)
+        self.assertIn("FROM hr.employee_profile", source)
+        self.assertIn("직원 정보를 먼저 변경한 뒤 사용 중지하세요", source)
 
     def test_routes_are_permission_wrapped_and_legacy_department_route_remains(self):
         urls = self._read("geoflow_ops/urls.py")
