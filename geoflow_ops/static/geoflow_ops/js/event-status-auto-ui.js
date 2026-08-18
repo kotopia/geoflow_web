@@ -2,6 +2,7 @@
   'use strict';
 
   var labels = {draft:'작성중', open:'진행중', done:'완료', void:'취소'};
+  var syncTimer = null;
 
   function refreshStatusUi(modal) {
     if (!modal || modal.id !== 'eventModal') return;
@@ -24,9 +25,27 @@
     }
   }
 
+  function startSync(modal) {
+    if (syncTimer) window.clearInterval(syncTimer);
+    refreshStatusUi(modal);
+    syncTimer = window.setInterval(function() {
+      if (!modal.classList.contains('show')) {
+        window.clearInterval(syncTimer);
+        syncTimer = null;
+        return;
+      }
+      refreshStatusUi(modal);
+    }, 250);
+  }
+
   document.addEventListener('shown.bs.modal', function(event) {
-    if (event.target && event.target.id === 'eventModal') {
-      window.setTimeout(function() { refreshStatusUi(event.target); }, 0);
+    if (event.target && event.target.id === 'eventModal') startSync(event.target);
+  });
+
+  document.addEventListener('hidden.bs.modal', function(event) {
+    if (event.target && event.target.id === 'eventModal' && syncTimer) {
+      window.clearInterval(syncTimer);
+      syncTimer = null;
     }
   });
 
@@ -43,13 +62,4 @@
     refreshStatusUi(modal);
     save.click();
   });
-
-  // Existing workboard code refreshes the hidden select after AJAX reloads.
-  // A short observer keeps the read-only label synchronized without making
-  // status a user-editable field again.
-  var observer = new MutationObserver(function() {
-    var modal = document.getElementById('eventModal');
-    if (modal && modal.classList.contains('show')) refreshStatusUi(modal);
-  });
-  observer.observe(document.documentElement, {childList:true, subtree:true});
 })(window, document);
