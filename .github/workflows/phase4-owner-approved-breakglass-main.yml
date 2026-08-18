@@ -1,11 +1,9 @@
 name: Phase 4 owner-approved break-glass from main
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/phase4-owner-approved-breakglass-main.yml
+  issues:
+    types:
+      - opened
 
 permissions:
   contents: read
@@ -13,6 +11,7 @@ permissions:
 
 jobs:
   owner-approved-breakglass:
+    if: github.event.issue.title == 'RUN PHASE4 OWNER APPROVED BREAKGLASS 2026-08-18'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -105,6 +104,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_STATUS: ${{ job.status }}
+          TRIGGER_ISSUE: ${{ github.event.issue.number }}
         shell: bash
         run: |
           set -euo pipefail
@@ -124,6 +124,5 @@ ${markers}"
           fi
           gh api --method POST \
             -H 'Accept: application/vnd.github+json' \
-            "/repos/${GITHUB_REPOSITORY}/issues" \
-            -f title='Phase 4 owner-approved break-glass result' \
+            "/repos/${GITHUB_REPOSITORY}/issues/${TRIGGER_ISSUE}/comments" \
             -f body="$body" >/dev/null
