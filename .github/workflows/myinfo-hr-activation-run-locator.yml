@@ -1,8 +1,11 @@
 name: My Company HR activation run locator
 
 on:
-  issues:
-    types: [opened]
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/myinfo-hr-activation-run-locator.yml
 
 permissions:
   actions: read
@@ -11,13 +14,13 @@ permissions:
 
 jobs:
   locate:
-    if: github.event.issue.title == '[myinfo-hr-activation-locate-b18ef65c]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
       EXPECTED_SHA: b18ef65cce1ba051b7b8338dd9413f201b97ac3a
       WORKFLOW_PATH: .github/workflows/phase4-myinfo-hr-masters-production-activation.yml
+      AUDIT_ISSUE: "194"
     steps:
       - name: Locate exact protected run
         shell: bash
@@ -40,5 +43,5 @@ jobs:
           [ -n "$reviewers" ] || reviewers='none'
 
           body="myinfo_hr_activation_locator run_id=${run_id} run_number=${run_number} expected_sha=${EXPECTED_SHA} status=${status} conclusion=${conclusion} actor=${actor} pending_env=${pending_env} reviewers=${reviewers}"
-          gh issue comment "${{ github.event.issue.number }}" --body "$body"
+          gh issue comment "$AUDIT_ISSUE" --body "$body"
           echo "$body"
