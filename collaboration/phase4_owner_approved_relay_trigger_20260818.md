@@ -5,3 +5,5 @@ One-time audit marker for the explicitly approved 2026-08-18 production activati
 Relay attempt 2 added auditable start/dispatch/failure reporting to Issue #158 before invoking the pinned Phase 4 activation.
 
 Relay attempt 3 is emitted through a PR merge push because connector-authored direct branch writes do not emit the required Actions chain.
+
+Relay attempt 4 follows default-branch PR registration of the simplified workflow_dispatch-only Phase 4 launcher.
