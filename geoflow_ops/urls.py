@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard
-from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, contract_access_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, contract_access_views, workflow_state_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -15,6 +15,8 @@ urlpatterns = [
     path("contracts/<uuid:pk>/json/", security_views.contract_json, name="contract_json"),
     path("contracts/<uuid:pk>/document-requests/panel/", contract_access_views.contract_document_request_panel, name="contract_document_request_panel"),
     path("contracts/document-requests/<uuid:request_id>/decide/", contract_access_views.contract_document_request_decide, name="contract_document_request_decide"),
+    path("api/contracts/workflow-states/", workflow_state_views.contract_states, name="contract_workflow_states"),
+    path("api/contracts/<uuid:pk>/workflow-state/", workflow_state_views.contract_state, name="contract_workflow_state"),
 
     path('partners/', security_views.partner_list, name='partner_list'),
     path("partners/new/", security_views.partner_create, name="partner_create"),
