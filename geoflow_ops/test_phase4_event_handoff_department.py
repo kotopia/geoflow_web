@@ -76,6 +76,9 @@ class EventHandoffMigrationContractTests(SimpleTestCase):
         self.assertIn("project_access_policy(request, alias).can_view", service)
         self.assertIn("timedelta(days=7)", service)
         self.assertIn('gf_has_perm(request, "contracts.edit")', service)
+        self.assertIn("PROJECT_OPERATION_ROLES", service)
+        self.assertIn("TENANT_MANAGEMENT_ROLES", service)
+        self.assertIn("_has_direct_contract_document_access", service)
         self.assertNotIn("control.models", service)
 
 
@@ -124,6 +127,8 @@ class EventHandoffImplementationContractTests(SimpleTestCase):
         self.assertIn("담당부서", settings_template)
         self.assertIn("settings_department_save", settings_template)
         self.assertIn("FROM hr.departments\n             WHERE active=true", workboard)
+        self.assertIn("직원이 배정된 담당부서는 조직을 변경할 수 없습니다.", settings_view)
+        self.assertIn("FROM hr.employee_profile WHERE department_id=%s::uuid", settings_view)
 
     def test_handoff_rules_return_inspection_to_management_and_correction_to_business(self):
         source = (ROOT / "services" / "event_handoff.py").read_text(encoding="utf-8")
@@ -139,6 +144,7 @@ class EventHandoffImplementationContractTests(SimpleTestCase):
         access_views = (ROOT / "contract_access_views.py").read_text(encoding="utf-8")
         self.assertIn('if attachment.entity_type == "contract"', entity_access)
         self.assertIn("contract_document_access", entity_access)
+        self.assertNotIn('authorize_scope_read(request, alias, "contract", attachment.entity_id)', entity_access)
         self.assertIn("project_contract_document_panel", project_template)
         self.assertIn('authorize_scope_read(request, alias, "project", pk)', access_views)
         self.assertNotIn("authorize_scope_read(request, alias, \"contract\", project.contract_id)", access_views)
