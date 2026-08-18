@@ -53,13 +53,14 @@
             </select>
           </div>
           <div class="col-md-4">
-            <label class="form-label">진행 상태</label>
+            <label class="form-label">처리 상태 <span class="text-muted small">(보조)</span></label>
             <select class="form-select" id="event-status">
-              <option value="draft">작성중</option>
-              <option value="open">진행중</option>
+              <option value="open" selected>진행중</option>
               <option value="done">완료</option>
+              <option value="draft">작성중</option>
               <option value="void">취소</option>
             </select>
+            <div class="form-text">새 이벤트는 기본적으로 진행중으로 시작합니다.</div>
           </div>
 
           <div class="col-md-8">
