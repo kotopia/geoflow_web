@@ -54,12 +54,14 @@
           </div>
           <div class="col-md-4">
             <label class="form-label">진행 상태</label>
-            <select class="form-select" id="event-status">
+            <div class="form-control bg-light" id="event-status-display">자동 관리</div>
+            <select class="d-none" id="event-status" tabindex="-1" aria-hidden="true">
               <option value="draft">작성중</option>
               <option value="open">진행중</option>
               <option value="done">완료</option>
               <option value="void">취소</option>
             </select>
+            <div class="form-text">요청형 업무는 진행중으로, 기록형 업무는 완료로 자동 저장됩니다.</div>
           </div>
 
           <div class="col-md-8">
@@ -74,7 +76,7 @@
           <div class="col-md-6">
             <label class="form-label">담당 부서</label>
             <select class="form-select" id="event-owner-department">
-              <option value="">미지정</option>
+              <option value="">자동/미지정</option>
             </select>
           </div>
           <div class="col-md-6">
@@ -89,7 +91,7 @@
             <input type="date" class="form-control" id="event-due-at">
           </div>
           <div class="col-md-6 d-flex align-items-end">
-            <div class="text-muted small pb-2" id="event-assignment-help">부서/담당자 배정은 디렉터리 조회 권한이 있을 때 사용할 수 있습니다.</div>
+            <div class="text-muted small pb-2" id="event-assignment-help">담당부서는 업무단계와 프로젝트 참여부서를 기준으로 자동 제안됩니다.</div>
           </div>
 
           <div class="col-12">
@@ -132,6 +134,7 @@
 
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-danger me-auto d-none" id="btn-delete-event-modal">취소 처리</button>
+        <button type="button" class="btn btn-outline-success d-none" id="btn-complete-event-modal">업무 완료</button>
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
         <button type="button" class="btn btn-primary" id="btn-save-event">저장</button>
       </div>
