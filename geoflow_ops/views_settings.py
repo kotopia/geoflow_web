@@ -229,10 +229,19 @@ def settings_department_save(request):
                 existing_department = cur.fetchone()
                 if not existing_department:
                     return HttpResponseBadRequest("담당부서를 찾을 수 없습니다.")
-                # Moving an existing department between organizations can leave
-                # employee.department_id pointing across org boundaries. Preserve
-                # the organization identity and allow only label/active edits.
-                org_unit_id = _uuid_or_none(existing_department[0])
+                existing_org_unit_id = existing_department[0]
+
+                if str(org_unit_id) != str(existing_org_unit_id):
+                    # A department may move organizations only while it has no
+                    # employee rows. This prevents employee.department_id from
+                    # silently crossing the employee's organization boundary.
+                    cur.execute(
+                        "SELECT COUNT(*) FROM hr.employee_profile WHERE department_id=%s::uuid",
+                        [str(department_id)],
+                    )
+                    if int(cur.fetchone()[0]) > 0:
+                        return HttpResponseBadRequest("직원이 배정된 담당부서는 조직을 변경할 수 없습니다.")
+
                 cur.execute(
                     """
                     SELECT 1
@@ -249,12 +258,13 @@ def settings_department_save(request):
                 cur.execute(
                     """
                     UPDATE hr.departments
-                       SET name=%s,
+                       SET org_unit_id=%s::uuid,
+                           name=%s,
                            active=%s,
                            updated_at=now()
                      WHERE id=%s::uuid
                     """,
-                    [name, active, str(department_id)],
+                    [str(org_unit_id), name, active, str(department_id)],
                 )
                 messages.success(request, "담당부서를 수정했습니다.")
             else:
