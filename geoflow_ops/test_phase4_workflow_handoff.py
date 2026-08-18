@@ -89,13 +89,22 @@ class DepartmentSettingsContractTests(SimpleTestCase):
         self.assertNotIn("DELETE FROM hr.departments", migration.upper())
         self.assertNotIn("TRUNCATE hr.departments", migration.upper())
 
-    def test_migration_supports_legacy_departments_without_active_column(self):
+    def test_migration_canonicalizes_legacy_departments_without_dropping_constraints(self):
         migration = (ROOT / "migrations" / "0024_phase4_workflow_handoff_and_contract_access.py").read_text(encoding="utf-8")
-        self.assertIn("information_schema.columns", migration)
-        self.assertIn("column_name = 'active'", migration)
+        self.assertIn("ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true", migration)
+        self.assertIn("column_name = 'code'", migration)
+        self.assertIn("INSERT INTO hr.departments (org_unit_id, code, name, active)", migration)
+        self.assertIn("'phase4-' || md5", migration)
         self.assertIn("INSERT INTO hr.departments (org_unit_id, name, active)", migration)
-        self.assertIn("INSERT INTO hr.departments (org_unit_id, name)", migration)
-        self.assertNotIn("ALTER TABLE hr.departments", migration.upper())
+        self.assertNotIn("DROP CONSTRAINT", migration.upper())
+        self.assertNotIn("DROP INDEX", migration.upper())
+
+    def test_department_create_preserves_legacy_code_constraint(self):
+        source = (ROOT / "views_settings.py").read_text(encoding="utf-8")
+        self.assertIn("column_name='code'", source)
+        self.assertIn('department_code = f"dept-{uuid4().hex}"', source)
+        self.assertIn("INSERT INTO hr.departments (org_unit_id, code, name, active)", source)
+        self.assertIn("INSERT INTO hr.departments (org_unit_id, name, active)", source)
 
 
 class ContractDocumentAccessContractTests(SimpleTestCase):
