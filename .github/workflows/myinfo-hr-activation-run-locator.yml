@@ -1,0 +1,44 @@
+name: My Company HR activation run locator
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  locate:
+    if: github.event.issue.title == '[myinfo-hr-activation-locate-b18ef65c]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: b18ef65cce1ba051b7b8338dd9413f201b97ac3a
+      WORKFLOW_PATH: .github/workflows/phase4-myinfo-hr-masters-production-activation.yml
+    steps:
+      - name: Locate exact protected run
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXPECTED_SHA}&per_page=100")"
+          run="$(printf '%s' "$runs" | jq -c --arg path "$WORKFLOW_PATH" '[.workflow_runs[] | select(.path == $path)] | sort_by(.run_number) | last // empty')"
+          test -n "$run" || { echo 'myinfo_hr_locator_blocker=run_not_found'; exit 2; }
+
+          run_id="$(printf '%s' "$run" | jq -r '.id')"
+          run_number="$(printf '%s' "$run" | jq -r '.run_number')"
+          status="$(printf '%s' "$run" | jq -r '.status')"
+          conclusion="$(printf '%s' "$run" | jq -r '.conclusion // "none"')"
+          actor="$(printf '%s' "$run" | jq -r '.actor.login')"
+
+          pending="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/pending_deployments" 2>/dev/null || printf '[]')"
+          pending_env="$(printf '%s' "$pending" | jq -r '[.[].environment.name] | join(",")')"
+          reviewers="$(printf '%s' "$pending" | jq -r '[.[].reviewers[].reviewer | (.type + ":" + (.login // .slug // .name // "unknown"))] | unique | join(",")')"
+          [ -n "$pending_env" ] || pending_env='none'
+          [ -n "$reviewers" ] || reviewers='none'
+
+          body="myinfo_hr_activation_locator run_id=${run_id} run_number=${run_number} expected_sha=${EXPECTED_SHA} status=${status} conclusion=${conclusion} actor=${actor} pending_env=${pending_env} reviewers=${reviewers}"
+          gh issue comment "${{ github.event.issue.number }}" --body "$body"
+          echo "$body"
