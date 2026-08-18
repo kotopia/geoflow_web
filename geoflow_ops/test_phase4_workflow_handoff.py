@@ -89,6 +89,14 @@ class DepartmentSettingsContractTests(SimpleTestCase):
         self.assertNotIn("DELETE FROM hr.departments", migration.upper())
         self.assertNotIn("TRUNCATE hr.departments", migration.upper())
 
+    def test_migration_supports_legacy_departments_without_active_column(self):
+        migration = (ROOT / "migrations" / "0024_phase4_workflow_handoff_and_contract_access.py").read_text(encoding="utf-8")
+        self.assertIn("information_schema.columns", migration)
+        self.assertIn("column_name = 'active'", migration)
+        self.assertIn("INSERT INTO hr.departments (org_unit_id, name, active)", migration)
+        self.assertIn("INSERT INTO hr.departments (org_unit_id, name)", migration)
+        self.assertNotIn("ALTER TABLE hr.departments", migration.upper())
+
 
 class ContractDocumentAccessContractTests(SimpleTestCase):
     def test_contract_attachments_require_document_access_policy(self):
