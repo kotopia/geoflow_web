@@ -7,6 +7,16 @@ on:
         description: Exact release/stabilized-deploy SHA whose pending production deployment may be reviewed
         required: true
         type: string
+      target_event:
+        description: Workflow event to inspect (push or workflow_dispatch)
+        required: false
+        default: "push"
+        type: string
+      attempt_approval:
+        description: Whether to attempt pending deployment approval after diagnostics
+        required: false
+        default: "false"
+        type: string
       report_issue:
         description: Issue number used for audit reporting
         required: false
@@ -25,37 +35,48 @@ jobs:
     timeout-minutes: 5
     env:
       EXPECTED_RELEASE_SHA: ${{ inputs.expected_release_sha }}
+      TARGET_EVENT: ${{ inputs.target_event }}
+      ATTEMPT_APPROVAL: ${{ inputs.attempt_approval }}
       REPORT_ISSUE: ${{ inputs.report_issue }}
       GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Locate exact pending production deployment
+      - name: Locate exact pending production deployment and report actors
         shell: bash
         run: |
           set -euo pipefail
           printf '%s' "$EXPECTED_RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo 'phase4_pending_approver_blocker=invalid_release_sha'; exit 2; }
+          case "$TARGET_EVENT" in push|workflow_dispatch) ;; *) echo 'phase4_pending_approver_blocker=invalid_target_event'; exit 2 ;; esac
           target_run=''
           env_id=''
           can_approve='false'
+          reviewers=''
+          actor=''
+          triggering_actor=''
           for _ in $(seq 1 45); do
-            runs="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-workflow-handoff-production-activation.yml/runs?event=push&per_page=30")"
+            runs="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-workflow-handoff-production-activation.yml/runs?event=${TARGET_EVENT}&per_page=50")"
             target_run="$(printf '%s' "$runs" | jq -r --arg sha "$EXPECTED_RELEASE_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.id) | reverse | .[0].id // empty')"
             if [ -n "$target_run" ]; then
+              run_json="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${target_run}")"
+              actor="$(printf '%s' "$run_json" | jq -r '.actor.login // "unknown"')"
+              triggering_actor="$(printf '%s' "$run_json" | jq -r '.triggering_actor.login // "unknown"')"
               pending="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${target_run}/pending_deployments")"
               env_id="$(printf '%s' "$pending" | jq -r '[.[] | select(.environment.name == "production")][0].environment.id // empty')"
               can_approve="$(printf '%s' "$pending" | jq -r '[.[] | select(.environment.name == "production")][0].current_user_can_approve // false')"
+              reviewers="$(printf '%s' "$pending" | jq -r '[.[] | select(.environment.name == "production")][0].reviewers // [] | map((.type // "unknown") + ":" + (.reviewer.login // .reviewer.name // ((.reviewer.id // 0)|tostring))) | join(",")')"
               if [ -n "$env_id" ]; then break; fi
             fi
             sleep 2
           done
-          test -n "$target_run" || { gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_no_matching_run expected_release_sha=${EXPECTED_RELEASE_SHA}" >/dev/null || true; exit 2; }
-          test -n "$env_id" || { gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_no_pending_deployment target_run_id=${target_run} expected_release_sha=${EXPECTED_RELEASE_SHA}" >/dev/null || true; exit 2; }
+          test -n "$target_run" || { gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_diagnostic_no_matching_run expected_release_sha=${EXPECTED_RELEASE_SHA} target_event=${TARGET_EVENT}" >/dev/null || true; exit 2; }
+          test -n "$env_id" || { gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_diagnostic_no_pending target_run_id=${target_run} expected_release_sha=${EXPECTED_RELEASE_SHA} target_event=${TARGET_EVENT} actor=${actor} triggering_actor=${triggering_actor}" >/dev/null || true; exit 2; }
           echo "TARGET_RUN_ID=$target_run" >> "$GITHUB_ENV"
           echo "PRODUCTION_ENV_ID=$env_id" >> "$GITHUB_ENV"
           echo "CURRENT_USER_CAN_APPROVE=$can_approve" >> "$GITHUB_ENV"
-          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_found target_run_id=${target_run} expected_release_sha=${EXPECTED_RELEASE_SHA} current_user_can_approve=${can_approve}" >/dev/null
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_diagnostic target_run_id=${target_run} expected_release_sha=${EXPECTED_RELEASE_SHA} target_event=${TARGET_EVENT} actor=${actor} triggering_actor=${triggering_actor} current_token_can_approve=${can_approve} reviewers=${reviewers:-none}" >/dev/null
 
-      - name: Approve exact pending production deployment
+      - name: Optionally approve exact pending production deployment
+        if: inputs.attempt_approval == 'true'
         shell: bash
         run: |
           set -euo pipefail
