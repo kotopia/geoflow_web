@@ -1,0 +1,67 @@
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <div>
+      <h5 class="card-title mb-0">계약문서</h5>
+      <small class="text-muted">프로젝트 참여자는 필요할 때 계약문서 열람을 요청합니다.</small>
+    </div>
+    {% if access_state.allowed %}
+      <span class="badge bg-success">열람 가능</span>
+    {% elif access_state.status == 'pending' %}
+      <span class="badge bg-warning text-dark">승인 대기</span>
+    {% elif access_state.status == 'rejected' %}
+      <span class="badge bg-secondary">반려</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    {% if access_state.allowed %}
+      {% if contract_attachments %}
+        <div class="list-group list-group-flush">
+          {% for att in contract_attachments %}
+          <div class="list-group-item px-0 d-flex justify-content-between align-items-center gap-3">
+            <div class="text-truncate">
+              <div class="fw-semibold text-truncate">{{ att.original_name }}</div>
+              <small class="text-muted">{{ att.mime_type|default:"파일" }}</small>
+            </div>
+            <div class="d-flex gap-2 flex-shrink-0">
+              <a class="btn btn-sm btn-outline-secondary" target="_blank"
+                 href="{% url 'tenant:upload_preview' att.id %}">미리보기</a>
+              <button type="button" class="btn btn-sm btn-outline-primary"
+                      data-attachment-download="{{ att.id }}">다운로드</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-muted small">등록된 계약문서가 없습니다.</div>
+      {% endif %}
+      {% if access_state.expires_at %}
+        <div class="form-text mt-2">승인된 열람 권한은 {{ access_state.expires_at|date:"Y-m-d H:i" }}까지 유효합니다.</div>
+      {% endif %}
+    {% elif access_state.status == 'pending' %}
+      <div class="text-muted small">관리부 승인 후 계약문서를 열람할 수 있습니다.</div>
+    {% else %}
+      <form method="post" action="{% url 'tenant:project_contract_document_request' project.id %}">
+        {% csrf_token %}
+        <label class="form-label small">열람 사유</label>
+        <textarea class="form-control form-control-sm" name="reason" rows="2" maxlength="1000"
+                  placeholder="계약문서가 필요한 사유를 입력하세요."></textarea>
+        <button class="btn btn-sm btn-outline-primary mt-2" type="submit">계약문서 열람 요청</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+<script>
+(function(){
+  document.querySelectorAll('[data-attachment-download]').forEach(function(btn){
+    if (btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-attachment-download');
+      fetch('/api/uploads/presign-get/' + id + '/?mode=download', {credentials:'same-origin'})
+        .then(function(r){ if(!r.ok) throw new Error('download failed'); return r.json(); })
+        .then(function(data){ if(data.presigned_url) window.location.assign(data.presigned_url); })
+        .catch(function(){ alert('다운로드 링크를 만들지 못했습니다.'); });
+    });
+  });
+})();
+</script>
