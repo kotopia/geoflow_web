@@ -1,0 +1,44 @@
+{% if access_requests %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <div>
+      <h5 class="card-title mb-0">계약문서 열람 요청</h5>
+      <small class="text-muted">프로젝트 참여자의 계약문서 요청을 관리합니다.</small>
+    </div>
+    <span class="badge bg-warning text-dark">{{ access_requests|length }}건</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>요청자</th>
+            <th>프로젝트</th>
+            <th>사유</th>
+            <th>요청일</th>
+            <th class="text-end">처리</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in access_requests %}
+          <tr>
+            <td>{{ row.employee_name|default:"-" }}{% if row.employee_title %} · {{ row.employee_title }}{% endif %}</td>
+            <td>{{ row.project_name|default:"-" }}</td>
+            <td>{{ row.reason|default:"-" }}</td>
+            <td>{{ row.requested_at|date:"Y-m-d H:i" }}</td>
+            <td class="text-end">
+              <form method="post" action="{% url 'tenant:contract_document_request_decide' row.id %}" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="contract_id" value="{{ contract_id }}">
+                <button class="btn btn-sm btn-primary" name="decision" value="approved" type="submit">7일 승인</button>
+                <button class="btn btn-sm btn-outline-secondary" name="decision" value="rejected" type="submit">반려</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
