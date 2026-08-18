@@ -1,5 +1,6 @@
 from django.db import migrations
 
+# Owner-approved protected production retrigger; migration operations remain unchanged.
 
 class Migration(migrations.Migration):
 
