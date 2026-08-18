@@ -2,15 +2,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from uuid import UUID
 
 from django.db import connections, transaction
 from django.utils import timezone
 
 from control.gf_authz.permissions import gf_has_perm
 
-from .employee_access import current_employee_id
+from .employee_access import current_employee_id, effective_roles
 from .project_access import project_access_policy
+
+
+PROJECT_OPERATION_ROLES = frozenset({
+    "project_manager", "projectmanager", "pm",
+    "project_leader", "projectleader", "leader", "pl",
+    "worker", "project_worker", "projectworker",
+    "viewer", "project_viewer", "projectviewer",
+})
+TENANT_MANAGEMENT_ROLES = frozenset({
+    "tenant_admin", "tenant_administrator", "tenant_manager", "manager", "group_admin",
+})
 
 
 @dataclass(frozen=True)
@@ -32,8 +42,20 @@ def _related_project_allowed(request, alias: str, project_id: str) -> bool:
     return project_access_policy(request, alias).can_view(project_id)
 
 
+def _has_direct_contract_document_access(request) -> bool:
+    """Keep Project roles on the request/approval path even with stale broad perms."""
+    if not gf_has_perm(request, "contracts.view"):
+        return False
+    roles = effective_roles(request)
+    if roles & TENANT_MANAGEMENT_ROLES:
+        return True
+    # A Contract/management-specific custom role with contracts.view and no
+    # Project execution role still uses its ordinary Contract permission.
+    return not bool(roles & PROJECT_OPERATION_ROLES)
+
+
 def access_state(request, alias: str, contract_id) -> ContractDocumentAccessState:
-    if gf_has_perm(request, "contracts.view"):
+    if _has_direct_contract_document_access(request):
         return ContractDocumentAccessState(True, status="permission")
     if not _table_exists(alias):
         return ContractDocumentAccessState(False)
