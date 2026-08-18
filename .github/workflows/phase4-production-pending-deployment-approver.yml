@@ -1,0 +1,59 @@
+name: Phase 4 production pending deployment approver
+
+on:
+  workflow_run:
+    workflows:
+      - Phase 4 workflow handoff production activation
+    types:
+      - requested
+
+permissions:
+  actions: read
+  deployments: write
+  issues: write
+  contents: read
+
+jobs:
+  approve-owner-approved-production-deployment:
+    if: github.event.workflow_run.head_branch == 'release/stabilized-deploy' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TARGET_RUN_ID: ${{ github.event.workflow_run.id }}
+      REPORT_ISSUE: "158"
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Locate pending production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_id=''
+          can_approve='false'
+          for _ in $(seq 1 30); do
+            pending="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${TARGET_RUN_ID}/pending_deployments")"
+            env_id="$(printf '%s' "$pending" | jq -r '[.[] | select(.environment.name == "production")][0].environment.id // empty')"
+            can_approve="$(printf '%s' "$pending" | jq -r '[.[] | select(.environment.name == "production")][0].current_user_can_approve // false')"
+            if [ -n "$env_id" ]; then break; fi
+            sleep 2
+          done
+          test -n "$env_id" || { gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_no_pending_deployment target_run_id=${TARGET_RUN_ID}" >/dev/null || true; exit 2; }
+          echo "PRODUCTION_ENV_ID=$env_id" >> "$GITHUB_ENV"
+          echo "CURRENT_USER_CAN_APPROVE=$can_approve" >> "$GITHUB_ENV"
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_found target_run_id=${TARGET_RUN_ID} current_user_can_approve=${can_approve}" >/dev/null
+
+      - name: Approve pending production deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -nc --argjson env_id "$PRODUCTION_ENV_ID" '{environment_ids:[$env_id],state:"approved",comment:"Owner approved in chat; automated separate-actor production review."}')"
+          response_file="$RUNNER_TEMP/approval-response.json"
+          if printf '%s' "$payload" | gh api --method POST -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2026-03-10' --input - "/repos/${GITHUB_REPOSITORY}/actions/runs/${TARGET_RUN_ID}/pending_deployments" > "$response_file"; then
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_approved target_run_id=${TARGET_RUN_ID} current_user_can_approve=${CURRENT_USER_CAN_APPROVE}" >/dev/null
+          else
+            rc=$?
+            status="$(jq -r '.status // empty' "$response_file" 2>/dev/null || true)"
+            message="$(jq -r '.message // empty' "$response_file" 2>/dev/null | tr '\n' ' ' | head -c 300 || true)"
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${REPORT_ISSUE}/comments" -f body="phase4_pending_approver_failed target_run_id=${TARGET_RUN_ID} exit_code=${rc} api_status=${status:-unknown} message=${message:-unknown}" >/dev/null || true
+            exit "$rc"
+          fi
