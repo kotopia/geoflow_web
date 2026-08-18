@@ -69,12 +69,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api --method POST \
-            -H 'Accept: application/vnd.github+json' \
-            "/repos/${GITHUB_REPOSITORY}/issues/158/comments" \
-            -f body="phase4_direct_dispatch_started
-run_id=${GITHUB_RUN_ID}
-sha=${GITHUB_SHA}" >/dev/null
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_direct_dispatch_started run_id=${GITHUB_RUN_ID} sha=${GITHUB_SHA}" >/dev/null
 
       - name: Dispatch pinned Phase 4 activation from main
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[phase4-direct-dispatch]')
@@ -84,24 +79,10 @@ sha=${GITHUB_SHA}" >/dev/null
         run: |
           set -euo pipefail
           payload='{"ref":"main","inputs":{"report_issue":"158"}}'
-          if printf '%s' "$payload" | gh api \
-            --method POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
-            --input - \
-            "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-owner-approved-breakglass-main.yml/dispatches"; then
-            gh api --method POST \
-              -H 'Accept: application/vnd.github+json' \
-              "/repos/${GITHUB_REPOSITORY}/issues/158/comments" \
-              -f body="phase4_direct_dispatch_dispatched
-run_id=${GITHUB_RUN_ID}" >/dev/null
+          if printf '%s' "$payload" | gh api --method POST -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' --input - "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-owner-approved-breakglass-main.yml/dispatches"; then
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_direct_dispatch_dispatched run_id=${GITHUB_RUN_ID}" >/dev/null
           else
             rc=$?
-            gh api --method POST \
-              -H 'Accept: application/vnd.github+json' \
-              "/repos/${GITHUB_REPOSITORY}/issues/158/comments" \
-              -f body="phase4_direct_dispatch_failed
-run_id=${GITHUB_RUN_ID}
-exit_code=${rc}" >/dev/null || true
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_direct_dispatch_failed run_id=${GITHUB_RUN_ID} exit_code=${rc}" >/dev/null || true
             exit "$rc"
           fi
