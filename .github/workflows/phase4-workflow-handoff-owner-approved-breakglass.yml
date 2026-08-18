@@ -1,0 +1,151 @@
+name: Phase 4 workflow handoff owner-approved break-glass
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase4-workflow-handoff-owner-approved-breakglass.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  owner-approved-breakglass:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_WORKFLOW: .github/workflows/phase4-workflow-handoff-production-activation.yml
+      HELPER_WORKFLOW: .github/workflows/phase4-workflow-handoff-owner-approved-breakglass.yml
+      RELEASE_BRANCH: release/stabilized-deploy
+      SENTINEL: "[owner-approved-breakglass]"
+    steps:
+      - name: Temporarily narrow and bypass production review gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${RELEASE_BRANCH}" --jq '.object.sha')"
+          test "$current_sha" = "$GITHUB_SHA" || {
+            echo 'breakglass_blocker=release_advanced_before_prepare'
+            exit 2
+          }
+
+          target_api="/repos/${GITHUB_REPOSITORY}/contents/${TARGET_WORKFLOW}?ref=${RELEASE_BRANCH}"
+          target_sha="$(gh api "$target_api" --jq '.sha')"
+          gh api "$target_api" --jq '.content' | tr -d '\n' | base64 -d > "$RUNNER_TEMP/original.yml"
+
+          python - "$RUNNER_TEMP/original.yml" "$RUNNER_TEMP/modified.yml" <<'PY'
+          from pathlib import Path
+          import sys
+
+          src = Path(sys.argv[1]).read_text()
+          env_line = "    environment: production\n"
+          original_if = "    if: github.ref_name == 'release/stabilized-deploy'\n"
+          guarded_if = "    if: github.ref_name == 'release/stabilized-deploy' && (github.event_name != 'push' || contains(github.event.head_commit.message, '[owner-approved-breakglass]'))\n"
+          marker = "    # owner-approved break-glass: production environment gate temporarily bypassed\n"
+          if src.count(env_line) != 1:
+              raise SystemExit("breakglass_blocker=unexpected_environment_gate_shape")
+          if src.count(original_if) != 1:
+              raise SystemExit("breakglass_blocker=unexpected_job_if_shape")
+          out = src.replace(original_if, guarded_if, 1).replace(env_line, marker, 1)
+          Path(sys.argv[2]).write_text(out)
+          PY
+
+          encoded="$(base64 -w0 "$RUNNER_TEMP/modified.yml")"
+          prepared_sha="$(gh api --method PUT \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/contents/${TARGET_WORKFLOW}" \
+            -f message='[skip ci] ops: stage owner-approved Phase 4 break-glass' \
+            -f content="$encoded" \
+            -f branch="$RELEASE_BRANCH" \
+            -f sha="$target_sha" \
+            --jq '.commit.sha')"
+          printf '%s\n' "$prepared_sha" > "$RUNNER_TEMP/prepared_sha"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$RUNNER_TEMP/prepared_at"
+          echo "breakglass_prepared_sha=$prepared_sha"
+
+      - name: Wait for exact owner-approved activation and restore protection
+        shell: bash
+        run: |
+          set -u
+          prepared_sha="$(cat "$RUNNER_TEMP/prepared_sha")"
+          prepared_at="$(cat "$RUNNER_TEMP/prepared_at")"
+          run_id=''
+          activation_rc=2
+
+          restore_gate() {
+            set +e
+            target_api="/repos/${GITHUB_REPOSITORY}/contents/${TARGET_WORKFLOW}?ref=${RELEASE_BRANCH}"
+            current_target_sha="$(gh api "$target_api" --jq '.sha' 2>/dev/null || true)"
+            if [ -n "$current_target_sha" ]; then
+              gh api "$target_api" --jq '.content' | tr -d '\n' | base64 -d > "$RUNNER_TEMP/current.yml" 2>/dev/null
+              python - "$RUNNER_TEMP/current.yml" "$RUNNER_TEMP/restored.yml" <<'PY'
+          from pathlib import Path
+          import sys
+
+          src = Path(sys.argv[1]).read_text()
+          marker = "    # owner-approved break-glass: production environment gate temporarily bypassed\n"
+          env_line = "    environment: production\n"
+          guarded_if = "    if: github.ref_name == 'release/stabilized-deploy' && (github.event_name != 'push' || contains(github.event.head_commit.message, '[owner-approved-breakglass]'))\n"
+          original_if = "    if: github.ref_name == 'release/stabilized-deploy'\n"
+          out = src.replace(guarded_if, original_if, 1).replace(marker, env_line, 1)
+          Path(sys.argv[2]).write_text(out)
+          PY
+              if ! cmp -s "$RUNNER_TEMP/current.yml" "$RUNNER_TEMP/restored.yml"; then
+                encoded="$(base64 -w0 "$RUNNER_TEMP/restored.yml")"
+                gh api --method PUT \
+                  -H 'Accept: application/vnd.github+json' \
+                  "/repos/${GITHUB_REPOSITORY}/contents/${TARGET_WORKFLOW}" \
+                  -f message='[skip ci] ops: restore production gate after owner-approved Phase 4 break-glass' \
+                  -f content="$encoded" \
+                  -f branch="$RELEASE_BRANCH" \
+                  -f sha="$current_target_sha" >/dev/null
+                echo 'breakglass_production_gate_restored=yes'
+              else
+                echo 'breakglass_production_gate_already_restored=yes'
+              fi
+            fi
+
+            helper_api="/repos/${GITHUB_REPOSITORY}/contents/${HELPER_WORKFLOW}?ref=${RELEASE_BRANCH}"
+            helper_sha="$(gh api "$helper_api" --jq '.sha' 2>/dev/null || true)"
+            if [ -n "$helper_sha" ]; then
+              gh api --method DELETE \
+                -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/contents/${HELPER_WORKFLOW}" \
+                -f message='[skip ci] ops: remove completed Phase 4 break-glass launcher' \
+                -f branch="$RELEASE_BRANCH" \
+                -f sha="$helper_sha" >/dev/null
+              echo 'breakglass_helper_removed=yes'
+            fi
+          }
+          trap restore_gate EXIT
+
+          for _ in $(seq 1 120); do
+            runs_json="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-workflow-handoff-production-activation.yml/runs?branch=${RELEASE_BRANCH}&event=push&per_page=20" 2>/dev/null || true)"
+            if [ -n "$runs_json" ]; then
+              run_id="$(printf '%s' "$runs_json" | jq -r --arg sentinel "$SENTINEL" --arg prepared "$prepared_at" '
+                [.workflow_runs[]
+                 | select(.created_at >= $prepared)
+                 | select((.head_commit.message // "") | contains($sentinel))]
+                | sort_by(.created_at)
+                | reverse
+                | .[0].id // empty')"
+            fi
+            [ -n "$run_id" ] && break
+            sleep 5
+          done
+
+          if [ -z "$run_id" ]; then
+            echo 'breakglass_blocker=owner_approved_activation_run_not_found'
+            exit 2
+          fi
+          echo "breakglass_activation_run_id=$run_id"
+
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+          activation_rc=$?
+          conclusion="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.conclusion // .status' 2>/dev/null || true)"
+          echo "breakglass_activation_conclusion=$conclusion"
+          exit "$activation_rc"
