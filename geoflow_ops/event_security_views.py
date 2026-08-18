@@ -115,6 +115,11 @@ def workflow_options(request):
                 for code, label in rows
                 if event_type_allowed_for_scope(scope_type, code)
             ]
+            # "기타" is valid only after a real business stage is applicable to
+            # this scope. This prevents Contract from showing Project-only stages
+            # (and vice versa) merely because every stage has an etc fallback.
+            if not any(code != "etc" for code, _label in rows):
+                rows = []
         types_by_stage[stage] = rows
 
     return JsonResponse(
