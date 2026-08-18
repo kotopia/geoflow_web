@@ -57,24 +57,29 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip check
 
-      - name: Compile employee and settings boundary
+      - name: Compile employee settings and organization HR boundary
         run: |
           python -m py_compile \
             geoflow_ops/services/employee_access.py \
+            geoflow_ops/services/hr_masters.py \
             geoflow_ops/views_employee_profile.py \
             geoflow_ops/views_settings.py \
+            geoflow_ops/views_myinfo.py \
             geoflow_ops/employee_security_views.py \
             geoflow_ops/settings_security_views.py \
+            geoflow_ops/myinfo_security_views.py \
             geoflow_ops/upload_guard_views.py \
             geoflow_ops/services/entity_access.py \
             geoflow_ops/context_processors.py \
             control/services/route_security_preflight.py \
-            geoflow_ops/migrations/0021_phase4_employee_settings_foundation.py
+            geoflow_ops/migrations/0021_phase4_employee_settings_foundation.py \
+            geoflow_ops/migrations/0025_myinfo_hr_masters.py
 
       - name: Run employee settings regressions
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_employee_settings_foundation \
             geoflow_ops.test_phase4_employee_settings_production_activation_contract \
+            geoflow_ops.test_myinfo_hr_masters_contract \
             geoflow_ops.test_tenant_route_authorization_contract \
             geoflow_ops.test_event_upload_route_boundaries
