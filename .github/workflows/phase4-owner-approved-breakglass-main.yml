@@ -7,9 +7,7 @@ on:
         description: Issue number used for auditable result reporting
         required: false
         default: "158"
-  issues:
-    types:
-      - opened
+        type: string
 
 permissions:
   contents: read
@@ -17,7 +15,6 @@ permissions:
 
 jobs:
   owner-approved-breakglass:
-    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == 'RUN PHASE4 OWNER APPROVED BREAKGLASS 2026-08-18'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -42,15 +39,9 @@ jobs:
           set -euo pipefail
           release_sha="$(git rev-parse HEAD)"
           git fetch --no-tags --depth=1 origin release/stabilized-deploy
-          test "$(git rev-parse FETCH_HEAD)" = "$release_sha" || {
-            echo 'breakglass_blocker=release_advanced'
-            exit 2
-          }
+          test "$(git rev-parse FETCH_HEAD)" = "$release_sha" || { echo 'breakglass_blocker=release_advanced'; exit 2; }
           test -f "$TARGET_WORKFLOW"
-          test "$(git hash-object "$TARGET_WORKFLOW")" = "$REVIEWED_TARGET_BLOB" || {
-            echo 'breakglass_blocker=reviewed_production_workflow_changed'
-            exit 2
-          }
+          test "$(git hash-object "$TARGET_WORKFLOW")" = "$REVIEWED_TARGET_BLOB" || { echo 'breakglass_blocker=reviewed_production_workflow_changed'; exit 2; }
           test -n "$SSH_HOST" || { echo 'breakglass_blocker=missing_ssh_host'; exit 2; }
           test -n "$SSH_USER" || { echo 'breakglass_blocker=missing_ssh_user'; exit 2; }
           test -n "$SSH_KEY" || { echo 'breakglass_blocker=missing_ssh_key'; exit 2; }
@@ -110,25 +101,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_STATUS: ${{ job.status }}
-          TRIGGER_ISSUE: ${{ inputs.report_issue || github.event.issue.number || '158' }}
+          TRIGGER_ISSUE: ${{ inputs.report_issue }}
         shell: bash
         run: |
           set -euo pipefail
           markers=''
           if [ -f "$RUNNER_TEMP/activation.log" ]; then
-            markers="$(grep -E '^(workflow_handoff_|breakglass_)' "$RUNNER_TEMP/activation.log" | tail -n 80 || true)"
+            markers="$(grep -E '^(workflow_handoff_|breakglass_)' "$RUNNER_TEMP/activation.log" | tail -n 80 | tr '\n' ';' | head -c 6000 || true)"
           fi
-          body="phase4_owner_approved_breakglass_result
-          run_id=${GITHUB_RUN_ID}
-          release_sha=${RELEASE_SHA:-unknown}
-          status=${RESULT_STATUS}"
-          if [ -n "$markers" ]; then
-            body="${body}
-
-markers:
-${markers}"
-          fi
-          gh api --method POST \
-            -H 'Accept: application/vnd.github+json' \
-            "/repos/${GITHUB_REPOSITORY}/issues/${TRIGGER_ISSUE}/comments" \
-            -f body="$body" >/dev/null
+          body="phase4_owner_approved_breakglass_result run_id=${GITHUB_RUN_ID} release_sha=${RELEASE_SHA:-unknown} status=${RESULT_STATUS}"
+          if [ -n "$markers" ]; then body="${body} markers=${markers}"; fi
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/${TRIGGER_ISSUE}/comments" -f body="$body" >/dev/null
