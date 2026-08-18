@@ -52,6 +52,7 @@ urlpatterns = [
 
     path("settings/", settings_security_views.settings_page, name="settings_page"),
     path("settings/node/save/", settings_security_views.settings_node_save, name="settings_node_save"),
+    path("settings/department/save/", settings_security_views.department_save, name="settings_department_save"),
 
     path("myinfo/org-units/", security_views.orgunit_list,  name="myinfo_orgunit_list"),
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),
