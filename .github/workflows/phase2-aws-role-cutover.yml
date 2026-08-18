@@ -16,6 +16,7 @@ on:
 permissions:
   actions: write
   contents: read
+  issues: write
 
 jobs:
   role-only-runtime-cutover:
@@ -26,6 +27,7 @@ jobs:
       - name: Validate temporary owner-approved relay
         env:
           CONFIRM_CUTOVER: ${{ inputs.confirm_cutover }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -34,6 +36,13 @@ jobs:
             exit 2
           }
           test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/issues/158/comments" \
+            -f body="phase4_breakglass_relay_started
+run_id=${GITHUB_RUN_ID}
+ref=${GITHUB_REF_NAME}
+sha=${GITHUB_SHA}" >/dev/null
           echo 'phase4_breakglass_relay_validated=yes'
 
       - name: Dispatch owner-approved Phase 4 activation from main
@@ -43,10 +52,25 @@ jobs:
         run: |
           set -euo pipefail
           payload='{"ref":"main","inputs":{"report_issue":"158"}}'
-          printf '%s' "$payload" | gh api \
+          if printf '%s' "$payload" | gh api \
             --method POST \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             --input - \
-            "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-owner-approved-breakglass-main.yml/dispatches"
-          echo 'phase4_breakglass_relay_dispatched=yes'
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-owner-approved-breakglass-main.yml/dispatches"; then
+            gh api --method POST \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/issues/158/comments" \
+              -f body="phase4_breakglass_relay_dispatched
+run_id=${GITHUB_RUN_ID}" >/dev/null
+            echo 'phase4_breakglass_relay_dispatched=yes'
+          else
+            rc=$?
+            gh api --method POST \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/issues/158/comments" \
+              -f body="phase4_breakglass_relay_failed
+run_id=${GITHUB_RUN_ID}
+exit_code=${rc}" >/dev/null || true
+            exit "$rc"
+          fi
