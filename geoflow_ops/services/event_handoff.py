@@ -18,9 +18,47 @@ OPEN_EVENT_TYPES = frozenset({
     "reinspection",
 })
 
+# These are project execution/handoff events. They share the ProcessEvent table
+# with Contract events, but new records must keep the correct business scope.
+PROJECT_ONLY_EVENT_TYPES = frozenset({
+    "kickoff",
+    "progress_report",
+    "inspection_request",
+    "inspection",
+    "correction_request",
+    "reinspection",
+})
+CONTRACT_ONLY_EVENT_TYPES = frozenset({
+    "estimate",
+    "contract_doc",
+    "contract_change",
+    "period_extension",
+    "suspend",
+    "resume",
+    "contract_cancel",
+    "kickoff_doc",
+    "completion_doc",
+    "delivery",
+    "advance_payment",
+    "progress_invoice",
+    "invoice",
+    "tax_invoice",
+    "payment",
+})
+
 
 def default_event_status(event_type: object) -> str:
     return "open" if str(event_type or "").strip() in OPEN_EVENT_TYPES else "done"
+
+
+def event_type_allowed_for_scope(scope_type: object, event_type: object) -> bool:
+    scope = str(scope_type or "").strip().lower()
+    kind = str(event_type or "").strip()
+    if kind in PROJECT_ONLY_EVENT_TYPES:
+        return scope == "project"
+    if kind in CONTRACT_ONLY_EVENT_TYPES:
+        return scope == "contract"
+    return scope in {"contract", "project"}
 
 
 def _project_id_for_scope(alias: str, scope_type: str, scope_id: UUID) -> str | None:
@@ -141,17 +179,23 @@ def complete_prior_handoff_events(alias: str, event) -> int:
         prior_types = {"correction_request"}
     elif event_type == "inspection":
         prior_types = {"inspection_request", "reinspection"}
-    if not prior_types:
+    if not prior_types or not event.contract_id:
         return 0
 
-    params = [str(event.contract_id) if event.contract_id else None]
     sql = """
         UPDATE ops.process_events
            SET status='done', updated_at=now()
          WHERE status='open'
-           AND event_type = ANY(%s)
+           AND event_type = ANY(%s::text[])
            AND contract_id=%s::uuid
     """
+    params: list[object] = [list(prior_types), str(event.contract_id)]
+    if event.project_id:
+        sql += " AND project_id=%s::uuid"
+        params.append(str(event.project_id))
+    else:
+        sql += " AND project_id IS NULL"
+
     with connections[alias].cursor() as cur:
-        cur.execute(sql, [list(prior_types), params[0]])
+        cur.execute(sql, params)
         return int(cur.rowcount or 0)
