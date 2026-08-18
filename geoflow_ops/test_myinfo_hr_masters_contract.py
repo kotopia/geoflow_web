@@ -32,7 +32,7 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("SELECT DISTINCT btrim(title) AS name", source)
         self.assertIn("UPDATE hr.job_grades master", source)
         self.assertIn("UPDATE hr.job_positions master", source)
-        self.assertNotIn("UPDATE hr.employee_profile", source.upper())
+        self.assertNotIn("UPDATE HR.EMPLOYEE_PROFILE", source.upper())
 
     def test_myinfo_owns_department_grade_and_position_management(self):
         template = self._read("geoflow_ops/templates/geoflow_ops/myinfo/orgunit_detail.html")
