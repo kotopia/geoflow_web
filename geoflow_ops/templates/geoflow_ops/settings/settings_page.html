@@ -82,7 +82,28 @@
 {{ block.super }}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const nodes = JSON.parse(document.getElementById('settings-nodes-data').textContent || '[]');
+  const allNodes = JSON.parse(document.getElementById('settings-nodes-data').textContent || '[]');
+  const hrMasterKeys = new Set(['hr.position_grade', 'hr.position_title']);
+  const hiddenIds = new Set(
+    allNodes.filter(function (node) { return hrMasterKeys.has(node.system_key || ''); })
+      .map(function (node) { return node.id; })
+  );
+  let foundHiddenChild = true;
+  while (foundHiddenChild) {
+    foundHiddenChild = false;
+    allNodes.forEach(function (node) {
+      if (!hiddenIds.has(node.id) && hiddenIds.has(node.parent_id || '')) {
+        hiddenIds.add(node.id);
+        foundHiddenChild = true;
+      }
+    });
+  }
+  const nodes = allNodes.filter(function (node) { return !hiddenIds.has(node.id); });
+  const parentSelect = document.getElementById('settings-parent-id');
+  Array.from(parentSelect.options).forEach(function (option) {
+    if (hiddenIds.has(option.value)) option.remove();
+  });
+
   const byParent = new Map();
   const byId = new Map();
   nodes.forEach(function (node) {
