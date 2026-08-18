@@ -88,12 +88,24 @@ class EventHandoffImplementationContractTests(SimpleTestCase):
         self.assertIn('("execution", "수행(진행)")', workflow)
         self.assertIn('("closeout", "준공")', workflow)
         self.assertNotIn('"billing": "closeout"', workflow)
+        self.assertIn('.order_by("contract_id", "created_at", "id")', workflow)
         self.assertIn("업무흐름", contract_list)
         self.assertIn("운영상태", contract_list)
         self.assertIn("현재 업무흐름", contract_detail)
         self.assertIn("계약(전)", contract_detail)
         self.assertIn("수행(진행)", contract_detail)
         self.assertIn("준공", contract_detail)
+
+    def test_project_workflow_card_is_catalog_execution_not_event_stage(self):
+        state_views = (ROOT / "workflow_state_views.py").read_text(encoding="utf-8")
+        project_template = (ROOT / "templates" / "geoflow_ops" / "projects" / "project_detail.html").read_text(encoding="utf-8")
+        self.assertIn("def project_execution_state", state_views)
+        self.assertIn("_load_task_rows(alias, pk)", state_views)
+        self.assertIn("현재 실행업무", project_template)
+        self.assertIn("project_execution_state", project_template)
+        self.assertIn("기준점·측량·정위치·구조화", project_template)
+        self.assertNotIn('id="workflowStage"', project_template)
+        self.assertIn("부서 간 이관은 아래 이벤트 타임라인", project_template)
 
     def test_event_status_is_hidden_from_manual_choice_and_has_explicit_complete_action(self):
         modal = (ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html").read_text(encoding="utf-8")
