@@ -84,8 +84,8 @@ def contract_workflow_states(alias: str, contracts: Iterable[object]) -> dict[st
     """Compute one shared-event workflow state per contract in one query.
 
     Project-scoped events participate through their contract_id lineage. Void
-    events are ignored. Auxiliary billing events may be the latest detail event,
-    but they do not advance the three-step major flow.
+    events are ignored. Auxiliary billing events may be the latest recorded
+    detail event, but they do not advance the three-step major flow.
     """
 
     contract_rows = list(contracts)
@@ -98,12 +98,15 @@ def contract_workflow_states(alias: str, contracts: Iterable[object]) -> dict[st
     if not contract_ids:
         return result
 
+    # created_at is the deterministic event-history order. occurred_at is a
+    # business date and may be null or back-dated, so it must not decide what
+    # was most recently recorded in the workflow timeline.
     events = list(
         ProcessEvent.objects.using(alias)
         .filter(contract_id__in=contract_ids)
         .exclude(status="void")
         .only("contract_id", "stage", "event_type", "status", "occurred_at", "created_at")
-        .order_by("contract_id", "occurred_at", "created_at")
+        .order_by("contract_id", "created_at", "id")
     )
     grouped = defaultdict(list)
     for event in events:
