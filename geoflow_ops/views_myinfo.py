@@ -196,6 +196,10 @@ def _master_save(request, pk, *, category: str, label: str, prefix: str):
     alias = _alias(request)
     obj = get_object_or_404(MyOrgUnit.objects.using(alias), pk=pk)
     relation = MASTER_TABLES[category]
+    employee_column = {
+        "position_grade": "position_grade",
+        "position_title": "title",
+    }[category]
     if not master_table_exists(alias, category):
         return HttpResponseBadRequest(f"{label} 마스터가 아직 준비되지 않았습니다.")
 
@@ -207,11 +211,32 @@ def _master_save(request, pk, *, category: str, label: str, prefix: str):
         with connections[alias].cursor() as cur:
             if master_id:
                 cur.execute(
+                    f"SELECT name FROM {relation} WHERE id=%s FOR UPDATE",
+                    [str(master_id)],
+                )
+                row = cur.fetchone()
+                if not row:
+                    return HttpResponseBadRequest(f"{label} 항목을 찾을 수 없습니다.")
+                master_name = str(row[0] or "").strip()
+                if not active:
+                    cur.execute(
+                        f"""
+                        SELECT COUNT(*)
+                          FROM hr.employee_profile
+                         WHERE lower(btrim(COALESCE({employee_column}, ''))) = lower(%s)
+                        """,
+                        [master_name],
+                    )
+                    assigned_count = int(cur.fetchone()[0] or 0)
+                    if assigned_count:
+                        return HttpResponseBadRequest(
+                            f"현재 {assigned_count}명의 직원이 사용하는 {label}입니다. "
+                            f"직원 정보를 먼저 변경한 뒤 사용 중지하세요."
+                        )
+                cur.execute(
                     f"UPDATE {relation} SET active=%s, updated_at=now() WHERE id=%s",
                     [active, str(master_id)],
                 )
-                if cur.rowcount != 1:
-                    return HttpResponseBadRequest(f"{label} 항목을 찾을 수 없습니다.")
                 messages.success(request, f"{label} 사용 여부를 변경했습니다.")
             else:
                 if not name:
