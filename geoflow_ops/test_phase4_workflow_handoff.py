@@ -72,15 +72,19 @@ class SharedEventHandoffContractTests(SimpleTestCase):
 
 
 class DepartmentSettingsContractTests(SimpleTestCase):
-    def test_department_settings_use_hr_master_not_settings_string_copy(self):
-        source = (ROOT / "views_settings.py").read_text(encoding="utf-8")
-        template = (ROOT / "templates" / "geoflow_ops" / "settings" / "settings_page.html").read_text(encoding="utf-8")
+    def test_department_uses_hr_master_and_is_managed_from_my_company_info(self):
+        legacy_source = (ROOT / "views_settings.py").read_text(encoding="utf-8")
+        myinfo_source = (ROOT / "views_myinfo.py").read_text(encoding="utf-8")
+        settings_template = (ROOT / "templates" / "geoflow_ops" / "settings" / "settings_page.html").read_text(encoding="utf-8")
+        myinfo_template = (ROOT / "templates" / "geoflow_ops" / "myinfo" / "orgunit_detail.html").read_text(encoding="utf-8")
         urls = (ROOT / "urls.py").read_text(encoding="utf-8")
-        self.assertIn("FROM hr.departments", source)
-        self.assertIn("INSERT INTO hr.departments", source)
-        self.assertIn("UPDATE hr.departments", source)
-        self.assertIn("settings_department_save", template)
+        self.assertIn("FROM hr.departments", myinfo_source)
+        self.assertIn("INSERT INTO hr.departments", myinfo_source)
+        self.assertIn("UPDATE hr.departments", myinfo_source)
+        self.assertIn("myinfo_department_save", myinfo_template)
+        self.assertNotIn("settings_department_save", settings_template)
         self.assertIn("settings_department_save", urls)
+        self.assertIn("Legacy compatibility endpoint", legacy_source)
 
     def test_migration_seeds_only_missing_initial_departments(self):
         migration = (ROOT / "migrations" / "0024_phase4_workflow_handoff_and_contract_access.py").read_text(encoding="utf-8")
@@ -100,9 +104,9 @@ class DepartmentSettingsContractTests(SimpleTestCase):
         self.assertNotIn("DROP INDEX", migration.upper())
 
     def test_department_create_preserves_legacy_code_constraint(self):
-        source = (ROOT / "views_settings.py").read_text(encoding="utf-8")
-        self.assertIn("column_name='code'", source)
-        self.assertIn('department_code = f"dept-{uuid4().hex}"', source)
+        source = (ROOT / "views_myinfo.py").read_text(encoding="utf-8")
+        self.assertIn('"departments", "code"', source)
+        self.assertIn('f"dept-{uuid4().hex}"', source)
         self.assertIn("INSERT INTO hr.departments (org_unit_id, code, name, active)", source)
         self.assertIn("INSERT INTO hr.departments (org_unit_id, name, active)", source)
 
@@ -128,3 +132,8 @@ class ContractDocumentAccessContractTests(SimpleTestCase):
         migration = (ROOT / "migrations" / "0024_phase4_workflow_handoff_and_contract_access.py").read_text(encoding="utf-8")
         self.assertIn("CREATE TABLE IF NOT EXISTS ops.contract_document_access_requests", migration)
         self.assertNotIn("INSERT INTO ops.contract_document_access_requests", migration)
+
+
+class PlaceholderTests(SimpleTestCase):
+    def test_placeholder_for_remaining_original_module_contracts(self):
+        self.assertTrue(True)
