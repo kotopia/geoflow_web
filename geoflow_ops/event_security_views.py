@@ -13,6 +13,7 @@ from . import views_events, views_workboard
 from .models import ProcessEvent
 from .process_workflow import default_stage_for_event, normalize_stage
 from .services.entity_access import require_tenant_context
+from .services.event_handoff import event_type_allowed_for_scope
 from .services.tenant_settings import (
     event_type_allowed,
     event_workflow_options,
@@ -44,6 +45,7 @@ def _assignment_write_forbidden(request) -> bool:
 
 def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
     if creating:
+        scope_type = str(data.get("scope_type") or "").strip().lower()
         event_type = str(data.get("event_type") or "").strip()
         stage = normalize_stage(data.get("stage"))
         if not stage and event_type:
@@ -53,6 +55,8 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
             return "Invalid stage"
         if not event_type_allowed(alias, stage, event_type):
             return "Invalid event type for stage"
+        if not event_type_allowed_for_scope(scope_type, event_type):
+            return "Invalid event type for scope"
         # Create status is derived by the server from event type. The client no
         # longer decides whether a new business record starts open or done.
         return None
@@ -80,6 +84,8 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
             return "Invalid stage"
         if not event_type_allowed(alias, incoming_stage, incoming_type):
             return "Invalid event type for stage"
+        if not event_type_allowed_for_scope(existing.scope_type, incoming_type):
+            return "Invalid event type for scope"
 
     if status_changed and incoming_status not in settings_codes(alias, "event.status"):
         return "Invalid status"
