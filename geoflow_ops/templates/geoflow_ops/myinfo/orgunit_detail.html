@@ -2,42 +2,123 @@
 
 {% block content %}
 <div class="container-fluid p-0">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">{{ obj.name }}</h1>
+  <div class="d-flex justify-content-between align-items-center mb-3 gap-3 flex-wrap">
     <div>
-      <a href="{% url 'tenant:myinfo_orgunit_update' obj.id %}" class="btn btn-sm btn-primary">편집</a>
+      <h1 class="h3 mb-1">{{ obj.name }}</h1>
+      <div class="text-muted">회사 기본정보와 조직·인사 기준을 관리합니다.</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'tenant:myinfo_orgunit_update' obj.id %}" class="btn btn-sm btn-primary">회사정보 편집</a>
       <a href="{% url 'tenant:myinfo_orgunit_list' %}" class="btn btn-sm btn-outline-secondary">목록</a>
     </div>
   </div>
 
-  <div class="card">
+  <div class="card mb-3">
+    <div class="card-header"><h5 class="card-title mb-0">회사 기본정보</h5></div>
     <div class="card-body">
       <dl class="row mb-0">
-        <dt class="col-sm-2">구분</dt>
-        <dd class="col-sm-10">{{ obj.type|default:"-" }}</dd>
-
-        <dt class="col-sm-2">사업자번호</dt>
-        <dd class="col-sm-10">{{ obj.biz_no|default:"-" }}</dd>
-
-        <dt class="col-sm-2">대표자</dt>
-        <dd class="col-sm-10">{{ obj.rep_name|default:"-" }}</dd>
-
-        <dt class="col-sm-2">전화</dt>
-        <dd class="col-sm-10">{{ obj.phone|default:"-" }}</dd>
-
-        <dt class="col-sm-2">이메일</dt>
-        <dd class="col-sm-10">{{ obj.email|default:"-" }}</dd>
-
-        <dt class="col-sm-2">주소</dt>
-        <dd class="col-sm-10">{{ obj.address|linebreaksbr|default:"-" }}</dd>
-
-        <dt class="col-sm-2">별칭</dt>
-        <dd class="col-sm-10">{{ obj.label|default:"-" }}</dd>
-
-        <dt class="col-sm-2">비고</dt>
-        <dd class="col-sm-10">{{ obj.description|linebreaksbr|default:"-" }}</dd>
+        <dt class="col-sm-2">구분</dt><dd class="col-sm-10">{{ obj.type|default:"-" }}</dd>
+        <dt class="col-sm-2">사업자번호</dt><dd class="col-sm-10">{{ obj.biz_no|default:"-" }}</dd>
+        <dt class="col-sm-2">대표자</dt><dd class="col-sm-10">{{ obj.rep_name|default:"-" }}</dd>
+        <dt class="col-sm-2">전화</dt><dd class="col-sm-10">{{ obj.phone|default:"-" }}</dd>
+        <dt class="col-sm-2">이메일</dt><dd class="col-sm-10">{{ obj.email|default:"-" }}</dd>
+        <dt class="col-sm-2">주소</dt><dd class="col-sm-10">{{ obj.address|linebreaksbr|default:"-" }}</dd>
+        <dt class="col-sm-2">별칭</dt><dd class="col-sm-10">{{ obj.label|default:"-" }}</dd>
+        <dt class="col-sm-2">비고</dt><dd class="col-sm-10">{{ obj.description|linebreaksbr|default:"-" }}</dd>
       </dl>
     </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-xl-5">
+      <div class="card h-100">
+        <div class="card-header">
+          <h5 class="card-title mb-1">부서</h5>
+          <div class="text-muted small">{{ obj.name }}에 소속되는 실제 부서 원장입니다. 직원·업무 담당부서 선택에서 이 원장을 사용합니다.</div>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle mb-0">
+              <thead><tr><th>부서명</th><th class="text-center" style="width:90px">사용</th><th class="text-end" style="width:80px">저장</th></tr></thead>
+              <tbody>
+                {% for department in departments %}
+                <tr><td colspan="3" class="p-0 border-0">
+                  <form method="post" action="{% url 'tenant:myinfo_department_save' obj.id %}" class="row g-2 align-items-center py-2 border-bottom mx-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="department_id" value="{{ department.id }}">
+                    <div class="col-7"><input name="name" class="form-control form-control-sm" value="{{ department.name }}" required></div>
+                    <div class="col-2 text-center"><div class="form-check form-switch d-inline-flex"><input class="form-check-input" type="checkbox" name="active" value="1" {% if department.active %}checked{% endif %}></div></div>
+                    <div class="col-3 text-end"><button class="btn btn-outline-primary btn-sm" type="submit">저장</button></div>
+                  </form>
+                </td></tr>
+                {% empty %}<tr><td colspan="3" class="text-muted text-center py-3">등록된 부서가 없습니다.</td></tr>{% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <form method="post" action="{% url 'tenant:myinfo_department_save' obj.id %}" class="row g-2 align-items-end">
+            {% csrf_token %}
+            <div class="col-7"><label class="form-label small">새 부서</label><input name="name" class="form-control form-control-sm" required></div>
+            <div class="col-2"><div class="form-check form-switch mb-1"><input class="form-check-input" type="checkbox" name="active" value="1" checked><label class="form-check-label small">사용</label></div></div>
+            <div class="col-3 text-end"><button class="btn btn-primary btn-sm" type="submit">추가</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-xl-7">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <h5 class="card-title mb-1">인사 기준</h5>
+            <div class="text-muted small">직급과 직위는 이 테넌트에 등록된 모든 회사에서 공통으로 사용합니다.</div>
+          </div>
+          <span class="badge bg-light text-dark border">전체 회사 공통</span>
+        </div>
+        <div class="card-body">
+          <div class="row g-4">
+            <div class="col-lg-6">
+              <h6 class="mb-2">직급</h6>
+              <div class="text-muted small mb-2">기본 체계 중 사용하지 않는 직급은 스위치를 끌 수 있습니다.</div>
+              <div class="border rounded mb-3">
+                {% for item in job_grades %}
+                <form method="post" action="{% url 'tenant:myinfo_job_grade_save' obj.id %}" class="d-flex align-items-center gap-2 px-3 py-2 border-bottom">
+                  {% csrf_token %}<input type="hidden" name="master_id" value="{{ item.id }}">
+                  <div class="flex-grow-1">{{ item.name }}{% if item.system_default %}<span class="badge bg-light text-dark border ms-1">기본</span>{% endif %}</div>
+                  <div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="active" value="1" {% if item.active %}checked{% endif %}></div>
+                  <button class="btn btn-outline-primary btn-sm" type="submit">저장</button>
+                </form>
+                {% empty %}<div class="text-muted small p-3">직급 마스터가 준비되지 않았습니다.</div>{% endfor %}
+              </div>
+              <form method="post" action="{% url 'tenant:myinfo_job_grade_save' obj.id %}" class="input-group input-group-sm">
+                {% csrf_token %}<input name="name" class="form-control" placeholder="추가할 직급" required><button class="btn btn-primary" type="submit">직급 추가</button>
+              </form>
+            </div>
+
+            <div class="col-lg-6">
+              <h6 class="mb-2">직위</h6>
+              <div class="text-muted small mb-2">기본 체계 중 사용하지 않는 직위는 스위치를 끌 수 있습니다.</div>
+              <div class="border rounded mb-3">
+                {% for item in job_positions %}
+                <form method="post" action="{% url 'tenant:myinfo_job_position_save' obj.id %}" class="d-flex align-items-center gap-2 px-3 py-2 border-bottom">
+                  {% csrf_token %}<input type="hidden" name="master_id" value="{{ item.id }}">
+                  <div class="flex-grow-1">{{ item.name }}{% if item.system_default %}<span class="badge bg-light text-dark border ms-1">기본</span>{% endif %}</div>
+                  <div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="active" value="1" {% if item.active %}checked{% endif %}></div>
+                  <button class="btn btn-outline-primary btn-sm" type="submit">저장</button>
+                </form>
+                {% empty %}<div class="text-muted small p-3">직위 마스터가 준비되지 않았습니다.</div>{% endfor %}
+              </div>
+              <form method="post" action="{% url 'tenant:myinfo_job_position_save' obj.id %}" class="input-group input-group-sm">
+                {% csrf_token %}<input name="name" class="form-control" placeholder="추가할 직위" required><button class="btn btn-primary" type="submit">직위 추가</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-light border small mb-0">
+    부서는 회사별로 관리하고, 직급·직위는 테넌트 공통 기준으로 관리합니다. 사용 중지한 직급·직위는 신규 직원 선택 목록에서 제외되며 기존 직원에게 저장된 값은 유지됩니다.
   </div>
 </div>
 {% endblock %}
