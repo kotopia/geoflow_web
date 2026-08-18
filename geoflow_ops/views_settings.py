@@ -30,6 +30,15 @@ def _load_nodes(alias: str):
             SELECT id::text, parent_id::text, code, name, node_type, value,
                    description, ord, active, system_key, locked
               FROM ops.settings_nodes
+             WHERE COALESCE(system_key, '') NOT IN ('hr.position_grade', 'hr.position_title')
+               AND (
+                   parent_id IS NULL
+                   OR parent_id NOT IN (
+                       SELECT id
+                         FROM ops.settings_nodes
+                        WHERE system_key IN ('hr.position_grade', 'hr.position_title')
+                   )
+               )
              ORDER BY COALESCE(parent_id::text, ''), ord, name, code
             """
         )
@@ -106,8 +115,6 @@ def settings_page(request):
         {
             "settings_tree": _build_tree(nodes),
             "settings_nodes": nodes,
-            "org_units": _load_org_units(alias),
-            "departments": _load_departments(alias),
         },
     )
 
@@ -180,7 +187,7 @@ def settings_node_save(request):
 
 
 def department_save(request):
-    """Manage the real HR department master from the Environment Settings page."""
+    """Legacy compatibility endpoint for the same hr.departments master."""
     alias = require_tenant_context(request)
     department_id = _uuid_or_none(request.POST.get("department_id"))
     org_unit_id = _uuid_or_none(request.POST.get("org_unit_id"))
@@ -245,4 +252,4 @@ def department_save(request):
                         [str(org_unit_id), name, active],
                     )
                 messages.success(request, "담당부서를 추가했습니다.")
-    return redirect("tenant:settings_page")
+    return redirect("tenant:myinfo_orgunit_list")
