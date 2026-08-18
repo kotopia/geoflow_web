@@ -93,6 +93,9 @@ def authorize_scope_write(request, alias: str, scope_type: str, scope_id: UUID) 
     if scope_type == "project":
         from .project_access import project_access_policy
 
+        # Project writes are no longer a tenant-wide projects.edit decision.
+        # projects.view admits the user to the Project surface; the project-local
+        # policy then decides whether this exact project may be edited.
         return bool(
             has_scope_permission(request, scope_type, write=False)
             and scope_exists(alias, scope_type, scope_id)
