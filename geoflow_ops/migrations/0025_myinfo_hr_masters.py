@@ -46,6 +46,8 @@ class Migration(migrations.Migration):
             CREATE INDEX IF NOT EXISTS ix_hr_job_positions_active_ord
                 ON hr.job_positions (active, ord, name);
 
+            -- Common defaults. They are never deleted automatically; tenants can
+            -- switch unused items off from My Company Info.
             INSERT INTO hr.job_grades (code, name, ord, active, system_default)
             VALUES
                 ('executive', '임원', 10, true, true),
@@ -60,6 +62,7 @@ class Migration(migrations.Migration):
 
             INSERT INTO hr.job_positions (code, name, ord, active, system_default)
             VALUES
+                ('representative', '대표', 5, true, true),
                 ('ceo', '대표이사', 10, true, true),
                 ('headquarters_head', '본부장', 20, true, true),
                 ('division_head', '부문장', 30, true, true),
@@ -68,6 +71,81 @@ class Migration(migrations.Migration):
                 ('part_lead', '파트장', 60, true, true),
                 ('team_member', '팀원', 70, true, true)
             ON CONFLICT DO NOTHING;
+
+            -- Preserve tenant customizations that previously lived in the generic
+            -- settings tree.  These rows become HR masters; the old tree rows are
+            -- retained as history/compatibility data but are no longer the source
+            -- for employee grade/title selection.
+            INSERT INTO hr.job_grades (code, name, ord, active, system_default)
+            SELECT 'settings-' || md5(child.id::text),
+                   child.name,
+                   child.ord,
+                   child.active,
+                   false
+              FROM ops.settings_nodes category
+              JOIN ops.settings_nodes child ON child.parent_id = category.id
+             WHERE category.system_key = 'hr.position_grade'
+               AND btrim(COALESCE(child.name, '')) <> ''
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO hr.job_positions (code, name, ord, active, system_default)
+            SELECT 'settings-' || md5(child.id::text),
+                   child.name,
+                   child.ord,
+                   child.active,
+                   false
+              FROM ops.settings_nodes category
+              JOIN ops.settings_nodes child ON child.parent_id = category.id
+             WHERE category.system_key = 'hr.position_title'
+               AND btrim(COALESCE(child.name, '')) <> ''
+            ON CONFLICT DO NOTHING;
+
+            -- Any value already stored on an employee must stay selectable after
+            -- cutover even if it was once a free-text/custom value.  No employee
+            -- row is rewritten; only missing master rows are added.
+            INSERT INTO hr.job_grades (code, name, ord, active, system_default)
+            SELECT 'employee-' || md5(lower(src.name)),
+                   src.name,
+                   5000 + row_number() OVER (ORDER BY lower(src.name)),
+                   true,
+                   false
+              FROM (
+                  SELECT DISTINCT btrim(position_grade) AS name
+                    FROM hr.employee_profile
+                   WHERE btrim(COALESCE(position_grade, '')) <> ''
+              ) src
+            ON CONFLICT DO NOTHING;
+
+            INSERT INTO hr.job_positions (code, name, ord, active, system_default)
+            SELECT 'employee-' || md5(lower(src.name)),
+                   src.name,
+                   5000 + row_number() OVER (ORDER BY lower(src.name)),
+                   true,
+                   false
+              FROM (
+                  SELECT DISTINCT btrim(title) AS name
+                    FROM hr.employee_profile
+                   WHERE btrim(COALESCE(title, '')) <> ''
+              ) src
+            ON CONFLICT DO NOTHING;
+
+            UPDATE hr.job_grades master
+               SET active = true, updated_at = now()
+             WHERE active = false
+               AND EXISTS (
+                   SELECT 1
+                     FROM hr.employee_profile employee
+                    WHERE lower(btrim(employee.position_grade)) = lower(master.name)
+               );
+
+            UPDATE hr.job_positions master
+               SET active = true, updated_at = now()
+             WHERE active = false
+               AND EXISTS (
+                   SELECT 1
+                     FROM hr.employee_profile employee
+                    WHERE lower(btrim(employee.title)) = lower(master.name)
+               );
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
