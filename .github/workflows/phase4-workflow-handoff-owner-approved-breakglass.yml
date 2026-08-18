@@ -1,4 +1,5 @@
 name: Phase 4 workflow handoff owner-approved break-glass
+# Trigger through a merged PR so GitHub emits a normal release-branch push event.
 
 on:
   push:
