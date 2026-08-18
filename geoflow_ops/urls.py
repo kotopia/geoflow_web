@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access
-from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -58,6 +58,9 @@ urlpatterns = [
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),
     path("myinfo/org-units/<uuid:pk>/", security_views.orgunit_detail, name="myinfo_orgunit_detail"),
     path("myinfo/org-units/<uuid:pk>/edit/", security_views.orgunit_update, name="myinfo_orgunit_update"),
+    path("myinfo/org-units/<uuid:pk>/departments/save/", myinfo_security_views.orgunit_department_save, name="myinfo_department_save"),
+    path("myinfo/org-units/<uuid:pk>/job-grades/save/", myinfo_security_views.job_grade_save, name="myinfo_job_grade_save"),
+    path("myinfo/org-units/<uuid:pk>/job-positions/save/", myinfo_security_views.job_position_save, name="myinfo_job_position_save"),
 
     path("api/uploads/presign-put/", upload_guard_views.presign_put, name="upload_presign_put"),
     path("api/uploads/commit/", upload_guard_views.commit, name="upload_commit"),

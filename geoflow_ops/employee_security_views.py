@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.http import JsonResponse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -10,6 +11,7 @@ from control.gf_authz.permissions import gf_has_perm
 from . import views_employee_profile, views_employee_role_request
 from .services.employee_access import employee_access_policy
 from .services.entity_access import require_tenant_context
+from .services.hr_masters import list_master_options, master_table_exists
 
 
 def _require(request, permission: str) -> None:
@@ -62,9 +64,6 @@ def employee_detail(request, emp_id):
     if request.method == "POST":
         if not policy.can_edit(emp_id):
             raise PermissionDenied("Permission denied")
-        # Keep the established directory.edit boundary for manager-controlled
-        # organization/grade/employment fields. Self-service writes are still
-        # allowed by policy, but those fields are not accepted by the profile view.
         if policy.can_edit_admin_fields(emp_id) and not gf_has_perm(request, "directory.edit"):
             raise PermissionDenied("Permission denied")
     return views_employee_profile.employees_detail(request, emp_id)
@@ -73,9 +72,24 @@ def employee_detail(request, emp_id):
 @login_required
 @require_GET
 def hr_options(request, category):
-    _, policy = _policy(request)
+    alias, policy = _policy(request)
     if not policy.self_employee_id and not policy.can_list:
         raise PermissionDenied("Permission denied")
+
+    if category in {"position_grade", "position_title"} and master_table_exists(alias, category):
+        items = list_master_options(alias, category, active_only=True)
+        return JsonResponse({
+            "results": [
+                {
+                    "id": item["name"],
+                    "text": item["name"],
+                    "code": item["code"],
+                    "ord": item["ord"],
+                }
+                for item in items
+            ]
+        })
+
     return views_employee_profile.hr_options(request, category)
 
 
