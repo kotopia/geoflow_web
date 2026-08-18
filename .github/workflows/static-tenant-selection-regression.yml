@@ -136,3 +136,28 @@ jobs:
             gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_protected_bot_dispatch_failed dispatcher_run_id=${GITHUB_RUN_ID} release_sha=${GITHUB_SHA} exit_code=${rc}" >/dev/null || true
             exit "$rc"
           fi
+
+      - name: Report protected pending diagnostic dispatch start
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[phase4-diagnose-protected]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_pending_diagnostic_dispatch_started dispatcher_run_id=${GITHUB_RUN_ID} target_release_sha=3ec5236351fcfca90c5d3b07cec22bf947a09de3" >/dev/null
+
+      - name: Dispatch protected pending actor diagnostic from main
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[phase4-diagnose-protected]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload='{"ref":"main","inputs":{"expected_release_sha":"3ec5236351fcfca90c5d3b07cec22bf947a09de3","target_event":"workflow_dispatch","attempt_approval":"false","report_issue":"158"}}'
+          if printf '%s' "$payload" | gh api --method POST -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2026-03-10' --input - "/repos/${GITHUB_REPOSITORY}/actions/workflows/phase4-production-pending-deployment-approver.yml/dispatches"; then
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_pending_diagnostic_dispatched dispatcher_run_id=${GITHUB_RUN_ID}" >/dev/null
+          else
+            rc=$?
+            gh api --method POST -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/issues/158/comments" -f body="phase4_pending_diagnostic_dispatch_failed dispatcher_run_id=${GITHUB_RUN_ID} exit_code=${rc}" >/dev/null || true
+            exit "$rc"
+          fi
