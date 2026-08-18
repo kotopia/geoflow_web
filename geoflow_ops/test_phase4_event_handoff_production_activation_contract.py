@@ -37,17 +37,11 @@ class EventHandoffProductionActivationContractTests(SimpleTestCase):
         self.assertIn("event_handoff_activation_public_login_status", source)
         self.assertIn("event_handoff_production_activation_complete=yes", source)
 
-    def test_activation_does_not_mutate_infrastructure_or_delete_business_data(self):
+    def test_activation_scans_destructive_sql_and_does_not_mutate_infrastructure(self):
         source = WORKFLOW.read_text(encoding="utf-8").lower()
-        for token in (
-            "aws iam",
-            "aws secretsmanager put",
-            "aws s3 rm",
-            "delete from ctr.contracts",
-            "truncate ctr.contracts",
-            "delete from prj.projects",
-            "truncate prj.projects",
-            "delete from ops.process_events",
-            "truncate ops.process_events",
-        ):
-            self.assertNotIn(token, source)
+        self.assertIn("destructive_candidate_migration", source)
+        self.assertIn("delete from ctr.contracts", source)
+        self.assertIn("truncate ops.process_events", source)
+        self.assertNotIn("aws iam", source)
+        self.assertNotIn("aws secretsmanager put", source)
+        self.assertNotIn("aws s3 rm", source)
