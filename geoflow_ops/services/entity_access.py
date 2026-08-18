@@ -130,10 +130,9 @@ def authorize_attachment_read(request, alias: str, attachment) -> bool:
     if attachment.entity_type == "event":
         return authorize_event_read(request, alias, attachment.entity_id)
     if attachment.entity_type == "contract":
-        if authorize_scope_read(request, alias, "contract", attachment.entity_id):
-            return True
-        # Project users do not inherit the contract surface. A short-lived,
-        # approved document request grants only contract attachment read access.
+        # Every Contract attachment read uses the same document-access policy.
+        # That policy keeps Project roles on the request/approval path even when
+        # a legacy broad contracts.view permission is still present.
         from .contract_document_access import access_state
 
         return bool(access_state(request, alias, attachment.entity_id).allowed)
