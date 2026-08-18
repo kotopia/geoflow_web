@@ -223,18 +223,39 @@ def settings_department_save(request):
 
             if department_id:
                 cur.execute(
+                    "SELECT org_unit_id::text FROM hr.departments WHERE id=%s::uuid FOR UPDATE",
+                    [str(department_id)],
+                )
+                existing_department = cur.fetchone()
+                if not existing_department:
+                    return HttpResponseBadRequest("담당부서를 찾을 수 없습니다.")
+                # Moving an existing department between organizations can leave
+                # employee.department_id pointing across org boundaries. Preserve
+                # the organization identity and allow only label/active edits.
+                org_unit_id = _uuid_or_none(existing_department[0])
+                cur.execute(
+                    """
+                    SELECT 1
+                      FROM hr.departments
+                     WHERE org_unit_id=%s::uuid
+                       AND btrim(name)=%s
+                       AND id<>%s::uuid
+                     LIMIT 1
+                    """,
+                    [str(org_unit_id), name, str(department_id)],
+                )
+                if cur.fetchone():
+                    return HttpResponseBadRequest("같은 조직에 동일한 담당부서 이름이 이미 있습니다.")
+                cur.execute(
                     """
                     UPDATE hr.departments
-                       SET org_unit_id=%s::uuid,
-                           name=%s,
+                       SET name=%s,
                            active=%s,
                            updated_at=now()
                      WHERE id=%s::uuid
                     """,
-                    [str(org_unit_id), name, active, str(department_id)],
+                    [name, active, str(department_id)],
                 )
-                if cur.rowcount != 1:
-                    return HttpResponseBadRequest("담당부서를 찾을 수 없습니다.")
                 messages.success(request, "담당부서를 수정했습니다.")
             else:
                 cur.execute(
