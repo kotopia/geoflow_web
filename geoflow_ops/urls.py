@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard
-from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, contract_access_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -13,6 +13,8 @@ urlpatterns = [
     path("contracts/new/", security_views.contract_create, name="contract_create"),
     path("contracts/<uuid:pk>/", security_views.contract_detail, name="contract_detail"),
     path("contracts/<uuid:pk>/json/", security_views.contract_json, name="contract_json"),
+    path("contracts/<uuid:pk>/document-requests/panel/", contract_access_views.contract_document_request_panel, name="contract_document_request_panel"),
+    path("contracts/document-requests/<uuid:request_id>/decide/", contract_access_views.contract_document_request_decide, name="contract_document_request_decide"),
 
     path('partners/', security_views.partner_list, name='partner_list'),
     path("partners/new/", security_views.partner_create, name="partner_create"),
@@ -28,6 +30,8 @@ urlpatterns = [
     path("projects/<uuid:pk>/members/", security_views.project_members_panel, name="project_members_panel"),
     path("projects/<uuid:pk>/members/save/", security_views.project_member_save, name="project_member_save"),
     path("projects/<uuid:pk>/members/<uuid:member_id>/revoke/", security_views.project_member_revoke, name="project_member_revoke"),
+    path("projects/<uuid:pk>/contract-documents/panel/", contract_access_views.project_contract_document_panel, name="project_contract_document_panel"),
+    path("projects/<uuid:pk>/contract-documents/request/", contract_access_views.project_contract_document_request, name="project_contract_document_request"),
 
     path("projects/<uuid:pk>/summary/", security_views.project_summary, name="project_summary"),
     path("projects/<uuid:pk>/summary-save/", security_views.project_summary_save, name="project_summary_save"),
@@ -50,6 +54,7 @@ urlpatterns = [
 
     path("settings/", settings_security_views.settings_page, name="settings_page"),
     path("settings/node/save/", settings_security_views.settings_node_save, name="settings_node_save"),
+    path("settings/department/save/", settings_security_views.settings_department_save, name="settings_department_save"),
 
     path("myinfo/org-units/", security_views.orgunit_list,  name="myinfo_orgunit_list"),
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),
