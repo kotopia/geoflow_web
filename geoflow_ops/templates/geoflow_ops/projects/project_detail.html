@@ -35,9 +35,9 @@
                 <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
               </div>
               <div class="col-md-3">
-                <label class="small text-muted">상태</label>
+                <label class="small text-muted">운영상태</label>
                 <div class="form-control-plaintext">
-                  <span class="gf-status" data-render="badge" data-size="sm"
+                  <span class="gf-status" data-vocabulary="contract" data-render="badge" data-size="sm"
                         data-status="{{ obj.contract.status|default:'' }}"></span>
                 </div>
               </div>
@@ -101,9 +101,9 @@
                 <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
               </div>
               <div class="col-md-3">
-                <label class="small text-muted">상태</label>
+                <label class="small text-muted">운영상태</label>
                 <div class="form-control-plaintext">
-                  <span class="gf-status" data-render="badge" data-size="sm"
+                  <span class="gf-status" data-vocabulary="contract" data-render="badge" data-size="sm"
                         data-status="{{ obj.contract.status|default:'' }}"></span>
                 </div>
               </div>
@@ -154,6 +154,9 @@
           {% endif %}
         </div>
       </div>
+
+      <div id="project-contract-documents-panel"
+           data-panel-url="{% url 'tenant:project_contract_document_panel' obj.id %}"></div>
     </div>
 
     <div class="col-md-6 col-lg-6">
@@ -161,8 +164,8 @@
         <div class="card-header">
           <div class="d-flex justify-content-between align-items-start gap-3">
             <div>
-              <h5 class="card-title mb-1">업무 흐름</h5>
-              <small class="text-muted">계약 이력과 프로젝트 실행 이력을 함께 기준으로 표시합니다.</small>
+              <h5 class="card-title mb-1">프로젝트 업무 흐름</h5>
+              <small class="text-muted">카탈로그 실행업무와 부서 간 이벤트 이관을 기준으로 표시합니다.</small>
             </div>
             <span class="badge bg-light text-dark border"><span id="workflowOpenCount">0</span>건 대기</span>
           </div>
@@ -170,7 +173,7 @@
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-4">
-              <div class="small text-muted">현재 단계</div>
+              <div class="small text-muted">현재 세부단계</div>
               <div id="workflowStage" class="fw-semibold mt-1">등록 전</div>
             </div>
             <div class="col-md-4">
@@ -224,7 +227,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
           <div>
             <h5 class="card-title mb-0">통합 타임라인</h5>
-            <small class="text-muted">계약·착수·수행·검사·준공·청구 이력을 한 흐름으로 확인합니다.</small>
+            <small class="text-muted">공동 이벤트 엔진을 사용하되 권한이 있는 계약·프로젝트 이력만 함께 표시합니다.</small>
           </div>
           <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
         </div>
@@ -252,6 +255,7 @@
      data-events-update-url="{% url 'tenant:event_update' '00000000-0000-0000-0000-000000000000' %}"
      data-events-delete-url="{% url 'tenant:event_delete' '00000000-0000-0000-0000-000000000000' %}"
      data-events-modal-ui-url="{% url 'tenant:event_modal_ui' %}"
+     data-workflow-options-url="{% url 'tenant:event_workflow_options' %}?scope_type=project"
      data-assignment-options-url="{% url 'tenant:event_assignment_options' %}"
      data-presign-put-url="{% url 'tenant:upload_presign_put' %}"
      data-commit-url="{% url 'tenant:upload_commit' %}">
@@ -265,11 +269,30 @@
   <script src="{% static 'geoflow_ops/js/scope-linker.js' %}"></script>
   <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
   <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
+  <script src="{% static 'geoflow_ops/js/event-status-auto-ui.js' %}"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       window.GeoFlowListCore && GeoFlowListCore.renderBadges(document);
       if (window.ProcessWorkboardUI) {
         window.ProcessWorkboardUI.init('#eventModalMount');
+      }
+
+      var panel = document.getElementById('project-contract-documents-panel');
+      if (panel && panel.dataset.panelUrl) {
+        fetch(panel.dataset.panelUrl, {credentials: 'same-origin'})
+          .then(function(response) {
+            if (!response.ok) throw new Error('contract document panel failed');
+            return response.text();
+          })
+          .then(function(html) {
+            panel.innerHTML = html;
+            if (window.initAttachmentActions) {
+              window.initAttachmentActions({root: panel, csrfToken: '{{ csrf_token }}'});
+            }
+          })
+          .catch(function() {
+            panel.innerHTML = '<div class="alert alert-light border small mt-3">계약문서 접근정보를 불러오지 못했습니다.</div>';
+          });
       }
     });
   </script>
