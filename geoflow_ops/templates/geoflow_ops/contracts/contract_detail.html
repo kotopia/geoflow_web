@@ -4,7 +4,12 @@
 {% block title %}계약 상세 | GeoFlow{% endblock %}
 
 {% block content %}
-<style>.pre-wrap { white-space: pre-wrap; }</style>
+<style>
+.pre-wrap { white-space: pre-wrap; }
+.gf-contract-flow-step { opacity: .45; transition: opacity .15s ease; }
+.gf-contract-flow-step.is-current { opacity: 1; font-weight: 700; }
+.gf-contract-flow-step.is-past { opacity: .8; }
+</style>
 
 <div class="mb-3 d-flex justify-content-between align-items-center">
   <nav aria-label="breadcrumb">
@@ -34,8 +39,8 @@
                 <label class="small text-muted">계약번호</label>
                 <div class="form-control-plaintext">{{ obj.code|default:"-" }}</div>
               </div>
-              <div class="col-md-2">
-                <label class="small text-muted">상태</label>
+              <div class="col-md-3">
+                <label class="small text-muted">운영상태</label>
                 <div class="form-control-plaintext">
                   <span class="gf-status"
                         data-vocabulary="contract"
@@ -114,12 +119,13 @@
               </div>
 
               <div class="col-md-3">
-                <label class="form-label">상태</label>
+                <label class="form-label">운영상태</label>
                 <select id="contract-status" name="status" class="form-select">
                   {% for value, label in form.status.field.choices %}
                   <option value="{{ value }}" {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>
                   {% endfor %}
                 </select>
+                <div class="form-text">업무흐름과 별개로 계약의 관리 상태를 유지합니다.</div>
               </div>
 
               <div class="col-md-12">
@@ -213,8 +219,31 @@
     </div>
 
     {% if obj %}
-    <div class="col-md-3 col-lg-3">
-      <div class="card">
+    <div class="col-md-6 col-lg-6">
+      <div class="card" id="contract-workflow-card"
+           data-state-url="{% url 'tenant:contract_workflow_state' obj.id %}">
+        <div class="card-header">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <h5 class="card-title mb-1">현재 업무흐름</h5>
+              <small class="text-muted">계약(전) → 수행(진행) → 준공을 주 흐름으로 표시합니다. 착수·검사·청구는 세부 이력으로 유지됩니다.</small>
+            </div>
+            <span class="badge bg-light text-dark border" id="contract-workflow-detail">확인 중</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge bg-secondary gf-contract-flow-step" data-major-phase="contract">1. 계약(전)</span>
+            <span class="text-muted">→</span>
+            <span class="badge bg-primary gf-contract-flow-step" data-major-phase="execution">2. 수행(진행)</span>
+            <span class="text-muted">→</span>
+            <span class="badge bg-success gf-contract-flow-step" data-major-phase="closeout">3. 준공</span>
+          </div>
+          <div class="small text-muted mt-3">기존 계약 운영상태는 별도로 유지하며, 이 표시는 공동 이벤트 이력에서 계산합니다.</div>
+        </div>
+      </div>
+
+      <div class="card mt-3">
         <div class="card-header d-flex justify-content-between align-items-center">
           <h5 class="card-title mb-0">업무범위</h5>
         </div>
@@ -232,13 +261,19 @@
         <hr class="my-0" />
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">타임라인</h6>
+            <div>
+              <h6 class="mb-0">통합 타임라인</h6>
+              <small class="text-muted">계약 이벤트와 권한이 있는 연결 프로젝트 이벤트를 같은 엔진에서 확인합니다.</small>
+            </div>
             <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
           </div>
           <div id="timelineList"></div>
           <div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
         </div>
       </div>
+
+      <div id="contract-document-request-panel"
+           data-panel-url="{% url 'tenant:contract_document_request_panel' obj.id %}"></div>
     </div>
     {% endif %}
   </div>
@@ -254,7 +289,7 @@
      data-events-update-url="{% url 'tenant:event_update' '00000000-0000-0000-0000-000000000000' %}"
      data-events-delete-url="{% url 'tenant:event_delete' '00000000-0000-0000-0000-000000000000' %}"
      data-events-modal-ui-url="{% url 'tenant:event_modal_ui' %}"
-     data-workflow-options-url="{% url 'tenant:event_workflow_options' %}"
+     data-workflow-options-url="{% url 'tenant:event_workflow_options' %}?scope_type=contract"
      data-assignment-options-url="{% url 'tenant:event_assignment_options' %}"
      data-presign-put-url="{% url 'tenant:upload_presign_put' %}"
      data-commit-url="{% url 'tenant:upload_commit' %}">
@@ -268,6 +303,7 @@
 <script src="{% static 'geoflow_ops/js/scope-linker.js' %}"></script>
 <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
 <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
+<script src="{% static 'geoflow_ops/js/event-status-auto-ui.js' %}"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) {
@@ -282,6 +318,27 @@ document.addEventListener("DOMContentLoaded", function () {
     if (kindCode && kindLabels[kindCode]) kindLabel.textContent = kindLabels[kindCode];
   }
 
+  var workflowCard = document.getElementById('contract-workflow-card');
+  if (workflowCard && workflowCard.dataset.stateUrl) {
+    fetch(workflowCard.dataset.stateUrl, {credentials: 'same-origin'})
+      .then(function(response) { if (!response.ok) throw new Error('workflow state failed'); return response.json(); })
+      .then(function(state) {
+        var ranks = {contract: 1, execution: 2, closeout: 3};
+        var currentRank = ranks[state.major_phase] || 0;
+        workflowCard.querySelectorAll('[data-major-phase]').forEach(function(step) {
+          var rank = ranks[step.getAttribute('data-major-phase')] || 0;
+          step.classList.toggle('is-current', rank === currentRank);
+          step.classList.toggle('is-past', rank < currentRank);
+        });
+        var detail = document.getElementById('contract-workflow-detail');
+        if (detail) detail.textContent = (state.major_label || '-') + ' · ' + (state.detail_label || '이벤트 미등록');
+      })
+      .catch(function() {
+        var detail = document.getElementById('contract-workflow-detail');
+        if (detail) detail.textContent = '확인 불가';
+      });
+  }
+
   var btn = document.getElementById("btn-edit");
   if (btn) {
     btn.addEventListener("click", function () {
@@ -293,6 +350,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
   if (window.ProcessWorkboardUI && document.getElementById('eventModalMount')) {
     window.ProcessWorkboardUI.init('#eventModalMount');
+  }
+
+  var requestPanel = document.getElementById('contract-document-request-panel');
+  if (requestPanel && requestPanel.dataset.panelUrl) {
+    fetch(requestPanel.dataset.panelUrl, {credentials: 'same-origin'})
+      .then(function(response) {
+        if (response.status === 403) return '';
+        if (!response.ok) throw new Error('request panel failed');
+        return response.text();
+      })
+      .then(function(html) { requestPanel.innerHTML = html; })
+      .catch(function() { requestPanel.innerHTML = ''; });
   }
 
   var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
