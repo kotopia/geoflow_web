@@ -93,9 +93,6 @@ def authorize_scope_write(request, alias: str, scope_type: str, scope_id: UUID) 
     if scope_type == "project":
         from .project_access import project_access_policy
 
-        # Project writes are no longer a tenant-wide projects.edit decision.
-        # projects.view admits the user to the Project surface; the project-local
-        # policy then decides whether this exact project may be edited.
         return bool(
             has_scope_permission(request, scope_type, write=False)
             and scope_exists(alias, scope_type, scope_id)
@@ -128,7 +125,14 @@ def authorize_event_write(request, alias: str, event_id: UUID) -> bool:
 
 def authorize_attachment_read(request, alias: str, attachment) -> bool:
     if attachment.entity_type == "event":
-        return authorize_event_read(request, alias, attachment.entity_id)
+        event = get_event_for_access(request, alias, attachment.entity_id, write=False)
+        if not event:
+            return False
+        if event.scope_type == "contract":
+            from .contract_access import can_read_contract_documents
+
+            return can_read_contract_documents(alias, request, event.scope_id)
+        return True
     if attachment.entity_type == "contract":
         from .contract_access import can_read_contract_documents
 
