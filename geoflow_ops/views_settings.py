@@ -52,6 +52,34 @@ def _load_nodes(alias: str):
     ]
 
 
+def _load_org_units(alias: str):
+    with connections[alias].cursor() as cur:
+        cur.execute("SELECT id::text, name FROM ops.my_org_units ORDER BY name")
+        return [{"id": row[0], "name": row[1] or "-"} for row in cur.fetchall()]
+
+
+def _load_departments(alias: str):
+    with connections[alias].cursor() as cur:
+        cur.execute(
+            """
+            SELECT d.id::text, d.org_unit_id::text, COALESCE(o.name, ''), d.name, d.active
+              FROM hr.departments d
+              LEFT JOIN ops.my_org_units o ON o.id=d.org_unit_id
+             ORDER BY COALESCE(o.name, ''), d.name
+            """
+        )
+        return [
+            {
+                "id": row[0],
+                "org_unit_id": row[1] or "",
+                "org_unit_name": row[2] or "-",
+                "name": row[3] or "",
+                "active": bool(row[4]),
+            }
+            for row in cur.fetchall()
+        ]
+
+
 def _build_tree(nodes):
     by_parent = defaultdict(list)
     for node in nodes:
@@ -75,7 +103,12 @@ def settings_page(request):
     return render(
         request,
         "geoflow_ops/settings/settings_page.html",
-        {"settings_tree": _build_tree(nodes), "settings_nodes": nodes},
+        {
+            "settings_tree": _build_tree(nodes),
+            "settings_nodes": nodes,
+            "org_units": _load_org_units(alias),
+            "departments": _load_departments(alias),
+        },
     )
 
 
@@ -114,10 +147,6 @@ def settings_node_save(request):
                     return HttpResponseBadRequest("환경설정 항목을 찾을 수 없습니다.")
                 locked = bool(existing[0])
                 if locked:
-                    # Machine identity/hierarchy remains immutable. System group
-                    # and category nodes cannot be disabled because applications
-                    # need the namespace, while value nodes may be activated or
-                    # deactivated by the tenant.
                     code = existing[1]
                     parent_id = _uuid_or_none(existing[2])
                     node_type = existing[3]
@@ -126,28 +155,13 @@ def settings_node_save(request):
                 cur.execute(
                     """
                     UPDATE ops.settings_nodes
-                       SET parent_id=%s,
-                           code=%s,
-                           name=%s,
-                           node_type=%s,
-                           value=%s,
-                           description=%s,
-                           ord=%s,
-                           active=%s,
+                       SET parent_id=%s, code=%s, name=%s, node_type=%s,
+                           value=%s, description=%s, ord=%s, active=%s,
                            updated_at=now()
                      WHERE id=%s
                     """,
-                    [
-                        str(parent_id) if parent_id else None,
-                        code,
-                        name,
-                        node_type,
-                        value,
-                        description,
-                        ord_value,
-                        active,
-                        str(node_id),
-                    ],
+                    [str(parent_id) if parent_id else None, code, name, node_type,
+                     value, description, ord_value, active, str(node_id)],
                 )
                 messages.success(request, "환경설정 항목을 수정했습니다.")
             else:
@@ -157,17 +171,59 @@ def settings_node_save(request):
                         (parent_id, code, name, node_type, value, description, ord, active)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    [
-                        str(parent_id) if parent_id else None,
-                        code,
-                        name,
-                        node_type,
-                        value,
-                        description,
-                        ord_value,
-                        active,
-                    ],
+                    [str(parent_id) if parent_id else None, code, name, node_type,
+                     value, description, ord_value, active],
                 )
                 messages.success(request, "환경설정 항목을 추가했습니다.")
 
+    return redirect("tenant:settings_page")
+
+
+def department_save(request):
+    """Manage the real HR department master from the Environment Settings page."""
+    alias = require_tenant_context(request)
+    department_id = _uuid_or_none(request.POST.get("department_id"))
+    org_unit_id = _uuid_or_none(request.POST.get("org_unit_id"))
+    name = str(request.POST.get("name") or "").strip()
+    active = str(request.POST.get("active") or "").lower() in {"1", "true", "yes", "on"}
+    if not org_unit_id or not name:
+        return HttpResponseBadRequest("회사와 담당부서 이름을 확인하세요.")
+
+    with transaction.atomic(using=alias):
+        with connections[alias].cursor() as cur:
+            cur.execute("SELECT 1 FROM ops.my_org_units WHERE id=%s", [str(org_unit_id)])
+            if not cur.fetchone():
+                return HttpResponseBadRequest("회사를 찾을 수 없습니다.")
+            cur.execute(
+                """
+                SELECT id::text
+                  FROM hr.departments
+                 WHERE org_unit_id=%s AND lower(name)=lower(%s)
+                   AND (%s::uuid IS NULL OR id<>%s::uuid)
+                 LIMIT 1
+                """,
+                [str(org_unit_id), name, str(department_id) if department_id else None,
+                 str(department_id) if department_id else None],
+            )
+            if cur.fetchone():
+                return HttpResponseBadRequest("같은 회사에 동일한 담당부서가 이미 있습니다.")
+
+            if department_id:
+                cur.execute(
+                    """
+                    UPDATE hr.departments
+                       SET org_unit_id=%s, name=%s, active=%s, updated_at=now()
+                     WHERE id=%s
+                    """,
+                    [str(org_unit_id), name, active, str(department_id)],
+                )
+                if cur.rowcount != 1:
+                    return HttpResponseBadRequest("담당부서를 찾을 수 없습니다.")
+                messages.success(request, "담당부서를 수정했습니다.")
+            else:
+                cur.execute(
+                    "INSERT INTO hr.departments (org_unit_id, name, active) VALUES (%s, %s, %s)",
+                    [str(org_unit_id), name, active],
+                )
+                messages.success(request, "담당부서를 추가했습니다.")
     return redirect("tenant:settings_page")

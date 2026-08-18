@@ -128,7 +128,21 @@ def authorize_event_write(request, alias: str, event_id: UUID) -> bool:
 
 def authorize_attachment_read(request, alias: str, attachment) -> bool:
     if attachment.entity_type == "event":
-        return authorize_event_read(request, alias, attachment.entity_id)
+        event = get_event_for_access(request, alias, attachment.entity_id, write=False)
+        if not event:
+            return False
+        if event.scope_type == "contract":
+            from .contract_access import can_read_contract_documents
+
+            return can_read_contract_documents(alias, request, event.scope_id)
+        return True
+    if attachment.entity_type == "contract":
+        from .contract_access import can_read_contract_documents
+
+        return bool(
+            authorize_scope_read(request, alias, "contract", attachment.entity_id)
+            and can_read_contract_documents(alias, request, attachment.entity_id)
+        )
     return authorize_scope_read(
         request,
         alias,

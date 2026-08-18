@@ -32,3 +32,11 @@ def settings_page(request):
 def settings_node_save(request):
     _require_settings_manager(request)
     return views_settings.settings_node_save(request)
+
+
+@never_cache
+@login_required
+@require_POST
+def department_save(request):
+    _require_settings_manager(request)
+    return views_settings.department_save(request)

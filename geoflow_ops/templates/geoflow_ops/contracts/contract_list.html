@@ -1,6 +1,5 @@
 {% extends "geoflow_ops/base_tenant.html" %}
-{% load humanize %}
-{% load static %}
+{% load humanize static workflow_tags %}
 {% block title %}Contracts | GeoFlow{% endblock %}
 
 {% block content %}
@@ -16,24 +15,18 @@
     <div class="card-header pb-0">
       <div class="card-actions float-end">
         <div class="dropdown position-relative">
-          <a href="#" data-bs-toggle="dropdown" data-bs-display="static">
-            <i class="align-middle" data-feather="more-horizontal"></i>
-          </a>
-          <div class="dropdown-menu dropdown-menu-end">
-            <a class="dropdown-item" href="{% url 'tenant:contract_create' %}">계약 생성</a>
-          </div>
+          <a href="#" data-bs-toggle="dropdown" data-bs-display="static"><i class="align-middle" data-feather="more-horizontal"></i></a>
+          <div class="dropdown-menu dropdown-menu-end"><a class="dropdown-item" href="{% url 'tenant:contract_create' %}">계약 생성</a></div>
         </div>
       </div>
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <div id="statusButtons"
-            class="gf-status-tabs"
+        <div id="statusButtons" class="gf-status-tabs"
             data-count-all="{{ status_counts.total|default:0 }}"
             data-count-planned="{{ status_counts.planned|default:0 }}"
             data-count-active="{{ status_counts.active|default:0 }}"
             data-count-pause="{{ status_counts.pause|default:0 }}"
             data-count-cancel="{{ status_counts.cancel|default:0 }}"
-            data-count-complete="{{ status_counts.complete|default:0 }}">
-        </div>
+            data-count-complete="{{ status_counts.complete|default:0 }}"></div>
       </div>
     </div>
 
@@ -41,38 +34,27 @@
       <table id="datatables-contracts" class="table table-responsive table-striped table-hover" width="100%" style="cursor: pointer">
         <thead class="text-center">
           <tr>
-            <th>계약번호</th>
-            <th>계약명</th>
-            <th>시작일</th>
-            <th>종료일</th>
-            <th>계약형태</th>
-            <th>계약금액</th>
-            <th>발주처</th>
-            <th>계약자</th>
-            <th>상태</th>
+            <th>계약번호</th><th>계약명</th><th>업무단계</th><th>시작일</th><th>종료일</th>
+            <th>계약형태</th><th>계약금액</th><th>발주처</th><th>계약자</th><th>운영상태</th>
           </tr>
         </thead>
         <tbody>
           {% for c in contracts %}
-          <tr data-id="{{ c.id }}" data-status="{{ c.status|lower }}"
-              data-href="{% url 'tenant:contract_detail' c.id %}">
+          {% contract_workflow c as wf %}
+          <tr data-id="{{ c.id }}" data-status="{{ c.status|lower }}" data-href="{% url 'tenant:contract_detail' c.id %}">
             <td data-col="code">{{ c.code }}</td>
             <td data-col="name" class="text-truncate">{{ c.name }}</td>
+            <td data-col="workflow" class="text-center">
+              <span class="badge bg-primary">{{ wf.major_label }}</span>
+              <div class="small text-muted mt-1">{{ wf.stage_label }}</div>
+            </td>
             <td data-col="start">{{ c.start_date|date:"Y-m-d" }}</td>
             <td data-col="end">{{ c.end_date|date:"Y-m-d" }}</td>
             <td data-col="kind" data-kind-code="{{ c.kind|default:'' }}">{{ c.kind|default:"-" }}</td>
             <td data-col="amount" class="text-end">{{ c.amount|intcomma }}</td>
-            <td data-col="client">
-              {% if c.kind == "하도급" %}
-                {{ c.sub_client.name|default:c.client.name }}
-              {% else %}
-                {{ c.client.name }}
-              {% endif %}
-            </td>
+            <td data-col="client">{% if c.kind == "하도급" %}{{ c.sub_client.name|default:c.client.name }}{% else %}{{ c.client.name }}{% endif %}</td>
             <td data-col="orgunit">{{ c.org_unit.label }}</td>
-            <td data-col="status" class="text-center">
-              <span class="gf-status" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span>
-            </td>
+            <td data-col="status" class="text-center"><span class="gf-status" data-vocabulary="contract" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -92,7 +74,7 @@
         const code = cell.getAttribute('data-kind-code') || '';
         if (code && kindLabels[code]) cell.textContent = kindLabels[code];
       });
-
+      if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) GeoFlowListCore.renderBadges(document);
       const tbody = document.querySelector('#datatables-contracts tbody');
       if (!tbody) return;
       tbody.addEventListener('click', function(e){

@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard
+from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access
 from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views
 from .views_home_security import tenant_home
 
@@ -13,6 +13,8 @@ urlpatterns = [
     path("contracts/new/", security_views.contract_create, name="contract_create"),
     path("contracts/<uuid:pk>/", security_views.contract_detail, name="contract_detail"),
     path("contracts/<uuid:pk>/json/", security_views.contract_json, name="contract_json"),
+    path("contracts/<uuid:contract_id>/document-access/request/", views_contract_access.request_contract_document_access, name="contract_document_access_request"),
+    path("contracts/document-access/<uuid:request_id>/decide/", views_contract_access.decide_contract_document_access, name="contract_document_access_decide"),
 
     path('partners/', security_views.partner_list, name='partner_list'),
     path("partners/new/", security_views.partner_create, name="partner_create"),
@@ -50,6 +52,7 @@ urlpatterns = [
 
     path("settings/", settings_security_views.settings_page, name="settings_page"),
     path("settings/node/save/", settings_security_views.settings_node_save, name="settings_node_save"),
+    path("settings/department/save/", settings_security_views.department_save, name="settings_department_save"),
 
     path("myinfo/org-units/", security_views.orgunit_list,  name="myinfo_orgunit_list"),
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),

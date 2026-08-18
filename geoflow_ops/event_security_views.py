@@ -48,7 +48,7 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
         stage = normalize_stage(data.get("stage"))
         if not stage and event_type:
             stage = default_stage_for_event(event_type) or ""
-        status = str(data.get("status") or "draft").strip()
+        status = str(data.get("status") or "open").strip()
 
         if stage not in settings_codes(alias, "event.stage"):
             return "Invalid stage"

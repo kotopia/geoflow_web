@@ -65,21 +65,35 @@ jobs:
             geoflow_ops/forms.py \
             geoflow_ops/security_views.py \
             geoflow_ops/event_security_views.py \
+            geoflow_ops/views_events.py \
+            geoflow_ops/views_execution.py \
             geoflow_ops/views_dashboard.py \
             geoflow_ops/views_project_members.py \
             geoflow_ops/views_settings.py \
+            geoflow_ops/views_contract_access.py \
             geoflow_ops/services/tenant_settings.py \
+            geoflow_ops/services/workflow_state.py \
+            geoflow_ops/services/department_routing.py \
+            geoflow_ops/services/contract_access.py \
+            geoflow_ops/templatetags/workflow_tags.py \
             geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py \
+            geoflow_ops/migrations/0024_phase4_workflow_handoff_and_contract_access.py \
             geoflow_ops/test_phase4_settings_workflow_fixes.py \
-            geoflow_ops/test_phase4_configurable_workflow_production_activation_contract.py
+            geoflow_ops/test_phase4_workflow_handoff.py \
+            geoflow_ops/test_phase4_configurable_workflow_production_activation_contract.py \
+            geoflow_ops/test_phase4_workflow_handoff_production_activation_contract.py
+          node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
 
       - name: Run configurable workflow regressions
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_settings_workflow_fixes \
+            geoflow_ops.test_phase4_workflow_handoff \
             geoflow_ops.test_phase4_configurable_workflow_production_activation_contract \
+            geoflow_ops.test_phase4_workflow_handoff_production_activation_contract \
             geoflow_ops.test_phase4_project_participation_scope \
             geoflow_ops.test_phase4_employee_settings_foundation \
+            geoflow_ops.test_phase4_task_execution_dashboard \
             geoflow_ops.test_tenant_route_authorization_contract \
             geoflow_ops.test_event_upload_route_boundaries \
             control.test_route_security_preflight

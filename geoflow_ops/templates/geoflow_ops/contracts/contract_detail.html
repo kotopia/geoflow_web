@@ -1,10 +1,15 @@
 {% extends "geoflow_ops/base_tenant.html" %}
-{% load static humanize %}
+{% load static humanize workflow_tags %}
 
 {% block title %}계약 상세 | GeoFlow{% endblock %}
 
 {% block content %}
 <style>.pre-wrap { white-space: pre-wrap; }</style>
+
+{% if obj %}
+  {% contract_workflow obj as wf %}
+  {% contract_document_access obj.id as doc_access %}
+{% endif %}
 
 <div class="mb-3 d-flex justify-content-between align-items-center">
   <nav aria-label="breadcrumb">
@@ -14,15 +19,13 @@
     </ol>
   </nav>
   <div class="d-flex gap-2">
-    {% if not edit_mode and obj %}
-    <button id="btn-edit" class="btn btn-primary btn-sm">편집</button>
-    {% endif %}
+    {% if not edit_mode and obj %}<button id="btn-edit" class="btn btn-primary btn-sm">편집</button>{% endif %}
     <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
   </div>
 </div>
 
 <div class="container-fluid px-0">
-  <div class="row">
+  <div class="row g-3">
     <div class="col-md-6 col-lg-6">
       <div class="card">
         <div class="card-body">
@@ -30,67 +33,28 @@
           <div id="view-mode">
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
-              <div class="col-md-2">
-                <label class="small text-muted">계약번호</label>
-                <div class="form-control-plaintext">{{ obj.code|default:"-" }}</div>
+              <div class="col-md-3"><label class="small text-muted">계약번호</label><div class="form-control-plaintext">{{ obj.code|default:"-" }}</div></div>
+              <div class="col-md-3">
+                <label class="small text-muted">현재 업무단계</label>
+                <div class="form-control-plaintext"><span class="badge bg-primary">{{ wf.major_label }}</span></div>
               </div>
-              <div class="col-md-2">
-                <label class="small text-muted">상태</label>
-                <div class="form-control-plaintext">
-                  <span class="gf-status"
-                        data-vocabulary="contract"
-                        data-render="badge"
-                        data-status="{{ obj.status|default:'' }}"></span>
-                </div>
+              <div class="col-md-3"><label class="small text-muted">세부단계</label><div class="form-control-plaintext">{{ wf.stage_label }}</div></div>
+              <div class="col-md-3">
+                <label class="small text-muted">운영상태</label>
+                <div class="form-control-plaintext"><span class="gf-status" data-vocabulary="contract" data-render="badge" data-status="{{ obj.status|default:'' }}"></span></div>
               </div>
 
-              <div class="col-md-12">
-                <label class="small text-muted">계약명</label>
-                <div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div>
-              </div>
+              <div class="col-md-12"><label class="small text-muted">계약명</label><div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">시작일</label><div class="form-control-plaintext">{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">종료일</label><div class="form-control-plaintext">{{ obj.end_date|date:"Y-m-d"|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">계약형태</label><div class="form-control-plaintext" id="contract-kind-label" data-kind-code="{{ obj.kind|default:'' }}">{{ obj.kind|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">계약금액</label><div class="form-control-plaintext">{{ obj.amount|intcomma|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">발주처</label><div class="form-control-plaintext">{{ obj.client.name|default:"-" }}</div></div>
+              {% if obj.kind == "하도급" %}<div class="col-md-6"><label class="small text-muted">원도급</label><div class="form-control-plaintext">{{ obj.sub_client.name|default:"-" }}</div></div>{% endif %}
+              <div class="col-md-12"><label class="small text-muted">계약자</label><div class="form-control-plaintext">{{ obj.org_unit.name|default:"-" }}</div></div>
 
-              <div class="col-md-6">
-                <label class="small text-muted">시작일</label>
-                <div class="form-control-plaintext">{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div>
-              </div>
-              <div class="col-md-6">
-                <label class="small text-muted">종료일</label>
-                <div class="form-control-plaintext">{{ obj.end_date|date:"Y-m-d"|default:"-" }}</div>
-              </div>
-
-              <div class="col-md-6">
-                <label class="small text-muted">계약형태</label>
-                <div class="form-control-plaintext"
-                     id="contract-kind-label"
-                     data-kind-code="{{ obj.kind|default:'' }}">{{ obj.kind|default:"-" }}</div>
-              </div>
-
-              <div class="col-md-6">
-                <label class="small text-muted">계약금액</label>
-                <div class="form-control-plaintext">{{ obj.amount|intcomma|default:"-" }}</div>
-              </div>
-
-              <div class="col-md-6">
-                <label class="small text-muted">발주처</label>
-                <div class="form-control-plaintext">{{ obj.client.name|default:"-" }}</div>
-              </div>
-
-              {% if obj.kind == "하도급" %}
-              <div class="col-md-6">
-                <label class="small text-muted">원도급</label>
-                <div class="form-control-plaintext">{{ obj.sub_client.name|default:"-" }}</div>
-              </div>
-              {% endif %}
-
-              <div class="col-md-12">
-                <label class="small text-muted">계약자</label>
-                <div class="form-control-plaintext">{{ obj.org_unit.name|default:"-" }}</div>
-              </div>
-
-              <h5 class="h6 card-title">기타정보</h5>
-              <div class="col-md-12">
-                <div class="form-control-plaintext pre-wrap">{{ obj.description|default:"-" }}</div>
-              </div>
+              <h5 class="h6 card-title mt-3">기타정보</h5>
+              <div class="col-md-12"><div class="form-control-plaintext pre-wrap">{{ obj.description|default:"-" }}</div></div>
             </div>
           </div>
           {% endif %}
@@ -98,114 +62,23 @@
           {% if edit_mode %}
           <form id="edit-mode" method="post" action="{{ request.path }}" novalidate>
             {% csrf_token %}
-
-            {% if errors %}
-            <div class="alert alert-warning py-2 mb-3">
-              {% for e in errors %}<div>{{ e }}</div>{% endfor %}
-            </div>
-            {% endif %}
-
+            {% if errors %}<div class="alert alert-warning py-2 mb-3">{% for e in errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
-              <div class="col-md-3">
-                <label class="form-label">계약번호 <span class="text-danger">*</span></label>
-                <input type="text" name="code" class="form-control"
-                       value="{{ form.code.value|default_if_none:'' }}" required>
-              </div>
-
-              <div class="col-md-3">
-                <label class="form-label">상태</label>
-                <select id="contract-status" name="status" class="form-select">
-                  {% for value, label in form.status.field.choices %}
-                  <option value="{{ value }}" {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div class="col-md-12">
-                <label class="form-label">계약명 <span class="text-danger">*</span></label>
-                <input type="text" name="name" class="form-control" required
-                       value="{{ form.name.value|default_if_none:'' }}">
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label">시작일</label>
-                <input type="text" id="start_date" name="start_date" class="form-control"
-                       data-provider="flatpickr"
-                       data-date-format="Y-m-d"
-                       data-alt-input="true"
-                       data-alt-format="Y/m/d"
-                       placeholder="YYYY/MM/DD" autocomplete="off"
-                       value="{{ form.instance.start_date|date:'Y-m-d' }}">
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label">종료일</label>
-                <input type="text" id="end_date" name="end_date" class="form-control"
-                       data-provider="flatpickr"
-                       data-date-format="Y-m-d"
-                       data-alt-input="true"
-                       data-alt-format="Y/m/d"
-                       placeholder="YYYY-MM-DD" autocomplete="off"
-                       value="{{ form.instance.end_date|date:'Y-m-d' }}">
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label">계약형태</label>
-                <select id="kind" name="kind" class="form-select">
-                  {% for value, label in form.kind.field.choices %}
-                  <option value="{{ value }}" {% if form.kind.value == value %}selected{% endif %}>{{ label }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label">계약금액</label>
-                <input type="number" name="amount" class="form-control"
-                       value="{{ form.amount.value|default_if_none:'' }}">
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label">발주처 <span class="text-danger">*</span></label>
-                <select id="client" name="client" class="form-select"
-                        data-selected="{{ client_selected|default:form.client.value|default_if_none:'' }}"
-                        data-choices="true" data-choices-search-true data-placeholder="발주처 선택">
-                </select>
-              </div>
-
-              <div class="col-md-6 {% if form.kind.value != '하도급' %}d-none{% endif %}"
-                   id="sub_client_group">
-                <label class="form-label">원도급</label>
-                <select id="sub_client" name="sub_client" class="form-select"
-                        data-selected="{{ subclient_selected|default:form.sub_client.value|default_if_none:'' }}"
-                        data-choices="true" data-choices-search-true data-placeholder="원도급 선택">
-                </select>
-              </div>
-
-              <div class="col-md-6">
-                <label class="form-label">계약자</label>
-                {{ form.org_unit }}
-              </div>
-
-              <hr/>
-              <h5 class="h6 card-title">기타정보</h5>
-              <div class="col-md-12">
-                <textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea>
-              </div>
+              <div class="col-md-3"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
+              <div class="col-md-3"><label class="form-label">운영상태</label><select id="contract-status" name="status" class="form-select">{% for value, label in form.status.field.choices %}<option value="{{ value }}" {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><div class="form-text">현재 업무단계는 이벤트 흐름에서 자동 계산됩니다.</div></div>
+              <div class="col-md-12"><label class="form-label">계약명 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required value="{{ form.name.value|default_if_none:'' }}"></div>
+              <div class="col-md-6"><label class="form-label">시작일</label><input type="text" id="start_date" name="start_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY/MM/DD" autocomplete="off" value="{{ form.instance.start_date|date:'Y-m-d' }}"></div>
+              <div class="col-md-6"><label class="form-label">종료일</label><input type="text" id="end_date" name="end_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY-MM-DD" autocomplete="off" value="{{ form.instance.end_date|date:'Y-m-d' }}"></div>
+              <div class="col-md-6"><label class="form-label">계약형태</label><select id="kind" name="kind" class="form-select">{% for value, label in form.kind.field.choices %}<option value="{{ value }}" {% if form.kind.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+              <div class="col-md-6"><label class="form-label">계약금액</label><input type="number" name="amount" class="form-control" value="{{ form.amount.value|default_if_none:'' }}"></div>
+              <div class="col-md-6"><label class="form-label">발주처 <span class="text-danger">*</span></label><select id="client" name="client" class="form-select" data-selected="{{ client_selected|default:form.client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="발주처 선택"></select></div>
+              <div class="col-md-6 {% if form.kind.value != '하도급' %}d-none{% endif %}" id="sub_client_group"><label class="form-label">원도급</label><select id="sub_client" name="sub_client" class="form-select" data-selected="{{ subclient_selected|default:form.sub_client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="원도급 선택"></select></div>
+              <div class="col-md-6"><label class="form-label">계약자</label>{{ form.org_unit }}</div>
+              <hr/><h5 class="h6 card-title">기타정보</h5>
+              <div class="col-md-12"><textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea></div>
             </div>
-
-            <div class="mt-4 d-flex gap-2">
-              <button class="btn btn-primary" type="submit">저장</button>
-              {% if force_create %}
-                <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary">취소</a>
-              {% else %}
-                {% if form.instance and form.instance.id %}
-                  <a href="{% url 'tenant:contract_detail' pk=form.instance.id %}" class="btn btn-outline-secondary">취소</a>
-                {% else %}
-                  <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary">취소</a>
-                {% endif %}
-              {% endif %}
-            </div>
+            <div class="mt-4 d-flex gap-2"><button class="btn btn-primary" type="submit">저장</button>{% if force_create %}<a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary">취소</a>{% else %}{% if form.instance and form.instance.id %}<a href="{% url 'tenant:contract_detail' pk=form.instance.id %}" class="btn btn-outline-secondary">취소</a>{% else %}<a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary">취소</a>{% endif %}{% endif %}</div>
           </form>
           {% endif %}
         </div>
@@ -214,29 +87,50 @@
 
     {% if obj %}
     <div class="col-md-3 col-lg-3">
-      <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h5 class="card-title mb-0">업무범위</h5>
-        </div>
-
+      <div class="card mb-3">
+        <div class="card-header"><h5 class="card-title mb-0">계약 문서 접근</h5></div>
         <div class="card-body">
-          {% if not project_for_scope %}
-            <div class="text-muted small">연결된 프로젝트가 없습니다.</div>
-          {% elif scope_groups and scope_groups|length %}
-            {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
+          {% if doc_access.allowed %}
+            <div class="alert alert-success py-2 mb-0">계약서·계약 첨부 열람 가능</div>
+          {% elif doc_access.status == 'pending' %}
+            <div class="alert alert-warning py-2 mb-0">계약 문서 열람 승인 대기중</div>
           {% else %}
-            <div class="text-muted small">표시할 업무범위가 없습니다.</div>
+            <div class="text-muted small mb-2">프로젝트 업무 권한과 계약 문서 열람 권한은 분리됩니다.</div>
+            <form method="post" action="{% url 'tenant:contract_document_access_request' obj.id %}">
+              {% csrf_token %}
+              <input type="text" name="reason" class="form-control form-control-sm mb-2" placeholder="열람 사유 (선택)">
+              <button type="submit" class="btn btn-outline-primary btn-sm">계약 문서 열람 요청</button>
+            </form>
+          {% endif %}
+
+          {% if doc_access.can_approve and doc_access.pending %}
+            <hr>
+            <div class="small fw-semibold mb-2">승인 대기</div>
+            {% for req in doc_access.pending %}
+              <div class="border rounded p-2 mb-2">
+                <div class="small fw-semibold">{{ req.name }}</div>
+                {% if req.reason %}<div class="small text-muted mb-2">{{ req.reason }}</div>{% endif %}
+                <div class="d-flex gap-1">
+                  <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="approved"><button class="btn btn-success btn-sm" type="submit">승인</button></form>
+                  <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="rejected"><button class="btn btn-outline-danger btn-sm" type="submit">거절</button></form>
+                </div>
+              </div>
+            {% endfor %}
           {% endif %}
         </div>
+      </div>
 
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">업무범위</h5></div>
+        <div class="card-body">
+          {% if not project_for_scope %}<div class="text-muted small">연결된 프로젝트가 없습니다.</div>
+          {% elif scope_groups and scope_groups|length %}{% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
+          {% else %}<div class="text-muted small">표시할 업무범위가 없습니다.</div>{% endif %}
+        </div>
         <hr class="my-0" />
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">타임라인</h6>
-            <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
-          </div>
-          <div id="timelineList"></div>
-          <div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
+          <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">타임라인</h6><button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button></div>
+          <div id="timelineList"></div><div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
         </div>
       </div>
     </div>
@@ -245,20 +139,12 @@
 </div>
 
 {% if obj %}
-<div id="eventModalMount"
-     data-scope-type="contract"
-     data-scope-id="{{ obj.id }}"
-     data-csrf="{{ csrf_token }}"
-     data-events-list-url="{% url 'tenant:event_list' %}"
-     data-events-create-url="{% url 'tenant:event_create' %}"
+<div id="eventModalMount" data-scope-type="contract" data-scope-id="{{ obj.id }}" data-csrf="{{ csrf_token }}"
+     data-events-list-url="{% url 'tenant:event_list' %}" data-events-create-url="{% url 'tenant:event_create' %}"
      data-events-update-url="{% url 'tenant:event_update' '00000000-0000-0000-0000-000000000000' %}"
      data-events-delete-url="{% url 'tenant:event_delete' '00000000-0000-0000-0000-000000000000' %}"
-     data-events-modal-ui-url="{% url 'tenant:event_modal_ui' %}"
-     data-workflow-options-url="{% url 'tenant:event_workflow_options' %}"
-     data-assignment-options-url="{% url 'tenant:event_assignment_options' %}"
-     data-presign-put-url="{% url 'tenant:upload_presign_put' %}"
-     data-commit-url="{% url 'tenant:upload_commit' %}">
-</div>
+     data-events-modal-ui-url="{% url 'tenant:event_modal_ui' %}" data-workflow-options-url="{% url 'tenant:event_workflow_options' %}"
+     data-assignment-options-url="{% url 'tenant:event_assignment_options' %}" data-presign-put-url="{% url 'tenant:upload_presign_put' %}" data-commit-url="{% url 'tenant:upload_commit' %}"></div>
 {% endif %}
 {% endblock %}
 
@@ -270,98 +156,29 @@
 <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) {
-    GeoFlowListCore.renderBadges(document);
-  }
-
+  if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) GeoFlowListCore.renderBadges(document);
   var vocab = window.GEOFLOW_TENANT_VOCABULARY || {};
   var kindLabels = vocab.contractKind || {};
   var kindLabel = document.getElementById('contract-kind-label');
-  if (kindLabel) {
-    var kindCode = kindLabel.getAttribute('data-kind-code') || '';
-    if (kindCode && kindLabels[kindCode]) kindLabel.textContent = kindLabels[kindCode];
-  }
-
+  if (kindLabel) { var kindCode = kindLabel.getAttribute('data-kind-code') || ''; if (kindCode && kindLabels[kindCode]) kindLabel.textContent = kindLabels[kindCode]; }
   var btn = document.getElementById("btn-edit");
-  if (btn) {
-    btn.addEventListener("click", function () {
-      var url = new URL(window.location.href);
-      url.searchParams.set("edit", "1");
-      window.location.assign(url.toString());
-    });
-  }
-
-  if (window.ProcessWorkboardUI && document.getElementById('eventModalMount')) {
-    window.ProcessWorkboardUI.init('#eventModalMount');
-  }
-
+  if (btn) btn.addEventListener("click", function () { var url = new URL(window.location.href); url.searchParams.set("edit", "1"); window.location.assign(url.toString()); });
+  if (window.ProcessWorkboardUI && document.getElementById('eventModalMount')) window.ProcessWorkboardUI.init('#eventModalMount');
   var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
   var csrfToken = csrfInput ? csrfInput.value : '{{ csrf_token }}';
-  if (window.initAttachmentActions) {
-    window.initAttachmentActions({ root: document, csrfToken: csrfToken });
-  }
+  if (window.initAttachmentActions) window.initAttachmentActions({ root: document, csrfToken: csrfToken });
 
-  function initChoicesOnce(sel){
-    if (!sel || sel.dataset.choicesInited === "1") return;
-    sel.dataset.choicesInited = "1";
-    if (window.Choices) {
-      new Choices(sel, {
-        searchEnabled: true,
-        shouldSort: false,
-        itemSelectText: "",
-        removeItemButton: false,
-        placeholder: true,
-        placeholderValue: sel.getAttribute("data-placeholder") || ""
-      });
-    }
-  }
-
-  var clientSel  = document.getElementById("client");
-  var subSel     = document.getElementById("sub_client");
-  var kindSel    = document.getElementById("kind");
-  var subGroup   = document.getElementById("sub_client_group");
-
+  function initChoicesOnce(sel){ if (!sel || sel.dataset.choicesInited === "1") return; sel.dataset.choicesInited = "1"; if (window.Choices) new Choices(sel,{searchEnabled:true,shouldSort:false,itemSelectText:"",removeItemButton:false,placeholder:true,placeholderValue:sel.getAttribute("data-placeholder")||""}); }
+  var clientSel=document.getElementById("client"), subSel=document.getElementById("sub_client"), kindSel=document.getElementById("kind"), subGroup=document.getElementById("sub_client_group");
   if (clientSel || subSel) {
-    fetch("{% url 'tenant:partner_options' %}?limit=500")
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        var items = (data.results || data || []);
-        if (window.GeoFlow && GeoFlow.utils && GeoFlow.utils.sortOptionsByCompany) {
-          items = GeoFlow.utils.sortOptionsByCompany(items);
-        }
-        function fillSelect(sel){
-          if (!sel) return;
-          var selected = sel.getAttribute("data-selected") || "";
-          sel.innerHTML = '<option value="">-</option>';
-          items.forEach(function(it){
-            var opt = document.createElement("option");
-            opt.value = it.id;
-            opt.textContent = it.text || it.name || "";
-            if (selected && String(selected) === String(it.id)) opt.selected = true;
-            sel.appendChild(opt);
-          });
-          initChoicesOnce(sel);
-        }
-        fillSelect(clientSel);
-        fillSelect(subSel);
-      })
-      .catch(function(){ /* existing form remains usable without enhanced search */ });
+    fetch("{% url 'tenant:partner_options' %}?limit=500").then(function(r){return r.json();}).then(function(data){
+      var items=(data.results||data||[]); if(window.GeoFlow&&GeoFlow.utils&&GeoFlow.utils.sortOptionsByCompany) items=GeoFlow.utils.sortOptionsByCompany(items);
+      function fillSelect(sel){ if(!sel)return; var selected=sel.getAttribute("data-selected")||""; sel.innerHTML='<option value="">-</option>'; items.forEach(function(it){var opt=document.createElement("option");opt.value=it.id;opt.textContent=it.text||it.name||"";if(selected&&String(selected)===String(it.id))opt.selected=true;sel.appendChild(opt);});initChoicesOnce(sel); }
+      fillSelect(clientSel); fillSelect(subSel);
+    }).catch(function(){});
   }
-
-  function toggleSub(){
-    if (!kindSel || !subGroup) return;
-    var v = (kindSel.value || "").trim();
-    if (v === "하도급") {
-      subGroup.classList.remove("d-none");
-      initChoicesOnce(subSel);
-    } else {
-      subGroup.classList.add("d-none");
-    }
-  }
-  if (kindSel) {
-    kindSel.addEventListener("change", toggleSub);
-    toggleSub();
-  }
+  function toggleSub(){ if(!kindSel||!subGroup)return; var v=(kindSel.value||"").trim(); if(v==="하도급"){subGroup.classList.remove("d-none");initChoicesOnce(subSel);}else{subGroup.classList.add("d-none");} }
+  if(kindSel){kindSel.addEventListener("change",toggleSub);toggleSub();}
 });
 </script>
 {% endblock %}
