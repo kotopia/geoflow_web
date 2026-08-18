@@ -14,6 +14,10 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import ProcessEvent, ProcessEventAttachment, Project
 from .process_workflow import default_stage_for_event, normalize_stage
+from .services.department_routing import (
+    default_owner_department_id,
+    route_project_inspection_request_to_management,
+)
 from .services.entity_access import (
     authorize_scope_read,
     authorize_scope_write,
@@ -142,7 +146,9 @@ def _validate_mutable_fields(data, *, creating: bool, alias: str):
             return None, "stage and event_type are required"
 
     if creating or "status" in data:
-        status = str(data.get("status") or "draft")
+        # New events are work items by default. Draft remains available only
+        # when explicitly chosen; status is a secondary workflow flag.
+        status = str(data.get("status") or "open")
         if status not in ALLOWED_STATUSES:
             return None, "Invalid status"
         cleaned["status"] = status
@@ -233,6 +239,16 @@ def create_event(request):
     contract_id, project_id = _derive_lineage(alias, scope_type, scope_id)
     if scope_type == "project" and project_id is None:
         return _json_error("Invalid scope")
+
+    if not cleaned.get("owner_department_id"):
+        default_department = default_owner_department_id(
+            alias,
+            request,
+            event_type=cleaned.get("event_type") or "",
+            scope_type=scope_type,
+        )
+        if default_department:
+            cleaned["owner_department_id"] = UUID(default_department)
 
     user_name = (
         getattr(request.user, "username", None)
@@ -329,6 +345,18 @@ def update_event(request, event_id):
 
     for key, value in cleaned.items():
         setattr(event, key, value)
+
+    # The Project execution chain ends at inspection-request completion. At
+    # that point ownership returns to management for inspection/closeout.
+    if (
+        event.scope_type == "project"
+        and event.event_type == "inspection_request"
+        and event.status == "done"
+    ):
+        management_department = route_project_inspection_request_to_management(alias)
+        if management_department:
+            event.owner_department_id = UUID(management_department)
+
     try:
         event.save(using=alias)
     except Exception:
