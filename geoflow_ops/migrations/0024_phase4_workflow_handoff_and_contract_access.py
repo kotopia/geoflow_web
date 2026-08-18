@@ -1,6 +1,5 @@
 from django.db import migrations
 
-# Owner-approved protected production retrigger; migration operations remain unchanged.
 
 class Migration(migrations.Migration):
 
@@ -31,16 +30,40 @@ class Migration(migrations.Migration):
 
             -- Department is an HR master, not a duplicated settings string. Seed
             -- the three initial departments once for every company/org unit.
-            INSERT INTO hr.departments (org_unit_id, name, active)
-            SELECT org.id, seed.name, true
-              FROM ops.my_org_units org
-              CROSS JOIN (VALUES ('관리부'), ('GIS사업부'), ('지적사업부')) AS seed(name)
-             WHERE NOT EXISTS (
-                SELECT 1
-                  FROM hr.departments d
-                 WHERE d.org_unit_id = org.id
-                   AND d.name = seed.name
-             );
+            -- Older tenant schemas predate hr.departments.active, so preserve
+            -- compatibility instead of altering the tenant master table here.
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                      FROM information_schema.columns
+                     WHERE table_schema = 'hr'
+                       AND table_name = 'departments'
+                       AND column_name = 'active'
+                ) THEN
+                    INSERT INTO hr.departments (org_unit_id, name, active)
+                    SELECT org.id, seed.name, true
+                      FROM ops.my_org_units org
+                      CROSS JOIN (VALUES ('관리부'), ('GIS사업부'), ('지적사업부')) AS seed(name)
+                     WHERE NOT EXISTS (
+                        SELECT 1
+                          FROM hr.departments d
+                         WHERE d.org_unit_id = org.id
+                           AND d.name = seed.name
+                     );
+                ELSE
+                    INSERT INTO hr.departments (org_unit_id, name)
+                    SELECT org.id, seed.name
+                      FROM ops.my_org_units org
+                      CROSS JOIN (VALUES ('관리부'), ('GIS사업부'), ('지적사업부')) AS seed(name)
+                     WHERE NOT EXISTS (
+                        SELECT 1
+                          FROM hr.departments d
+                         WHERE d.org_unit_id = org.id
+                           AND d.name = seed.name
+                     );
+                END IF;
+            END $$;
             """,
             reverse_sql=migrations.RunSQL.noop,
         ),
