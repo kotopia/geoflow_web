@@ -1,6 +1,12 @@
 name: Phase 4 owner-approved break-glass from main
 
 on:
+  workflow_dispatch:
+    inputs:
+      report_issue:
+        description: Issue number used for auditable result reporting
+        required: false
+        default: "158"
   issues:
     types:
       - opened
@@ -11,7 +17,7 @@ permissions:
 
 jobs:
   owner-approved-breakglass:
-    if: github.event.issue.title == 'RUN PHASE4 OWNER APPROVED BREAKGLASS 2026-08-18'
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.title == 'RUN PHASE4 OWNER APPROVED BREAKGLASS 2026-08-18'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -104,7 +110,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RESULT_STATUS: ${{ job.status }}
-          TRIGGER_ISSUE: ${{ github.event.issue.number }}
+          TRIGGER_ISSUE: ${{ inputs.report_issue || github.event.issue.number || '158' }}
         shell: bash
         run: |
           set -euo pipefail
