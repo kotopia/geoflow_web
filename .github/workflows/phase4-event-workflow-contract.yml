@@ -64,6 +64,9 @@ jobs:
       - name: Compile Phase 4 workflow modules
         run: |
           python -m py_compile \
+            geoflow_ops/apps.py \
+            geoflow_ops/signals.py \
+            geoflow_ops/forms.py \
             geoflow_ops/process_workflow.py \
             geoflow_ops/event_security_views.py \
             geoflow_ops/views_events.py \
@@ -74,6 +77,7 @@ jobs:
             geoflow_ops/services/department_routing.py \
             geoflow_ops/services/entity_access.py \
             geoflow_ops/services/tenant_settings.py \
+            geoflow_ops/services/workflow_state.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py \
             geoflow_ops/migrations/0020_phase4_project_task_execution.py \
             geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py
@@ -91,4 +95,5 @@ jobs:
             geoflow_ops.test_phase4_event_production_activation_contract \
             geoflow_ops.test_event_api_security \
             geoflow_ops.test_event_assignment_org_scope \
-            geoflow_ops.test_event_upload_route_boundaries
+            geoflow_ops.test_event_upload_route_boundaries \
+            geoflow_ops.test_contract_lifecycle_automation
