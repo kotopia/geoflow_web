@@ -23,20 +23,20 @@ class ContractWorkflowPhaseTests(SimpleTestCase):
         self.assertEqual(major_phase_for_stage("closeout"), ("closeout", "준공"))
         self.assertEqual(major_phase_for_stage("billing"), ("closeout", "준공"))
 
-    def test_contract_status_is_only_a_fallback_not_the_workflow_source_of_truth(self):
+    def test_contract_status_is_legacy_fallback_not_workflow_source_of_truth(self):
         self.assertEqual(fallback_stage_for_contract_status("planned"), "pre_contract")
         self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
         self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
 
-    def test_contract_templates_show_workflow_before_operating_status(self):
+    def test_contract_templates_show_only_event_derived_workflow(self):
         listing = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_list.html").read_text(encoding="utf-8")
         detail = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html").read_text(encoding="utf-8")
         self.assertIn("업무단계", listing)
-        self.assertIn("운영상태", listing)
+        self.assertNotIn("운영상태", listing)
         self.assertIn("현재 업무단계", detail)
-        self.assertIn("세부단계", detail)
-        self.assertIn("운영상태", detail)
-        self.assertLess(detail.index("현재 업무단계"), detail.index("운영상태"))
+        self.assertIn("단계 기준 이벤트", detail)
+        self.assertNotIn("운영상태", detail)
+        self.assertIn("계약 → 진행 → 준공", detail)
 
 
 class SharedEventHandoffContractTests(SimpleTestCase):
@@ -61,11 +61,11 @@ class SharedEventHandoffContractTests(SimpleTestCase):
         self.assertIn('MANAGEMENT_DEPARTMENT_NAME = "관리부"', source)
         self.assertIn('event_type == "kickoff"', source)
 
-    def test_event_status_remains_but_is_secondary_and_new_events_open(self):
+    def test_event_status_is_internal_only_and_new_events_open(self):
         modal = (ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html").read_text(encoding="utf-8")
         event_views = (ROOT / "views_events.py").read_text(encoding="utf-8")
-        self.assertIn("처리 상태", modal)
-        self.assertIn("(보조)", modal)
+        self.assertNotIn("처리 상태", modal)
+        self.assertIn('type="hidden" id="event-status" value="open"', modal)
         self.assertIn('status = str(data.get("status") or "open")', event_views)
         self.assertIn('if creating and status == "draft"', event_views)
         self.assertIn('event.status = "void"', event_views)
