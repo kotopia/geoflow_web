@@ -32,6 +32,21 @@ BLOCKED_EVENT_MIME_TYPES = {
     "text/javascript", "application/ecmascript", "text/ecmascript", "application/xml", "text/xml",
 }
 INLINE_SAFE_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp", "text/plain"}
+LEGACY_GENERIC_MIME_TYPES = {
+    "", "application/octet-stream", "binary/octet-stream", "application/force-download", "application/download",
+}
+LEGACY_INLINE_EXTENSION_MIME_TYPES = {
+    "pdf": "application/pdf",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "txt": "text/plain",
+}
+LEGACY_INLINE_MIME_ALIASES = {
+    "application/x-pdf": "application/pdf",
+    "image/jpg": "image/jpeg",
+}
 
 
 def _json_error(message: str, status: int) -> JsonResponse:
@@ -48,6 +63,29 @@ def _payload(request):
 
 def _normalize_mime(value) -> str:
     return str(value or "").split(";", 1)[0].strip().lower()
+
+
+def _effective_inline_mime(attachment) -> str:
+    """Return a safe inline MIME, including conservative legacy metadata fallback.
+
+    Old attachment rows can predate MIME persistence and may contain an empty or
+    generic octet-stream value. Only those generic values are eligible for a
+    filename-extension fallback, and the fallback is restricted to the same
+    allowlist already accepted for inline rendering. A specific unsafe/unknown
+    stored MIME is never overridden by its filename.
+    """
+    stored_mime = _normalize_mime(getattr(attachment, "mime_type", None))
+    stored_mime = LEGACY_INLINE_MIME_ALIASES.get(stored_mime, stored_mime)
+    if stored_mime in INLINE_SAFE_MIME_TYPES:
+        return stored_mime
+    if stored_mime not in LEGACY_GENERIC_MIME_TYPES:
+        return ""
+
+    filename = str(getattr(attachment, "original_name", "") or "")
+    extension = extract_extension(filename)
+    if not extension:
+        extension = extract_extension(str(getattr(attachment, "object_key", "") or ""))
+    return LEGACY_INLINE_EXTENSION_MIME_TYPES.get(extension, "")
 
 
 def _configured_limit(entity_type: str, purpose: str) -> int | None:
@@ -146,10 +184,11 @@ def presign_get(request, attachment_id):
     mode = str(request.GET.get("mode") or "inline").strip().lower()
     if mode not in {"inline", "download"}:
         return _json_error("Invalid mode", status=400)
-    mime_type = _normalize_mime(attachment.mime_type)
-    inline_allowed = mode == "inline" and mime_type in INLINE_SAFE_MIME_TYPES
+    stored_mime = _normalize_mime(attachment.mime_type)
+    inline_mime = _effective_inline_mime(attachment)
+    inline_allowed = mode == "inline" and bool(inline_mime)
     disposition = "inline" if inline_allowed else "attachment"
-    response_type = mime_type if inline_allowed else "application/octet-stream"
+    response_type = inline_mime if inline_allowed else "application/octet-stream"
     try:
         url = generate_presigned_get_url(
             attachment.object_key,
@@ -164,7 +203,7 @@ def presign_get(request, attachment_id):
     return JsonResponse({
         "presigned_url": url,
         "original_name": attachment.original_name,
-        "mime_type": mime_type,
+        "mime_type": inline_mime or stored_mime,
         "effective_mode": "inline" if inline_allowed else "download",
     })
 
@@ -177,8 +216,8 @@ def preview(request, attachment_id):
     _, attachment, error = _attachment_for_read(request, attachment_id)
     if error:
         return error
-    mime_type = _normalize_mime(attachment.mime_type)
-    if mime_type not in INLINE_SAFE_MIME_TYPES:
+    mime_type = _effective_inline_mime(attachment)
+    if not mime_type:
         return _json_error("Preview is not supported for this file type", status=415)
     try:
         preview_url = generate_presigned_get_url(
