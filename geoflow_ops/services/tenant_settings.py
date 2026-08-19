@@ -10,6 +10,8 @@ from geoflow_ops.process_workflow import (
 )
 
 
+# Legacy contract.status vocabulary is retained for backward compatibility only.
+# New Contract lifecycle UI/business logic does not use this setting.
 CONTRACT_STATUS_FALLBACK = (
     ("planned", "계약전"),
     ("active", "진행"),
@@ -34,11 +36,10 @@ EMPLOYMENT_TYPE_FALLBACK = (
     ("인턴", "인턴"),
 )
 
-# Core event semantics must remain available even when an older tenant has a
-# configured event tree that predates the event. This augments options at read
-# time only; it does not rewrite tenant settings rows.
+# Required milestone event types remain available even for older configured
+# tenant trees. This augments options at read time only; no settings data rewrite.
 SYSTEM_REQUIRED_EVENT_TYPES = {
-    "event.type.closeout": (("closeout_complete", "준공완료"),),
+    "event.type.closeout": (("closeout_complete", "완료"),),
 }
 
 CONTRACT_STATUS_ALIASES = {
@@ -106,9 +107,7 @@ def _configured_rows(alias: str, system_key: str):
     """Load the category identified by system_key.
 
     For event.type.<stage>, custom tenant stages can use a child category under
-    the locked `event.type` root whose code exactly matches the stage code. This
-    keeps custom hierarchy tenant-editable without requiring tenants to author
-    internal `system_key` values themselves.
+    the locked `event.type` root whose code exactly matches the stage code.
     """
     with connections[alias].cursor() as cur:
         if system_key.startswith("event.type."):
