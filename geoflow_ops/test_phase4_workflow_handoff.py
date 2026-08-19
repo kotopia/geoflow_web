@@ -28,17 +28,17 @@ class ContractWorkflowPhaseTests(SimpleTestCase):
         self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
         self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
 
-    def test_contract_templates_show_only_event_derived_workflow(self):
+    def test_contract_templates_show_four_step_event_driven_workflow(self):
         listing = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_list.html").read_text(encoding="utf-8")
         detail = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html").read_text(encoding="utf-8")
         self.assertIn("업무단계", listing)
         self.assertNotIn("운영상태", listing)
         self.assertIn("현재 업무단계", detail)
-        self.assertIn("단계 기준 이벤트", detail)
+        self.assertIn("단계 기준", detail)
         self.assertNotIn("운영상태", detail)
-        self.assertIn("1. 계약", detail)
-        self.assertIn("2. 진행", detail)
-        self.assertIn("3. 준공", detail)
+        for label in ("1. 계약", "2. 진행", "3. 준공", "4. 완료"):
+            self.assertIn(label, detail)
+        self.assertIn("준공 완료", detail)
 
 
 class SharedEventHandoffContractTests(SimpleTestCase):
