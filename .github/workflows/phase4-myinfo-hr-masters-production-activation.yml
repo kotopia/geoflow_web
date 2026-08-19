@@ -26,8 +26,45 @@ permissions:
   contents: read
 
 jobs:
+  classify-myinfo-hr-activation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      requires_contract_workflow_activation: ${{ steps.classify.outputs.requires_contract_workflow_activation }}
+    steps:
+      - name: Checkout exact triggering release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - name: Defer to contract workflow activation when 0026 is present
+        id: classify
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          requires=false
+          if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
+            before="$BEFORE_SHA"
+            if [ -n "$before" ] && ! printf '%s' "$before" | grep -Eq '^0+$'; then
+              git diff --name-only "$before" "$GITHUB_SHA" > /tmp/geoflow_myinfo_changed.txt
+            else
+              git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" > /tmp/geoflow_myinfo_changed.txt
+            fi
+            if grep -Fxq 'geoflow_ops/migrations/0026_contract_completion_event_backfill.py' /tmp/geoflow_myinfo_changed.txt; then
+              requires=true
+            fi
+          fi
+          echo "requires_contract_workflow_activation=$requires" >> "$GITHUB_OUTPUT"
+          echo "myinfo_hr_requires_contract_workflow_activation=$requires"
+
   myinfo-hr-masters-production-activation:
-    if: github.ref_name == 'release/stabilized-deploy'
+    needs: classify-myinfo-hr-activation
+    if: >-
+      github.ref_name == 'release/stabilized-deploy' &&
+      needs.classify-myinfo-hr-activation.outputs.requires_contract_workflow_activation != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -533,7 +570,8 @@ jobs:
             sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
             code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
             if [ "$active" = 'active' ] && [ "$sub" = 'running' ]; then
-              case "$code" in 2??|3??) ready=yes; break ;; esac
+              case "$code" in 2??|3??) ready=yes; break ;;
+              esac
             fi
             sleep 2
           done
