@@ -95,12 +95,16 @@ class ContractLifecycleUiContractTests(SimpleTestCase):
         self.assertIn("gf-phase-closeout", source)
         self.assertNotIn("<th>운영상태</th>", source)
 
-    def test_contract_status_selector_is_disabled_in_shared_tenant_ui(self):
+    def test_contract_detail_hides_legacy_manual_status_ui(self):
         source = (
             ROOT / "templates" / "geoflow_ops" / "base_tenant.html"
         ).read_text(encoding="utf-8")
         self.assertIn("statusSelect.disabled = true", source)
-        self.assertIn("업무상태는 착수·준공 이벤트에 따라 자동 변경됩니다.", source)
+        self.assertIn("statusGroup.classList.add('d-none')", source)
+        self.assertIn("text === '운영상태'", source)
+        self.assertIn("label.textContent = '업무상태'", source)
+        self.assertIn("lifecycle === '준공 진행'", source)
+        self.assertIn("lifecycle.indexOf('준공완료')", source)
 
     def test_event_signal_recomputes_legacy_contract_status(self):
         source = (ROOT / "signals.py").read_text(encoding="utf-8")
