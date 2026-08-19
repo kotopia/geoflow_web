@@ -2,6 +2,8 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
+from geoflow_ops.process_workflow import default_stage_for_event
+from geoflow_ops.services.tenant_settings import settings_options
 from geoflow_ops.services.workflow_state import (
     _stage_summary,
     fallback_stage_for_contract_status,
@@ -90,6 +92,14 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertEqual(completed["stage_label"], "준공 완료")
         self.assertTrue(completed["is_complete"])
         self.assertNotEqual(in_closeout["phase_class"], completed["phase_class"])
+
+    def test_closeout_completion_is_explicit_and_available_to_legacy_configured_tenants(self):
+        self.assertEqual(default_stage_for_event("closeout_complete"), "closeout")
+        closeout_options = dict(settings_options(None, "event.type.closeout"))
+        self.assertEqual(closeout_options.get("closeout_complete"), "준공완료")
+        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
+        self.assertIn('_CLOSEOUT_COMPLETE_EVENT_TYPES = {"closeout_complete"}', source)
+        self.assertIn("delivery alone is not final closure", source)
 
     def test_billing_is_not_a_business_phase(self):
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
