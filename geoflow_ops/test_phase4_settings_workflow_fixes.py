@@ -30,6 +30,7 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
     def test_legacy_contract_status_schema_is_preserved_but_not_user_editable(self):
         forms = source("geoflow_ops/forms.py")
         settings = source("geoflow_ops/services/tenant_settings.py")
+        settings_view = source("geoflow_ops/views_settings.py")
         migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
         workflow = source("geoflow_ops/services/workflow_state.py")
@@ -38,6 +39,9 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn('(\"complete\", \"완료\")', settings)
         self.assertIn("WHEN 'completed' THEN 'complete'", migration)
         self.assertIn("WHEN '완료' THEN 'complete'", migration)
+        self.assertIn('"contract.status"', settings_view)
+        self.assertIn("HIDDEN_SETTINGS_SYSTEM_KEYS", settings_view)
+        self.assertIn("_visible_nodes", settings_view)
 
         # New Contract workflow never exposes or synchronizes status.
         self.assertNotIn('settings_options(alias, "contract.status")', forms)
