@@ -34,9 +34,9 @@ EVENT_TYPE_CHOICES = (
     WorkflowChoice("inspection", "검사완료"),
     WorkflowChoice("correction_request", "보완요청"),
     WorkflowChoice("reinspection", "재검사"),
-    WorkflowChoice("completion_doc", "준공계"),
+    WorkflowChoice("completion_doc", "준공계 제출"),
     WorkflowChoice("delivery", "납품완료"),
-    WorkflowChoice("closeout_complete", "준공완료"),
+    WorkflowChoice("closeout_complete", "완료"),
     WorkflowChoice("advance_payment", "선금"),
     WorkflowChoice("progress_invoice", "기성청구"),
     WorkflowChoice("invoice", "청구"),
@@ -45,6 +45,8 @@ EVENT_TYPE_CHOICES = (
     WorkflowChoice("etc", "기타"),
 )
 
+# Internal event record state is retained only for history integrity (open/void,
+# draft compatibility, etc.). Contract business phase never reads these values.
 STATUS_CHOICES = (
     WorkflowChoice("draft", "작성중"),
     WorkflowChoice("open", "진행중"),
@@ -82,6 +84,14 @@ EVENT_DEFAULT_STAGE = {
     "invoice": "billing",
     "tax_invoice": "billing",
     "payment": "billing",
+}
+
+# These are the only user events allowed to move the coarse Contract lifecycle.
+# Contract creation itself is the synthetic starting milestone for the 계약 phase.
+CONTRACT_LIFECYCLE_MILESTONES = {
+    "kickoff": ("execution", "착수"),
+    "completion_doc": ("closeout", "준공계 제출"),
+    "closeout_complete": ("closeout", "완료"),
 }
 
 
