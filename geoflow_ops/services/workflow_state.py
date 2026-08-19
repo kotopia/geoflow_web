@@ -2,26 +2,35 @@ from __future__ import annotations
 
 from django.db import connections
 
-from geoflow_ops.process_workflow import CONTRACT_LIFECYCLE_MILESTONES
+from geoflow_ops.process_workflow import (
+    CONTRACT_COMPLETION_EVENT_TYPE,
+    CONTRACT_LIFECYCLE_STAGE_PHASES,
+)
 
 
 _DISPLAY_MAJOR_LABELS = {
     "contract": "계약",
     "execution": "진행",
     "closeout": "준공",
+    "complete": "완료",
 }
-# Shared list-core compatibility tokens. These are UI filter adapters only and
-# are not Contract.status values or database lifecycle state.
+
+# Shared list-core compatibility tokens only. These are UI filter adapters and
+# are not Contract.status values or persisted lifecycle state.
 _LIST_FILTER_KEY_BY_MAJOR = {
     "contract": "planned",
     "execution": "active",
-    "closeout": "complete",
+    "closeout": "pause",
+    "complete": "complete",
 }
-_MILESTONE_RANK = {
-    "kickoff": 20,
-    "completion_doc": 30,
-    "closeout_complete": 40,
+
+_PHASE_RANK = {
+    "contract": 10,
+    "execution": 20,
+    "closeout": 30,
 }
+
+_LEGACY_COMPLETE_VALUES = {"complete", "completed", "완료"}
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
@@ -37,115 +46,128 @@ def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
 
 
 def fallback_stage_for_contract_status(status: str | None) -> str:
-    """Legacy compatibility helper only; lifecycle display does not call this."""
+    """Legacy helper only; new lifecycle display does not use status as phase."""
     status = str(status or "").strip().lower()
     if status in {"planned", "계약전"}:
         return "pre_contract"
-    if status in {"complete", "completed", "완료"}:
+    if status in _LEGACY_COMPLETE_VALUES:
         return "closeout"
     return "execution"
+
+
+def _legacy_contract_is_complete(value: object) -> bool:
+    """One-way compatibility bridge for contracts completed before event history.
+
+    Existing completed contracts must not visually fall back to 계약 merely
+    because they predate the event-driven workflow. No other legacy status value
+    participates in lifecycle calculation.
+    """
+
+    return str(value or "").strip().lower() in _LEGACY_COMPLETE_VALUES
 
 
 def _stage_summary(
     stage: str | None,
     *,
-    contract_status: str | None = None,
     is_complete: bool = False,
-    milestone_label: str | None = None,
+    legacy_complete: bool = False,
 ) -> dict:
-    # Event-driven callers pass an explicit phase stage. The status fallback is
-    # retained solely for old internal callers during deprecation.
-    stage = str(stage or "").strip() or fallback_stage_for_contract_status(contract_status)
-    major_code, legacy_major_label = major_phase_for_stage(stage)
-    major_label = _DISPLAY_MAJOR_LABELS.get(major_code, legacy_major_label)
-    if major_code != "closeout":
-        is_complete = False
-
-    if not milestone_label:
-        milestone_label = {
-            "contract": "계약 생성",
-            "execution": "착수",
-            "closeout": "완료" if is_complete else "준공계 제출",
-        }.get(major_code, "-")
+    stage = str(stage or "").strip() or "contract"
+    major_code = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage, "contract")
+    if is_complete:
+        major_code = "complete"
 
     phase_class = {
         "contract": "bg-warning text-dark",
         "execution": "bg-primary",
-        "closeout": "bg-secondary" if is_complete else "bg-info text-dark",
+        "closeout": "bg-info text-dark",
+        "complete": "bg-secondary",
     }.get(major_code, "bg-light text-dark")
+
+    major_event_label = {
+        "contract": "계약 생성",
+        "execution": "업무단계: 착수/수행/검사",
+        "closeout": "업무단계: 준공",
+        "complete": "완료",
+    }.get(major_code, "-")
 
     return {
         "stage": stage,
-        "stage_label": milestone_label,
-        "major_event_label": milestone_label,
+        "stage_label": major_event_label,
+        "major_event_label": major_event_label,
         "major_code": major_code,
-        "major_label": major_label,
+        "major_label": _DISPLAY_MAJOR_LABELS.get(major_code, major_code),
         "filter_key": _LIST_FILTER_KEY_BY_MAJOR.get(major_code, "active"),
         "phase_class": phase_class,
-        "is_complete": bool(is_complete),
+        "is_complete": major_code == "complete",
+        "legacy_complete": bool(legacy_complete),
     }
 
 
 def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
-    """Derive Contract lifecycle only from explicit milestone events.
+    """Derive 계약 -> 진행 -> 준공 -> 완료 from event history.
 
-    User-facing lifecycle:
-      계약 생성 -> 계약
-      착수      -> 진행
-      준공계 제출 -> 준공
-      완료      -> 준공 완료
+    Coarse phase movement is based on the selected event *stage*, not event type:
+    - pre_contract / contract -> 계약
+    - kickoff / execution / inspection -> 진행
+    - closeout -> 준공
+    - billing -> no technical phase change
 
-    Only event types listed in CONTRACT_LIFECYCLE_MILESTONES can move the coarse
-    lifecycle. `착수계` therefore does not start 진행. Contract change, period
-    extension, suspend/resume, progress reports, inspection events, delivery,
-    and billing/payment remain timeline history without changing the major phase.
+    Phase never regresses because the highest reached non-void phase wins.
+    Therefore stage=kickoff + event_type=etc still starts 진행, and any non-void
+    stage=closeout event enters 준공.
 
-    Contract.status is neither read nor written here. Existing status columns are
-    legacy compatibility data only and can be removed later in a dedicated schema
-    cleanup after all tenant/code references are verified.
+    Final 완료 is intentionally explicit. Only the dedicated non-void
+    closeout_complete event marks a new contract complete. As a one-way legacy
+    compatibility bridge, an existing Contract.status of complete/completed/완료
+    is displayed exactly like that completion action so historic completed
+    contracts do not fall back to 계약. No other Contract.status value is read,
+    and this service never writes Contract.status.
     """
 
     contracts = {str(row.id): row for row in contract_rows}
     if not contracts:
         return {}
 
-    latest: dict[str, tuple[int, str, str]] = {}
+    reached: dict[str, tuple[int, str]] = {}
+    completed_contracts: set[str] = set()
+
     with connections[alias].cursor() as cur:
         cur.execute(
             """
-            SELECT contract_id::text, event_type
+            SELECT contract_id::text, stage, event_type
               FROM ops.process_events
              WHERE contract_id = ANY(%s::uuid[])
                AND COALESCE(status, '') <> 'void'
             """,
             [list(contracts.keys())],
         )
-        for contract_id, event_type in cur.fetchall():
-            event_type = str(event_type or "").strip()
-            milestone = CONTRACT_LIFECYCLE_MILESTONES.get(event_type)
-            if not milestone:
+        for contract_id, raw_stage, raw_event_type in cur.fetchall():
+            stage = str(raw_stage or "").strip()
+            event_type = str(raw_event_type or "").strip()
+
+            if event_type == CONTRACT_COMPLETION_EVENT_TYPE:
+                completed_contracts.add(contract_id)
+
+            phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)
+            if not phase:
+                # billing and custom/unknown stages remain timeline history only.
                 continue
-            stage, label = milestone
-            rank = _MILESTONE_RANK[event_type]
-            current = latest.get(contract_id)
+
+            rank = _PHASE_RANK[phase]
+            current = reached.get(contract_id)
             if current is None or rank > current[0]:
-                latest[contract_id] = (rank, stage, label)
+                reached[contract_id] = (rank, stage)
 
     result: dict[str, dict] = {}
-    for contract_id in contracts:
-        milestone = latest.get(contract_id)
-        if milestone is None:
-            result[contract_id] = _stage_summary(
-                "contract",
-                milestone_label="계약 생성",
-            )
-            continue
-
-        _rank, stage, label = milestone
+    for contract_id, contract in contracts.items():
+        legacy_complete = _legacy_contract_is_complete(getattr(contract, "status", None))
+        explicit_complete = contract_id in completed_contracts
+        stage = reached.get(contract_id, (0, "contract"))[1]
         result[contract_id] = _stage_summary(
             stage,
-            is_complete=label == "완료",
-            milestone_label=label,
+            is_complete=explicit_complete or legacy_complete,
+            legacy_complete=legacy_complete and not explicit_complete,
         )
     return result
 
@@ -153,5 +175,9 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 def contract_workflow_summary(alias: str, contract) -> dict:
     return contract_workflow_summaries(alias, [contract]).get(
         str(contract.id),
-        _stage_summary("contract", milestone_label="계약 생성"),
+        _stage_summary(
+            "contract",
+            is_complete=_legacy_contract_is_complete(getattr(contract, "status", None)),
+            legacy_complete=_legacy_contract_is_complete(getattr(contract, "status", None)),
+        ),
     )
