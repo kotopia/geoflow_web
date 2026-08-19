@@ -68,3 +68,22 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertNotIn('getattr(contract, "status"', runtime)
         self.assertNotIn("FROM ctr.contracts", terminal)
         self.assertIn("event_type IN ('closeout_complete', 'contract_cancel')", terminal)
+
+    def test_project_pages_use_linked_contract_workflow_not_contract_status(self):
+        views = (ROOT / "views_projects.py").read_text(encoding="utf-8")
+        listing = (ROOT / "templates" / "geoflow_ops" / "projects" / "project_list.html").read_text(encoding="utf-8")
+        detail = (ROOT / "templates" / "geoflow_ops" / "projects" / "project_detail.html").read_text(encoding="utf-8")
+
+        self.assertIn("contract_workflow_summaries", views)
+        self.assertIn("contract_workflow_summary", views)
+        self.assertNotIn('getattr(p.contract, "status"', views)
+        self.assertNotIn('"status": obj.contract.status', views)
+        self.assertIn('"contract_workflow": workflow.get("major_code")', views)
+        self.assertIn('"contract_workflow_label": workflow.get("major_label")', views)
+
+        self.assertNotIn("p.contract.status", listing)
+        self.assertIn("p.contract_workflow", listing)
+        self.assertIn("업무단계", listing)
+        self.assertNotIn("obj.contract.status", detail)
+        self.assertIn("contract_workflow.major_label", detail)
+        self.assertIn("업무단계", detail)
