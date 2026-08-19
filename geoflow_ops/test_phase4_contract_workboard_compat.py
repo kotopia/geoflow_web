@@ -170,7 +170,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         modal = (
             ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html"
         ).read_text(encoding="utf-8")
-        self.assertIn('type="hidden" id="event-status" value="open"', modal)
+        self.assertIn('class="d-none" id="event-status"', modal)
         self.assertNotIn("처리 상태", modal)
         self.assertIn("착수 → 진행", modal)
         self.assertIn("준공계 제출 → 준공", modal)
