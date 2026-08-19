@@ -72,16 +72,23 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("event_security_views.workflow_options", urls)
         self.assertIn("views_workboard.workboard_event_list", security)
 
-    def test_eventless_contract_starts_in_contract_phase_even_if_operational_status_differs(self):
-        self.assertEqual(fallback_stage_for_contract_status("active"), "contract")
-        self.assertEqual(fallback_stage_for_contract_status("complete"), "contract")
-        summary = _stage_summary(None, contract_status="active")
+    def test_eventless_contract_display_starts_in_contract_without_repurposing_legacy_fallback(self):
+        # Established fallback semantics remain available to old callers.
+        self.assertEqual(fallback_stage_for_contract_status("planned"), "pre_contract")
+        self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
+        self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
+        # The event-driven list explicitly uses the contract stage when no event exists.
+        summary = _stage_summary("contract", contract_status="active")
         self.assertEqual(summary["major_code"], "contract")
         self.assertEqual(summary["major_label"], "계약")
+        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
+        self.assertIn('latest.get(contract_id, (0, "contract"))', source)
 
-    def test_kickoff_execution_and_inspection_share_progress_phase(self):
+    def test_kickoff_execution_and_inspection_display_as_progress(self):
         for stage in ("kickoff", "execution", "inspection"):
-            self.assertEqual(major_phase_for_stage(stage), ("execution", "진행"))
+            # Legacy grouping label is preserved, while the UI summary is normalized.
+            self.assertEqual(major_phase_for_stage(stage), ("execution", "수행(진행)"))
+            self.assertEqual(_stage_summary(stage)["major_label"], "진행")
 
     def test_closeout_is_separate_from_final_completion_visual(self):
         in_closeout = _stage_summary("closeout", is_complete=False)
