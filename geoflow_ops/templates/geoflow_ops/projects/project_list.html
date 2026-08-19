@@ -1,10 +1,16 @@
 {# templates/geoflow_ops/projects/project_list.html #}
 {% extends "geoflow_ops/base_tenant.html" %}
-{% load humanize %}
-{% load static %}
+{% load humanize static %}
 {% block title %}Projects | GeoFlow{% endblock %}
 
 {% block content %}
+<style>
+  #statusButtons .gf-k-cancel { display: none !important; }
+  #datatables-projects tr.gf-contract-complete > td:not([data-col="workflow"]) {
+    color: var(--bs-secondary-color, #6c757d);
+    opacity: .68;
+  }
+</style>
 <div class="container-fluid p-0">
   <div class="mb-3">
     <h1 class="h3 d-inline align-middle">
@@ -26,7 +32,6 @@
         </div>
       </div>
 
-      {# ▶ contract_list와 동일한 탭/카운트 컨테이너 (서버 카운트 주입) #}
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div id="statusButtons"
              class="gf-status-tabs"
@@ -34,7 +39,7 @@
              data-count-planned="{{ status_counts.planned|default:0 }}"
              data-count-active="{{ status_counts.active|default:0 }}"
              data-count-pause="{{ status_counts.pause|default:0 }}"
-             data-count-cancel="{{ status_counts.cancel|default:0 }}"
+             data-count-cancel="0"
              data-count-complete="{{ status_counts.complete|default:0 }}">
         </div>
       </div>
@@ -50,15 +55,17 @@
             <th>종료일</th>
             <th>계약형태</th>
             <th>발주처</th>
-            <th>상태</th>
+            <th>업무단계</th>
             <th>계약자</th>
           </tr>
         </thead>
         <tbody>
           {% for p in projects %}
+          {% with wf=p.contract_workflow %}
           <tr data-id="{{ p.pk }}"
-              data-status="{{ p.contract.status|default:''|lower }}"
-              data-href="{% url 'tenant:project_detail' p.pk %}">
+              data-status="{{ wf.filter_key }}"
+              data-workflow-phase="{{ wf.major_code }}"
+              data-href="{% url 'tenant:project_detail' p.pk %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
             <td data-col="code">{{ p.contract.code }}</td>
             <td data-col="name" class="text-truncate">{{ p.contract.name }}</td>
             <td data-col="start">{{ p.contract.start_date|date:"Y-m-d" }}</td>
@@ -73,11 +80,12 @@
                 {% endif %}
               {% endwith %}
             </td>
-            <td data-col="status" class="text-center">
-              <span class="gf-status" data-status="{{ p.contract.status|default:'' }}" data-render="badge" data-size="sm"></span>
+            <td data-col="workflow" class="text-center">
+              <span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
             </td>
             <td data-col="orgunit">{{ p.contract.org_unit.label|default:"-" }}</td>
           </tr>
+          {% endwith %}
           {% endfor %}
         </tbody>
       </table>
@@ -90,6 +98,17 @@
   <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function(){
+      // This project list filters by the linked Contract workflow, not by
+      // Contract.status. Re-label the shared filter adapter tokens accordingly.
+      const labels = {planned:'계약', active:'진행', pause:'준공', complete:'완료'};
+      Object.keys(labels).forEach(function(key) {
+        const button = document.querySelector('#statusButtons .gf-k-' + key);
+        if (!button) return;
+        const count = button.querySelector('.count');
+        const value = count ? count.textContent : '0';
+        button.innerHTML = labels[key] + ' <span class="count">' + value + '</span>';
+      });
+
       const tbody = document.querySelector('#datatables-projects tbody');
       if (!tbody) return;
       tbody.addEventListener('click', function(e){
