@@ -36,7 +36,9 @@ class ContractWorkflowPhaseTests(SimpleTestCase):
         self.assertIn("현재 업무단계", detail)
         self.assertIn("단계 기준 이벤트", detail)
         self.assertNotIn("운영상태", detail)
-        self.assertIn("계약 → 진행 → 준공", detail)
+        self.assertIn("1. 계약", detail)
+        self.assertIn("2. 진행", detail)
+        self.assertIn("3. 준공", detail)
 
 
 class SharedEventHandoffContractTests(SimpleTestCase):
