@@ -1,7 +1,7 @@
-name: My Company HR activation run locator
+name: Temporary workboard deploy locator
 
 on:
-  push:
+  pull_request:
     branches:
       - main
     paths:
@@ -9,7 +9,6 @@ on:
 
 permissions:
   actions: read
-  issues: write
   contents: read
 
 jobs:
@@ -18,37 +17,25 @@ jobs:
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
-      EXPECTED_SHA: b18ef65cce1ba051b7b8338dd9413f201b97ac3a
-      WORKFLOW_PATH: .github/workflows/phase4-myinfo-hr-masters-production-activation.yml
-      AUDIT_ISSUE: "194"
+      EXPECTED_SHA: 7372f56ae1d994bac4b98f555330509158779168
+      WORKFLOW_PATH: .github/workflows/phase4-workboard-production-deploy.yml
     steps:
-      - name: Locate exact protected run
+      - name: Locate exact protected workboard deploy
         shell: bash
         run: |
           set -euo pipefail
           runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${EXPECTED_SHA}&per_page=100")"
           run="$(printf '%s' "$runs" | jq -c --arg path "$WORKFLOW_PATH" '[.workflow_runs[] | select((.path | split("@")[0]) == $path)] | sort_by(.run_number) | last // empty')"
-
           if [ -z "$run" ]; then
-            names="$(printf '%s' "$runs" | jq -r '[.workflow_runs[] | (.name + "#" + (.run_number|tostring) + ":" + (.status // "unknown"))] | join(",")')"
-            body="myinfo_hr_activation_locator expected_sha=${EXPECTED_SHA} result=run_not_found observed_runs=${names:-none}"
-            gh issue comment "$AUDIT_ISSUE" --body "$body"
-            echo "$body"
+            names="$(printf '%s' "$runs" | jq -r '[.workflow_runs[] | (.name + "#" + (.run_number|tostring) + ":" + (.status // "unknown") + ":" + (.conclusion // "none"))] | join(",")')"
+            echo "workboard_deploy_locator result=run_not_found expected_sha=${EXPECTED_SHA} observed_runs=${names:-none}"
             exit 0
           fi
-
           run_id="$(printf '%s' "$run" | jq -r '.id')"
           run_number="$(printf '%s' "$run" | jq -r '.run_number')"
           status="$(printf '%s' "$run" | jq -r '.status')"
           conclusion="$(printf '%s' "$run" | jq -r '.conclusion // "none"')"
-          actor="$(printf '%s' "$run" | jq -r '.actor.login')"
-
-          pending="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/pending_deployments" 2>/dev/null || printf '[]')"
-          pending_env="$(printf '%s' "$pending" | jq -r '[.[].environment.name] | join(",")')"
-          reviewers="$(printf '%s' "$pending" | jq -r '[.[].reviewers[].reviewer | (.type + ":" + (.login // .slug // .name // "unknown"))] | unique | join(",")')"
-          [ -n "$pending_env" ] || pending_env='none'
-          [ -n "$reviewers" ] || reviewers='none'
-
-          body="myinfo_hr_activation_locator run_id=${run_id} run_number=${run_number} expected_sha=${EXPECTED_SHA} status=${status} conclusion=${conclusion} actor=${actor} pending_env=${pending_env} reviewers=${reviewers}"
-          gh issue comment "$AUDIT_ISSUE" --body "$body"
-          echo "$body"
+          event="$(printf '%s' "$run" | jq -r '.event')"
+          echo "workboard_deploy_locator run_id=${run_id} run_number=${run_number} expected_sha=${EXPECTED_SHA} status=${status} conclusion=${conclusion} event=${event}"
+          jobs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          printf '%s' "$jobs" | jq -r '.jobs[] | "workboard_deploy_job id=\(.id) name=\(.name) status=\(.status) conclusion=\(.conclusion // "none")"'
