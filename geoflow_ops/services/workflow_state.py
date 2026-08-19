@@ -28,6 +28,13 @@ _FILTER_STATUS_BY_MAJOR = {
     "closeout": "complete",
 }
 _CLOSEOUT_COMPLETE_EVENT_TYPES = {"closeout_complete"}
+_TERMINAL_COMPAT_EVENTS = {"closeout_complete", "contract_cancel"}
+_COMPAT_DIRECT_STATUS_EVENTS = {
+    "suspend": "pause",
+    "resume": "active",
+    "contract_cancel": "cancel",
+    "closeout_complete": "complete",
+}
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
@@ -79,12 +86,130 @@ def _stage_summary(
     }
 
 
+def event_affects_contract_compat_status(stage: object, event_type: object) -> bool:
+    """Whether an event can change the legacy Contract.status compatibility value."""
+    stage = str(stage or "").strip()
+    event_type = str(event_type or "").strip()
+    if event_type in _COMPAT_DIRECT_STATUS_EVENTS:
+        return True
+    return stage in {"kickoff", "execution", "inspection", "closeout"}
+
+
+def derive_contract_compat_status(
+    rows,
+    current_status: object,
+    *,
+    allow_empty_reset: bool = False,
+    allow_terminal_downgrade: bool = False,
+) -> str:
+    """Derive the old status token without using it as the workflow source of truth.
+
+    `rows` are chronological `(stage, event_type)` pairs for non-void events.
+    Contract-stage changes and billing are ignored. A closeout-stage event keeps
+    the compatibility status active; only explicit `closeout_complete` makes it
+    complete. Existing terminal legacy rows are preserved unless the terminal
+    event itself is being removed/changed and requests a recomputation.
+    """
+    current = str(current_status or "").strip().lower() or "planned"
+    derived = None
+
+    for raw_stage, raw_type in rows:
+        stage = str(raw_stage or "").strip()
+        event_type = str(raw_type or "").strip()
+
+        direct = _COMPAT_DIRECT_STATUS_EVENTS.get(event_type)
+        if direct:
+            if direct in {"complete", "cancel"}:
+                derived = direct
+                continue
+            if derived not in {"complete", "cancel"}:
+                derived = direct
+            continue
+
+        # Contract change/extension/etc. and all billing events are history only.
+        if stage in {"pre_contract", "contract", "billing"}:
+            continue
+
+        if stage in {"kickoff", "execution", "inspection", "closeout"}:
+            if derived not in {"complete", "cancel", "pause"}:
+                derived = "active"
+
+    if derived is None:
+        if not allow_empty_reset:
+            return current
+        derived = "planned"
+
+    # Preserve historical terminal rows when unrelated/newer business events are
+    # added. Only touching the terminal event itself may intentionally downgrade.
+    if (
+        current in {"complete", "cancel"}
+        and derived not in {"complete", "cancel"}
+        and not allow_terminal_downgrade
+    ):
+        return current
+
+    return derived
+
+
+def sync_contract_status_from_events(
+    alias: str,
+    contract_id,
+    *,
+    allow_empty_reset: bool = False,
+    allow_terminal_downgrade: bool = False,
+) -> str | None:
+    """Synchronize ctr.contracts.status for legacy dashboards/reports only.
+
+    The event ledger remains the lifecycle source of truth. This writes only the
+    existing compatibility status column and never creates/deletes business data.
+    """
+    if not alias or not contract_id:
+        return None
+
+    with connections[alias].cursor() as cur:
+        cur.execute(
+            "SELECT status FROM ctr.contracts WHERE id=%s LIMIT 1",
+            [str(contract_id)],
+        )
+        contract_row = cur.fetchone()
+        if not contract_row:
+            return None
+        current_status = contract_row[0]
+
+        cur.execute(
+            """
+            SELECT stage, event_type
+              FROM ops.process_events
+             WHERE contract_id=%s
+               AND COALESCE(status, '') <> 'void'
+             ORDER BY occurred_at NULLS LAST, created_at, id
+            """,
+            [str(contract_id)],
+        )
+        rows = cur.fetchall()
+
+        derived = derive_contract_compat_status(
+            rows,
+            current_status,
+            allow_empty_reset=allow_empty_reset,
+            allow_terminal_downgrade=allow_terminal_downgrade,
+        )
+        current = str(current_status or "").strip().lower() or "planned"
+        if derived != current:
+            cur.execute(
+                "UPDATE ctr.contracts SET status=%s, updated_at=now() WHERE id=%s",
+                [derived, str(contract_id)],
+            )
+        return derived
+
+
 def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     """Return the highest reached business stage per contract.
 
     Contract and Project events share one event ledger. Project events carry
     contract_id lineage, so both scopes contribute to the contract's business
-    phase. Contract.status remains a separate operational/compatibility value.
+    phase. Contract.status remains a compatibility value synchronized from a
+    narrow set of lifecycle events for legacy dashboards/reports.
 
     New or event-less contracts are shown as 계약 regardless of Contract.status.
     Once a kickoff/execution/inspection event exists the displayed phase is 진행.
@@ -126,7 +251,7 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     result: dict[str, dict] = {}
     for contract_id, contract in contracts.items():
         # Lifecycle display is event-driven. No lifecycle event means 계약,
-        # even when an old/manual operational status contains another token.
+        # even when an old/manual compatibility status contains another token.
         stage = latest.get(contract_id, (0, "contract"))[1]
         result[contract_id] = _stage_summary(
             stage,
