@@ -11,7 +11,8 @@ from geoflow_ops.process_workflow import (
 
 
 # Legacy contract.status vocabulary is retained for backward compatibility only.
-# New Contract lifecycle UI/business logic does not use this setting.
+# New Contract lifecycle UI/business logic does not use this setting except for
+# the one-way historic completed-contract compatibility bridge.
 CONTRACT_STATUS_FALLBACK = (
     ("planned", "계약전"),
     ("active", "진행"),
@@ -36,9 +37,12 @@ EMPLOYMENT_TYPE_FALLBACK = (
     ("인턴", "인턴"),
 )
 
-# Required milestone event types remain available even for older configured
-# tenant trees. This augments options at read time only; no settings data rewrite.
-SYSTEM_REQUIRED_EVENT_TYPES = {
+# These options are workflow invariants. They remain available even when an old
+# tenant settings tree predates them, deactivates them, or changes their label.
+# Extra tenant-defined stages/types can still be appended after these required
+# canonical options.
+SYSTEM_REQUIRED_OPTIONS = {
+    "event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES),
     "event.type.closeout": (("closeout_complete", "완료"),),
 }
 
@@ -150,12 +154,19 @@ def _configured_rows(alias: str, system_key: str):
 
 
 def _merge_required_options(system_key: str, options):
-    result = list(options)
-    seen = {str(code or "") for code, _label in result}
-    for code, label in SYSTEM_REQUIRED_EVENT_TYPES.get(system_key, ()):
-        if code not in seen:
-            result.append((code, label))
-            seen.add(code)
+    required = list(SYSTEM_REQUIRED_OPTIONS.get(system_key, ()))
+    if not required:
+        return list(options)
+
+    required_codes = {str(code or "") for code, _label in required}
+    # Required workflow options use canonical code/label/order. Any configured
+    # duplicate is ignored; tenant extras follow afterward.
+    result = list(required)
+    result.extend(
+        (code, label)
+        for code, label in options
+        if str(code or "") not in required_codes
+    )
     return result
 
 
