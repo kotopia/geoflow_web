@@ -12,7 +12,8 @@ from django.views.decorators.http import require_GET
 
 from control.gf_authz.permissions import gf_has_perm
 
-from .models import Contract, ProcessEvent, ProcessEventAttachment, Project
+from .models import ProcessEvent, ProcessEventAttachment, Project
+from .services.department_routing import scope_org_unit_id
 from .services.entity_access import (
     authorize_scope_read,
     authorize_scope_write,
@@ -36,28 +37,6 @@ def _project_contract_id(alias: str, project_id: UUID):
         .values_list("contract_id", flat=True)
         .first()
     )
-
-
-def _scope_assignment_org_unit(alias: str, scope_type: str, scope_id: UUID):
-    """Resolve the legal company that owns the contract/project assignment scope."""
-    if scope_type == "contract":
-        return (
-            Contract.objects.using(alias)
-            .filter(pk=scope_id)
-            .values_list("org_unit_id", flat=True)
-            .first()
-        )
-
-    if scope_type == "project":
-        row = (
-            Project.objects.using(alias)
-            .filter(pk=scope_id)
-            .values("contract__org_unit_id", "org_unit_id")
-            .first()
-        )
-        if row:
-            return row.get("contract__org_unit_id") or row.get("org_unit_id")
-    return None
 
 
 def _event_filter(request, alias: str, scope_type: str, scope_id: UUID):
@@ -234,7 +213,7 @@ def assignment_options(request):
     if not can_assign:
         return JsonResponse({"departments": [], "employees": [], "can_assign": False})
 
-    assignment_org_unit_id = _scope_assignment_org_unit(alias, scope_type, scope_id)
+    assignment_org_unit_id = scope_org_unit_id(alias, scope_type, scope_id)
 
     with connections[alias].cursor() as cur:
         if assignment_org_unit_id:
@@ -243,10 +222,10 @@ def assignment_options(request):
                 SELECT id::text, name, org_unit_id::text
                   FROM hr.departments
                  WHERE active=true
-                   AND (org_unit_id=%s OR org_unit_id IS NULL)
+                   AND (org_unit_id=%s::uuid OR org_unit_id IS NULL)
                  ORDER BY name, id
                 """,
-                [str(assignment_org_unit_id)],
+                [assignment_org_unit_id],
             )
             assignment_scope = "contract_org"
         else:
