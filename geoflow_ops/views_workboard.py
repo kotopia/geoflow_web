@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET
 
 from control.gf_authz.permissions import gf_has_perm
 
-from .models import ProcessEvent, ProcessEventAttachment, Project
+from .models import Contract, ProcessEvent, ProcessEventAttachment, Project
 from .services.entity_access import (
     authorize_scope_read,
     authorize_scope_write,
@@ -36,6 +36,28 @@ def _project_contract_id(alias: str, project_id: UUID):
         .values_list("contract_id", flat=True)
         .first()
     )
+
+
+def _scope_assignment_org_unit(alias: str, scope_type: str, scope_id: UUID):
+    """Resolve the legal company that owns the contract/project assignment scope."""
+    if scope_type == "contract":
+        return (
+            Contract.objects.using(alias)
+            .filter(pk=scope_id)
+            .values_list("org_unit_id", flat=True)
+            .first()
+        )
+
+    if scope_type == "project":
+        row = (
+            Project.objects.using(alias)
+            .filter(pk=scope_id)
+            .values("contract__org_unit_id", "org_unit_id")
+            .first()
+        )
+        if row:
+            return row.get("contract__org_unit_id") or row.get("org_unit_id")
+    return None
 
 
 def _event_filter(request, alias: str, scope_type: str, scope_id: UUID):
@@ -212,24 +234,47 @@ def assignment_options(request):
     if not can_assign:
         return JsonResponse({"departments": [], "employees": [], "can_assign": False})
 
+    assignment_org_unit_id = _scope_assignment_org_unit(alias, scope_type, scope_id)
+
     with connections[alias].cursor() as cur:
-        cur.execute(
-            """
-            SELECT id::text, name, org_unit_id::text
-              FROM hr.departments
-             ORDER BY name
-            """
-        )
+        if assignment_org_unit_id:
+            cur.execute(
+                """
+                SELECT id::text, name, org_unit_id::text
+                  FROM hr.departments
+                 WHERE active=true
+                   AND (org_unit_id=%s OR org_unit_id IS NULL)
+                 ORDER BY name, id
+                """,
+                [str(assignment_org_unit_id)],
+            )
+            assignment_scope = "contract_org"
+        else:
+            # Legacy contracts/projects without an owning company keep a
+            # tenant-wide fallback so historical records remain editable.
+            cur.execute(
+                """
+                SELECT id::text, name, org_unit_id::text
+                  FROM hr.departments
+                 WHERE active=true
+                 ORDER BY name, id
+                """
+            )
+            assignment_scope = "tenant_fallback"
+
         departments = [
             {"id": row[0], "name": row[1] or "", "org_unit_id": row[2] or ""}
             for row in cur.fetchall()
         ]
+
+        # People are intentionally tenant-wide. The contracting company limits
+        # the responsible department, not who may collaborate on the work.
         cur.execute(
             """
-            SELECT id::text, name, title, department_id::text, status
+            SELECT id::text, name, title, department_id::text, status, org_unit_id::text
               FROM hr.employee_profile
              WHERE status IS NULL OR status <> '퇴사'
-             ORDER BY name
+             ORDER BY name, id
             """
         )
         employees = [
@@ -237,12 +282,23 @@ def assignment_options(request):
                 "id": row[0],
                 "name": row[1] or "",
                 "title": row[2] or "",
-                "department_id": row[3] or "",
+                # Keep the current UI from narrowing the person pool after a
+                # department is chosen. Home department remains available as
+                # metadata for future display/reporting.
+                "department_id": "",
+                "home_department_id": row[3] or "",
                 "status": row[4] or "",
+                "org_unit_id": row[5] or "",
             }
             for row in cur.fetchall()
         ]
 
     return JsonResponse(
-        {"departments": departments, "employees": employees, "can_assign": True}
+        {
+            "departments": departments,
+            "employees": employees,
+            "can_assign": True,
+            "assignment_scope": assignment_scope,
+            "assignment_org_unit_id": str(assignment_org_unit_id or ""),
+        }
     )
