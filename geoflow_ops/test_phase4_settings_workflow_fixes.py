@@ -27,31 +27,34 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
             self.assertIn(f"def {handler}", boundary)
         self.assertIn("_require_project(request, pk, write=True)", boundary)
 
-    def test_contract_status_is_canonical_complete_and_dashboard_hides_terminal_contracts(self):
+    def test_legacy_contract_status_schema_is_preserved_but_not_user_editable(self):
         forms = source("geoflow_ops/forms.py")
         settings = source("geoflow_ops/services/tenant_settings.py")
-        dashboard = source("geoflow_ops/views_dashboard.py")
         migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
+        workflow = source("geoflow_ops/services/workflow_state.py")
+
+        # Existing schema/settings are retained for backward compatibility only.
         self.assertIn('(\"complete\", \"완료\")', settings)
-        self.assertNotIn('(\"completed\", \"완료\")', forms)
-        self.assertIn('status == "complete"', forms)
-        self.assertIn('qs = qs.exclude(status__in=terminal).exclude(contract__status__in=terminal)', dashboard)
         self.assertIn("WHEN 'completed' THEN 'complete'", migration)
         self.assertIn("WHEN '완료' THEN 'complete'", migration)
-        self.assertNotIn('option value="completed"', detail)
-        self.assertIn("for value, label in form.status.field.choices", detail)
+
+        # New Contract workflow never exposes or synchronizes status.
+        self.assertNotIn('settings_options(alias, "contract.status")', forms)
+        self.assertNotIn('name="status"', detail)
+        self.assertNotIn("운영상태", detail)
+        self.assertNotIn("UPDATE ctr.contracts", workflow)
+        self.assertIn("Contract.status is neither read nor written", workflow)
+
         for destructive in ("delete from ctr.contracts", "truncate ctr.contracts", "drop table ctr.contracts"):
             self.assertNotIn(destructive, migration.lower())
 
-    def test_contract_and_event_vocabularies_are_tenant_settings_driven(self):
+    def test_contract_kind_and_event_vocabularies_remain_tenant_settings_driven(self):
         forms = source("geoflow_ops/forms.py")
         service = source("geoflow_ops/services/tenant_settings.py")
         migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
-        self.assertIn('settings_options(alias, "contract.status")', forms)
         self.assertIn('settings_options(alias, "contract.kind")', forms)
-        self.assertIn("for value, label in form.status.field.choices", detail)
         self.assertIn("for value, label in form.kind.field.choices", detail)
         self.assertIn("process-workboard-ui.js", detail)
         self.assertIn("data-workflow-options-url", detail)
@@ -66,6 +69,7 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("def event_type_allowed", service)
         self.assertIn("category.code = %s", service)
         self.assertIn("category.system_key IS NULL", service)
+        self.assertIn('"event.type.closeout": (("closeout_complete", "완료"),)', service)
 
     def test_event_type_is_filtered_by_stage_in_ui_and_rejected_server_side(self):
         event_guard = source("geoflow_ops/event_security_views.py")
@@ -106,16 +110,18 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("계약직·일용직·파견·용역·프리랜서", template)
         self.assertIn("'일용직', '일용직'", migration)
 
-    def test_shared_contract_list_uses_tenant_labels_and_alias_canonicalization(self):
+    def test_contract_list_uses_event_derived_lifecycle_and_tenant_kind_labels(self):
         base = source("geoflow_ops/templates/geoflow_ops/base_tenant.html")
         list_template = source("geoflow_ops/templates/geoflow_ops/contracts/contract_list.html")
         js = source("geoflow_ops/static/geoflow_ops/js/gf-list-core.js")
         self.assertIn("GEOFLOW_TENANT_VOCABULARY", base)
         self.assertIn("data-kind-code", list_template)
         self.assertIn("contractKind", list_template)
+        self.assertIn("wf.major_event_label", list_template)
+        self.assertNotIn("운영상태", list_template)
+        # Shared list core remains compatible with project/legacy lists.
         self.assertIn("function canonicalStatus", js)
         self.assertIn('completed:"complete"', js)
-        self.assertIn("contractLabels", js)
 
     def test_new_workflow_route_is_preflight_guarded(self):
         preflight = source("control/services/route_security_preflight.py")
