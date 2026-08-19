@@ -28,6 +28,7 @@ from control.gf_authz.query import gf_scope_queryset
 from .views_catalog import build_scope_groups
 from .views_project_members import project_member_context
 from .services.project_access import project_access_policy
+from .services.workflow_state import contract_workflow_summaries, contract_workflow_summary
 from control.catalog import services_tenant as cat_svc
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -61,29 +62,21 @@ class ProjectListView(ListView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        alias = _alias(self.request)
+        projects = list(self.object_list)
+        contracts = [p.contract for p in projects if getattr(p, "contract", None)]
+        summaries = contract_workflow_summaries(alias, contracts)
         counts = {"total": 0, "planned": 0, "active": 0, "pause": 0, "cancel": 0, "complete": 0}
-        syn = {
-            "planned": {"planned"},
-            "active": {"active"},
-            "pause": {"pause", "paused"},
-            "cancel": {"cancel", "canceled"},
-            "complete": {"complete", "completed"},
-        }
-        for p in self.object_list:
-            s = (getattr(p.contract, "status", "") or "").lower()
+        for project in projects:
+            workflow = summaries.get(str(project.contract_id)) or contract_workflow_summary(alias, project.contract)
+            project.contract_workflow = workflow
             counts["total"] += 1
-            if s in syn["planned"]:
-                counts["planned"] += 1
-            elif s in syn["active"]:
-                counts["active"] += 1
-            elif s in syn["pause"]:
-                counts["pause"] += 1
-            elif s in syn["cancel"]:
-                counts["cancel"] += 1
-            elif s in syn["complete"]:
-                counts["complete"] += 1
+            key = workflow.get("filter_key") or ""
+            if key in counts:
+                counts[key] += 1
+        ctx["projects"] = projects
         ctx["status_counts"] = counts
-        ctx["project_access"] = project_access_policy(self.request, _alias(self.request))
+        ctx["project_access"] = project_access_policy(self.request, alias)
         return ctx
 
 
@@ -109,6 +102,7 @@ def project_json(request, pk):
     )
     policy = project_access_policy(request, alias)
     member = policy.membership(obj.pk)
+    workflow = contract_workflow_summary(alias, obj.contract)
     d = {
         "project_id": str(obj.pk),
         "project_code": obj.code,
@@ -123,7 +117,9 @@ def project_json(request, pk):
                         else (obj.contract.client.name if obj.contract.client else None)),
         "sub_client_name": obj.contract.sub_client.name if obj.contract.sub_client else None,
         "org_unit_name": obj.contract.org_unit.name if obj.contract.org_unit else None,
-        "status": obj.contract.status,
+        "contract_workflow": workflow.get("major_code"),
+        "contract_workflow_label": workflow.get("major_label"),
+        "contract_complete": bool(workflow.get("is_complete")),
         "member_role": member["member_role"] if member else None,
         "can_edit_project": policy.can_edit_project(obj.pk),
         "can_webgis_write": policy.can_webgis_write(obj.pk),
@@ -145,6 +141,7 @@ def project_detail_page(request, pk):
     )
     policy = project_access_policy(request, alias)
     member_ctx = project_member_context(request, alias, obj.pk)
+    contract_workflow = contract_workflow_summary(alias, obj.contract)
 
     if request.method == "POST":
         form = ProjectNoteForm(request.POST, instance=obj)
@@ -164,6 +161,7 @@ def project_detail_page(request, pk):
             "errors": flat_errors,
             "scope_groups": build_scope_groups(alias, obj.pk),
             "project_access": policy,
+            "contract_workflow": contract_workflow,
             **member_ctx,
         }
         return render(request, "geoflow_ops/projects/project_detail.html", context)
@@ -174,6 +172,7 @@ def project_detail_page(request, pk):
         "obj": obj,
         "edit_mode": edit_mode,
         "project_access": policy,
+        "contract_workflow": contract_workflow,
         **member_ctx,
     }
     if edit_mode:
