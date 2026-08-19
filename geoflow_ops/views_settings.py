@@ -12,6 +12,13 @@ from .services.entity_access import require_tenant_context
 
 
 NODE_TYPES = {"group", "category", "value"}
+# These rows remain in the database for compatibility/history but are no longer
+# user-facing settings. Contract lifecycle is now derived from event milestones.
+HIDDEN_SETTINGS_SYSTEM_KEYS = {
+    "contract.status",
+    "hr.position_grade",
+    "hr.position_title",
+}
 
 
 def _uuid_or_none(value):
@@ -50,6 +57,23 @@ def _load_nodes(alias: str):
         }
         for row in rows
     ]
+
+
+def _visible_nodes(nodes):
+    """Hide deprecated setting roots and all descendants without deleting data."""
+    hidden_ids = {
+        node["id"]
+        for node in nodes
+        if node.get("system_key") in HIDDEN_SETTINGS_SYSTEM_KEYS
+    }
+    changed = True
+    while changed:
+        changed = False
+        for node in nodes:
+            if node["id"] not in hidden_ids and node.get("parent_id") in hidden_ids:
+                hidden_ids.add(node["id"])
+                changed = True
+    return [node for node in nodes if node["id"] not in hidden_ids]
 
 
 def _load_org_units(alias: str):
@@ -99,7 +123,7 @@ def _build_tree(nodes):
 
 def settings_page(request):
     alias = require_tenant_context(request)
-    nodes = _load_nodes(alias)
+    nodes = _visible_nodes(_load_nodes(alias))
     return render(
         request,
         "geoflow_ops/settings/settings_page.html",
