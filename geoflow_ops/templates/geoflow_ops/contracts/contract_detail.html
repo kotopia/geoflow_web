@@ -4,7 +4,38 @@
 {% block title %}계약 상세 | GeoFlow{% endblock %}
 
 {% block content %}
-<style>.pre-wrap { white-space: pre-wrap; }</style>
+<style>
+.pre-wrap { white-space: pre-wrap; }
+.gf-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .5rem;
+  margin-bottom: 1.25rem;
+}
+.gf-lifecycle-step {
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: .6rem;
+  padding: .8rem 1rem;
+  background: var(--bs-body-bg, #fff);
+  color: var(--bs-secondary-color, #6c757d);
+}
+.gf-lifecycle-step strong { display:block; margin-bottom:.15rem; }
+.gf-lifecycle[data-phase="contract"] .gf-step-contract,
+.gf-lifecycle[data-phase="execution"] .gf-step-execution,
+.gf-lifecycle[data-phase="closeout"] .gf-step-closeout {
+  border-width: 2px;
+  color: var(--bs-body-color, #212529);
+  font-weight: 600;
+}
+.gf-lifecycle[data-phase="contract"] .gf-step-contract { border-color:#ffc107; background:rgba(255,193,7,.10); }
+.gf-lifecycle[data-phase="execution"] .gf-step-contract { opacity:.65; }
+.gf-lifecycle[data-phase="execution"] .gf-step-execution { border-color:#0d6efd; background:rgba(13,110,253,.08); }
+.gf-lifecycle[data-phase="closeout"] .gf-step-contract,
+.gf-lifecycle[data-phase="closeout"] .gf-step-execution { opacity:.55; }
+.gf-lifecycle[data-phase="closeout"] .gf-step-closeout { border-color:#0dcaf0; background:rgba(13,202,240,.08); }
+.gf-lifecycle[data-complete="1"] .gf-step-closeout { border-color:#6c757d; background:rgba(108,117,125,.08); }
+@media (max-width: 767.98px) { .gf-lifecycle { grid-template-columns: 1fr; } }
+</style>
 
 {% if obj %}
   {% contract_workflow obj as wf %}
@@ -24,6 +55,14 @@
   </div>
 </div>
 
+{% if obj and not edit_mode %}
+<div class="gf-lifecycle" data-phase="{{ wf.major_code }}" data-complete="{{ wf.is_complete|yesno:'1,0' }}" aria-label="업무단계">
+  <div class="gf-lifecycle-step gf-step-contract"><strong>1. 계약</strong><small>계약 생성</small></div>
+  <div class="gf-lifecycle-step gf-step-execution"><strong>2. 진행</strong><small>주요 이벤트: 착수</small></div>
+  <div class="gf-lifecycle-step gf-step-closeout"><strong>3. 준공{% if wf.is_complete %} ✓{% endif %}</strong><small>{% if wf.is_complete %}주요 이벤트: 완료{% else %}주요 이벤트: 준공계 제출{% endif %}</small></div>
+</div>
+{% endif %}
+
 <div class="container-fluid px-0">
   <div class="row g-3">
     <div class="col-md-6 col-lg-6">
@@ -34,15 +73,8 @@
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
               <div class="col-md-3"><label class="small text-muted">계약번호</label><div class="form-control-plaintext">{{ obj.code|default:"-" }}</div></div>
-              <div class="col-md-3">
-                <label class="small text-muted">현재 업무단계</label>
-                <div class="form-control-plaintext"><span class="badge bg-primary">{{ wf.major_label }}</span></div>
-              </div>
-              <div class="col-md-3"><label class="small text-muted">세부단계</label><div class="form-control-plaintext">{{ wf.stage_label }}</div></div>
-              <div class="col-md-3">
-                <label class="small text-muted">운영상태</label>
-                <div class="form-control-plaintext"><span class="gf-status" data-vocabulary="contract" data-render="badge" data-status="{{ obj.status|default:'' }}"></span></div>
-              </div>
+              <div class="col-md-3"><label class="small text-muted">현재 업무단계</label><div class="form-control-plaintext"><span class="badge {{ wf.phase_class }}">{{ wf.major_label }}</span></div></div>
+              <div class="col-md-6"><label class="small text-muted">단계 기준 이벤트</label><div class="form-control-plaintext">{{ wf.major_event_label }}</div></div>
 
               <div class="col-md-12"><label class="small text-muted">계약명</label><div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div></div>
               <div class="col-md-6"><label class="small text-muted">시작일</label><div class="form-control-plaintext">{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div></div>
@@ -65,8 +97,7 @@
             {% if errors %}<div class="alert alert-warning py-2 mb-3">{% for e in errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
-              <div class="col-md-3"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
-              <div class="col-md-3"><label class="form-label">운영상태</label><select id="contract-status" name="status" class="form-select">{% for value, label in form.status.field.choices %}<option value="{{ value }}" {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><div class="form-text">현재 업무단계는 이벤트 흐름에서 자동 계산됩니다.</div></div>
+              <div class="col-md-4"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
               <div class="col-md-12"><label class="form-label">계약명 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required value="{{ form.name.value|default_if_none:'' }}"></div>
               <div class="col-md-6"><label class="form-label">시작일</label><input type="text" id="start_date" name="start_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY/MM/DD" autocomplete="off" value="{{ form.instance.start_date|date:'Y-m-d' }}"></div>
               <div class="col-md-6"><label class="form-label">종료일</label><input type="text" id="end_date" name="end_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY-MM-DD" autocomplete="off" value="{{ form.instance.end_date|date:'Y-m-d' }}"></div>
@@ -75,6 +106,7 @@
               <div class="col-md-6"><label class="form-label">발주처 <span class="text-danger">*</span></label><select id="client" name="client" class="form-select" data-selected="{{ client_selected|default:form.client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="발주처 선택"></select></div>
               <div class="col-md-6 {% if form.kind.value != '하도급' %}d-none{% endif %}" id="sub_client_group"><label class="form-label">원도급</label><select id="sub_client" name="sub_client" class="form-select" data-selected="{{ subclient_selected|default:form.sub_client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="원도급 선택"></select></div>
               <div class="col-md-6"><label class="form-label">계약자</label>{{ form.org_unit }}</div>
+              <div class="col-12"><div class="alert alert-light border small mb-0">업무단계는 직접 입력하지 않습니다. 타임라인의 주요 이벤트(착수 → 준공계 제출 → 완료)에서 자동 계산됩니다.</div></div>
               <hr/><h5 class="h6 card-title">기타정보</h5>
               <div class="col-md-12"><textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea></div>
             </div>
@@ -156,7 +188,6 @@
 <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) GeoFlowListCore.renderBadges(document);
   var vocab = window.GEOFLOW_TENANT_VOCABULARY || {};
   var kindLabels = vocab.contractKind || {};
   var kindLabel = document.getElementById('contract-kind-label');
