@@ -4,9 +4,12 @@ from .models import Contract, Partner, Project, MyOrgUnit
 from control.middleware import current_db_alias
 from .services.tenant_settings import (
     CONTRACT_KIND_FALLBACK,
+    CONTRACT_STATUS_FALLBACK,
+    normalize_contract_status,
     settings_options,
 )
 
+STATUS_CHOICES = list(CONTRACT_STATUS_FALLBACK)
 KIND_CHOICES = list(CONTRACT_KIND_FALLBACK)
 
 
@@ -24,13 +27,15 @@ class ISODateInput(forms.DateInput):
 
 
 class ContractForm(forms.ModelForm):
-    """Editable contract facts only.
+    """Edit contract facts while keeping lifecycle event-driven.
 
-    Contract lifecycle is derived from the event ledger and therefore is not a
-    user-editable form field. This prevents a stale manual status from drifting
-    away from the actual 착수/준공 event history.
+    `status` remains in the form only for template/backward compatibility. It is
+    disabled, so a user cannot manually move the contract between 계약/진행/준공.
+    New contracts start in `planned`; lifecycle transitions are synchronized from
+    business events by the event service.
     """
 
+    status = forms.ChoiceField(choices=STATUS_CHOICES, required=False, disabled=True)
     kind = forms.ChoiceField(choices=KIND_CHOICES, required=False)
 
     start_date = forms.DateField(
@@ -50,11 +55,12 @@ class ContractForm(forms.ModelForm):
         model = Contract
         fields = [
             "code", "name", "start_date", "end_date",
-            "amount", "kind", "division",
+            "amount", "status", "kind", "division",
             "client", "sub_client", "org_unit", "description",
         ]
         widgets = {
             "code": forms.TextInput(attrs={"class": "form-control"}),
+            "status": forms.Select(attrs={"class": "form-select"}),
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "start_date": forms.TextInput(attrs={"class": "form-control"}),
             "end_date": forms.TextInput(attrs={"class": "form-control"}),
@@ -78,6 +84,24 @@ class ContractForm(forms.ModelForm):
         self.fields["start_date"].required = False
         self.fields["end_date"].required = False
 
+        current_status = normalize_contract_status(getattr(self.instance, "status", "")) or "planned"
+        status_labels = dict(CONTRACT_STATUS_FALLBACK)
+        status_choices = list(CONTRACT_STATUS_FALLBACK)
+        if current_status not in status_labels:
+            status_choices.append((current_status, f"{current_status} (기존값)"))
+        self.fields["status"] = forms.ChoiceField(
+            choices=status_choices,
+            required=False,
+            disabled=True,
+            initial=current_status,
+        )
+        self.fields["status"].widget.attrs.update({
+            "class": "form-select",
+            "aria-readonly": "true",
+            "title": "업무상태는 이벤트에서 자동 변경됩니다.",
+        })
+        self.initial["status"] = current_status
+
         kind_choices = list(settings_options(alias, "contract.kind"))
         current_kind = str(getattr(self.instance, "kind", "") or "").strip()
         if current_kind and current_kind not in {code for code, _ in kind_choices}:
@@ -87,7 +111,6 @@ class ContractForm(forms.ModelForm):
             choices=[("", "---------"), *kind_choices], required=False
         )
         self.fields["kind"].widget.attrs.update({"class": "form-select"})
-
         if current_kind:
             self.initial["kind"] = current_kind
 
@@ -109,6 +132,11 @@ class ContractForm(forms.ModelForm):
         if qs.exists():
             raise forms.ValidationError(f"이미 사용 중인 계약번호입니다: {code}")
         return code
+
+    def clean_status(self):
+        # Disabled fields use the initial value. Keep normalization for legacy
+        # stored tokens without accepting a user-supplied lifecycle transition.
+        return normalize_contract_status(self.cleaned_data.get("status")) or "planned"
 
     def clean(self):
         cd = super().clean()
