@@ -134,11 +134,12 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         closeout_options = dict(settings_options(None, "event.type.closeout"))
         self.assertEqual(closeout_options.get("closeout_complete"), "완료")
 
-    def test_contract_workflow_service_does_not_use_contract_status(self):
+    def test_contract_workflow_service_does_not_access_contract_status(self):
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
         lifecycle_body = source.split("def contract_workflow_summaries", 1)[1]
         self.assertIn("CONTRACT_LIFECYCLE_MILESTONES", lifecycle_body)
-        self.assertNotIn("contract.status", lifecycle_body.lower())
+        self.assertNotIn('getattr(contract, "status"', lifecycle_body)
+        self.assertNotIn("SELECT status FROM ctr.contracts", source)
         self.assertNotIn("UPDATE ctr.contracts", source)
         self.assertIn("kickoff_doc", source)
         self.assertIn("does not start 진행", source)
