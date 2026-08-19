@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.db import connections
 
 from geoflow_ops.process_workflow import (
+    CONTRACT_COMPLETION_EVENT_TYPE,
     EVENT_DEFAULT_STAGE,
     EVENT_TYPE_CHOICES,
     STAGE_CHOICES,
@@ -43,7 +44,7 @@ EMPLOYMENT_TYPE_FALLBACK = (
 # canonical options.
 SYSTEM_REQUIRED_OPTIONS = {
     "event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES),
-    "event.type.closeout": (("closeout_complete", "완료"),),
+    "event.type.closeout": ((CONTRACT_COMPLETION_EVENT_TYPE, "완료"),),
 }
 
 CONTRACT_STATUS_ALIASES = {
@@ -159,8 +160,6 @@ def _merge_required_options(system_key: str, options):
         return list(options)
 
     required_codes = {str(code or "") for code, _label in required}
-    # Required workflow options use canonical code/label/order. Any configured
-    # duplicate is ignored; tenant extras follow afterward.
     result = list(required)
     result.extend(
         (code, label)
@@ -198,10 +197,18 @@ def settings_codes(alias: str | None, system_key: str, *, include_inactive: bool
 def event_workflow_options(alias: str | None):
     stages = settings_options(alias, "event.stage")
     statuses = settings_options(alias, "event.status")
-    types_by_stage = {
-        stage_code: settings_options(alias, f"event.type.{stage_code}")
-        for stage_code, _label in stages
-    }
+    types_by_stage = {}
+    for stage_code, _label in stages:
+        options = settings_options(alias, f"event.type.{stage_code}")
+        # Final completion is recorded only through the dedicated 준공 완료
+        # action on Contract detail, not through the generic event dropdown.
+        if stage_code == "closeout":
+            options = [
+                (code, label)
+                for code, label in options
+                if code != CONTRACT_COMPLETION_EVENT_TYPE
+            ]
+        types_by_stage[stage_code] = options
     return {
         "stages": stages,
         "statuses": statuses,
