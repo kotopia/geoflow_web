@@ -86,13 +86,25 @@ EVENT_DEFAULT_STAGE = {
     "payment": "billing",
 }
 
-# These are the only user events allowed to move the coarse Contract lifecycle.
-# Contract creation itself is the synthetic starting milestone for the 계약 phase.
-CONTRACT_LIFECYCLE_MILESTONES = {
-    "kickoff": ("execution", "착수"),
-    "completion_doc": ("closeout", "준공계 제출"),
-    "closeout_complete": ("closeout", "완료"),
+# Coarse Contract lifecycle is derived from the selected event stage, not the
+# event type. This means, for example, stage=kickoff + type=etc still moves the
+# contract to 진행, and any non-void stage=closeout event moves it to 준공.
+CONTRACT_LIFECYCLE_STAGE_PHASES = {
+    "pre_contract": "contract",
+    "contract": "contract",
+    "kickoff": "execution",
+    "execution": "execution",
+    "inspection": "execution",
+    "closeout": "closeout",
 }
+
+# Final 완료 is intentionally different: it requires an explicit human action
+# that records this dedicated event type under the 준공 stage.
+CONTRACT_COMPLETION_EVENT_TYPE = "closeout_complete"
+
+# Core event stages are system-required. Tenant settings may contain extra stages,
+# but these core stages must always remain available and immutable.
+REQUIRED_EVENT_STAGE_CODES = tuple(choice.code for choice in STAGE_CHOICES)
 
 
 def normalize_stage(value: object) -> str:
