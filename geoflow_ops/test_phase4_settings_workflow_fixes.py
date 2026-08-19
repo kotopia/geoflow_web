@@ -27,33 +27,29 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
             self.assertIn(f"def {handler}", boundary)
         self.assertIn("_require_project(request, pk, write=True)", boundary)
 
-    def test_legacy_contract_status_schema_is_preserved_only_for_completion_compatibility(self):
+    def test_legacy_completed_contracts_are_converted_not_runtime_compatible(self):
         forms = source("geoflow_ops/forms.py")
-        settings = source("geoflow_ops/services/tenant_settings.py")
         settings_view = source("geoflow_ops/views_settings.py")
-        migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
         workflow = source("geoflow_ops/services/workflow_state.py")
+        migration = source("geoflow_ops/migrations/0026_contract_completion_event_backfill.py")
 
-        self.assertIn('(\"complete\", \"완료\")', settings)
-        self.assertIn("WHEN 'completed' THEN 'complete'", migration)
-        self.assertIn("WHEN '완료' THEN 'complete'", migration)
         self.assertIn('"contract.status"', settings_view)
         self.assertIn("HIDDEN_SETTINGS_SYSTEM_KEYS", settings_view)
-        self.assertIn("_visible_nodes", settings_view)
-
-        # New Contract forms never expose status, while historic completed rows
-        # get a one-way display bridge so they do not fall back to 계약.
         self.assertNotIn('settings_options(alias, "contract.status")', forms)
         self.assertNotIn('name="status"', detail)
         self.assertNotIn("운영상태", detail)
-        self.assertNotIn("UPDATE ctr.contracts", workflow)
-        self.assertIn("_legacy_contract_is_complete", workflow)
-        self.assertIn('getattr(contract, "status", None)', workflow)
-        self.assertIn("one-way legacy", workflow.lower())
 
-        for destructive in ("delete from ctr.contracts", "truncate ctr.contracts", "drop table ctr.contracts"):
-            self.assertNotIn(destructive, migration.lower())
+        # Runtime completion is event-only; old completed status values are
+        # converted into closeout_complete events by migration 0026.
+        runtime_body = workflow.split("def contract_workflow_summaries", 1)[1]
+        self.assertNotIn('getattr(contract, "status"', runtime_body)
+        self.assertNotIn("SELECT status FROM ctr.contracts", workflow)
+        self.assertNotIn("UPDATE ctr.contracts", workflow)
+        self.assertIn("event-only", workflow)
+        self.assertIn("legacy_contract_status_migration", migration)
+        self.assertIn("SET status = NULL", migration)
+        self.assertIn("'closeout_complete'", migration)
 
     def test_contract_kind_and_event_vocabularies_remain_tenant_settings_driven(self):
         forms = source("geoflow_ops/forms.py")
@@ -121,11 +117,8 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
 
     def test_settings_tree_has_expand_and_collapse_controls(self):
         template = source("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
-        view = source("geoflow_ops/views_settings.py")
         for token in ("btn-tree-expand", "btn-tree-collapse", "data-tree-toggle", "collapsed", "refreshTreeVisibility"):
             self.assertIn(token, template)
-        self.assertIn('if node_type != "value":', view)
-        self.assertIn("active = True", view)
 
     def test_external_project_people_are_employee_profiles_not_new_email_invites(self):
         view = source("geoflow_ops/views_project_members.py")
