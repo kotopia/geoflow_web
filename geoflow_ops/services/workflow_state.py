@@ -17,30 +17,34 @@ _STAGE_ORDER = {
     "closeout": 60,
 }
 _STAGE_LABELS = {choice.code: choice.label for choice in STAGE_CHOICES}
+_DISPLAY_MAJOR_LABELS = {
+    "contract": "계약",
+    "execution": "진행",
+    "closeout": "준공",
+}
 _CLOSEOUT_COMPLETE_EVENT_TYPES = {"closeout_complete"}
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
+    """Preserve the established stage-group contract used by existing callers."""
     stage = str(stage or "").strip()
     if stage in {"pre_contract", "contract"}:
-        return "contract", "계약"
+        return "contract", "계약(전)"
     if stage in {"kickoff", "execution", "inspection"}:
-        return "execution", "진행"
-    if stage == "closeout":
+        return "execution", "수행(진행)"
+    if stage in {"closeout", "billing"}:
         return "closeout", "준공"
-    # Unknown/custom stages do not silently move a contract to completion.
-    return "contract", "계약"
+    return "execution", "수행(진행)"
 
 
 def fallback_stage_for_contract_status(status: str | None) -> str:
-    """Return the safe initial business stage when no workflow event exists.
-
-    Contract.status is an operational flag (pause/cancel/etc.), not the business
-    workflow phase. A newly created or legacy event-less contract therefore
-    remains in the contract phase until a kickoff/execution event is recorded.
-    """
-
-    return "contract"
+    """Legacy compatibility fallback for callers that still inspect Contract.status."""
+    status = str(status or "").strip().lower()
+    if status in {"planned", "계약전"}:
+        return "pre_contract"
+    if status in {"complete", "completed", "완료"}:
+        return "closeout"
+    return "execution"
 
 
 def _stage_summary(
@@ -50,7 +54,8 @@ def _stage_summary(
     is_complete: bool = False,
 ) -> dict:
     stage = str(stage or "").strip() or fallback_stage_for_contract_status(contract_status)
-    major_code, major_label = major_phase_for_stage(stage)
+    major_code, _legacy_major_label = major_phase_for_stage(stage)
+    major_label = _DISPLAY_MAJOR_LABELS.get(major_code, _legacy_major_label)
     if major_code != "closeout":
         is_complete = False
     phase_class = {
@@ -73,11 +78,15 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 
     Contract and Project events share one event ledger. Project events carry
     contract_id lineage, so both scopes contribute to the contract's business
-    phase. Contract.status remains a separate operational flag.
+    phase. Contract.status remains a separate operational/compatibility value.
 
-    Billing/settlement events are deliberately ignored for business-stage
-    progression. Closeout remains visibly in progress until the explicit
-    `closeout_complete` event is recorded; delivery alone is not final closure.
+    New or event-less contracts are shown as 계약 regardless of Contract.status.
+    Once a kickoff/execution/inspection event exists the displayed phase is 진행.
+    Later contract-change/extension events cannot regress it because the highest
+    reached business stage wins. Billing/settlement events are deliberately
+    ignored for business-stage progression. Closeout remains visibly in progress
+    until the explicit `closeout_complete` event is recorded; delivery alone is
+    not final closure.
     """
 
     contracts = {str(row.id): row for row in contract_rows}
@@ -110,7 +119,9 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 
     result: dict[str, dict] = {}
     for contract_id, contract in contracts.items():
-        stage = latest.get(contract_id, (0, ""))[1]
+        # Lifecycle display is event-driven. No lifecycle event means 계약,
+        # even when an old/manual operational status contains another token.
+        stage = latest.get(contract_id, (0, "contract"))[1]
         result[contract_id] = _stage_summary(
             stage,
             contract_status=getattr(contract, "status", None),
@@ -122,5 +133,5 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 def contract_workflow_summary(alias: str, contract) -> dict:
     return contract_workflow_summaries(alias, [contract]).get(
         str(contract.id),
-        _stage_summary(None, contract_status=getattr(contract, "status", None)),
+        _stage_summary("contract", contract_status=getattr(contract, "status", None)),
     )
