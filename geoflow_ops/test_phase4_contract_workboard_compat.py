@@ -81,6 +81,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         summary = _stage_summary("contract", contract_status="active")
         self.assertEqual(summary["major_code"], "contract")
         self.assertEqual(summary["major_label"], "계약")
+        self.assertEqual(summary["filter_status"], "planned")
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
         self.assertIn('latest.get(contract_id, (0, "contract"))', source)
 
@@ -88,12 +89,15 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         for stage in ("kickoff", "execution", "inspection"):
             # Legacy grouping label is preserved, while the UI summary is normalized.
             self.assertEqual(major_phase_for_stage(stage), ("execution", "수행(진행)"))
-            self.assertEqual(_stage_summary(stage)["major_label"], "진행")
+            summary = _stage_summary(stage)
+            self.assertEqual(summary["major_label"], "진행")
+            self.assertEqual(summary["filter_status"], "active")
 
     def test_closeout_is_separate_from_final_completion_visual(self):
         in_closeout = _stage_summary("closeout", is_complete=False)
         completed = _stage_summary("closeout", is_complete=True)
         self.assertEqual(in_closeout["major_label"], "준공")
+        self.assertEqual(in_closeout["filter_status"], "complete")
         self.assertEqual(in_closeout["stage_label"], "준공")
         self.assertFalse(in_closeout["is_complete"])
         self.assertEqual(completed["stage_label"], "준공 완료")
@@ -114,11 +118,19 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertNotIn('"billing"', stage_order)
         self.assertIn("Billing/settlement events are deliberately ignored", source)
 
-    def test_contract_list_uses_workflow_visual_state_not_manual_status_for_phase(self):
+    def test_contract_list_uses_workflow_visual_and_filter_state(self):
         template = (
             ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_list.html"
         ).read_text(encoding="utf-8")
         self.assertIn("wf.phase_class", template)
         self.assertIn("wf.is_complete", template)
         self.assertIn("data-workflow-phase", template)
+        self.assertIn('data-status="{{ wf.filter_status }}"', template)
         self.assertIn("gf-contract-complete", template)
+        self.assertIn("{planned: '계약', active: '진행', complete: '준공'}", template)
+
+    def test_contract_status_field_is_read_only_but_tenant_vocabulary_remains(self):
+        forms = (ROOT / "forms.py").read_text(encoding="utf-8")
+        self.assertIn('settings_options(alias, "contract.status")', forms)
+        self.assertIn("disabled=True", forms)
+        self.assertIn("업무단계는 이벤트에서 자동 변경됩니다.", forms)
