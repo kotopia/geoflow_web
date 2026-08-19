@@ -52,10 +52,19 @@ def _parse_year(value):
 
 
 def _terminal_contract_ids(alias: str) -> list[str]:
-    """Return terminal contracts from events, never from Contract.status."""
+    """Return terminal contracts from workflow events plus legacy completion.
+
+    New completion/cancellation is event-driven. Existing contracts whose legacy
+    status is complete/completed/완료 are included only as a one-way compatibility
+    bridge so historic completed work does not reappear as active work.
+    """
     with connections[alias].cursor() as cur:
         cur.execute(
             """
+            SELECT id::text
+              FROM ctr.contracts
+             WHERE lower(btrim(COALESCE(status, ''))) IN ('complete', 'completed', '완료')
+            UNION
             SELECT DISTINCT contract_id::text
               FROM ops.process_events
              WHERE contract_id IS NOT NULL
