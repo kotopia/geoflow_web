@@ -30,8 +30,6 @@ _PHASE_RANK = {
     "closeout": 30,
 }
 
-_LEGACY_COMPLETE_VALUES = {"complete", "completed", "완료"}
-
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
     """Preserve the established stage-group helper contract for old callers."""
@@ -46,32 +44,21 @@ def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
 
 
 def fallback_stage_for_contract_status(status: str | None) -> str:
-    """Legacy helper only; new lifecycle display does not use status as phase."""
+    """Deprecated compatibility helper for old callers only.
+
+    Contract lifecycle rendering does not call this function. Runtime lifecycle is
+    event-only after migration 0026 converts historic completed status rows into
+    explicit closeout_complete events.
+    """
     status = str(status or "").strip().lower()
     if status in {"planned", "계약전"}:
         return "pre_contract"
-    if status in _LEGACY_COMPLETE_VALUES:
+    if status in {"complete", "completed", "완료"}:
         return "closeout"
     return "execution"
 
 
-def _legacy_contract_is_complete(value: object) -> bool:
-    """One-way compatibility bridge for contracts completed before event history.
-
-    Existing completed contracts must not visually fall back to 계약 merely
-    because they predate the event-driven workflow. No other legacy status value
-    participates in lifecycle calculation.
-    """
-
-    return str(value or "").strip().lower() in _LEGACY_COMPLETE_VALUES
-
-
-def _stage_summary(
-    stage: str | None,
-    *,
-    is_complete: bool = False,
-    legacy_complete: bool = False,
-) -> dict:
+def _stage_summary(stage: str | None, *, is_complete: bool = False) -> dict:
     stage = str(stage or "").strip() or "contract"
     major_code = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage, "contract")
     if is_complete:
@@ -100,12 +87,11 @@ def _stage_summary(
         "filter_key": _LIST_FILTER_KEY_BY_MAJOR.get(major_code, "active"),
         "phase_class": phase_class,
         "is_complete": major_code == "complete",
-        "legacy_complete": bool(legacy_complete),
     }
 
 
 def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
-    """Derive 계약 -> 진행 -> 준공 -> 완료 from event history.
+    """Derive 계약 -> 진행 -> 준공 -> 완료 entirely from event history.
 
     Coarse phase movement is based on the selected event *stage*, not event type:
     - pre_contract / contract -> 계약
@@ -117,12 +103,10 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     Therefore stage=kickoff + event_type=etc still starts 진행, and any non-void
     stage=closeout event enters 준공.
 
-    Final 완료 is intentionally explicit. Only the dedicated non-void
-    closeout_complete event marks a new contract complete. As a one-way legacy
-    compatibility bridge, an existing Contract.status of complete/completed/완료
-    is displayed exactly like that completion action so historic completed
-    contracts do not fall back to 계약. No other Contract.status value is read,
-    and this service never writes Contract.status.
+    Final 완료 is explicit and event-only. Only a non-void closeout_complete event
+    marks the contract complete. Migration 0026 converts historic completed
+    Contract.status rows into those events and clears the migrated legacy value,
+    so this runtime service never reads or writes Contract.status.
     """
 
     contracts = {str(row.id): row for row in contract_rows}
@@ -160,14 +144,11 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
                 reached[contract_id] = (rank, stage)
 
     result: dict[str, dict] = {}
-    for contract_id, contract in contracts.items():
-        legacy_complete = _legacy_contract_is_complete(getattr(contract, "status", None))
-        explicit_complete = contract_id in completed_contracts
+    for contract_id in contracts:
         stage = reached.get(contract_id, (0, "contract"))[1]
         result[contract_id] = _stage_summary(
             stage,
-            is_complete=explicit_complete or legacy_complete,
-            legacy_complete=legacy_complete and not explicit_complete,
+            is_complete=contract_id in completed_contracts,
         )
     return result
 
@@ -175,9 +156,5 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 def contract_workflow_summary(alias: str, contract) -> dict:
     return contract_workflow_summaries(alias, [contract]).get(
         str(contract.id),
-        _stage_summary(
-            "contract",
-            is_complete=_legacy_contract_is_complete(getattr(contract, "status", None)),
-            legacy_complete=_legacy_contract_is_complete(getattr(contract, "status", None)),
-        ),
+        _stage_summary("contract"),
     )
