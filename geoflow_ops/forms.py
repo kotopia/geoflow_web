@@ -4,12 +4,9 @@ from .models import Contract, Partner, Project, MyOrgUnit
 from control.middleware import current_db_alias
 from .services.tenant_settings import (
     CONTRACT_KIND_FALLBACK,
-    CONTRACT_STATUS_FALLBACK,
-    normalize_contract_status,
     settings_options,
 )
 
-STATUS_CHOICES = list(CONTRACT_STATUS_FALLBACK)
 KIND_CHOICES = list(CONTRACT_KIND_FALLBACK)
 
 
@@ -27,9 +24,8 @@ class ISODateInput(forms.DateInput):
 
 
 class ContractForm(forms.ModelForm):
-    # Kept for tenant vocabulary/backward compatibility, but lifecycle is
-    # event-driven. Users do not manually move 계약 -> 진행 -> 준공 here.
-    status = forms.ChoiceField(choices=STATUS_CHOICES, required=False, disabled=True)
+    """Edit contract facts only; lifecycle is derived from milestone events."""
+
     kind = forms.ChoiceField(choices=KIND_CHOICES, required=False)
 
     start_date = forms.DateField(
@@ -49,12 +45,11 @@ class ContractForm(forms.ModelForm):
         model = Contract
         fields = [
             "code", "name", "start_date", "end_date",
-            "amount", "status", "kind", "division",
+            "amount", "kind", "division",
             "client", "sub_client", "org_unit", "description",
         ]
         widgets = {
             "code": forms.TextInput(attrs={"class": "form-control"}),
-            "status": forms.Select(attrs={"class": "form-select"}),
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "start_date": forms.TextInput(attrs={"class": "form-control"}),
             "end_date": forms.TextInput(attrs={"class": "form-control"}),
@@ -78,30 +73,15 @@ class ContractForm(forms.ModelForm):
         self.fields["start_date"].required = False
         self.fields["end_date"].required = False
 
-        status_choices = list(settings_options(alias, "contract.status"))
         kind_choices = list(settings_options(alias, "contract.kind"))
-
-        current_status = normalize_contract_status(getattr(self.instance, "status", "")) or "planned"
-        if current_status and current_status not in {code for code, _ in status_choices}:
-            status_choices.append((current_status, f"{current_status} (기존값)"))
         current_kind = str(getattr(self.instance, "kind", "") or "").strip()
         if current_kind and current_kind not in {code for code, _ in kind_choices}:
             kind_choices.append((current_kind, f"{current_kind} (기존값)"))
 
-        self.fields["status"] = forms.ChoiceField(
-            choices=[("", "---------"), *status_choices], required=False, disabled=True
-        )
         self.fields["kind"] = forms.ChoiceField(
             choices=[("", "---------"), *kind_choices], required=False
         )
-        self.fields["status"].widget.attrs.update({
-            "class": "form-select",
-            "aria-readonly": "true",
-            "title": "업무단계는 이벤트에서 자동 변경됩니다.",
-        })
         self.fields["kind"].widget.attrs.update({"class": "form-select"})
-
-        self.initial["status"] = current_status
         if current_kind:
             self.initial["kind"] = current_kind
 
@@ -124,24 +104,10 @@ class ContractForm(forms.ModelForm):
             raise forms.ValidationError(f"이미 사용 중인 계약번호입니다: {code}")
         return code
 
-    def clean_status(self):
-        return normalize_contract_status(self.cleaned_data.get("status"))
-
     def clean(self):
         cd = super().clean()
-        status = normalize_contract_status(cd.get("status"))
-        cd["status"] = status
         sdate = cd.get("start_date")
         edate = cd.get("end_date")
-
-        if status == "active" and not sdate:
-            self.add_error("start_date", "진행 상태는 시작일이 필요합니다.")
-        if status == "complete":
-            if not sdate:
-                self.add_error("start_date", "완료 상태는 시작일이 필요합니다.")
-            if not edate:
-                self.add_error("end_date", "완료 상태는 종료일이 필요합니다.")
-
         if sdate and edate and edate < sdate:
             self.add_error("end_date", "종료일은 시작일 이후여야 합니다.")
         return cd
@@ -202,4 +168,3 @@ class MyOrgUnitForm(forms.ModelForm):
             "label": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
         }
-        
