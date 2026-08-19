@@ -26,6 +26,11 @@
                 backdrop-filter: blur(2px);
                 z-index: 2000;
             }
+            #contract-status:disabled{
+                background-color: var(--bs-light);
+                color: var(--bs-secondary-color);
+                cursor: not-allowed;
+            }
         </style>
 
         <div class="wrapper">
@@ -53,6 +58,16 @@
               contractStatus: parsed('gf-contract-status-labels'),
               contractKind: parsed('gf-contract-kind-labels')
             };
+
+            document.addEventListener('DOMContentLoaded', function () {
+              var statusSelect = document.getElementById('contract-status');
+              if (!statusSelect) return;
+              statusSelect.disabled = true;
+              statusSelect.setAttribute('aria-readonly', 'true');
+              statusSelect.setAttribute('title', '업무상태는 이벤트에서 자동 변경됩니다.');
+              var help = statusSelect.parentElement && statusSelect.parentElement.querySelector('.form-text');
+              if (help) help.textContent = '업무상태는 착수·준공 이벤트에 따라 자동 변경됩니다.';
+            });
           })();
         </script>
         <script src="{% static 'control/js/app.js' %}"></script>
