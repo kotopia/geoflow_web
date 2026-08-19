@@ -11,8 +11,13 @@
         <input type="hidden" id="event-scope-type-hidden" value="{{ scope_type }}">
         <input type="hidden" id="event-scope-id-hidden" value="{{ scope_id }}">
         <input type="hidden" id="event-id" value="">
-        <!-- Internal history-integrity flag only. Users do not manage status. -->
-        <input type="hidden" id="event-status" value="open">
+        <!-- Internal history-integrity field only. Hidden from the user. -->
+        <select class="d-none" id="event-status" aria-hidden="true" tabindex="-1">
+          <option value="open" selected>진행중</option>
+          <option value="done">완료</option>
+          <option value="draft">작성중</option>
+          <option value="void">취소</option>
+        </select>
 
         <div class="row g-3">
           <div class="col-md-6">
