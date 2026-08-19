@@ -60,13 +60,54 @@
             };
 
             document.addEventListener('DOMContentLoaded', function () {
+              // Contract lifecycle is event-driven. Keep the compatibility field
+              // out of the edit UI so users cannot treat it as another manual
+              // source of truth.
               var statusSelect = document.getElementById('contract-status');
-              if (!statusSelect) return;
-              statusSelect.disabled = true;
-              statusSelect.setAttribute('aria-readonly', 'true');
-              statusSelect.setAttribute('title', '업무상태는 이벤트에서 자동 변경됩니다.');
-              var help = statusSelect.parentElement && statusSelect.parentElement.querySelector('.form-text');
-              if (help) help.textContent = '업무상태는 착수·준공 이벤트에 따라 자동 변경됩니다.';
+              if (statusSelect) {
+                statusSelect.disabled = true;
+                statusSelect.setAttribute('aria-readonly', 'true');
+                statusSelect.setAttribute('title', '업무상태는 이벤트에서 자동 변경됩니다.');
+                var statusGroup = statusSelect.closest('.col-md-3');
+                if (statusGroup) statusGroup.classList.add('d-none');
+              }
+
+              // The contract detail template historically showed both the
+              // derived workflow and the stored compatibility status. Show only
+              // the derived lifecycle and style its coarse phase consistently.
+              var viewMode = document.getElementById('view-mode');
+              if (viewMode) {
+                viewMode.querySelectorAll('label.small.text-muted').forEach(function (label) {
+                  var text = (label.textContent || '').trim();
+                  var group = label.closest('.col-md-3');
+                  if (text === '운영상태' && group) {
+                    group.classList.add('d-none');
+                    return;
+                  }
+                  if (text !== '현재 업무단계') return;
+                  label.textContent = '업무상태';
+                  var badge = group && group.querySelector('.badge');
+                  if (!badge) return;
+                  var lifecycle = (badge.textContent || '').trim();
+                  badge.classList.remove('bg-primary');
+                  if (lifecycle === '계약') {
+                    badge.style.backgroundColor = '#ffc107';
+                    badge.style.color = '#212529';
+                  } else if (lifecycle === '진행') {
+                    badge.style.backgroundColor = '#0d6efd';
+                    badge.style.color = '#fff';
+                  } else if (lifecycle === '준공 진행') {
+                    badge.style.backgroundColor = '#6f42c1';
+                    badge.style.color = '#fff';
+                  } else if (lifecycle.indexOf('준공완료') >= 0) {
+                    badge.style.backgroundColor = '#6c757d';
+                    badge.style.color = '#fff';
+                  } else if (lifecycle === '취소') {
+                    badge.style.backgroundColor = '#dc3545';
+                    badge.style.color = '#fff';
+                  }
+                });
+              }
             });
           })();
         </script>
