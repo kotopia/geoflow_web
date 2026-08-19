@@ -2,7 +2,10 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-from geoflow_ops.process_workflow import default_stage_for_event
+from geoflow_ops.process_workflow import (
+    CONTRACT_LIFECYCLE_MILESTONES,
+    default_stage_for_event,
+)
 from geoflow_ops.services.tenant_settings import settings_options
 from geoflow_ops.services.workflow_state import (
     _stage_summary,
@@ -72,65 +75,103 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("event_security_views.workflow_options", urls)
         self.assertIn("views_workboard.workboard_event_list", security)
 
-    def test_eventless_contract_display_starts_in_contract_without_repurposing_legacy_fallback(self):
-        # Established fallback semantics remain available to old callers.
+    def test_legacy_stage_helpers_remain_compatible(self):
         self.assertEqual(fallback_stage_for_contract_status("planned"), "pre_contract")
         self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
         self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
-        # The event-driven list explicitly uses the contract stage when no event exists.
-        summary = _stage_summary("contract", contract_status="active")
+        self.assertEqual(major_phase_for_stage("kickoff"), ("execution", "수행(진행)"))
+
+    def test_only_explicit_major_events_move_contract_lifecycle(self):
+        self.assertEqual(
+            CONTRACT_LIFECYCLE_MILESTONES,
+            {
+                "kickoff": ("execution", "착수"),
+                "completion_doc": ("closeout", "준공계 제출"),
+                "closeout_complete": ("closeout", "완료"),
+            },
+        )
+        self.assertNotIn("kickoff_doc", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("contract_change", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("period_extension", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("suspend", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("resume", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("delivery", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("payment", CONTRACT_LIFECYCLE_MILESTONES)
+
+    def test_eventless_contract_display_is_contract_created(self):
+        summary = _stage_summary("contract", milestone_label="계약 생성")
         self.assertEqual(summary["major_code"], "contract")
         self.assertEqual(summary["major_label"], "계약")
-        self.assertEqual(summary["filter_status"], "planned")
-        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
-        self.assertIn('latest.get(contract_id, (0, "contract"))', source)
+        self.assertEqual(summary["major_event_label"], "계약 생성")
+        self.assertEqual(summary["filter_key"], "planned")
 
-    def test_kickoff_execution_and_inspection_display_as_progress(self):
-        for stage in ("kickoff", "execution", "inspection"):
-            # Legacy grouping label is preserved, while the UI summary is normalized.
-            self.assertEqual(major_phase_for_stage(stage), ("execution", "수행(진행)"))
-            summary = _stage_summary(stage)
-            self.assertEqual(summary["major_label"], "진행")
-            self.assertEqual(summary["filter_status"], "active")
+    def test_kickoff_is_the_only_start_milestone(self):
+        self.assertEqual(default_stage_for_event("kickoff"), "kickoff")
+        self.assertEqual(default_stage_for_event("kickoff_doc"), "kickoff")
+        self.assertIn("kickoff", CONTRACT_LIFECYCLE_MILESTONES)
+        self.assertNotIn("kickoff_doc", CONTRACT_LIFECYCLE_MILESTONES)
 
-    def test_closeout_is_separate_from_final_completion_visual(self):
-        in_closeout = _stage_summary("closeout", is_complete=False)
-        completed = _stage_summary("closeout", is_complete=True)
+    def test_closeout_and_final_completion_are_distinct(self):
+        in_closeout = _stage_summary(
+            "closeout",
+            is_complete=False,
+            milestone_label="준공계 제출",
+        )
+        completed = _stage_summary(
+            "closeout",
+            is_complete=True,
+            milestone_label="완료",
+        )
         self.assertEqual(in_closeout["major_label"], "준공")
-        self.assertEqual(in_closeout["filter_status"], "complete")
-        self.assertEqual(in_closeout["stage_label"], "준공")
+        self.assertEqual(in_closeout["major_event_label"], "준공계 제출")
         self.assertFalse(in_closeout["is_complete"])
-        self.assertEqual(completed["stage_label"], "준공 완료")
+        self.assertEqual(completed["major_event_label"], "완료")
         self.assertTrue(completed["is_complete"])
         self.assertNotEqual(in_closeout["phase_class"], completed["phase_class"])
 
-    def test_closeout_completion_is_explicit_and_available_to_legacy_configured_tenants(self):
+    def test_completion_event_is_available_to_legacy_configured_tenants(self):
         self.assertEqual(default_stage_for_event("closeout_complete"), "closeout")
         closeout_options = dict(settings_options(None, "event.type.closeout"))
-        self.assertEqual(closeout_options.get("closeout_complete"), "준공완료")
-        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
-        self.assertIn('_CLOSEOUT_COMPLETE_EVENT_TYPES = {"closeout_complete"}', source)
-        self.assertIn("delivery alone is not final closure", source)
+        self.assertEqual(closeout_options.get("closeout_complete"), "완료")
 
-    def test_billing_is_not_a_business_phase(self):
+    def test_contract_workflow_service_does_not_use_contract_status(self):
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
-        stage_order = source.split("_STAGE_ORDER = {", 1)[1].split("}", 1)[0]
-        self.assertNotIn('"billing"', stage_order)
-        self.assertIn("Billing/settlement events are deliberately ignored", source)
+        lifecycle_body = source.split("def contract_workflow_summaries", 1)[1]
+        self.assertIn("CONTRACT_LIFECYCLE_MILESTONES", lifecycle_body)
+        self.assertNotIn("contract.status", lifecycle_body.lower())
+        self.assertNotIn("UPDATE ctr.contracts", source)
+        self.assertIn("kickoff_doc", source)
+        self.assertIn("does not start 진행", source)
 
-    def test_contract_list_uses_workflow_visual_and_filter_state(self):
+    def test_contract_list_shows_only_event_derived_work_phase(self):
         template = (
             ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_list.html"
         ).read_text(encoding="utf-8")
-        self.assertIn("wf.phase_class", template)
-        self.assertIn("wf.is_complete", template)
+        self.assertIn("업무단계", template)
+        self.assertNotIn("운영상태", template)
+        self.assertIn("wf.major_event_label", template)
         self.assertIn("data-workflow-phase", template)
-        self.assertIn('data-status="{{ wf.filter_status }}"', template)
-        self.assertIn("gf-contract-complete", template)
-        self.assertIn("{planned: '계약', active: '진행', complete: '준공'}", template)
+        self.assertIn("gf-k-pause", template)
+        self.assertIn("gf-k-cancel", template)
 
-    def test_contract_status_field_is_read_only_but_tenant_vocabulary_remains(self):
+    def test_contract_form_and_detail_do_not_expose_contract_status(self):
         forms = (ROOT / "forms.py").read_text(encoding="utf-8")
-        self.assertIn('settings_options(alias, "contract.status")', forms)
-        self.assertIn("disabled=True", forms)
-        self.assertIn("업무단계는 이벤트에서 자동 변경됩니다.", forms)
+        detail = (
+            ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('settings_options(alias, "contract.status")', forms)
+        self.assertNotIn('"status", "kind"', forms)
+        self.assertNotIn('name="status"', detail)
+        self.assertNotIn("운영상태", detail)
+        self.assertIn("착수 → 준공계 제출 → 완료", detail)
+        self.assertIn("gf-lifecycle", detail)
+
+    def test_event_modal_hides_processing_status_from_user(self):
+        modal = (
+            ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn('type="hidden" id="event-status" value="open"', modal)
+        self.assertNotIn("처리 상태", modal)
+        self.assertIn("착수 → 진행", modal)
+        self.assertIn("준공계 제출 → 준공", modal)
+        self.assertIn("완료 → 준공 완료", modal)
