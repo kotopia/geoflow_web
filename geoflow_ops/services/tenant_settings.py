@@ -161,25 +161,37 @@ def _merge_required_options(system_key: str, options):
     return result
 
 
+def _canonicalize_contract_status_labels(options):
+    labels = dict(CONTRACT_STATUS_FALLBACK)
+    return [
+        (code, labels.get(normalize_contract_status(code), label))
+        for code, label in options
+    ]
+
+
 def settings_options(alias: str | None, system_key: str, *, include_inactive: bool = False):
     """Return stable machine code + tenant-editable label pairs."""
 
     fallback = list(_fallback_for(system_key))
     if not alias or not _table_exists(alias, "ops.settings_nodes"):
-        return _merge_required_options(system_key, fallback)
+        result = _merge_required_options(system_key, fallback)
+        return _canonicalize_contract_status_labels(result) if system_key == "contract.status" else result
 
     try:
         rows = _configured_rows(alias, system_key)
     except Exception:
-        return _merge_required_options(system_key, fallback)
+        result = _merge_required_options(system_key, fallback)
+        return _canonicalize_contract_status_labels(result) if system_key == "contract.status" else result
     if not rows:
-        return _merge_required_options(system_key, fallback)
+        result = _merge_required_options(system_key, fallback)
+        return _canonicalize_contract_status_labels(result) if system_key == "contract.status" else result
     configured = [
         (row[0] or "", row[1] or row[0] or "")
         for row in rows
         if include_inactive or bool(row[2])
     ]
-    return _merge_required_options(system_key, configured)
+    result = _merge_required_options(system_key, configured)
+    return _canonicalize_contract_status_labels(result) if system_key == "contract.status" else result
 
 
 def settings_codes(alias: str | None, system_key: str, *, include_inactive: bool = False) -> set[str]:
