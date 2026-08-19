@@ -21,16 +21,22 @@ MANAGEMENT_EVENT_TYPES = {
 
 
 def scope_org_unit_id(alias: str, scope_type: str, scope_id) -> str | None:
+    """Resolve the legal company that owns a contract/project workflow scope."""
     scope_type = str(scope_type or "").strip().lower()
     with connections[alias].cursor() as cur:
         if scope_type == "contract":
-            cur.execute("SELECT org_unit_id::text FROM ctr.contracts WHERE id=%s LIMIT 1", [str(scope_id)])
+            cur.execute(
+                "SELECT org_unit_id::text FROM ctr.contracts WHERE id=%s LIMIT 1",
+                [str(scope_id)],
+            )
         elif scope_type == "project":
+            # The contract party is authoritative. Project.org_unit_id is kept
+            # as a legacy/direct-project fallback when no contract is linked.
             cur.execute(
                 """
-                SELECT c.org_unit_id::text
+                SELECT COALESCE(c.org_unit_id, p.org_unit_id)::text
                   FROM prj.projects p
-                  JOIN ctr.contracts c ON c.id=p.contract_id
+                  LEFT JOIN ctr.contracts c ON c.id=p.contract_id
                  WHERE p.id=%s
                  LIMIT 1
                 """,
@@ -40,6 +46,33 @@ def scope_org_unit_id(alias: str, scope_type: str, scope_id) -> str | None:
             return None
         row = cur.fetchone()
     return row[0] if row and row[0] else None
+
+
+def department_allowed_for_scope(alias: str, scope_type: str, scope_id, department_id) -> bool:
+    """Allow active company departments, plus legacy tenant-common departments."""
+    if not department_id:
+        return True
+    org_unit_id = scope_org_unit_id(alias, scope_type, scope_id)
+    with connections[alias].cursor() as cur:
+        if org_unit_id:
+            cur.execute(
+                """
+                SELECT 1
+                  FROM hr.departments
+                 WHERE id=%s AND active=true
+                   AND (org_unit_id=%s::uuid OR org_unit_id IS NULL)
+                 LIMIT 1
+                """,
+                [str(department_id), org_unit_id],
+            )
+        else:
+            # Legacy contracts/projects without an owning company retain the
+            # previous tenant-wide active-department behavior.
+            cur.execute(
+                "SELECT 1 FROM hr.departments WHERE id=%s AND active=true LIMIT 1",
+                [str(department_id)],
+            )
+        return cur.fetchone() is not None
 
 
 def department_id_by_name(alias: str, name: str, *, org_unit_id: str | None = None) -> str | None:

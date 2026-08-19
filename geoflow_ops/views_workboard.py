@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET
 from control.gf_authz.permissions import gf_has_perm
 
 from .models import ProcessEvent, ProcessEventAttachment, Project
+from .services.department_routing import scope_org_unit_id
 from .services.entity_access import (
     authorize_scope_read,
     authorize_scope_write,
@@ -212,24 +213,47 @@ def assignment_options(request):
     if not can_assign:
         return JsonResponse({"departments": [], "employees": [], "can_assign": False})
 
+    assignment_org_unit_id = scope_org_unit_id(alias, scope_type, scope_id)
+
     with connections[alias].cursor() as cur:
-        cur.execute(
-            """
-            SELECT id::text, name, org_unit_id::text
-              FROM hr.departments
-             ORDER BY name
-            """
-        )
+        if assignment_org_unit_id:
+            cur.execute(
+                """
+                SELECT id::text, name, org_unit_id::text
+                  FROM hr.departments
+                 WHERE active=true
+                   AND (org_unit_id=%s::uuid OR org_unit_id IS NULL)
+                 ORDER BY name, id
+                """,
+                [assignment_org_unit_id],
+            )
+            assignment_scope = "contract_org"
+        else:
+            # Legacy contracts/projects without an owning company keep a
+            # tenant-wide fallback so historical records remain editable.
+            cur.execute(
+                """
+                SELECT id::text, name, org_unit_id::text
+                  FROM hr.departments
+                 WHERE active=true
+                 ORDER BY name, id
+                """
+            )
+            assignment_scope = "tenant_fallback"
+
         departments = [
             {"id": row[0], "name": row[1] or "", "org_unit_id": row[2] or ""}
             for row in cur.fetchall()
         ]
+
+        # People are intentionally tenant-wide. The contracting company limits
+        # the responsible department, not who may collaborate on the work.
         cur.execute(
             """
-            SELECT id::text, name, title, department_id::text, status
+            SELECT id::text, name, title, department_id::text, status, org_unit_id::text
               FROM hr.employee_profile
              WHERE status IS NULL OR status <> '퇴사'
-             ORDER BY name
+             ORDER BY name, id
             """
         )
         employees = [
@@ -237,12 +261,23 @@ def assignment_options(request):
                 "id": row[0],
                 "name": row[1] or "",
                 "title": row[2] or "",
-                "department_id": row[3] or "",
+                # Keep the current UI from narrowing the person pool after a
+                # department is chosen. Home department remains available as
+                # metadata for future display/reporting.
+                "department_id": "",
+                "home_department_id": row[3] or "",
                 "status": row[4] or "",
+                "org_unit_id": row[5] or "",
             }
             for row in cur.fetchall()
         ]
 
     return JsonResponse(
-        {"departments": departments, "employees": employees, "can_assign": True}
+        {
+            "departments": departments,
+            "employees": employees,
+            "can_assign": True,
+            "assignment_scope": assignment_scope,
+            "assignment_org_unit_id": str(assignment_org_unit_id or ""),
+        }
     )
