@@ -10,7 +10,6 @@ from geoflow_ops.process_workflow import (
 )
 from geoflow_ops.services.tenant_settings import event_workflow_options, settings_options
 from geoflow_ops.services.workflow_state import (
-    _legacy_contract_is_complete,
     _stage_summary,
     fallback_stage_for_contract_status,
     major_phase_for_stage,
@@ -78,11 +77,15 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("event_security_views.workflow_options", urls)
         self.assertIn("views_workboard.workboard_event_list", security)
 
-    def test_legacy_stage_helpers_remain_compatible(self):
+    def test_legacy_stage_helpers_remain_compatible_but_runtime_is_event_only(self):
         self.assertEqual(fallback_stage_for_contract_status("planned"), "pre_contract")
         self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
         self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
         self.assertEqual(major_phase_for_stage("kickoff"), ("execution", "수행(진행)"))
+        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
+        runtime = source.split("def contract_workflow_summaries", 1)[1]
+        self.assertNotIn('getattr(contract, "status"', runtime)
+        self.assertIn("event-only", source)
 
     def test_contract_lifecycle_is_stage_driven(self):
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["contract"], "contract")
@@ -91,7 +94,6 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["inspection"], "execution")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["closeout"], "closeout")
         self.assertNotIn("billing", CONTRACT_LIFECYCLE_STAGE_PHASES)
-        # Event type is intentionally irrelevant for phase advancement.
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
         self.assertIn("phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)", source)
         self.assertIn("highest reached non-void phase wins", source)
@@ -128,15 +130,17 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertEqual(completed["filter_key"], "complete")
         self.assertTrue(completed["is_complete"])
 
-    def test_legacy_completed_status_is_one_way_completion_compatibility(self):
-        for value in ("complete", "completed", "완료"):
-            self.assertTrue(_legacy_contract_is_complete(value))
-        for value in ("", None, "active", "pause", "cancel"):
-            self.assertFalse(_legacy_contract_is_complete(value))
-        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
-        self.assertIn('getattr(contract, "status", None)', source)
-        self.assertNotIn("UPDATE ctr.contracts", source)
-        self.assertIn("one-way legacy", source.lower())
+    def test_legacy_completed_status_is_migrated_not_read_at_runtime(self):
+        migration = (ROOT / "migrations" / "0026_contract_completion_event_backfill.py").read_text(encoding="utf-8")
+        self.assertIn("legacy_contract_status_migration", migration)
+        self.assertIn("'closeout_complete'", migration)
+        self.assertIn("SET status = NULL", migration)
+        self.assertIn("occurred_at_inferred", migration)
+        workflow = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
+        runtime = workflow.split("def contract_workflow_summaries", 1)[1]
+        self.assertNotIn('getattr(contract, "status"', runtime)
+        self.assertNotIn("SELECT status FROM ctr.contracts", workflow)
+        self.assertNotIn("UPDATE ctr.contracts", workflow)
 
     def test_completion_event_is_reserved_for_dedicated_contract_action(self):
         self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_complete")
