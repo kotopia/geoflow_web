@@ -32,13 +32,8 @@
         </div>
       </div>
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <div id="statusButtons" class="gf-status-tabs"
-            data-count-all="{{ status_counts.total|default:0 }}"
-            data-count-planned="{{ status_counts.planned|default:0 }}"
-            data-count-active="{{ status_counts.active|default:0 }}"
-            data-count-pause="{{ status_counts.pause|default:0 }}"
-            data-count-cancel="{{ status_counts.cancel|default:0 }}"
-            data-count-complete="{{ status_counts.complete|default:0 }}"></div>
+        <!-- Counts are derived from the rendered event-driven lifecycle rows. -->
+        <div id="statusButtons" class="gf-status-tabs"></div>
       </div>
     </div>
 
@@ -53,7 +48,7 @@
         <tbody>
           {% for c in contracts %}
           {% contract_workflow c as wf %}
-          <tr data-id="{{ c.id }}" data-status="{{ c.status|lower }}" data-workflow-phase="{{ wf.major_code }}" data-workflow-complete="{{ wf.is_complete|yesno:'1,0' }}" data-href="{% url 'tenant:contract_detail' c.id %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
+          <tr data-id="{{ c.id }}" data-status="{{ wf.filter_status }}" data-workflow-phase="{{ wf.major_code }}" data-workflow-complete="{{ wf.is_complete|yesno:'1,0' }}" data-href="{% url 'tenant:contract_detail' c.id %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
             <td data-col="code">{{ c.code }}</td>
             <td data-col="name" class="text-truncate">{{ c.name }}</td>
             <td data-col="workflow" class="text-center">
@@ -68,7 +63,7 @@
             <td data-col="amount" class="text-end">{{ c.amount|intcomma }}</td>
             <td data-col="client">{% if c.kind == "하도급" %}{{ c.sub_client.name|default:c.client.name }}{% else %}{{ c.client.name }}{% endif %}</td>
             <td data-col="orgunit">{{ c.org_unit.label }}</td>
-            <td data-col="status" class="text-center"><span class="gf-status" data-vocabulary="contract" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span></td>
+            <td data-col="status" class="text-center"><span class="gf-status" data-vocabulary="contract" data-status="{{ wf.filter_status }}" data-render="badge" data-size="sm"></span></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -81,6 +76,16 @@
 {% block scripts %}
   <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
   <script>
+    // The shared list core still uses the stable planned/active/complete tokens.
+    // Override only their contract-list labels so users see the event-driven
+    // lifecycle vocabulary: 계약 / 진행 / 준공.
+    window.GEOFLOW_TENANT_VOCABULARY = window.GEOFLOW_TENANT_VOCABULARY || {};
+    window.GEOFLOW_TENANT_VOCABULARY.contractStatus = Object.assign(
+      {},
+      window.GEOFLOW_TENANT_VOCABULARY.contractStatus || {},
+      {planned: '계약', active: '진행', complete: '준공'}
+    );
+
     document.addEventListener('DOMContentLoaded', function(){
       const vocab = window.GEOFLOW_TENANT_VOCABULARY || {};
       const kindLabels = vocab.contractKind || {};
