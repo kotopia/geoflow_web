@@ -64,7 +64,8 @@ def _stage_summary(
     canceled: bool = False,
 ) -> dict:
     status_text = str(contract_status or "").strip().lower()
-    if canceled:
+    legacy_canceled = status_text in {"cancel", "canceled", "cancelled", "취소"}
+    if canceled or legacy_canceled:
         return {
             "stage": "contract",
             "stage_label": "계약취소",
@@ -169,6 +170,11 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     history inside the current phase and never move the lifecycle backwards.
     Billing events never advance technical lifecycle. An explicit non-void
     `closeout_complete` event marks a closeout contract as finally completed.
+
+    Legacy compatibility matters: contract/pre-contract/billing-only events do
+    not replace an already stored lifecycle. Only a true lifecycle milestone
+    (착수/수행/검사/준공 or terminal event) switches the summary to event-driven
+    calculation.
     """
 
     contracts = {str(row.id): row for row in contract_rows}
@@ -178,7 +184,7 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     latest_stage: dict[str, tuple[int, str]] = {}
     final_complete: set[str] = set()
     canceled: set[str] = set()
-    has_business_event: set[str] = set()
+    has_lifecycle_event: set[str] = set()
 
     with connections[alias].cursor() as cur:
         cur.execute(
@@ -196,20 +202,19 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 
             if event_type == "contract_cancel":
                 canceled.add(contract_id)
-                has_business_event.add(contract_id)
+                has_lifecycle_event.add(contract_id)
                 continue
             if event_type == "closeout_complete":
                 final_complete.add(contract_id)
+                has_lifecycle_event.add(contract_id)
 
-            # Financial events are still retained in the timeline, but they are
-            # intentionally ignored for the technical contract lifecycle.
-            if stage == "billing":
+            # Financial and contract-administration events remain visible in the
+            # timeline but never establish or regress the technical lifecycle.
+            if stage not in _LIFECYCLE_STAGES:
                 continue
 
+            has_lifecycle_event.add(contract_id)
             rank = _STAGE_ORDER.get(stage, 0)
-            if rank <= 0:
-                continue
-            has_business_event.add(contract_id)
             current = latest_stage.get(contract_id)
             if current is None or rank > current[0]:
                 latest_stage[contract_id] = (rank, stage)
@@ -225,7 +230,7 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
             )
             continue
 
-        if contract_id in has_business_event:
+        if contract_id in has_lifecycle_event:
             stage = latest_stage.get(contract_id, (0, "contract"))[1]
             # For event-driven contracts final completion is explicit only.
             result[contract_id] = _stage_summary(
