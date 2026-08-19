@@ -17,7 +17,7 @@ _STAGE_ORDER = {
     "closeout": 60,
 }
 _STAGE_LABELS = {choice.code: choice.label for choice in STAGE_CHOICES}
-_CLOSEOUT_COMPLETE_EVENT_TYPES = {"delivery", "closeout_complete"}
+_CLOSEOUT_COMPLETE_EVENT_TYPES = {"closeout_complete"}
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
@@ -76,9 +76,8 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     phase. Contract.status remains a separate operational flag.
 
     Billing/settlement events are deliberately ignored for business-stage
-    progression. A closeout phase becomes visually complete only after an
-    explicit completion event (currently delivery, with closeout_complete kept
-    as a forward-compatible configurable event code).
+    progression. Closeout remains visibly in progress until the explicit
+    `closeout_complete` event is recorded; delivery alone is not final closure.
     """
 
     contracts = {str(row.id): row for row in contract_rows}
