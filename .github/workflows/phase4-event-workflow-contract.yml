@@ -80,7 +80,8 @@ jobs:
             geoflow_ops/services/workflow_state.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py \
             geoflow_ops/migrations/0020_phase4_project_task_execution.py \
-            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py
+            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py \
+            geoflow_ops/migrations/0026_contract_completion_event_backfill.py
           node --check geoflow_ops/static/geoflow_ops/js/process-events-ui.js
           node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
 
