@@ -27,31 +27,36 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
             self.assertIn(f"def {handler}", boundary)
         self.assertIn("_require_project(request, pk, write=True)", boundary)
 
-    def test_contract_status_is_canonical_complete_and_dashboard_hides_terminal_contracts(self):
+    def test_legacy_completed_contracts_are_converted_not_runtime_compatible(self):
         forms = source("geoflow_ops/forms.py")
-        settings = source("geoflow_ops/services/tenant_settings.py")
-        dashboard = source("geoflow_ops/views_dashboard.py")
-        migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
+        settings_view = source("geoflow_ops/views_settings.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
-        self.assertIn('(\"complete\", \"완료\")', settings)
-        self.assertNotIn('(\"completed\", \"완료\")', forms)
-        self.assertIn('status == "complete"', forms)
-        self.assertIn('qs = qs.exclude(status__in=terminal).exclude(contract__status__in=terminal)', dashboard)
-        self.assertIn("WHEN 'completed' THEN 'complete'", migration)
-        self.assertIn("WHEN '완료' THEN 'complete'", migration)
-        self.assertNotIn('option value="completed"', detail)
-        self.assertIn("for value, label in form.status.field.choices", detail)
-        for destructive in ("delete from ctr.contracts", "truncate ctr.contracts", "drop table ctr.contracts"):
-            self.assertNotIn(destructive, migration.lower())
+        workflow = source("geoflow_ops/services/workflow_state.py")
+        migration = source("geoflow_ops/migrations/0026_contract_completion_event_backfill.py")
 
-    def test_contract_and_event_vocabularies_are_tenant_settings_driven(self):
+        self.assertIn('"contract.status"', settings_view)
+        self.assertIn("HIDDEN_SETTINGS_SYSTEM_KEYS", settings_view)
+        self.assertNotIn('settings_options(alias, "contract.status")', forms)
+        self.assertNotIn('name="status"', detail)
+        self.assertNotIn("운영상태", detail)
+
+        # Runtime completion is event-only; old completed status values are
+        # converted into closeout_complete events by migration 0026.
+        runtime_body = workflow.split("def contract_workflow_summaries", 1)[1]
+        self.assertNotIn('getattr(contract, "status"', runtime_body)
+        self.assertNotIn("SELECT status FROM ctr.contracts", workflow)
+        self.assertNotIn("UPDATE ctr.contracts", workflow)
+        self.assertIn("event-only", workflow)
+        self.assertIn("legacy_contract_status_migration", migration)
+        self.assertIn("SET status = NULL", migration)
+        self.assertIn("'closeout_complete'", migration)
+
+    def test_contract_kind_and_event_vocabularies_remain_tenant_settings_driven(self):
         forms = source("geoflow_ops/forms.py")
         service = source("geoflow_ops/services/tenant_settings.py")
         migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
-        self.assertIn('settings_options(alias, "contract.status")', forms)
         self.assertIn('settings_options(alias, "contract.kind")', forms)
-        self.assertIn("for value, label in form.status.field.choices", detail)
         self.assertIn("for value, label in form.kind.field.choices", detail)
         self.assertIn("process-workboard-ui.js", detail)
         self.assertIn("data-workflow-options-url", detail)
@@ -66,6 +71,29 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("def event_type_allowed", service)
         self.assertIn("category.code = %s", service)
         self.assertIn("category.system_key IS NULL", service)
+        self.assertIn("SYSTEM_REQUIRED_OPTIONS", service)
+        self.assertIn('"event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES)', service)
+        self.assertIn("CONTRACT_COMPLETION_EVENT_TYPE", service)
+
+    def test_required_event_stages_are_immutable_in_ui_and_server(self):
+        template = source("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
+        view = source("geoflow_ops/views_settings.py")
+        self.assertIn("필수·고정", template)
+        self.assertIn("node.immutable", template)
+        self.assertIn("settings-save-button", template)
+        self.assertIn("def _is_immutable_event_stage", view)
+        self.assertIn('key == "event.stage" or key.startswith("event.stage.")', view)
+        self.assertIn("필수 업무단계는 시스템 기준값으로 수정할 수 없습니다.", view)
+
+    def test_completion_event_is_hidden_from_generic_event_dropdown(self):
+        service = source("geoflow_ops/services/tenant_settings.py")
+        modal = source("geoflow_ops/templates/geoflow_ops/events/_event_modal.html")
+        detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
+        self.assertIn("Final completion is recorded only through the dedicated 준공 완료", service)
+        self.assertIn("if code != CONTRACT_COMPLETION_EVENT_TYPE", service)
+        self.assertNotIn('value="closeout_complete"', modal)
+        self.assertIn("btn-contract-complete", detail)
+        self.assertIn("event_type: 'closeout_complete'", detail)
 
     def test_event_type_is_filtered_by_stage_in_ui_and_rejected_server_side(self):
         event_guard = source("geoflow_ops/event_security_views.py")
@@ -89,11 +117,8 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
 
     def test_settings_tree_has_expand_and_collapse_controls(self):
         template = source("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
-        view = source("geoflow_ops/views_settings.py")
         for token in ("btn-tree-expand", "btn-tree-collapse", "data-tree-toggle", "collapsed", "refreshTreeVisibility"):
             self.assertIn(token, template)
-        self.assertIn('if node_type != "value":', view)
-        self.assertIn("active = True", view)
 
     def test_external_project_people_are_employee_profiles_not_new_email_invites(self):
         view = source("geoflow_ops/views_project_members.py")
@@ -106,16 +131,18 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("계약직·일용직·파견·용역·프리랜서", template)
         self.assertIn("'일용직', '일용직'", migration)
 
-    def test_shared_contract_list_uses_tenant_labels_and_alias_canonicalization(self):
+    def test_contract_list_uses_four_event_derived_lifecycle_labels(self):
         base = source("geoflow_ops/templates/geoflow_ops/base_tenant.html")
         list_template = source("geoflow_ops/templates/geoflow_ops/contracts/contract_list.html")
         js = source("geoflow_ops/static/geoflow_ops/js/gf-list-core.js")
         self.assertIn("GEOFLOW_TENANT_VOCABULARY", base)
         self.assertIn("data-kind-code", list_template)
         self.assertIn("contractKind", list_template)
+        self.assertNotIn("운영상태", list_template)
+        for token in ("planned: '계약'", "active: '진행'", "pause: '준공'", "complete: '완료'"):
+            self.assertIn(token, list_template)
         self.assertIn("function canonicalStatus", js)
         self.assertIn('completed:"complete"', js)
-        self.assertIn("contractLabels", js)
 
     def test_new_workflow_route_is_preflight_guarded(self):
         preflight = source("control/services/route_security_preflight.py")

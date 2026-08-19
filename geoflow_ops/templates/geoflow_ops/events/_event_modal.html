@@ -11,9 +11,16 @@
         <input type="hidden" id="event-scope-type-hidden" value="{{ scope_type }}">
         <input type="hidden" id="event-scope-id-hidden" value="{{ scope_id }}">
         <input type="hidden" id="event-id" value="">
+        <!-- Internal history-integrity field only. Hidden from the user. -->
+        <select class="d-none" id="event-status" aria-hidden="true" tabindex="-1">
+          <option value="open" selected>진행중</option>
+          <option value="done">완료</option>
+          <option value="draft">작성중</option>
+          <option value="void">취소</option>
+        </select>
 
         <div class="row g-3">
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">업무 단계</label>
             <select class="form-select" id="event-stage">
               <option value="pre_contract">계약전</option>
@@ -25,7 +32,7 @@
               <option value="billing">청구/정산</option>
             </select>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">업무 유형</label>
             <select class="form-select" id="event-type">
               <option value="estimate">견적제출</option>
@@ -42,7 +49,7 @@
               <option value="inspection">검사완료</option>
               <option value="correction_request">보완요청</option>
               <option value="reinspection">재검사</option>
-              <option value="completion_doc">준공계</option>
+              <option value="completion_doc">준공계 제출</option>
               <option value="delivery">납품완료</option>
               <option value="advance_payment">선금</option>
               <option value="progress_invoice">기성청구</option>
@@ -52,15 +59,11 @@
               <option value="etc">기타</option>
             </select>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">처리 상태 <span class="text-muted small">(보조)</span></label>
-            <select class="form-select" id="event-status">
-              <option value="open" selected>진행중</option>
-              <option value="done">완료</option>
-              <option value="draft">작성중</option>
-              <option value="void">취소</option>
-            </select>
-            <div class="form-text">새 이벤트는 기본적으로 진행중으로 시작합니다.</div>
+
+          <div class="col-12">
+            <div class="alert alert-light border small mb-0">
+              큰 업무 프로세스는 <strong>업무 단계</strong>를 기준으로 자동 계산합니다. 착수·수행·검사 단계의 이벤트가 생기면 <strong>진행</strong>, 준공 단계의 이벤트가 생기면 <strong>준공</strong>으로 올라갑니다. 업무 유형이 기타여도 동일합니다. 최종 <strong>완료</strong>는 계약 상세의 <strong>준공 완료</strong> 버튼으로만 확정합니다.
+            </div>
           </div>
 
           <div class="col-md-8">
@@ -74,15 +77,11 @@
 
           <div class="col-md-6">
             <label class="form-label">담당 부서</label>
-            <select class="form-select" id="event-owner-department">
-              <option value="">미지정</option>
-            </select>
+            <select class="form-select" id="event-owner-department"><option value="">미지정</option></select>
           </div>
           <div class="col-md-6">
             <label class="form-label">담당자</label>
-            <select class="form-select" id="event-assignee-employee">
-              <option value="">미지정</option>
-            </select>
+            <select class="form-select" id="event-assignee-employee"><option value="">미지정</option></select>
           </div>
 
           <div class="col-md-6">
@@ -93,38 +92,19 @@
             <div class="text-muted small pb-2" id="event-assignment-help">부서/담당자 배정은 디렉터리 조회 권한이 있을 때 사용할 수 있습니다.</div>
           </div>
 
-          <div class="col-12">
-            <label class="form-label">메모</label>
-            <textarea class="form-control" id="event-memo" rows="4"></textarea>
-          </div>
+          <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="event-memo" rows="4"></textarea></div>
 
-          <div class="col-md-6">
-            <label class="small text-muted">Scope Type</label>
-            <input type="text" class="form-control" id="event-scope-type" disabled>
-          </div>
-          <div class="col-md-6">
-            <label class="small text-muted">Scope ID</label>
-            <input type="text" class="form-control" id="event-scope-id" disabled>
-          </div>
-
-          <div class="col-md-6">
-            <label class="small text-muted">생성일</label>
-            <input type="text" class="form-control" id="event-created-at" disabled>
-          </div>
-          <div class="col-md-6">
-            <label class="small text-muted">생성자</label>
-            <input type="text" class="form-control" id="event-created-by" disabled>
-          </div>
+          <div class="col-md-6"><label class="small text-muted">Scope Type</label><input type="text" class="form-control" id="event-scope-type" disabled></div>
+          <div class="col-md-6"><label class="small text-muted">Scope ID</label><input type="text" class="form-control" id="event-scope-id" disabled></div>
+          <div class="col-md-6"><label class="small text-muted">생성일</label><input type="text" class="form-control" id="event-created-at" disabled></div>
+          <div class="col-md-6"><label class="small text-muted">생성자</label><input type="text" class="form-control" id="event-created-by" disabled></div>
         </div>
 
         <hr>
-
         <div id="event-attach-section" class="d-none">
           <div class="d-flex justify-content-between align-items-center mb-2">
             <strong>첨부</strong>
-            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-timeline-attach">
-              <i class="fas fa-paperclip"></i> 파일 선택
-            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-timeline-attach"><i class="fas fa-paperclip"></i> 파일 선택</button>
           </div>
           <div id="event-attachment-list" class="small"></div>
           <div class="text-muted small mt-2">이벤트를 저장한 뒤 첨부 업로드가 활성화됩니다.</div>

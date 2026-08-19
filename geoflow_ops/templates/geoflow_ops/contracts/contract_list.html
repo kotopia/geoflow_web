@@ -3,6 +3,14 @@
 {% block title %}Contracts | GeoFlow{% endblock %}
 
 {% block content %}
+<style>
+  /* Shared list-core still owns the tabs; cancel is not a Contract lifecycle phase. */
+  #statusButtons .gf-k-cancel { display: none !important; }
+  #datatables-contracts tr.gf-contract-complete > td:not([data-col="workflow"]) {
+    color: var(--bs-secondary-color, #6c757d);
+    opacity: .68;
+  }
+</style>
 <div class="container-fluid p-0">
   <div class="mb-3">
     <h1 class="h3 d-inline align-middle">
@@ -20,13 +28,7 @@
         </div>
       </div>
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <div id="statusButtons" class="gf-status-tabs"
-            data-count-all="{{ status_counts.total|default:0 }}"
-            data-count-planned="{{ status_counts.planned|default:0 }}"
-            data-count-active="{{ status_counts.active|default:0 }}"
-            data-count-pause="{{ status_counts.pause|default:0 }}"
-            data-count-cancel="{{ status_counts.cancel|default:0 }}"
-            data-count-complete="{{ status_counts.complete|default:0 }}"></div>
+        <div id="statusButtons" class="gf-status-tabs"></div>
       </div>
     </div>
 
@@ -35,18 +37,17 @@
         <thead class="text-center">
           <tr>
             <th>계약번호</th><th>계약명</th><th>업무단계</th><th>시작일</th><th>종료일</th>
-            <th>계약형태</th><th>계약금액</th><th>발주처</th><th>계약자</th><th>운영상태</th>
+            <th>계약형태</th><th>계약금액</th><th>발주처</th><th>계약자</th>
           </tr>
         </thead>
         <tbody>
           {% for c in contracts %}
           {% contract_workflow c as wf %}
-          <tr data-id="{{ c.id }}" data-status="{{ c.status|lower }}" data-href="{% url 'tenant:contract_detail' c.id %}">
+          <tr data-id="{{ c.id }}" data-status="{{ wf.filter_key }}" data-workflow-phase="{{ wf.major_code }}" data-workflow-complete="{{ wf.is_complete|yesno:'1,0' }}" data-href="{% url 'tenant:contract_detail' c.id %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
             <td data-col="code">{{ c.code }}</td>
             <td data-col="name" class="text-truncate">{{ c.name }}</td>
             <td data-col="workflow" class="text-center">
-              <span class="badge bg-primary">{{ wf.major_label }}</span>
-              <div class="small text-muted mt-1">{{ wf.stage_label }}</div>
+              <span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
             </td>
             <td data-col="start">{{ c.start_date|date:"Y-m-d" }}</td>
             <td data-col="end">{{ c.end_date|date:"Y-m-d" }}</td>
@@ -54,7 +55,6 @@
             <td data-col="amount" class="text-end">{{ c.amount|intcomma }}</td>
             <td data-col="client">{% if c.kind == "하도급" %}{{ c.sub_client.name|default:c.client.name }}{% else %}{{ c.client.name }}{% endif %}</td>
             <td data-col="orgunit">{{ c.org_unit.label }}</td>
-            <td data-col="status" class="text-center"><span class="gf-status" data-vocabulary="contract" data-status="{{ c.status }}" data-render="badge" data-size="sm"></span></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -67,6 +67,16 @@
 {% block scripts %}
   <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
   <script>
+    // Stable shared filter keys are presentation adapters only. Contract lifecycle
+    // itself is event-derived: 계약 / 진행 / 준공 / 완료.
+    window.GEOFLOW_TENANT_VOCABULARY = window.GEOFLOW_TENANT_VOCABULARY || {};
+    window.GEOFLOW_TENANT_VOCABULARY.contractStatus = {
+      planned: '계약',
+      active: '진행',
+      pause: '준공',
+      complete: '완료'
+    };
+
     document.addEventListener('DOMContentLoaded', function(){
       const vocab = window.GEOFLOW_TENANT_VOCABULARY || {};
       const kindLabels = vocab.contractKind || {};
@@ -74,7 +84,6 @@
         const code = cell.getAttribute('data-kind-code') || '';
         if (code && kindLabels[code]) cell.textContent = kindLabels[code];
       });
-      if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) GeoFlowListCore.renderBadges(document);
       const tbody = document.querySelector('#datatables-contracts tbody');
       if (!tbody) return;
       tbody.addEventListener('click', function(e){

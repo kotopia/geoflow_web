@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
@@ -11,7 +12,11 @@ from control.gf_authz.permissions import gf_has_perm
 
 from . import views_events, views_workboard
 from .models import ProcessEvent
-from .process_workflow import default_stage_for_event, normalize_stage
+from .process_workflow import (
+    CONTRACT_COMPLETION_EVENT_TYPE,
+    default_stage_for_event,
+    normalize_stage,
+)
 from .services.entity_access import require_tenant_context
 from .services.tenant_settings import (
     event_type_allowed,
@@ -21,6 +26,7 @@ from .services.tenant_settings import (
 
 
 ASSIGNMENT_FIELDS = {"owner_department_id", "assignee_employee_id"}
+CONTRACT_COMPLETION_ACTION_SOURCE = "contract_complete_action"
 
 
 def _payload(request):
@@ -42,6 +48,47 @@ def _assignment_write_forbidden(request) -> bool:
     )
 
 
+def _completion_action_error(alias: str, data: dict, *, stage: str, event_type: str):
+    """Enforce the dedicated human completion action server-side."""
+    if event_type != CONTRACT_COMPLETION_EVENT_TYPE:
+        return None
+
+    if str(data.get("scope_type") or "").strip().lower() != "contract":
+        return "Completion is only available for contract scope"
+    if stage != "closeout":
+        return "Completion must use closeout stage"
+
+    action_payload = data.get("payload")
+    if not isinstance(action_payload, dict) or action_payload.get("source") != CONTRACT_COMPLETION_ACTION_SOURCE:
+        return "Completion must use the contract completion action"
+
+    try:
+        contract_id = UUID(str(data.get("scope_id") or ""))
+    except (TypeError, ValueError, AttributeError):
+        return "Invalid completion contract"
+
+    # The action is only valid after the contract has genuinely entered 준공.
+    reached_closeout = (
+        ProcessEvent.objects.using(alias)
+        .filter(contract_id=contract_id, stage="closeout")
+        .exclude(status="void")
+        .exclude(event_type=CONTRACT_COMPLETION_EVENT_TYPE)
+        .exists()
+    )
+    if not reached_closeout:
+        return "Contract must reach closeout before completion"
+
+    already_complete = (
+        ProcessEvent.objects.using(alias)
+        .filter(contract_id=contract_id, event_type=CONTRACT_COMPLETION_EVENT_TYPE)
+        .exclude(status="void")
+        .exists()
+    )
+    if already_complete:
+        return "Contract is already complete"
+    return None
+
+
 def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
     if creating:
         event_type = str(data.get("event_type") or "").strip()
@@ -56,6 +103,14 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
             return "Invalid status"
         if not event_type_allowed(alias, stage, event_type):
             return "Invalid event type for stage"
+        completion_error = _completion_action_error(
+            alias,
+            data,
+            stage=stage,
+            event_type=event_type,
+        )
+        if completion_error:
+            return completion_error
         return None
 
     if existing is None:

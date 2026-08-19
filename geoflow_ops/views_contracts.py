@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def _post_snapshot(request, keys=None, limit=200):
-    keys = keys or ["code","name","start_date","end_date","amount","status","client","sub_client","org_unit"]
+    keys = keys or ["code","name","start_date","end_date","amount","client","sub_client","org_unit"]
     snap = {}
     for k in keys:
         v = request.POST.get(k)
@@ -77,18 +77,8 @@ class ContractListView(ListView):
     
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        qs = ctx["contracts"]
-
-        counts = qs.aggregate(
-            total=Count("id"),
-            planned=Count("id", filter=Q(status__in=["planned", "계약전"])),
-            active=Count("id",  filter=Q(status__in=["active", "진행"])),
-            pause=Count("id",   filter=Q(status__in=["pause", "paused", "중지"])),
-            cancel=Count("id",  filter=Q(status__in=["cancel", "canceled", "취소"])),
-            complete=Count("id",filter=Q(status__in=["complete", "completed", "완료"])),
-        )
-
-        ctx["status_counts"] = counts  # {'total':.., 'planned':.., ...}
+        # Contract lifecycle counts are rendered from the event-derived workflow
+        # rows in the list UI. Legacy Contract.status is intentionally ignored.
         ctx["entity"] = "contract"
         return ctx
 
@@ -231,7 +221,6 @@ def contract_json(request, pk):
         "start_date": (obj.start_date.isoformat() if getattr(obj, "start_date", None) else None),
         "end_date": (obj.end_date.isoformat() if getattr(obj, "end_date", None) else None),
         "amount": getattr(obj, "amount", None),
-        "status": getattr(obj, "status", None),
         "client_name": client_name,
         "sub_client_name": subclient_name,
         "org_unit_name": org_unit_name,
@@ -376,19 +365,20 @@ def contract_create(request):
 
 
 def contract_form(request, pk=None):
+    """Legacy compatibility form; Contract lifecycle/status input is ignored."""
     alias = _alias(request)
     inst = None
     if pk:
         inst = get_object_or_404(Contract.objects.using(alias), pk=pk)
 
     if request.method == "POST":
-        # 폼 없이 request.POST 직접 바인딩(예시) — 실제로는 ModelForm 권장
+        # 폼 없이 request.POST 직접 바인딩(레거시 경로). Contract.status는
+        # 더 이상 사용자 입력으로 받거나 저장하지 않습니다.
         code = request.POST.get("code") or None
         name = request.POST.get("name")
         start_date = request.POST.get("start_date")
         end_date = request.POST.get("end_date")
         amount = request.POST.get("amount") or None
-        status = request.POST.get("status") or None
         division = request.POST.get("division") or None
 
         client_id = request.POST.get("client_id") or None
@@ -401,7 +391,6 @@ def contract_form(request, pk=None):
             inst.start_date = start_date
             inst.end_date = end_date
             inst.amount = amount
-            inst.status = status
             inst.division = division
 
             inst.client_id = client_id   # UUID 문자열이면 Django가 변환

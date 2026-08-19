@@ -35,10 +35,9 @@
                 <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
               </div>
               <div class="col-md-3">
-                <label class="small text-muted">상태</label>
+                <label class="small text-muted">업무단계</label>
                 <div class="form-control-plaintext">
-                  <span class="gf-status" data-render="badge" data-size="sm"
-                        data-status="{{ obj.contract.status|default:'' }}"></span>
+                  <span class="badge {{ contract_workflow.phase_class }}">{% if contract_workflow.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ contract_workflow.major_label }}</span>
                 </div>
               </div>
               <div class="col-md-3">
@@ -101,10 +100,9 @@
                 <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
               </div>
               <div class="col-md-3">
-                <label class="small text-muted">상태</label>
+                <label class="small text-muted">업무단계</label>
                 <div class="form-control-plaintext">
-                  <span class="gf-status" data-render="badge" data-size="sm"
-                        data-status="{{ obj.contract.status|default:'' }}"></span>
+                  <span class="badge {{ contract_workflow.phase_class }}">{% if contract_workflow.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ contract_workflow.major_label }}</span>
                 </div>
               </div>
               <div class="col-md-3">
@@ -267,7 +265,6 @@
   <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      window.GeoFlowListCore && GeoFlowListCore.renderBadges(document);
       if (window.ProcessWorkboardUI) {
         window.ProcessWorkboardUI.init('#eventModalMount');
       }

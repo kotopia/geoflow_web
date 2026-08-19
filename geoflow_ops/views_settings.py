@@ -12,6 +12,18 @@ from .services.entity_access import require_tenant_context
 
 
 NODE_TYPES = {"group", "category", "value"}
+# These rows remain in the database for compatibility/history but are no longer
+# user-facing settings. Contract lifecycle is now derived from event workflow.
+HIDDEN_SETTINGS_SYSTEM_KEYS = {
+    "contract.status",
+    "hr.position_grade",
+    "hr.position_title",
+}
+
+
+def _is_immutable_event_stage(system_key: object) -> bool:
+    key = str(system_key or "").strip()
+    return key == "event.stage" or key.startswith("event.stage.")
 
 
 def _uuid_or_none(value):
@@ -47,9 +59,27 @@ def _load_nodes(alias: str):
             "active": bool(row[8]),
             "system_key": row[9] or "",
             "locked": bool(row[10]),
+            "immutable": _is_immutable_event_stage(row[9]),
         }
         for row in rows
     ]
+
+
+def _visible_nodes(nodes):
+    """Hide deprecated setting roots and all descendants without deleting data."""
+    hidden_ids = {
+        node["id"]
+        for node in nodes
+        if node.get("system_key") in HIDDEN_SETTINGS_SYSTEM_KEYS
+    }
+    changed = True
+    while changed:
+        changed = False
+        for node in nodes:
+            if node["id"] not in hidden_ids and node.get("parent_id") in hidden_ids:
+                hidden_ids.add(node["id"])
+                changed = True
+    return [node for node in nodes if node["id"] not in hidden_ids]
 
 
 def _load_org_units(alias: str):
@@ -99,7 +129,7 @@ def _build_tree(nodes):
 
 def settings_page(request):
     alias = require_tenant_context(request)
-    nodes = _load_nodes(alias)
+    nodes = _visible_nodes(_load_nodes(alias))
     return render(
         request,
         "geoflow_ops/settings/settings_page.html",
@@ -139,13 +169,16 @@ def settings_node_save(request):
 
             if node_id:
                 cur.execute(
-                    "SELECT locked, code, parent_id::text, node_type FROM ops.settings_nodes WHERE id=%s FOR UPDATE",
+                    "SELECT locked, code, parent_id::text, node_type, system_key FROM ops.settings_nodes WHERE id=%s FOR UPDATE",
                     [str(node_id)],
                 )
                 existing = cur.fetchone()
                 if not existing:
                     return HttpResponseBadRequest("환경설정 항목을 찾을 수 없습니다.")
                 locked = bool(existing[0])
+                system_key = existing[4] or ""
+                if _is_immutable_event_stage(system_key):
+                    return HttpResponseBadRequest("필수 업무단계는 시스템 기준값으로 수정할 수 없습니다.")
                 if locked:
                     code = existing[1]
                     parent_id = _uuid_or_none(existing[2])

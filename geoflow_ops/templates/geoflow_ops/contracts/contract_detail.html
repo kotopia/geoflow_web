@@ -4,7 +4,42 @@
 {% block title %}계약 상세 | GeoFlow{% endblock %}
 
 {% block content %}
-<style>.pre-wrap { white-space: pre-wrap; }</style>
+<style>
+.pre-wrap { white-space: pre-wrap; }
+.gf-lifecycle {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .5rem;
+  margin-bottom: 1.25rem;
+}
+.gf-lifecycle-step {
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: .6rem;
+  padding: .8rem 1rem;
+  background: var(--bs-body-bg, #fff);
+  color: var(--bs-secondary-color, #6c757d);
+}
+.gf-lifecycle-step strong { display:block; margin-bottom:.15rem; }
+.gf-lifecycle[data-phase="contract"] .gf-step-contract,
+.gf-lifecycle[data-phase="execution"] .gf-step-execution,
+.gf-lifecycle[data-phase="closeout"] .gf-step-closeout,
+.gf-lifecycle[data-phase="complete"] .gf-step-complete {
+  border-width: 2px;
+  color: var(--bs-body-color, #212529);
+  font-weight: 600;
+}
+.gf-lifecycle[data-phase="contract"] .gf-step-contract { border-color:#ffc107; background:rgba(255,193,7,.10); }
+.gf-lifecycle[data-phase="execution"] .gf-step-contract,
+.gf-lifecycle[data-phase="closeout"] .gf-step-contract,
+.gf-lifecycle[data-phase="complete"] .gf-step-contract { opacity:.58; }
+.gf-lifecycle[data-phase="execution"] .gf-step-execution { border-color:#0d6efd; background:rgba(13,110,253,.08); }
+.gf-lifecycle[data-phase="closeout"] .gf-step-execution,
+.gf-lifecycle[data-phase="complete"] .gf-step-execution { opacity:.58; }
+.gf-lifecycle[data-phase="closeout"] .gf-step-closeout { border-color:#0dcaf0; background:rgba(13,202,240,.08); }
+.gf-lifecycle[data-phase="complete"] .gf-step-closeout { opacity:.58; }
+.gf-lifecycle[data-phase="complete"] .gf-step-complete { border-color:#6c757d; background:rgba(108,117,125,.08); }
+@media (max-width: 767.98px) { .gf-lifecycle { grid-template-columns: 1fr; } }
+</style>
 
 {% if obj %}
   {% contract_workflow obj as wf %}
@@ -24,6 +59,15 @@
   </div>
 </div>
 
+{% if obj and not edit_mode %}
+<div class="gf-lifecycle" data-phase="{{ wf.major_code }}" aria-label="업무 프로세스">
+  <div class="gf-lifecycle-step gf-step-contract"><strong>1. 계약</strong><small>계약 생성</small></div>
+  <div class="gf-lifecycle-step gf-step-execution"><strong>2. 진행</strong><small>착수·수행·검사 단계 진입</small></div>
+  <div class="gf-lifecycle-step gf-step-closeout"><strong>3. 준공</strong><small>준공 단계 진입</small></div>
+  <div class="gf-lifecycle-step gf-step-complete"><strong>4. 완료{% if wf.is_complete %} ✓{% endif %}</strong><small>준공 완료 확정</small></div>
+</div>
+{% endif %}
+
 <div class="container-fluid px-0">
   <div class="row g-3">
     <div class="col-md-6 col-lg-6">
@@ -34,15 +78,8 @@
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
               <div class="col-md-3"><label class="small text-muted">계약번호</label><div class="form-control-plaintext">{{ obj.code|default:"-" }}</div></div>
-              <div class="col-md-3">
-                <label class="small text-muted">현재 업무단계</label>
-                <div class="form-control-plaintext"><span class="badge bg-primary">{{ wf.major_label }}</span></div>
-              </div>
-              <div class="col-md-3"><label class="small text-muted">세부단계</label><div class="form-control-plaintext">{{ wf.stage_label }}</div></div>
-              <div class="col-md-3">
-                <label class="small text-muted">운영상태</label>
-                <div class="form-control-plaintext"><span class="gf-status" data-vocabulary="contract" data-render="badge" data-status="{{ obj.status|default:'' }}"></span></div>
-              </div>
+              <div class="col-md-3"><label class="small text-muted">현재 업무단계</label><div class="form-control-plaintext"><span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span></div></div>
+              <div class="col-md-6"><label class="small text-muted">단계 기준</label><div class="form-control-plaintext">{{ wf.major_event_label }}</div></div>
 
               <div class="col-md-12"><label class="small text-muted">계약명</label><div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div></div>
               <div class="col-md-6"><label class="small text-muted">시작일</label><div class="form-control-plaintext">{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div></div>
@@ -65,8 +102,7 @@
             {% if errors %}<div class="alert alert-warning py-2 mb-3">{% for e in errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
-              <div class="col-md-3"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
-              <div class="col-md-3"><label class="form-label">운영상태</label><select id="contract-status" name="status" class="form-select">{% for value, label in form.status.field.choices %}<option value="{{ value }}" {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><div class="form-text">현재 업무단계는 이벤트 흐름에서 자동 계산됩니다.</div></div>
+              <div class="col-md-4"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
               <div class="col-md-12"><label class="form-label">계약명 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required value="{{ form.name.value|default_if_none:'' }}"></div>
               <div class="col-md-6"><label class="form-label">시작일</label><input type="text" id="start_date" name="start_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY/MM/DD" autocomplete="off" value="{{ form.instance.start_date|date:'Y-m-d' }}"></div>
               <div class="col-md-6"><label class="form-label">종료일</label><input type="text" id="end_date" name="end_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY-MM-DD" autocomplete="off" value="{{ form.instance.end_date|date:'Y-m-d' }}"></div>
@@ -75,6 +111,7 @@
               <div class="col-md-6"><label class="form-label">발주처 <span class="text-danger">*</span></label><select id="client" name="client" class="form-select" data-selected="{{ client_selected|default:form.client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="발주처 선택"></select></div>
               <div class="col-md-6 {% if form.kind.value != '하도급' %}d-none{% endif %}" id="sub_client_group"><label class="form-label">원도급</label><select id="sub_client" name="sub_client" class="form-select" data-selected="{{ subclient_selected|default:form.sub_client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="원도급 선택"></select></div>
               <div class="col-md-6"><label class="form-label">계약자</label>{{ form.org_unit }}</div>
+              <div class="col-12"><div class="alert alert-light border small mb-0">업무 프로세스는 직접 입력하지 않습니다. 이벤트의 <strong>업무단계</strong>가 계약 → 진행 → 준공을 자동 계산하고, 최종 완료는 준공 단계의 <strong>준공 완료</strong> 버튼으로 확정합니다.</div></div>
               <hr/><h5 class="h6 card-title">기타정보</h5>
               <div class="col-md-12"><textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea></div>
             </div>
@@ -129,7 +166,13 @@
         </div>
         <hr class="my-0" />
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">타임라인</h6><button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button></div>
+          <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+            <h6 class="mb-0">타임라인</h6>
+            <div class="d-flex gap-2">
+              {% if not edit_mode and wf.major_code == "closeout" %}<button id="btn-contract-complete" type="button" class="btn btn-sm btn-success">준공 완료</button>{% endif %}
+              <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
+            </div>
+          </div>
           <div id="timelineList"></div><div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
         </div>
       </div>
@@ -137,6 +180,23 @@
     {% endif %}
   </div>
 </div>
+
+{% if obj and not edit_mode and wf.major_code == "closeout" %}
+<div class="modal fade" id="contractCompleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">준공 완료</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <div id="contract-complete-alert" class="alert alert-danger d-none"></div>
+        <div class="alert alert-light border small">이 작업은 계약의 최종 업무단계를 <strong>완료</strong>로 확정하고 타임라인에 완료 이벤트를 남깁니다. 청구·입금·미수금 등 정산 업무는 이후에도 별도로 계속 관리할 수 있습니다.</div>
+        <div class="mb-3"><label class="form-label">완료일</label><input type="date" class="form-control" id="contract-complete-date" required></div>
+        <div><label class="form-label">메모</label><textarea class="form-control" id="contract-complete-memo" rows="3" placeholder="최종 검사·인수 등 필요한 내용을 기록하세요. (선택)"></textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button><button type="button" class="btn btn-success" id="btn-confirm-contract-complete">완료 확정</button></div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% if obj %}
 <div id="eventModalMount" data-scope-type="contract" data-scope-id="{{ obj.id }}" data-csrf="{{ csrf_token }}"
@@ -156,7 +216,6 @@
 <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  if (window.GeoFlowListCore && GeoFlowListCore.renderBadges) GeoFlowListCore.renderBadges(document);
   var vocab = window.GEOFLOW_TENANT_VOCABULARY || {};
   var kindLabels = vocab.contractKind || {};
   var kindLabel = document.getElementById('contract-kind-label');
@@ -165,8 +224,60 @@ document.addEventListener("DOMContentLoaded", function () {
   if (btn) btn.addEventListener("click", function () { var url = new URL(window.location.href); url.searchParams.set("edit", "1"); window.location.assign(url.toString()); });
   if (window.ProcessWorkboardUI && document.getElementById('eventModalMount')) window.ProcessWorkboardUI.init('#eventModalMount');
   var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
-  var csrfToken = csrfInput ? csrfInput.value : '{{ csrf_token }}';
+  var mount = document.getElementById('eventModalMount');
+  var csrfToken = csrfInput ? csrfInput.value : (mount ? mount.getAttribute('data-csrf') : '{{ csrf_token }}');
   if (window.initAttachmentActions) window.initAttachmentActions({ root: document, csrfToken: csrfToken });
+
+  var completeButton = document.getElementById('btn-contract-complete');
+  var completeModalEl = document.getElementById('contractCompleteModal');
+  var confirmComplete = document.getElementById('btn-confirm-contract-complete');
+  var completeDate = document.getElementById('contract-complete-date');
+  var completeMemo = document.getElementById('contract-complete-memo');
+  var completeAlert = document.getElementById('contract-complete-alert');
+  if (completeButton && completeModalEl && mount) {
+    var completeModal = bootstrap.Modal.getOrCreateInstance(completeModalEl);
+    completeButton.addEventListener('click', function () {
+      if (completeDate && !completeDate.value) {
+        var now = new Date();
+        var local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+        completeDate.value = local.toISOString().slice(0, 10);
+      }
+      if (completeAlert) completeAlert.classList.add('d-none');
+      completeModal.show();
+    });
+    if (confirmComplete) confirmComplete.addEventListener('click', function () {
+      if (!completeDate || !completeDate.value) {
+        if (completeAlert) { completeAlert.textContent = '완료일을 입력하세요.'; completeAlert.classList.remove('d-none'); }
+        return;
+      }
+      confirmComplete.disabled = true;
+      var payload = {
+        scope_type: 'contract',
+        scope_id: mount.getAttribute('data-scope-id'),
+        stage: 'closeout',
+        event_type: 'closeout_complete',
+        status: 'done',
+        title: '준공 완료',
+        occurred_at: completeDate.value,
+        due_at: null,
+        memo: completeMemo ? completeMemo.value : '',
+        payload: { source: 'contract_complete_action' }
+      };
+      fetch(mount.getAttribute('data-events-create-url'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+      }).then(function (response) {
+        if (!response.ok) return response.json().catch(function(){return {};}).then(function(data){ throw new Error(data.error || '완료 처리에 실패했습니다.'); });
+        return response.json();
+      }).then(function () {
+        window.location.reload();
+      }).catch(function (error) {
+        if (completeAlert) { completeAlert.textContent = error.message || '완료 처리에 실패했습니다.'; completeAlert.classList.remove('d-none'); }
+      }).finally(function () { confirmComplete.disabled = false; });
+    });
+  }
 
   function initChoicesOnce(sel){ if (!sel || sel.dataset.choicesInited === "1") return; sel.dataset.choicesInited = "1"; if (window.Choices) new Choices(sel,{searchEnabled:true,shouldSort:false,itemSelectText:"",removeItemButton:false,placeholder:true,placeholderValue:sel.getAttribute("data-placeholder")||""}); }
   var clientSel=document.getElementById("client"), subSel=document.getElementById("sub_client"), kindSel=document.getElementById("kind"), subGroup=document.getElementById("sub_client_group");

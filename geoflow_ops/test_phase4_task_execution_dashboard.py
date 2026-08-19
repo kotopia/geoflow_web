@@ -59,12 +59,28 @@ class Phase4TaskMigrationContractTests(SimpleTestCase):
         self.assertIn("project task update lost scope", source)
         self.assertIn('gf_perm_required("projects.edit")', source)
 
-    def test_dashboard_is_permission_aware_and_hides_terminal_business_lineage(self):
+    def test_dashboard_is_permission_aware_and_contract_terminal_lineage_is_event_only(self):
         source = (ROOT / "views_dashboard.py").read_text(encoding="utf-8")
         self.assertIn('gf_has_perm(request, "projects.view")', source)
         self.assertIn('gf_has_perm(request, "contracts.view")', source)
         self.assertIn('gf_has_perm(request, "directory.view")', source)
         self.assertIn("qs.exclude(status__in=", source)
-        # Project execution status remains independent, but a terminal Contract
-        # must also remove its project from the default management dashboard.
-        self.assertIn("exclude(contract__status__in=terminal)", source)
+        self.assertIn("def _terminal_contract_ids", source)
+        self.assertIn("event_type IN ('closeout_complete', 'contract_cancel')", source)
+        self.assertIn("exclude(contract_id__in=terminal_contract_ids)", source)
+        self.assertNotIn("FROM ctr.contracts", source.split("def _terminal_contract_ids", 1)[1].split("def _task_rows", 1)[0])
+        self.assertNotIn("exclude(contract__status__in=terminal)", source)
+
+    def test_legacy_completed_contracts_are_migrated_to_completion_events(self):
+        migration = (ROOT / "migrations" / "0026_contract_completion_event_backfill.py").read_text(encoding="utf-8")
+        lowered = migration.lower()
+        self.assertIn("'closeout_complete'", migration)
+        self.assertIn("legacy_contract_status_migration", migration)
+        self.assertIn("system:migration:0026", migration)
+        self.assertIn("c.end_date", migration)
+        self.assertIn("occurred_at_inferred", migration)
+        self.assertIn("SET status = NULL", migration)
+        self.assertIn("NOT EXISTS", migration)
+        self.assertNotIn("DELETE FROM ctr.contracts", migration.upper())
+        self.assertNotIn("TRUNCATE ctr.contracts", migration.upper())
+        self.assertNotIn("DROP TABLE ctr.contracts", migration.upper())

@@ -34,8 +34,9 @@ EVENT_TYPE_CHOICES = (
     WorkflowChoice("inspection", "검사완료"),
     WorkflowChoice("correction_request", "보완요청"),
     WorkflowChoice("reinspection", "재검사"),
-    WorkflowChoice("completion_doc", "준공계"),
+    WorkflowChoice("completion_doc", "준공계 제출"),
     WorkflowChoice("delivery", "납품완료"),
+    WorkflowChoice("closeout_complete", "완료"),
     WorkflowChoice("advance_payment", "선금"),
     WorkflowChoice("progress_invoice", "기성청구"),
     WorkflowChoice("invoice", "청구"),
@@ -44,6 +45,8 @@ EVENT_TYPE_CHOICES = (
     WorkflowChoice("etc", "기타"),
 )
 
+# Internal event record state is retained only for history integrity (open/void,
+# draft compatibility, etc.). Contract business phase never reads these values.
 STATUS_CHOICES = (
     WorkflowChoice("draft", "작성중"),
     WorkflowChoice("open", "진행중"),
@@ -75,12 +78,33 @@ EVENT_DEFAULT_STAGE = {
     "reinspection": "inspection",
     "completion_doc": "closeout",
     "delivery": "closeout",
+    "closeout_complete": "closeout",
     "advance_payment": "billing",
     "progress_invoice": "billing",
     "invoice": "billing",
     "tax_invoice": "billing",
     "payment": "billing",
 }
+
+# Coarse Contract lifecycle is derived from the selected event stage, not the
+# event type. This means, for example, stage=kickoff + type=etc still moves the
+# contract to 진행, and any non-void stage=closeout event moves it to 준공.
+CONTRACT_LIFECYCLE_STAGE_PHASES = {
+    "pre_contract": "contract",
+    "contract": "contract",
+    "kickoff": "execution",
+    "execution": "execution",
+    "inspection": "execution",
+    "closeout": "closeout",
+}
+
+# Final 완료 is intentionally different: it requires an explicit human action
+# that records this dedicated event type under the 준공 stage.
+CONTRACT_COMPLETION_EVENT_TYPE = "closeout_complete"
+
+# Core event stages are system-required. Tenant settings may contain extra stages,
+# but these core stages must always remain available and immutable.
+REQUIRED_EVENT_STAGE_CODES = tuple(choice.code for choice in STAGE_CHOICES)
 
 
 def normalize_stage(value: object) -> str:

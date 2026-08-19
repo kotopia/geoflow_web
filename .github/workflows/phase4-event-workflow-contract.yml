@@ -64,19 +64,25 @@ jobs:
       - name: Compile Phase 4 workflow modules
         run: |
           python -m py_compile \
+            geoflow_ops/forms.py \
             geoflow_ops/process_workflow.py \
             geoflow_ops/event_security_views.py \
             geoflow_ops/views_events.py \
             geoflow_ops/views_workboard.py \
+            geoflow_ops/views_contracts.py \
+            geoflow_ops/views_projects.py \
             geoflow_ops/views_execution.py \
             geoflow_ops/views_dashboard.py \
             geoflow_ops/views_home_security.py \
+            geoflow_ops/views_settings.py \
             geoflow_ops/services/department_routing.py \
             geoflow_ops/services/entity_access.py \
             geoflow_ops/services/tenant_settings.py \
+            geoflow_ops/services/workflow_state.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py \
             geoflow_ops/migrations/0020_phase4_project_task_execution.py \
-            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py
+            geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py \
+            geoflow_ops/migrations/0026_contract_completion_event_backfill.py
           node --check geoflow_ops/static/geoflow_ops/js/process-events-ui.js
           node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
 
@@ -86,6 +92,8 @@ jobs:
             geoflow_ops.test_phase4_event_workflow_foundation \
             geoflow_ops.test_phase4_cross_department_workboard \
             geoflow_ops.test_phase4_contract_workboard_compat \
+            geoflow_ops.test_contract_workflow_stage_completion \
+            geoflow_ops.test_contract_workflow_production_activation_contract \
             geoflow_ops.test_phase4_task_execution_dashboard \
             geoflow_ops.test_phase4_event_production_audit_contract \
             geoflow_ops.test_phase4_event_production_activation_contract \

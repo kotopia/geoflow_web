@@ -1,0 +1,636 @@
+name: Phase 4 contract workflow production activation
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/phase4-contract-workflow-production-activation.yml
+      - .github/workflows/phase4-workboard-production-deploy.yml
+      - geoflow_ops/migrations/0026_contract_completion_event_backfill.py
+      - geoflow_ops/process_workflow.py
+      - geoflow_ops/services/workflow_state.py
+      - geoflow_ops/services/tenant_settings.py
+      - geoflow_ops/views_contracts.py
+      - geoflow_ops/views_dashboard.py
+      - geoflow_ops/views_settings.py
+      - geoflow_ops/event_security_views.py
+      - geoflow_ops/templates/geoflow_ops/contracts/contract_list.html
+      - geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html
+      - geoflow_ops/templates/geoflow_ops/events/_event_modal.html
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract-workflow-production-activation:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port || '22' }}
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || {
+            echo 'contract_workflow_activation_blocker=release_advanced'
+            exit 2
+          }
+          test -n "$SSH_HOST" || { echo 'contract_workflow_activation_blocker=missing_ssh_host'; exit 2; }
+          test -n "$SSH_USER" || { echo 'contract_workflow_activation_blocker=missing_ssh_user'; exit 2; }
+          test -n "$SSH_KEY" || { echo 'contract_workflow_activation_blocker=missing_ssh_key'; exit 2; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'contract_workflow_activation_blocker=missing_known_hosts'; exit 2; }
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || {
+            echo 'contract_workflow_activation_blocker=invalid_ssh_port'
+            exit 2
+          }
+          echo 'contract_workflow_activation_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Convert legacy completion data and deploy exact release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+
+          candidate_sha="$1"
+          service='geoflow-stabilized.service'
+          expected_branch='release/stabilized-deploy'
+          migration_path='geoflow_ops/migrations/0026_contract_completion_event_backfill.py'
+
+          fail() {
+            echo "contract_workflow_activation_blocker=$1"
+            exit 2
+          }
+
+          command -v git >/dev/null 2>&1 || fail 'git_missing'
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          command -v curl >/dev/null 2>&1 || fail 'curl_missing'
+          command -v sudo >/dev/null 2>&1 || fail 'sudo_missing'
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'stabilized_service_not_running_before_activation'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          [ -f "$repo/manage.py" ] || fail 'manage_py_missing'
+          [ -f "$repo/requirements.txt" ] || fail 'requirements_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+
+          origin="$(git -C "$repo" remote get-url origin 2>/dev/null || true)"
+          case "$origin" in
+            https://github.com/kotopia/geoflow_web|https://github.com/kotopia/geoflow_web.git|git@github.com:kotopia/geoflow_web.git) ;;
+            *) fail 'unexpected_repository_origin' ;;
+          esac
+          [ "$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')" = '0' ] || fail 'production_worktree_dirty'
+
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'stabilized_venv_python_missing'
+          [ -x "$repo/.venv/bin/gunicorn" ] || fail 'stabilized_gunicorn_missing'
+          exec_raw="$(systemctl show "$service" -p ExecStart --value 2>/dev/null || true)"
+          printf '%s' "$exec_raw" | grep -Fq "$repo/.venv/bin/gunicorn" || fail 'service_exec_not_stabilized_venv'
+          printf '%s' "$exec_raw" | grep -Fq 'geoflow_project.wsgi:application' || fail 'service_wsgi_target_unexpected'
+
+          before_code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://127.0.0.1:8011/login/ || true)"
+          case "$before_code" in 2??|3??) ;; *) fail 'local_login_unhealthy_before_activation' ;; esac
+
+          previous_sha="$(git -C "$repo" rev-parse HEAD)"
+          previous_branch="$(git -C "$repo" symbolic-ref --short -q HEAD || true)"
+          echo "contract_workflow_activation_previous_sha=$previous_sha"
+          echo "contract_workflow_activation_candidate_sha=$candidate_sha"
+
+          git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
+          [ "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$candidate_sha" ] || fail 'candidate_sha_not_current_release_head'
+          git -C "$repo" cat-file -e "$candidate_sha:$migration_path" || fail 'candidate_migration_missing'
+
+          # Validate candidate application code against the production runtime
+          # before any tenant business data is changed.
+          candidate_dir="$(mktemp -d /tmp/geoflow-contract-workflow.XXXXXX)"
+          cleanup_candidate() {
+            git -C "$repo" worktree remove --force "$candidate_dir" >/dev/null 2>&1 || true
+            rm -rf "$candidate_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup_candidate EXIT
+          git -C "$repo" worktree add --detach "$candidate_dir" "$candidate_sha" >/dev/null
+          ln -sfn "$repo/.env" "$candidate_dir/.env"
+          (cd "$candidate_dir" && "$python" manage.py check)
+          echo 'contract_workflow_activation_candidate_check=yes'
+
+          "$python" - "$repo" "$candidate_sha" "$migration_path" <<'PY'
+          from collections import Counter
+          import os
+          import psycopg2
+          import subprocess
+          import sys
+          import types
+
+          repo, candidate_sha, migration_path = sys.argv[1:4]
+          sys.path.insert(0, repo)
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+
+          import django
+          django.setup()
+
+          from django.db import connections, transaction
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import (
+              is_tenant_db_secret_reference,
+              resolve_tenant_db_password,
+          )
+
+          APP = "webgisapp"
+          DEPENDENCY = "0025_myinfo_hr_masters"
+          MIGRATION = "0026_contract_completion_event_backfill"
+          LOCK_KEY = "geoflow:webgisapp:0026:contract-workflow"
+          BUSINESS_RELATIONS = {
+              "ctr.contracts",
+              "ops.process_events",
+          }
+
+          def text(value):
+              return str(value or "").strip()
+
+          def scalar(cur, sql, params=None):
+              cur.execute(sql, params or [])
+              row = cur.fetchone()
+              return row[0] if row else None
+
+          def relation_exists(cur, relation):
+              return bool(scalar(cur, "SELECT to_regclass(%s) IS NOT NULL", [relation]))
+
+          def existing_event_digest(cur):
+              return scalar(
+                  cur,
+                  """
+                  SELECT md5(COALESCE(string_agg(
+                      e.id::text || ':' || md5(to_jsonb(e)::text),
+                      E'\\n' ORDER BY e.id::text
+                  ), ''))
+                    FROM ops.process_events e
+                    JOIN geoflow_0026_existing_event_ids x ON x.id=e.id
+                  """,
+              )
+
+          source = subprocess.check_output(
+              ["git", "-C", repo, "show", f"{candidate_sha}:{migration_path}"],
+              text=True,
+          )
+          lowered = source.lower()
+          required_markers = (
+              "legacy_contract_status_migration",
+              "closeout_complete",
+              "set status = null",
+              "system:migration:0026",
+              "not exists",
+          )
+          for marker in required_markers:
+              if marker not in lowered:
+                  raise SystemExit(f"contract_workflow_activation_blocker=migration_marker_missing:{marker}")
+          for forbidden in (
+              "delete from ctr.contracts",
+              "truncate ctr.contracts",
+              "drop table ctr.contracts",
+              "delete from ops.process_events",
+              "truncate ops.process_events",
+              "drop table ops.process_events",
+              "update prj.projects",
+              "delete from prj.projects",
+              "update hr.employee_profile",
+              "delete from hr.employee_profile",
+              "update ops.attachments",
+              "delete from ops.attachments",
+          ):
+              if forbidden in lowered:
+                  raise SystemExit("contract_workflow_activation_blocker=destructive_candidate_migration")
+
+          module = types.ModuleType("candidate_0026")
+          exec(compile(source, migration_path, "exec"), module.__dict__)
+          operations = list(module.Migration.operations)
+          if len(operations) != 1 or not hasattr(operations[0], "sql"):
+              raise SystemExit("contract_workflow_activation_blocker=unexpected_migration_shape")
+          migration_sql = operations[0].sql
+
+          with transaction.atomic(using="default"):
+              with connections["default"].cursor() as central_cur:
+                  central_cur.execute("SET LOCAL TRANSACTION READ ONLY")
+                  configs = list(
+                      GroupDBConfig.objects.using("default")
+                      .select_related("group")
+                      .order_by("group_id")
+                  )
+          active_rows = [
+              row for row in configs
+              if text(getattr(row.group, "status", "")).lower() == "active"
+          ]
+          totals = Counter(configs=len(configs), active_tenants=len(active_rows))
+          prepared = []
+
+          # Phase 1: fail closed before any tenant write. CENTRAL/control-only DBs
+          # may have django_migrations but no tenant business schema, so schema
+          # presence is decided only from the two required business relations.
+          for row in active_rows:
+              tenant_code = text(getattr(row.group, "code", "")) or "tenant"
+              raw = text(row.db_password)
+              try:
+                  password = resolve_tenant_db_password(raw) if is_tenant_db_secret_reference(raw) else raw
+              except Exception as exc:
+                  raise SystemExit(
+                      f"contract_workflow_activation_blocker=secret_resolution_failed tenant={tenant_code} error={exc.__class__.__name__}"
+                  )
+              if not password:
+                  raise SystemExit(f"contract_workflow_activation_blocker=empty_password tenant={tenant_code}")
+              try:
+                  conn = psycopg2.connect(
+                      dbname=row.db_name,
+                      user=row.db_user,
+                      password=password,
+                      host=row.db_host,
+                      port=row.db_port,
+                      sslmode="require",
+                      connect_timeout=8,
+                  )
+              except Exception as exc:
+                  raise SystemExit(
+                      f"contract_workflow_activation_blocker=connection_failed tenant={tenant_code} error={exc.__class__.__name__}"
+                  )
+              try:
+                  with conn.cursor() as cur:
+                      present = {rel: relation_exists(cur, rel) for rel in BUSINESS_RELATIONS}
+                      if not any(present.values()):
+                          totals["schema_absent_skipped"] += 1
+                          print(f"contract_workflow_activation_tenant={tenant_code} precheck=schema_absent_skipped")
+                          continue
+                      if not all(present.values()):
+                          missing = ",".join(sorted(rel for rel, ok in present.items() if not ok))
+                          raise SystemExit(
+                              f"contract_workflow_activation_blocker=partial_schema tenant={tenant_code} missing={missing}"
+                          )
+                      if not relation_exists(cur, "django_migrations"):
+                          raise SystemExit(
+                              f"contract_workflow_activation_blocker=django_migrations_missing tenant={tenant_code}"
+                          )
+                      dependency_applied = bool(
+                          scalar(
+                              cur,
+                              "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
+                              [APP, DEPENDENCY],
+                          )
+                      )
+                      if not dependency_applied:
+                          raise SystemExit(
+                              f"contract_workflow_activation_blocker=0025_dependency_not_applied tenant={tenant_code}"
+                          )
+                  prepared.append((row, tenant_code, password))
+                  totals["prepared"] += 1
+                  print(f"contract_workflow_activation_tenant={tenant_code} precheck=ready")
+              finally:
+                  conn.close()
+
+          accounted_pre = totals["prepared"] + totals["schema_absent_skipped"]
+          if accounted_pre != totals["active_tenants"]:
+              raise SystemExit("contract_workflow_activation_blocker=precheck_not_all_active_tenants_accounted")
+          print("contract_workflow_activation_all_tenants_prechecked=yes")
+
+          # Phase 2: apply the reviewed conversion independently per prepared
+          # tenant, verifying that only the expected completion-event delta and
+          # completed-status clearing occurred.
+          for row, tenant_code, password in prepared:
+              conn = psycopg2.connect(
+                  dbname=row.db_name,
+                  user=row.db_user,
+                  password=password,
+                  host=row.db_host,
+                  port=row.db_port,
+                  sslmode="require",
+                  connect_timeout=8,
+              )
+              try:
+                  conn.autocommit = False
+                  with conn.cursor() as cur:
+                      cur.execute("SET LOCAL lock_timeout = '5s'")
+                      cur.execute("SET LOCAL statement_timeout = '90s'")
+                      cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [LOCK_KEY])
+
+                      already_applied = bool(
+                          scalar(
+                              cur,
+                              "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
+                              [APP, MIGRATION],
+                          )
+                      )
+
+                      contracts_before = int(scalar(cur, "SELECT COUNT(*) FROM ctr.contracts"))
+                      events_before = int(scalar(cur, "SELECT COUNT(*) FROM ops.process_events"))
+                      legacy_before = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*) FROM ctr.contracts
+                               WHERE lower(btrim(COALESCE(status, ''))) IN ('complete','completed','완료')
+                              """,
+                          )
+                      )
+                      missing_completion_before = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ctr.contracts c
+                               WHERE lower(btrim(COALESCE(c.status, ''))) IN ('complete','completed','완료')
+                                 AND NOT EXISTS (
+                                     SELECT 1 FROM ops.process_events e
+                                      WHERE e.contract_id=c.id
+                                        AND e.event_type='closeout_complete'
+                                        AND COALESCE(e.status, '') <> 'void'
+                                 )
+                              """,
+                          )
+                      )
+
+                      cur.execute(
+                          "CREATE TEMP TABLE geoflow_0026_existing_event_ids ON COMMIT DROP AS SELECT id FROM ops.process_events"
+                      )
+                      events_digest_before = existing_event_digest(cur)
+                      cur.execute(
+                          """
+                          CREATE TEMP TABLE geoflow_0026_contract_baseline ON COMMIT DROP AS
+                          SELECT id, md5((to_jsonb(c) - 'status' - 'updated_at')::text) AS digest,
+                                 lower(btrim(COALESCE(status, ''))) AS status_before
+                            FROM ctr.contracts c
+                          """
+                      )
+
+                      if not already_applied:
+                          cur.execute(migration_sql)
+                          cur.execute(
+                              """
+                              INSERT INTO django_migrations (app, name, applied)
+                              SELECT %s, %s, NOW()
+                               WHERE NOT EXISTS (
+                                   SELECT 1 FROM django_migrations WHERE app=%s AND name=%s
+                               )
+                              """,
+                              [APP, MIGRATION, APP, MIGRATION],
+                          )
+
+                      contracts_after = int(scalar(cur, "SELECT COUNT(*) FROM ctr.contracts"))
+                      events_after = int(scalar(cur, "SELECT COUNT(*) FROM ops.process_events"))
+                      legacy_after = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*) FROM ctr.contracts
+                               WHERE lower(btrim(COALESCE(status, ''))) IN ('complete','completed','완료')
+                              """,
+                          )
+                      )
+                      events_digest_after = existing_event_digest(cur)
+
+                      if contracts_after != contracts_before:
+                          raise RuntimeError("contract row count changed")
+                      expected_event_delta = 0 if already_applied else missing_completion_before
+                      if events_after - events_before != expected_event_delta:
+                          raise RuntimeError(
+                              f"completion event delta unexpected expected={expected_event_delta} actual={events_after-events_before}"
+                          )
+                      if events_digest_after != events_digest_before:
+                          raise RuntimeError("existing event content changed")
+                      if legacy_after != 0:
+                          raise RuntimeError("legacy completed contract status remains")
+
+                      changed_contract_content = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ctr.contracts c
+                                JOIN geoflow_0026_contract_baseline b ON b.id=c.id
+                               WHERE md5((to_jsonb(c) - 'status' - 'updated_at')::text) <> b.digest
+                              """,
+                          )
+                      )
+                      if changed_contract_content:
+                          raise RuntimeError("contract content other than status/updated_at changed")
+
+                      wrong_status_change = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ctr.contracts c
+                                JOIN geoflow_0026_contract_baseline b ON b.id=c.id
+                               WHERE b.status_before NOT IN ('complete','completed','완료')
+                                 AND lower(btrim(COALESCE(c.status, ''))) IS DISTINCT FROM b.status_before
+                              """,
+                          )
+                      )
+                      if wrong_status_change:
+                          raise RuntimeError("non-completed contract status changed")
+
+                      unmatched_completed = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM geoflow_0026_contract_baseline b
+                               WHERE b.status_before IN ('complete','completed','완료')
+                                 AND NOT EXISTS (
+                                     SELECT 1 FROM ops.process_events e
+                                      WHERE e.contract_id=b.id
+                                        AND e.event_type='closeout_complete'
+                                        AND COALESCE(e.status, '') <> 'void'
+                                 )
+                              """,
+                          )
+                      )
+                      if unmatched_completed:
+                          raise RuntimeError("migrated completed contract missing completion event")
+
+                      bad_new_events = int(
+                          scalar(
+                              cur,
+                              """
+                              SELECT COUNT(*)
+                                FROM ops.process_events e
+                               WHERE NOT EXISTS (
+                                   SELECT 1 FROM geoflow_0026_existing_event_ids x WHERE x.id=e.id
+                               )
+                                 AND (
+                                     e.scope_type <> 'contract'
+                                     OR e.contract_id IS NULL
+                                     OR e.scope_id <> e.contract_id
+                                     OR e.stage <> 'closeout'
+                                     OR e.event_type <> 'closeout_complete'
+                                     OR e.status <> 'done'
+                                     OR e.created_by <> 'system:migration:0026'
+                                     OR e.payload->>'source' <> 'legacy_contract_status_migration'
+                                 )
+                              """,
+                          )
+                      )
+                      if bad_new_events:
+                          raise RuntimeError("unexpected migrated event content")
+
+                      migration_record = bool(
+                          scalar(
+                              cur,
+                              "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
+                              [APP, MIGRATION],
+                          )
+                      )
+                      if not migration_record:
+                          raise RuntimeError("0026 migration record missing")
+
+                  conn.commit()
+                  totals["already_applied" if already_applied else "migrated"] += 1
+                  totals["legacy_completed_before"] += legacy_before
+                  totals["completion_events_inserted"] += expected_event_delta
+                  totals["contracts_verified"] += contracts_before
+                  totals["events_before"] += events_before
+                  totals["events_after"] += events_after
+                  print(
+                      f"contract_workflow_activation_tenant={tenant_code} "
+                      f"result={'already_applied' if already_applied else 'migrated'} "
+                      f"legacy_completed={legacy_before} inserted={expected_event_delta}"
+                  )
+              except Exception as exc:
+                  conn.rollback()
+                  totals["migration_failed"] += 1
+                  pgcode = getattr(exc, "pgcode", None) or "-"
+                  message = " ".join(str(exc).split())[:300]
+                  print(
+                      f"contract_workflow_activation_tenant={tenant_code} result=migration_failed "
+                      f"error={exc.__class__.__name__} pgcode={pgcode} message={message}"
+                  )
+              finally:
+                  conn.close()
+
+          for key in (
+              "configs",
+              "active_tenants",
+              "prepared",
+              "migrated",
+              "already_applied",
+              "schema_absent_skipped",
+              "migration_failed",
+              "legacy_completed_before",
+              "completion_events_inserted",
+              "contracts_verified",
+              "events_before",
+              "events_after",
+          ):
+              print(f"contract_workflow_activation_{key}={int(totals[key])}")
+
+          if totals["migration_failed"]:
+              raise SystemExit("contract_workflow_activation_blocker=tenant_migration_failure")
+          accounted = totals["migrated"] + totals["already_applied"] + totals["schema_absent_skipped"]
+          if accounted != totals["active_tenants"]:
+              raise SystemExit("contract_workflow_activation_blocker=not_all_active_tenants_accounted")
+          print("contract_workflow_activation_db_complete=yes")
+          PY
+
+          cleanup_candidate
+          trap - EXIT
+
+          rollback_needed=0
+          rollback_code() {
+            set +e
+            if [ "$rollback_needed" -eq 1 ]; then
+              echo 'contract_workflow_activation_code_rollback_started=yes'
+              if [ -n "$previous_branch" ]; then
+                git -C "$repo" checkout -B "$previous_branch" "$previous_sha" >/dev/null 2>&1
+              else
+                git -C "$repo" checkout --detach "$previous_sha" >/dev/null 2>&1
+              fi
+              "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt" >/dev/null 2>&1
+              "$python" "$repo/manage.py" collectstatic --noinput >/dev/null 2>&1
+              sudo -n systemctl restart "$service"
+              sleep 3
+              echo "contract_workflow_activation_rollback_service_state=$(systemctl is-active "$service" 2>/dev/null || true)"
+              echo 'contract_workflow_activation_code_rollback_completed=yes'
+            fi
+          }
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then rollback_code; fi
+            exit "$rc"
+          }
+          trap on_exit EXIT
+          rollback_needed=1
+
+          git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
+          [ "$(git -C "$repo" rev-parse HEAD)" = "$candidate_sha" ] || fail 'candidate_checkout_failed'
+          "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
+          "$python" -m pip check
+          "$python" "$repo/manage.py" check
+          "$python" "$repo/manage.py" collectstatic --noinput
+          sudo -n systemctl restart "$service"
+
+          ready=no
+          for _ in $(seq 1 30); do
+            active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+            sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+            code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
+            if [ "$active" = 'active' ] && [ "$sub" = 'running' ]; then
+              case "$code" in 2??|3??) ready=yes; break ;; esac
+            fi
+            sleep 2
+          done
+          [ "$ready" = yes ] || fail 'stabilized_service_failed_post_restart_healthcheck'
+
+          public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
+          echo "contract_workflow_activation_public_login_status=$public_login"
+          [ "$public_login" = '200' ] || fail 'public_login_not_200_after_activation'
+
+          rollback_needed=0
+          trap - EXIT
+          echo "contract_workflow_activation_deployed_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo "contract_workflow_activation_deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
+          echo 'contract_workflow_production_activation_complete=yes'
+          REMOTE
