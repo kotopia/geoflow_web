@@ -16,6 +16,7 @@ from .models import ProcessEvent, ProcessEventAttachment, Project
 from .process_workflow import default_stage_for_event, normalize_stage
 from .services.department_routing import (
     default_owner_department_id,
+    department_allowed_for_scope,
     route_project_inspection_request_to_management,
 )
 from .services.entity_access import (
@@ -232,7 +233,18 @@ def create_event(request):
     contract_id, project_id = _derive_lineage(alias, scope_type, scope_id)
     if scope_type == "project" and project_id is None:
         return _json_error("Invalid scope")
-    if not cleaned.get("owner_department_id"):
+
+    owner_department_id = cleaned.get("owner_department_id")
+    if (
+        scope_type in {"contract", "project"}
+        and owner_department_id is not None
+        and not department_allowed_for_scope(
+            alias, scope_type, scope_id, owner_department_id
+        )
+    ):
+        return _json_error("Invalid owner_department_id")
+
+    if not owner_department_id:
         default_department = default_owner_department_id(
             alias,
             request,
@@ -240,7 +252,15 @@ def create_event(request):
             scope_type=scope_type,
             scope_id=scope_id,
         )
-        if default_department:
+        if (
+            default_department
+            and (
+                scope_type not in {"contract", "project"}
+                or department_allowed_for_scope(
+                    alias, scope_type, scope_id, default_department
+                )
+            )
+        ):
             cleaned["owner_department_id"] = UUID(default_department)
     user_name = getattr(request.user, "username", None) or getattr(request.user, "email", None) or "unknown"
     try:
@@ -303,6 +323,22 @@ def update_event(request, event_id):
     cleaned, error = _validate_mutable_fields(data, creating=False, alias=alias)
     if error:
         return _json_error(error)
+
+    if "owner_department_id" in cleaned:
+        incoming_department_id = cleaned.get("owner_department_id")
+        if (
+            event.scope_type in {"contract", "project"}
+            and incoming_department_id is not None
+            and incoming_department_id != event.owner_department_id
+            and not department_allowed_for_scope(
+                alias,
+                event.scope_type,
+                event.scope_id,
+                incoming_department_id,
+            )
+        ):
+            return _json_error("Invalid owner_department_id")
+
     for key, value in cleaned.items():
         setattr(event, key, value)
     if event.scope_type == "project" and event.event_type == "inspection_request" and event.status == "done":
