@@ -22,6 +22,11 @@ _DISPLAY_MAJOR_LABELS = {
     "execution": "진행",
     "closeout": "준공",
 }
+_FILTER_STATUS_BY_MAJOR = {
+    "contract": "planned",
+    "execution": "active",
+    "closeout": "complete",
+}
 _CLOSEOUT_COMPLETE_EVENT_TYPES = {"closeout_complete"}
 
 
@@ -68,6 +73,7 @@ def _stage_summary(
         "stage_label": "준공 완료" if is_complete else _STAGE_LABELS.get(stage, stage or "-"),
         "major_code": major_code,
         "major_label": major_label,
+        "filter_status": _FILTER_STATUS_BY_MAJOR.get(major_code, "active"),
         "phase_class": phase_class,
         "is_complete": bool(is_complete),
     }
