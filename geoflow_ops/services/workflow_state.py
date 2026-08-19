@@ -16,6 +16,8 @@ _STAGE_ORDER = {
     "closeout": 60,
 }
 _STAGE_LABELS = {choice.code: choice.label for choice in STAGE_CHOICES}
+_LIFECYCLE_STAGES = {"kickoff", "execution", "inspection", "closeout"}
+_LIFECYCLE_EVENT_TYPES = {"contract_cancel", "closeout_complete"}
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
@@ -47,6 +49,13 @@ def lifecycle_status_for_major(major_code: str) -> str:
     }.get(str(major_code or ""), "planned")
 
 
+def event_affects_contract_lifecycle(stage: str | None, event_type: str | None) -> bool:
+    return (
+        str(stage or "").strip() in _LIFECYCLE_STAGES
+        or str(event_type or "").strip() in _LIFECYCLE_EVENT_TYPES
+    )
+
+
 def _stage_summary(
     stage: str | None,
     *,
@@ -70,11 +79,16 @@ def _stage_summary(
     major_code, major_label = major_phase_for_stage(stage)
 
     # Existing completed contracts from before the explicit 준공완료 event are
-    # treated as final only when the stored legacy status already says complete.
+    # treated as final when their stored legacy status already says complete.
     legacy_final = status_text in {"complete", "completed", "완료", "준공"}
-    final_complete = bool(is_final_complete or (not stage and legacy_final))
+    final_complete = bool(is_final_complete)
     if major_code == "closeout" and legacy_final and not is_final_complete:
         final_complete = True
+
+    closeout_label = ""
+    if major_code == "closeout":
+        closeout_label = "준공완료" if final_complete else "준공 진행"
+        major_label = "✓ 준공완료" if final_complete else "준공 진행"
 
     return {
         "stage": stage,
@@ -83,12 +97,68 @@ def _stage_summary(
         "major_label": major_label,
         "lifecycle_status": lifecycle_status_for_major(major_code),
         "is_final_complete": final_complete,
-        "closeout_label": (
-            "준공완료" if major_code == "closeout" and final_complete
-            else "준공 진행" if major_code == "closeout"
-            else ""
-        ),
+        "closeout_label": closeout_label,
     }
+
+
+def _event_lifecycle_state(alias: str, contract_id) -> tuple[str, bool]:
+    """Return canonical Contract.status and final-complete flag from events only."""
+    latest_rank = 0
+    canceled = False
+    final_complete = False
+
+    with connections[alias].cursor() as cur:
+        cur.execute(
+            """
+            SELECT stage, event_type
+              FROM ops.process_events
+             WHERE contract_id=%s
+               AND COALESCE(status, '') <> 'void'
+            """,
+            [str(contract_id)],
+        )
+        for stage, event_type in cur.fetchall():
+            stage = str(stage or "").strip()
+            event_type = str(event_type or "").strip()
+            if event_type == "contract_cancel":
+                canceled = True
+            if event_type == "closeout_complete":
+                final_complete = True
+            if stage == "billing":
+                continue
+            latest_rank = max(latest_rank, _STAGE_ORDER.get(stage, 0))
+
+    if canceled:
+        return "cancel", False
+    if latest_rank >= _STAGE_ORDER["closeout"]:
+        return "complete", final_complete
+    if latest_rank >= _STAGE_ORDER["kickoff"]:
+        return "active", False
+    return "planned", False
+
+
+def sync_contract_status_from_events(alias: str, contract_id) -> str | None:
+    """Synchronize the legacy Contract.status column from milestone events.
+
+    The column remains for compatibility with existing reports and filters, but
+    users no longer edit it directly. Contract-change, extension, suspend/resume,
+    and billing events do not move the lifecycle backwards or forwards by
+    themselves because only lifecycle-affecting event mutations call this helper.
+    """
+    if not contract_id:
+        return None
+    target, _final_complete = _event_lifecycle_state(alias, contract_id)
+    with connections[alias].cursor() as cur:
+        cur.execute(
+            """
+            UPDATE ctr.contracts
+               SET status=%s, updated_at=now()
+             WHERE id=%s
+               AND COALESCE(status, '') <> %s
+            """,
+            [target, str(contract_id), target],
+        )
+    return target
 
 
 def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
