@@ -8,6 +8,7 @@ on:
       - .github/workflows/phase4-workboard-production-deploy.yml
       - geoflow_ops/views_workboard.py
       - geoflow_ops/event_security_views.py
+      - geoflow_ops/upload_guard_views.py
       - geoflow_ops/urls.py
       - geoflow_ops/templates/geoflow_ops/events/_event_modal.html
       - geoflow_ops/templates/geoflow_ops/projects/project_detail.html
