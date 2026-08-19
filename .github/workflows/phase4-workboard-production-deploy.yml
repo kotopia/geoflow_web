@@ -58,7 +58,7 @@ jobs:
             fi
           fi
           echo "requires_contract_activation=$requires" >> "$GITHUB_OUTPUT"
-          echo "phase4_workboard_requires_contract_activation=$requires"
+          echo "phase4_workboard_requires_contract_workflow_activation=$requires"
 
   workboard-production-deploy:
     needs: classify-workboard-deploy
