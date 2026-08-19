@@ -11,10 +11,10 @@ from geoflow_ops.process_workflow import (
 
 
 CONTRACT_STATUS_FALLBACK = (
-    ("planned", "계약전"),
+    ("planned", "계약"),
     ("active", "진행"),
     ("pause", "중지"),
-    ("complete", "완료"),
+    ("complete", "준공"),
     ("cancel", "취소"),
 )
 CONTRACT_KIND_FALLBACK = (
@@ -34,9 +34,16 @@ EMPLOYMENT_TYPE_FALLBACK = (
     ("인턴", "인턴"),
 )
 
+# These event types carry core lifecycle semantics and must remain available
+# even when an older tenant has a configured event-type tree that predates them.
+SYSTEM_REQUIRED_EVENT_TYPES = {
+    "event.type.closeout": (("closeout_complete", "준공완료"),),
+}
+
 CONTRACT_STATUS_ALIASES = {
     "planned": "planned",
     "계약전": "planned",
+    "계약": "planned",
     "active": "active",
     "진행": "active",
     "진행중": "active",
@@ -47,6 +54,7 @@ CONTRACT_STATUS_ALIASES = {
     "complete": "complete",
     "completed": "complete",
     "완료": "complete",
+    "준공": "complete",
     "cancel": "cancel",
     "canceled": "cancel",
     "cancelled": "cancel",
@@ -143,24 +151,35 @@ def _configured_rows(alias: str, system_key: str):
         return cur.fetchall()
 
 
+def _merge_required_options(system_key: str, options):
+    result = list(options)
+    seen = {str(code or "") for code, _label in result}
+    for code, label in SYSTEM_REQUIRED_EVENT_TYPES.get(system_key, ()):
+        if code not in seen:
+            result.append((code, label))
+            seen.add(code)
+    return result
+
+
 def settings_options(alias: str | None, system_key: str, *, include_inactive: bool = False):
     """Return stable machine code + tenant-editable label pairs."""
 
     fallback = list(_fallback_for(system_key))
     if not alias or not _table_exists(alias, "ops.settings_nodes"):
-        return fallback
+        return _merge_required_options(system_key, fallback)
 
     try:
         rows = _configured_rows(alias, system_key)
     except Exception:
-        return fallback
+        return _merge_required_options(system_key, fallback)
     if not rows:
-        return fallback
-    return [
+        return _merge_required_options(system_key, fallback)
+    configured = [
         (row[0] or "", row[1] or row[0] or "")
         for row in rows
         if include_inactive or bool(row[2])
     ]
+    return _merge_required_options(system_key, configured)
 
 
 def settings_codes(alias: str | None, system_key: str, *, include_inactive: bool = False) -> set[str]:
