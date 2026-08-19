@@ -69,6 +69,7 @@ jobs:
             geoflow_ops/event_security_views.py \
             geoflow_ops/views_events.py \
             geoflow_ops/views_workboard.py \
+            geoflow_ops/views_contracts.py \
             geoflow_ops/views_execution.py \
             geoflow_ops/views_dashboard.py \
             geoflow_ops/views_home_security.py \
