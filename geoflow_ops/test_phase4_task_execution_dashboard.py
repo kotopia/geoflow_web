@@ -59,12 +59,15 @@ class Phase4TaskMigrationContractTests(SimpleTestCase):
         self.assertIn("project task update lost scope", source)
         self.assertIn('gf_perm_required("projects.edit")', source)
 
-    def test_dashboard_is_permission_aware_and_hides_terminal_business_lineage(self):
+    def test_dashboard_is_permission_aware_and_hides_terminal_contract_lineage_by_event(self):
         source = (ROOT / "views_dashboard.py").read_text(encoding="utf-8")
         self.assertIn('gf_has_perm(request, "projects.view")', source)
         self.assertIn('gf_has_perm(request, "contracts.view")', source)
         self.assertIn('gf_has_perm(request, "directory.view")', source)
         self.assertIn("qs.exclude(status__in=", source)
-        # Project execution status remains independent, but a terminal Contract
-        # must also remove its project from the default management dashboard.
-        self.assertIn("exclude(contract__status__in=terminal)", source)
+        # Project execution status remains independent, while Contract terminal
+        # lineage is now derived from non-void completion/cancellation events.
+        self.assertIn("def _terminal_contract_ids", source)
+        self.assertIn("event_type IN ('closeout_complete', 'contract_cancel')", source)
+        self.assertIn("exclude(contract_id__in=terminal_contract_ids)", source)
+        self.assertNotIn("exclude(contract__status__in=terminal)", source)
