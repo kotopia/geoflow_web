@@ -65,7 +65,7 @@ class SharedEventHandoffContractTests(SimpleTestCase):
         modal = (ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html").read_text(encoding="utf-8")
         event_views = (ROOT / "views_events.py").read_text(encoding="utf-8")
         self.assertNotIn("처리 상태", modal)
-        self.assertIn('type="hidden" id="event-status" value="open"', modal)
+        self.assertIn('class="d-none" id="event-status"', modal)
         self.assertIn('status = str(data.get("status") or "open")', event_views)
         self.assertIn('if creating and status == "draft"', event_views)
         self.assertIn('event.status = "void"', event_views)
