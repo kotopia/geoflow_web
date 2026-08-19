@@ -57,6 +57,11 @@ class ContractLifecycleSemanticTests(SimpleTestCase):
         self.assertEqual(final["major_label"], "✓ 준공완료")
         self.assertTrue(final["is_final_complete"])
 
+    def test_legacy_cancel_status_remains_canceled_without_event_history(self):
+        summary = _stage_summary(None, contract_status="cancel")
+        self.assertEqual(summary["major_code"], "cancel")
+        self.assertEqual(summary["major_label"], "취소")
+
     def test_explicit_closeout_completion_event_is_available(self):
         self.assertEqual(default_stage_for_event("closeout_complete"), "closeout")
         options = _merge_required_options(
@@ -108,3 +113,5 @@ class ContractLifecycleUiContractTests(SimpleTestCase):
         self.assertIn("from . import signals", apps)
         self.assertIn("UPDATE ctr.contracts", workflow)
         self.assertIn("if stage == \"billing\"", workflow)
+        self.assertIn("has_lifecycle_event", workflow)
+        self.assertIn("if stage not in _LIFECYCLE_STAGES", workflow)
