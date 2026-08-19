@@ -51,6 +51,21 @@ def _parse_year(value):
     return year if 2000 <= year <= 2100 else None
 
 
+def _terminal_contract_ids(alias: str) -> list[str]:
+    """Return terminal contracts from events, never from Contract.status."""
+    with connections[alias].cursor() as cur:
+        cur.execute(
+            """
+            SELECT DISTINCT contract_id::text
+              FROM ops.process_events
+             WHERE contract_id IS NOT NULL
+               AND COALESCE(status, '') <> 'void'
+               AND event_type IN ('closeout_complete', 'contract_cancel')
+            """
+        )
+        return [row[0] for row in cur.fetchall() if row and row[0]]
+
+
 def _task_rows(alias: str, project_ids):
     if not project_ids:
         return []
@@ -146,6 +161,10 @@ def tenant_dashboard(request):
         date_from = date(year, 1, 1)
         date_to = date(year, 12, 31)
 
+    terminal_contract_ids = []
+    if not include_completed and (can_view_projects or can_view_contracts):
+        terminal_contract_ids = _terminal_contract_ids(alias)
+
     projects = []
     if can_view_projects:
         qs = Project.objects.using(alias).select_related(
@@ -159,7 +178,9 @@ def tenant_dashboard(request):
             qs = qs.filter(status__in=PROJECT_STATUS_GROUPS[project_status])
         if not include_completed and not project_status:
             terminal = PROJECT_STATUS_GROUPS["complete"] | PROJECT_STATUS_GROUPS["cancel"]
-            qs = qs.exclude(status__in=terminal).exclude(contract__status__in=terminal)
+            qs = qs.exclude(status__in=terminal)
+            if terminal_contract_ids:
+                qs = qs.exclude(contract_id__in=terminal_contract_ids)
 
         if assignee and can_view_directory:
             with connections[alias].cursor() as cur:
@@ -251,9 +272,8 @@ def tenant_dashboard(request):
             contract_qs = contract_qs.filter(Q(end_date__gte=date_from) | Q(end_date__isnull=True))
         if date_to:
             contract_qs = contract_qs.filter(Q(start_date__lte=date_to) | Q(start_date__isnull=True))
-        if not include_completed:
-            terminal = PROJECT_STATUS_GROUPS["complete"] | PROJECT_STATUS_GROUPS["cancel"]
-            contract_qs = contract_qs.exclude(status__in=terminal)
+        if not include_completed and terminal_contract_ids:
+            contract_qs = contract_qs.exclude(id__in=terminal_contract_ids)
         contracts_count = contract_qs.count()
 
     available_years = []
