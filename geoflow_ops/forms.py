@@ -27,7 +27,9 @@ class ISODateInput(forms.DateInput):
 
 
 class ContractForm(forms.ModelForm):
-    status = forms.ChoiceField(choices=STATUS_CHOICES, required=False)
+    # Kept for tenant vocabulary/backward compatibility, but lifecycle is
+    # event-driven. Users do not manually move 계약 -> 진행 -> 준공 here.
+    status = forms.ChoiceField(choices=STATUS_CHOICES, required=False, disabled=True)
     kind = forms.ChoiceField(choices=KIND_CHOICES, required=False)
 
     start_date = forms.DateField(
@@ -79,7 +81,7 @@ class ContractForm(forms.ModelForm):
         status_choices = list(settings_options(alias, "contract.status"))
         kind_choices = list(settings_options(alias, "contract.kind"))
 
-        current_status = normalize_contract_status(getattr(self.instance, "status", ""))
+        current_status = normalize_contract_status(getattr(self.instance, "status", "")) or "planned"
         if current_status and current_status not in {code for code, _ in status_choices}:
             status_choices.append((current_status, f"{current_status} (기존값)"))
         current_kind = str(getattr(self.instance, "kind", "") or "").strip()
@@ -87,16 +89,19 @@ class ContractForm(forms.ModelForm):
             kind_choices.append((current_kind, f"{current_kind} (기존값)"))
 
         self.fields["status"] = forms.ChoiceField(
-            choices=[("", "---------"), *status_choices], required=False
+            choices=[("", "---------"), *status_choices], required=False, disabled=True
         )
         self.fields["kind"] = forms.ChoiceField(
             choices=[("", "---------"), *kind_choices], required=False
         )
-        self.fields["status"].widget.attrs.update({"class": "form-select"})
+        self.fields["status"].widget.attrs.update({
+            "class": "form-select",
+            "aria-readonly": "true",
+            "title": "업무단계는 이벤트에서 자동 변경됩니다.",
+        })
         self.fields["kind"].widget.attrs.update({"class": "form-select"})
 
-        if current_status:
-            self.initial["status"] = current_status
+        self.initial["status"] = current_status
         if current_kind:
             self.initial["kind"] = current_kind
 
@@ -197,3 +202,4 @@ class MyOrgUnitForm(forms.ModelForm):
             "label": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
         }
+        
