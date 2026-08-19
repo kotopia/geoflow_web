@@ -6,6 +6,8 @@ from django.test import SimpleTestCase
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVATION = ROOT / ".github" / "workflows" / "phase4-contract-workflow-production-activation.yml"
 WORKBOARD_DEPLOY = ROOT / ".github" / "workflows" / "phase4-workboard-production-deploy.yml"
+HANDOFF_ACTIVATION = ROOT / ".github" / "workflows" / "phase4-workflow-handoff-production-activation.yml"
+MYINFO_ACTIVATION = ROOT / ".github" / "workflows" / "phase4-myinfo-hr-masters-production-activation.yml"
 MIGRATION = ROOT / "geoflow_ops" / "migrations" / "0026_contract_completion_event_backfill.py"
 
 
@@ -21,13 +23,30 @@ class ContractWorkflowProductionActivationContractTests(SimpleTestCase):
         self.assertNotIn("nginx", lowered)
         self.assertIn("https://geoflow.co.kr/login/", source)
 
-    def test_code_only_workboard_deploy_skips_0026_release(self):
-        source = WORKBOARD_DEPLOY.read_text(encoding="utf-8")
-        self.assertIn("classify-workboard-deploy", source)
-        self.assertIn("requires_contract_activation", source)
+    def _assert_deferred_for_0026(self, path: Path, classifier: str, output_expr: str):
+        source = path.read_text(encoding="utf-8")
+        self.assertIn(classifier, source)
         self.assertIn("0026_contract_completion_event_backfill.py", source)
-        self.assertIn("needs.classify-workboard-deploy.outputs.requires_contract_activation != 'true'", source)
-        self.assertLess(source.index("classify-workboard-deploy"), source.index("environment: production"))
+        self.assertIn("requires_contract_workflow_activation", source)
+        self.assertIn(output_expr, source)
+        self.assertLess(source.index(classifier), source.index("environment: production"))
+
+    def test_other_overlapping_production_paths_defer_to_contract_activation(self):
+        self._assert_deferred_for_0026(
+            WORKBOARD_DEPLOY,
+            "classify-workboard-deploy",
+            "needs.classify-workboard-deploy.outputs.requires_contract_activation != 'true'",
+        )
+        self._assert_deferred_for_0026(
+            HANDOFF_ACTIVATION,
+            "classify-workflow-handoff-activation",
+            "needs.classify-workflow-handoff-activation.outputs.requires_contract_workflow_activation != 'true'",
+        )
+        self._assert_deferred_for_0026(
+            MYINFO_ACTIVATION,
+            "classify-myinfo-hr-activation",
+            "needs.classify-myinfo-hr-activation.outputs.requires_contract_workflow_activation != 'true'",
+        )
 
     def test_activation_prechecks_all_active_tenants_before_writes(self):
         source = ACTIVATION.read_text(encoding="utf-8")
