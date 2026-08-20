@@ -6,39 +6,243 @@
 {% block content %}
 <style>
 .pre-wrap { white-space: pre-wrap; }
+
+.gf-contract-page {
+  --gf-accent: #2c7be5;
+  --gf-text: #12243c;
+  --gf-muted: #7b8794;
+  --gf-line: #e8edf4;
+  --gf-soft: #f7f9fc;
+}
+
+.gf-contract-page .gf-page-title {
+  margin: 0;
+  color: var(--gf-text);
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.gf-contract-page .gf-panel {
+  background: var(--bs-body-bg, #fff);
+  border: 1px solid var(--gf-line);
+  border-radius: .8rem;
+  box-shadow: 0 .125rem .5rem rgba(18, 36, 60, .035);
+}
+
 .gf-lifecycle {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: .5rem;
-  margin-bottom: 1.25rem;
+  margin: .25rem 0 1.4rem;
+  padding: .2rem 1rem 0;
+}
+.gf-lifecycle::before {
+  content: "";
+  position: absolute;
+  left: 13%;
+  right: 13%;
+  top: .95rem;
+  height: 2px;
+  background: #cfd6df;
 }
 .gf-lifecycle-step {
-  border: 1px solid var(--bs-border-color, #dee2e6);
-  border-radius: .6rem;
-  padding: .8rem 1rem;
-  background: var(--bs-body-bg, #fff);
-  color: var(--bs-secondary-color, #6c757d);
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  color: #77828f;
+  font-size: .98rem;
+  font-weight: 600;
 }
-.gf-lifecycle-step strong { display:block; margin-bottom:.15rem; }
+.gf-lifecycle-dot {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: .35rem auto .55rem;
+  border: 3px solid #aeb7c2;
+  border-radius: 50%;
+  background: var(--bs-body-bg, #fff);
+}
 .gf-lifecycle[data-phase="contract"] .gf-step-contract,
 .gf-lifecycle[data-phase="execution"] .gf-step-execution,
 .gf-lifecycle[data-phase="closeout"] .gf-step-closeout,
 .gf-lifecycle[data-phase="complete"] .gf-step-complete {
-  border-width: 2px;
-  color: var(--bs-body-color, #212529);
+  color: var(--gf-accent);
+  font-weight: 700;
+}
+.gf-lifecycle[data-phase="contract"] .gf-step-contract .gf-lifecycle-dot,
+.gf-lifecycle[data-phase="execution"] .gf-step-execution .gf-lifecycle-dot,
+.gf-lifecycle[data-phase="closeout"] .gf-step-closeout .gf-lifecycle-dot,
+.gf-lifecycle[data-phase="complete"] .gf-step-complete .gf-lifecycle-dot {
+  border-color: var(--gf-accent);
+}
+
+.gf-contract-info {
+  padding: 1.35rem 1.55rem .25rem;
+  margin-bottom: 1rem;
+}
+.gf-contract-info-title {
+  margin: 0 0 .75rem;
+  color: var(--gf-text);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.gf-info-row {
+  display: grid;
+  grid-template-columns: 10.5rem minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+  padding: .75rem .25rem;
+  border-top: 1px solid var(--gf-line);
+}
+.gf-info-row:first-of-type { border-top: 0; }
+.gf-info-label {
+  color: var(--gf-muted);
+  font-size: .9rem;
   font-weight: 600;
 }
-.gf-lifecycle[data-phase="contract"] .gf-step-contract { border-color:#ffc107; background:rgba(255,193,7,.10); }
-.gf-lifecycle[data-phase="execution"] .gf-step-contract,
-.gf-lifecycle[data-phase="closeout"] .gf-step-contract,
-.gf-lifecycle[data-phase="complete"] .gf-step-contract { opacity:.58; }
-.gf-lifecycle[data-phase="execution"] .gf-step-execution { border-color:#0d6efd; background:rgba(13,110,253,.08); }
-.gf-lifecycle[data-phase="closeout"] .gf-step-execution,
-.gf-lifecycle[data-phase="complete"] .gf-step-execution { opacity:.58; }
-.gf-lifecycle[data-phase="closeout"] .gf-step-closeout { border-color:#0dcaf0; background:rgba(13,202,240,.08); }
-.gf-lifecycle[data-phase="complete"] .gf-step-closeout { opacity:.58; }
-.gf-lifecycle[data-phase="complete"] .gf-step-complete { border-color:#6c757d; background:rgba(108,117,125,.08); }
-@media (max-width: 767.98px) { .gf-lifecycle { grid-template-columns: 1fr; } }
+.gf-info-value {
+  min-width: 0;
+  color: var(--gf-text);
+  font-size: .96rem;
+  font-weight: 500;
+}
+.gf-info-value.gf-strong { font-weight: 700; }
+.gf-current-phase {
+  color: var(--gf-accent);
+  font-weight: 700;
+}
+.gf-access-inline {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.gf-access-request {
+  display: flex;
+  gap: .45rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.gf-access-request .form-control { max-width: 22rem; }
+.gf-access-pending-list {
+  margin-top: .65rem;
+  display: grid;
+  gap: .5rem;
+}
+.gf-access-pending-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  padding: .55rem .7rem;
+  background: var(--gf-soft);
+  border: 1px solid var(--gf-line);
+  border-radius: .5rem;
+}
+
+.gf-work-card { overflow: hidden; }
+.gf-work-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid var(--gf-line);
+}
+.gf-work-tab {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  padding: 1rem .15rem .8rem;
+  color: #697586;
+  font-size: .96rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.gf-work-tab.active {
+  color: var(--gf-accent);
+  border-bottom-color: var(--gf-accent);
+}
+.gf-work-pane { display: none; padding: .9rem 1.25rem 1rem; }
+.gf-work-pane.active { display: block; }
+.gf-work-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+  margin-bottom: .25rem;
+}
+
+.gf-contract-timeline {
+  position: relative;
+  padding-left: 2.25rem;
+}
+.gf-contract-timeline::before {
+  content: "";
+  position: absolute;
+  left: .55rem;
+  top: 1.5rem;
+  bottom: 1.5rem;
+  width: 1px;
+  background: #dbe3ec;
+}
+.gf-timeline-item {
+  position: relative;
+  padding: .85rem 0 .9rem;
+  border-bottom: 1px solid var(--gf-line);
+  cursor: pointer;
+}
+.gf-timeline-item:last-child { border-bottom: 0; }
+.gf-timeline-item::before {
+  content: "";
+  position: absolute;
+  left: -2.12rem;
+  top: 1.23rem;
+  width: .72rem;
+  height: .72rem;
+  border-radius: 50%;
+  background: var(--gf-accent);
+  box-shadow: 0 0 0 3px var(--bs-body-bg, #fff);
+}
+.gf-timeline-item.gf-event-void { opacity: .58; }
+.gf-timeline-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+.gf-timeline-title {
+  min-width: 0;
+  color: var(--gf-text);
+  font-size: .98rem;
+  font-weight: 700;
+}
+.gf-timeline-date {
+  flex: 0 0 auto;
+  color: var(--gf-muted);
+  font-size: .84rem;
+  font-weight: 500;
+}
+.gf-timeline-meta {
+  margin-top: .25rem;
+  color: var(--gf-muted);
+  font-size: .82rem;
+}
+.gf-void-label {
+  display: inline-block;
+  margin-left: .4rem;
+  color: #8994a1;
+  font-size: .75rem;
+  font-weight: 600;
+}
+.gf-scope-pane-inner { padding: .35rem 0; }
+
+@media (max-width: 767.98px) {
+  .gf-lifecycle { padding-left: 0; padding-right: 0; }
+  .gf-lifecycle::before { left: 12%; right: 12%; }
+  .gf-info-row { grid-template-columns: 1fr; gap: .25rem; }
+  .gf-work-tabs { gap: 1.25rem; }
+  .gf-timeline-head { flex-direction: column; gap: .2rem; }
+  .gf-access-pending-item { align-items: flex-start; flex-direction: column; }
+}
 </style>
 
 {% if obj %}
@@ -46,56 +250,148 @@
   {% contract_document_access obj.id as doc_access %}
 {% endif %}
 
-<div class="mb-3 d-flex justify-content-between align-items-center">
-  <nav aria-label="breadcrumb">
-    <ol class="breadcrumb m-0">
-      <li class="breadcrumb-item"><a href="{% url 'tenant:contract_list' %}">계약관리</a></li>
-      <li class="breadcrumb-item active" aria-current="page">계약 상세</li>
-    </ol>
-  </nav>
-  <div class="d-flex gap-2">
-    {% if not edit_mode and obj %}<button id="btn-edit" class="btn btn-primary btn-sm">편집</button>{% endif %}
-    <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+<div class="gf-contract-page">
+  <div class="mb-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
+    <div>
+      <nav aria-label="breadcrumb" class="mb-2">
+        <ol class="breadcrumb m-0 small">
+          <li class="breadcrumb-item"><a href="{% url 'tenant:contract_list' %}">계약관리</a></li>
+          <li class="breadcrumb-item active" aria-current="page">계약 상세</li>
+        </ol>
+      </nav>
+      <h1 class="gf-page-title">계약 상세</h1>
+    </div>
+    <div class="d-flex gap-2">
+      {% if not edit_mode and obj %}<button id="btn-edit" class="btn btn-primary btn-sm">편집</button>{% endif %}
+      <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
+    </div>
   </div>
-</div>
 
-{% if obj and not edit_mode %}
-<div class="gf-lifecycle" data-phase="{{ wf.major_code }}" aria-label="업무 프로세스">
-  <div class="gf-lifecycle-step gf-step-contract"><strong>1. 계약</strong><small>계약 생성</small></div>
-  <div class="gf-lifecycle-step gf-step-execution"><strong>2. 진행</strong><small>착수·수행·검사 단계 진입</small></div>
-  <div class="gf-lifecycle-step gf-step-closeout"><strong>3. 준공</strong><small>준공 단계 진입</small></div>
-  <div class="gf-lifecycle-step gf-step-complete"><strong>4. 완료{% if wf.is_complete %} ✓{% endif %}</strong><small>준공 완료 확정</small></div>
-</div>
-{% endif %}
+  {% if obj and not edit_mode %}
+  <div class="gf-lifecycle" data-phase="{{ wf.major_code }}" aria-label="업무 프로세스">
+    <div class="gf-lifecycle-step gf-step-contract"><div class="gf-lifecycle-dot"></div><div>계약</div></div>
+    <div class="gf-lifecycle-step gf-step-execution"><div class="gf-lifecycle-dot"></div><div>진행</div></div>
+    <div class="gf-lifecycle-step gf-step-closeout"><div class="gf-lifecycle-dot"></div><div>준공</div></div>
+    <div class="gf-lifecycle-step gf-step-complete"><div class="gf-lifecycle-dot"></div><div>완료</div></div>
+  </div>
+  {% endif %}
 
-<div class="container-fluid px-0">
-  <div class="row g-3">
-    <div class="col-md-6 col-lg-6">
+  <div class="container-fluid px-0">
+    {% if not edit_mode and obj %}
+      <section id="view-mode" class="gf-panel gf-contract-info">
+        <h2 class="gf-contract-info-title">계약정보</h2>
+
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약명</div>
+          <div class="gf-info-value gf-strong">{{ obj.name|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약번호</div>
+          <div class="gf-info-value">{{ obj.code|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">발주처</div>
+          <div class="gf-info-value">{{ obj.client.name|default:"-" }}</div>
+        </div>
+        {% if obj.kind == "하도급" %}
+        <div class="gf-info-row">
+          <div class="gf-info-label">원도급</div>
+          <div class="gf-info-value">{{ obj.sub_client.name|default:"-" }}</div>
+        </div>
+        {% endif %}
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약자</div>
+          <div class="gf-info-value">{{ obj.org_unit.name|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약기간</div>
+          <div class="gf-info-value">{{ obj.start_date|date:"Y-m-d"|default:"-" }} ~ {{ obj.end_date|date:"Y-m-d"|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약형태</div>
+          <div class="gf-info-value" id="contract-kind-label" data-kind-code="{{ obj.kind|default:'' }}">{{ obj.kind|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약금액</div>
+          <div class="gf-info-value">{% if obj.amount != None %}₩{{ obj.amount|intcomma }}{% else %}-{% endif %}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">현재 업무단계</div>
+          <div class="gf-info-value"><span class="gf-current-phase">{{ wf.major_label }}</span> / {{ wf.major_event_label|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">기타정보</div>
+          <div class="gf-info-value pre-wrap">{{ obj.description|default:"-" }}</div>
+        </div>
+        <div class="gf-info-row">
+          <div class="gf-info-label">계약문서 접근 권한</div>
+          <div class="gf-info-value">
+            {% if doc_access.allowed %}
+              <div class="gf-access-inline"><span class="badge bg-success-subtle text-success-emphasis">열람 가능</span><span class="text-muted small">계약서·계약 첨부 열람 가능</span></div>
+            {% elif doc_access.status == 'pending' %}
+              <div class="gf-access-inline"><span class="badge bg-warning-subtle text-warning-emphasis">승인 대기</span><span class="text-muted small">계약 문서 열람 승인 대기중</span></div>
+            {% else %}
+              <form method="post" action="{% url 'tenant:contract_document_access_request' obj.id %}" class="gf-access-request">
+                {% csrf_token %}
+                <span class="badge bg-secondary-subtle text-secondary-emphasis">열람 권한 없음</span>
+                <input type="text" name="reason" class="form-control form-control-sm" placeholder="열람 사유 (선택)">
+                <button type="submit" class="btn btn-outline-primary btn-sm">열람 요청</button>
+              </form>
+            {% endif %}
+
+            {% if doc_access.can_approve and doc_access.pending %}
+              <div class="gf-access-pending-list">
+                {% for req in doc_access.pending %}
+                  <div class="gf-access-pending-item">
+                    <div>
+                      <div class="small fw-semibold">{{ req.name }}</div>
+                      {% if req.reason %}<div class="small text-muted">{{ req.reason }}</div>{% endif %}
+                    </div>
+                    <div class="d-flex gap-1">
+                      <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="approved"><button class="btn btn-success btn-sm" type="submit">승인</button></form>
+                      <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="rejected"><button class="btn btn-outline-danger btn-sm" type="submit">거절</button></form>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="gf-panel gf-work-card">
+        <div class="gf-work-tabs" role="tablist" aria-label="계약 상세 보조 정보">
+          <button type="button" class="gf-work-tab active" data-gf-tab="timeline" role="tab" aria-selected="true">타임라인</button>
+          <button type="button" class="gf-work-tab" data-gf-tab="scope" role="tab" aria-selected="false">업무범위</button>
+        </div>
+
+        <div class="gf-work-pane active" data-gf-pane="timeline">
+          <div class="gf-work-actions">
+            {% if wf.major_code == "closeout" %}<button id="btn-contract-complete" type="button" class="btn btn-sm btn-success">준공 완료</button>{% endif %}
+            <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
+          </div>
+          <div id="contractTimelineList" class="gf-contract-timeline"></div>
+          <div id="contractTimelineEmpty" class="text-muted small text-center py-4 d-none">등록된 이벤트가 없습니다.</div>
+          <div id="timelineList" class="d-none"></div>
+          <div id="timelineEmpty" class="d-none"></div>
+        </div>
+
+        <div class="gf-work-pane" data-gf-pane="scope">
+          <div class="gf-scope-pane-inner">
+            {% if not project_for_scope %}
+              <div class="text-muted small py-3">연결된 프로젝트가 없습니다.</div>
+            {% elif scope_groups and scope_groups|length %}
+              {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
+            {% else %}
+              <div class="text-muted small py-3">표시할 업무범위가 없습니다.</div>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+    {% else %}
       <div class="card">
         <div class="card-body">
-          {% if not edit_mode %}
-          <div id="view-mode">
-            <div class="row g-3">
-              <h5 class="h6 card-title">계약정보</h5>
-              <div class="col-md-3"><label class="small text-muted">계약번호</label><div class="form-control-plaintext">{{ obj.code|default:"-" }}</div></div>
-              <div class="col-md-3"><label class="small text-muted">현재 업무단계</label><div class="form-control-plaintext"><span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span></div></div>
-              <div class="col-md-6"><label class="small text-muted">단계 기준</label><div class="form-control-plaintext">{{ wf.major_event_label }}</div></div>
-
-              <div class="col-md-12"><label class="small text-muted">계약명</label><div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div></div>
-              <div class="col-md-6"><label class="small text-muted">시작일</label><div class="form-control-plaintext">{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div></div>
-              <div class="col-md-6"><label class="small text-muted">종료일</label><div class="form-control-plaintext">{{ obj.end_date|date:"Y-m-d"|default:"-" }}</div></div>
-              <div class="col-md-6"><label class="small text-muted">계약형태</label><div class="form-control-plaintext" id="contract-kind-label" data-kind-code="{{ obj.kind|default:'' }}">{{ obj.kind|default:"-" }}</div></div>
-              <div class="col-md-6"><label class="small text-muted">계약금액</label><div class="form-control-plaintext">{{ obj.amount|intcomma|default:"-" }}</div></div>
-              <div class="col-md-6"><label class="small text-muted">발주처</label><div class="form-control-plaintext">{{ obj.client.name|default:"-" }}</div></div>
-              {% if obj.kind == "하도급" %}<div class="col-md-6"><label class="small text-muted">원도급</label><div class="form-control-plaintext">{{ obj.sub_client.name|default:"-" }}</div></div>{% endif %}
-              <div class="col-md-12"><label class="small text-muted">계약자</label><div class="form-control-plaintext">{{ obj.org_unit.name|default:"-" }}</div></div>
-
-              <h5 class="h6 card-title mt-3">기타정보</h5>
-              <div class="col-md-12"><div class="form-control-plaintext pre-wrap">{{ obj.description|default:"-" }}</div></div>
-            </div>
-          </div>
-          {% endif %}
-
           {% if edit_mode %}
           <form id="edit-mode" method="post" action="{{ request.path }}" novalidate>
             {% csrf_token %}
@@ -120,63 +416,6 @@
           {% endif %}
         </div>
       </div>
-    </div>
-
-    {% if obj %}
-    <div class="col-md-3 col-lg-3">
-      <div class="card mb-3">
-        <div class="card-header"><h5 class="card-title mb-0">계약 문서 접근</h5></div>
-        <div class="card-body">
-          {% if doc_access.allowed %}
-            <div class="alert alert-success py-2 mb-0">계약서·계약 첨부 열람 가능</div>
-          {% elif doc_access.status == 'pending' %}
-            <div class="alert alert-warning py-2 mb-0">계약 문서 열람 승인 대기중</div>
-          {% else %}
-            <div class="text-muted small mb-2">프로젝트 업무 권한과 계약 문서 열람 권한은 분리됩니다.</div>
-            <form method="post" action="{% url 'tenant:contract_document_access_request' obj.id %}">
-              {% csrf_token %}
-              <input type="text" name="reason" class="form-control form-control-sm mb-2" placeholder="열람 사유 (선택)">
-              <button type="submit" class="btn btn-outline-primary btn-sm">계약 문서 열람 요청</button>
-            </form>
-          {% endif %}
-
-          {% if doc_access.can_approve and doc_access.pending %}
-            <hr>
-            <div class="small fw-semibold mb-2">승인 대기</div>
-            {% for req in doc_access.pending %}
-              <div class="border rounded p-2 mb-2">
-                <div class="small fw-semibold">{{ req.name }}</div>
-                {% if req.reason %}<div class="small text-muted mb-2">{{ req.reason }}</div>{% endif %}
-                <div class="d-flex gap-1">
-                  <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="approved"><button class="btn btn-success btn-sm" type="submit">승인</button></form>
-                  <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="rejected"><button class="btn btn-outline-danger btn-sm" type="submit">거절</button></form>
-                </div>
-              </div>
-            {% endfor %}
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">업무범위</h5></div>
-        <div class="card-body">
-          {% if not project_for_scope %}<div class="text-muted small">연결된 프로젝트가 없습니다.</div>
-          {% elif scope_groups and scope_groups|length %}{% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
-          {% else %}<div class="text-muted small">표시할 업무범위가 없습니다.</div>{% endif %}
-        </div>
-        <hr class="my-0" />
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
-            <h6 class="mb-0">타임라인</h6>
-            <div class="d-flex gap-2">
-              {% if not edit_mode and wf.major_code == "closeout" %}<button id="btn-contract-complete" type="button" class="btn btn-sm btn-success">준공 완료</button>{% endif %}
-              <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
-            </div>
-          </div>
-          <div id="timelineList"></div><div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
-        </div>
-      </div>
-    </div>
     {% endif %}
   </div>
 </div>
@@ -220,13 +459,154 @@ document.addEventListener("DOMContentLoaded", function () {
   var kindLabels = vocab.contractKind || {};
   var kindLabel = document.getElementById('contract-kind-label');
   if (kindLabel) { var kindCode = kindLabel.getAttribute('data-kind-code') || ''; if (kindCode && kindLabels[kindCode]) kindLabel.textContent = kindLabels[kindCode]; }
+
   var btn = document.getElementById("btn-edit");
   if (btn) btn.addEventListener("click", function () { var url = new URL(window.location.href); url.searchParams.set("edit", "1"); window.location.assign(url.toString()); });
-  if (window.ProcessWorkboardUI && document.getElementById('eventModalMount')) window.ProcessWorkboardUI.init('#eventModalMount');
-  var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
+
   var mount = document.getElementById('eventModalMount');
+  if (window.ProcessWorkboardUI && mount) window.ProcessWorkboardUI.init('#eventModalMount');
+
+  var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
   var csrfToken = csrfInput ? csrfInput.value : (mount ? mount.getAttribute('data-csrf') : '{{ csrf_token }}');
   if (window.initAttachmentActions) window.initAttachmentActions({ root: document, csrfToken: csrfToken });
+
+  var tabButtons = Array.prototype.slice.call(document.querySelectorAll('[data-gf-tab]'));
+  var tabPanes = Array.prototype.slice.call(document.querySelectorAll('[data-gf-pane]'));
+  tabButtons.forEach(function(tabButton) {
+    tabButton.addEventListener('click', function() {
+      var target = tabButton.getAttribute('data-gf-tab');
+      tabButtons.forEach(function(item) {
+        var active = item === tabButton;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      tabPanes.forEach(function(pane) {
+        pane.classList.toggle('active', pane.getAttribute('data-gf-pane') === target);
+      });
+    });
+  });
+
+  function formatContractEventDate(value) {
+    var raw = String(value || '').trim();
+    if (!raw) return '-';
+    if (raw.length >= 16) return raw.slice(0, 16).replace('T', ' ');
+    return raw.slice(0, 10);
+  }
+
+  function loadContractTimeline() {
+    var visibleList = document.getElementById('contractTimelineList');
+    var visibleEmpty = document.getElementById('contractTimelineEmpty');
+    if (!mount || !visibleList || !visibleEmpty) return Promise.resolve();
+
+    var eventsUrl = mount.getAttribute('data-events-list-url');
+    var workflowUrl = mount.getAttribute('data-workflow-options-url');
+    var scopeType = mount.getAttribute('data-scope-type');
+    var scopeId = mount.getAttribute('data-scope-id');
+    if (!eventsUrl || !workflowUrl || !scopeType || !scopeId) return Promise.resolve();
+
+    var workflowPromise = fetch(workflowUrl, {
+      method: 'GET',
+      headers: { 'X-CSRFToken': csrfToken },
+      credentials: 'same-origin'
+    }).then(function(response) {
+      if (!response.ok) throw new Error('workflow options failed');
+      return response.json();
+    }).catch(function() { return {}; });
+
+    var eventsPromise = fetch(eventsUrl + '?scope_type=' + encodeURIComponent(scopeType) + '&scope_id=' + encodeURIComponent(scopeId), {
+      method: 'GET',
+      headers: { 'X-CSRFToken': csrfToken },
+      credentials: 'same-origin'
+    }).then(function(response) {
+      if (!response.ok) throw new Error('event list failed');
+      return response.json();
+    });
+
+    return Promise.all([workflowPromise, eventsPromise]).then(function(results) {
+      var workflow = results[0] || {};
+      var payload = results[1] || {};
+      var stageLabels = {};
+      var typeLabels = {};
+
+      (workflow.stages || []).forEach(function(row) {
+        stageLabels[row.code] = row.label || row.code;
+      });
+      Object.keys(workflow.types_by_stage || {}).forEach(function(stage) {
+        (workflow.types_by_stage[stage] || []).forEach(function(row) {
+          typeLabels[row.code] = row.label || row.code;
+        });
+      });
+
+      var events = (payload.events || []).slice().sort(function(a, b) {
+        var ad = a.occurred_at || a.created_at || '';
+        var bd = b.occurred_at || b.created_at || '';
+        return bd > ad ? 1 : (bd < ad ? -1 : 0);
+      });
+
+      visibleList.replaceChildren();
+      if (!events.length) {
+        visibleEmpty.classList.remove('d-none');
+        return;
+      }
+      visibleEmpty.classList.add('d-none');
+
+      events.forEach(function(ev) {
+        var item = document.createElement('div');
+        item.className = 'gf-timeline-item' + (ev.status === 'void' ? ' gf-event-void' : '');
+        item.setAttribute('role', 'button');
+        item.setAttribute('tabindex', '0');
+
+        var head = document.createElement('div');
+        head.className = 'gf-timeline-head';
+
+        var title = document.createElement('div');
+        title.className = 'gf-timeline-title';
+        title.textContent = ev.title || typeLabels[ev.event_type] || ev.event_type || '업무 이벤트';
+        if (ev.status === 'void') {
+          var voidLabel = document.createElement('span');
+          voidLabel.className = 'gf-void-label';
+          voidLabel.textContent = '취소';
+          title.appendChild(voidLabel);
+        }
+
+        var date = document.createElement('div');
+        date.className = 'gf-timeline-date';
+        date.textContent = formatContractEventDate(ev.occurred_at || ev.created_at);
+        head.appendChild(title);
+        head.appendChild(date);
+
+        var meta = document.createElement('div');
+        meta.className = 'gf-timeline-meta';
+        meta.textContent = (stageLabels[ev.stage] || ev.stage || '-') + ' / ' + (typeLabels[ev.event_type] || ev.event_type || '-');
+
+        item.appendChild(head);
+        item.appendChild(meta);
+
+        function openEvent() {
+          if (window.ProcessWorkboardUI) window.ProcessWorkboardUI.openEditModal(ev);
+        }
+        item.addEventListener('click', openEvent);
+        item.addEventListener('keydown', function(event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openEvent();
+          }
+        });
+        visibleList.appendChild(item);
+      });
+    }).catch(function() {
+      visibleList.replaceChildren();
+      visibleEmpty.textContent = '업무 이벤트를 불러올 수 없습니다.';
+      visibleEmpty.classList.remove('d-none');
+    });
+  }
+
+  if (mount) {
+    window.setTimeout(loadContractTimeline, 120);
+    document.addEventListener('hidden.bs.modal', function(event) {
+      if (event.target && event.target.id === 'eventModal') window.setTimeout(loadContractTimeline, 250);
+    });
+  }
 
   var completeButton = document.getElementById('btn-contract-complete');
   var completeModalEl = document.getElementById('contractCompleteModal');
