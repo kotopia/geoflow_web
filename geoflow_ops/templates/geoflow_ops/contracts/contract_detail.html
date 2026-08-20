@@ -269,10 +269,10 @@
 
   {% if obj and not edit_mode %}
   <div class="gf-lifecycle" data-phase="{{ wf.major_code }}" aria-label="업무 프로세스">
-    <div class="gf-lifecycle-step gf-step-contract"><div class="gf-lifecycle-dot"></div><div>계약</div></div>
-    <div class="gf-lifecycle-step gf-step-execution"><div class="gf-lifecycle-dot"></div><div>진행</div></div>
-    <div class="gf-lifecycle-step gf-step-closeout"><div class="gf-lifecycle-dot"></div><div>준공</div></div>
-    <div class="gf-lifecycle-step gf-step-complete"><div class="gf-lifecycle-dot"></div><div>완료</div></div>
+    <div class="gf-lifecycle-step gf-step-contract" aria-label="1. 계약"><div class="gf-lifecycle-dot"></div><div>계약</div></div>
+    <div class="gf-lifecycle-step gf-step-execution" aria-label="2. 진행"><div class="gf-lifecycle-dot"></div><div>진행</div></div>
+    <div class="gf-lifecycle-step gf-step-closeout" aria-label="3. 준공"><div class="gf-lifecycle-dot"></div><div>준공</div></div>
+    <div class="gf-lifecycle-step gf-step-complete" aria-label="4. 완료"><div class="gf-lifecycle-dot"></div><div>완료</div></div>
   </div>
   {% endif %}
 
@@ -317,7 +317,7 @@
         </div>
         <div class="gf-info-row">
           <div class="gf-info-label">현재 업무단계</div>
-          <div class="gf-info-value"><span class="gf-current-phase">{{ wf.major_label }}</span> / {{ wf.major_event_label|default:"-" }}</div>
+          <div class="gf-info-value"><span class="gf-current-phase">{{ wf.major_label }}</span> / {{ wf.major_event_label|default:"-" }}<span class="visually-hidden">단계 기준: {{ wf.major_event_label|default:"-" }}</span></div>
         </div>
         <div class="gf-info-row">
           <div class="gf-info-label">기타정보</div>
@@ -335,7 +335,7 @@
                 {% csrf_token %}
                 <span class="badge bg-secondary-subtle text-secondary-emphasis">열람 권한 없음</span>
                 <input type="text" name="reason" class="form-control form-control-sm" placeholder="열람 사유 (선택)">
-                <button type="submit" class="btn btn-outline-primary btn-sm">열람 요청</button>
+                <button type="submit" class="btn btn-outline-primary btn-sm">계약 문서 열람 요청</button>
               </form>
             {% endif %}
 
