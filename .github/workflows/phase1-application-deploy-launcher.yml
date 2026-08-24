@@ -1,5 +1,6 @@
 name: Phase 1 application deploy launcher
 
+# Reviewed code-only deployment trigger for contract detail PR #221.
 on:
   push:
     branches:
