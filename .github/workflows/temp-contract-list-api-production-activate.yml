@@ -138,15 +138,29 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Stage temporary API key over SSH
+      - name: Activate exact tenant with rollback and secret cleanup
         shell: bash
         run: |
           set -euo pipefail
           umask 077
-          key_file="$RUNNER_TEMP/temp_contract_api_key"
-          printf '%s' "$TEMP_API_KEY" > "$key_file"
-          chmod 600 "$key_file"
-          trap 'rm -f "$key_file"' EXIT
+          local_key="$RUNNER_TEMP/temp_contract_api_key"
+          remote_key="/tmp/geoflow-temp-contract-api-key-$GITHUB_RUN_ID"
+          printf '%s' "$TEMP_API_KEY" > "$local_key"
+          chmod 600 "$local_key"
+
+          cleanup_runner_and_remote() {
+            rm -f "$local_key"
+            ssh \
+              -i "$HOME/.ssh/geoflow_deploy_key" \
+              -p "$SSH_PORT" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=10 \
+              "$SSH_USER@$SSH_HOST" "rm -f '$remote_key'" >/dev/null 2>&1 || true
+          }
+          trap cleanup_runner_and_remote EXIT
+
           scp \
             -i "$HOME/.ssh/geoflow_deploy_key" \
             -P "$SSH_PORT" \
@@ -154,13 +168,9 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$key_file" \
-            "$SSH_USER@$SSH_HOST:/tmp/geoflow-temp-contract-api-key-$GITHUB_RUN_ID"
+            "$local_key" \
+            "$SSH_USER@$SSH_HOST:$remote_key"
 
-      - name: Activate exact tenant with rollback guard
-        shell: bash
-        run: |
-          set -euo pipefail
           ssh \
             -i "$HOME/.ssh/geoflow_deploy_key" \
             -p "$SSH_PORT" \
@@ -168,16 +178,16 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" "bash -s -- '$REQUESTED_RELEASE_SHA' '$GITHUB_RUN_ID' '$TARGET_GROUP_CODE' '$TARGET_DB_ALIAS'" <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$REQUESTED_RELEASE_SHA' '$GITHUB_RUN_ID' '$TARGET_GROUP_CODE' '$TARGET_DB_ALIAS' '$remote_key'" <<'REMOTE'
           set -euo pipefail
 
           reviewed_sha="$1"
           run_id="$2"
           target_group_code="$3"
           target_db_alias="$4"
+          key_file="$5"
           service='geoflow-stabilized.service'
           expected_branch='release/stabilized-deploy'
-          key_file="/tmp/geoflow-temp-contract-api-key-$run_id"
           response_file="/tmp/geoflow-temp-contract-api-response-$run_id.json"
           backup_env=''
           mutation_started=no
@@ -213,7 +223,7 @@ jobs:
             fi
           }
 
-          cleanup() {
+          cleanup_remote() {
             if [ "$success" != yes ]; then
               restore_env
             fi
@@ -222,7 +232,7 @@ jobs:
               rm -f "$backup_env"
             fi
           }
-          trap cleanup EXIT
+          trap cleanup_remote EXIT
 
           command -v git >/dev/null 2>&1 || fail 'git_missing'
           command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
@@ -281,7 +291,7 @@ jobs:
           print(f'temp_contract_activation_preflight_contract_count={count}')
           PY
 
-          backup_env="$(mktemp "$repo/.env.temp-contract-backup.XXXXXX")"
+          backup_env="$(mktemp /tmp/geoflow-env-backup.XXXXXX)"
           chmod 600 "$backup_env"
           cp -p "$repo/.env" "$backup_env"
 
@@ -319,7 +329,6 @@ jobs:
               if key not in seen:
                   output.append(f'{key}={value}')
           env_path.write_text('\n'.join(output) + '\n', encoding='utf-8')
-          os.chmod(env_path, 0o600)
           PY
           mutation_started=yes
 
