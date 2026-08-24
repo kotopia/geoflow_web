@@ -1,0 +1,65 @@
+name: Temporary contract API run locator
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/temp-contract-list-api-run-locator.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  locate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Locate recent temporary API production deploy v2 runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_SHA: a0f55909abb2f9656d55d183bd8a17cf49a0e58e
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ['REPOSITORY']
+          target_sha = os.environ['TARGET_SHA']
+          endpoint = f"repos/{repo}/actions/workflows/temp-contract-list-api-production-deploy-v2.yml/runs?branch=release/stabilized-deploy&per_page=20"
+          raw = subprocess.check_output(['gh', 'api', endpoint], text=True)
+          payload = json.loads(raw)
+          runs = payload.get('workflow_runs', [])
+
+          print(f"temp_contract_api_locator_total={len(runs)}")
+          for run in runs[:10]:
+              print(
+                  'temp_contract_api_locator_run '
+                  f"id={run.get('id')} "
+                  f"number={run.get('run_number')} "
+                  f"attempt={run.get('run_attempt')} "
+                  f"event={run.get('event')} "
+                  f"status={run.get('status')} "
+                  f"conclusion={run.get('conclusion')} "
+                  f"head_sha={run.get('head_sha')} "
+                  f"created_at={run.get('created_at')} "
+                  f"updated_at={run.get('updated_at')}"
+              )
+
+          matches = [run for run in runs if run.get('head_sha') == target_sha]
+          print(f"temp_contract_api_locator_target_matches={len(matches)}")
+          for run in matches:
+              print(
+                  'temp_contract_api_locator_target '
+                  f"id={run.get('id')} "
+                  f"number={run.get('run_number')} "
+                  f"attempt={run.get('run_attempt')} "
+                  f"status={run.get('status')} "
+                  f"conclusion={run.get('conclusion')} "
+                  f"html_url={run.get('html_url')}"
+              )
+          PY
