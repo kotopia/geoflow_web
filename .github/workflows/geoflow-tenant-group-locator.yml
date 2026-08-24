@@ -1,0 +1,132 @@
+name: GeoFlow tenant group locator
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/geoflow-tenant-group-locator.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  locate-geoflow-group:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+          echo 'geoflow_group_locator_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Locate matching active group read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+
+          service='geoflow-stabilized.service'
+          fail() {
+            echo "geoflow_group_locator_blocker=$1"
+            exit 2
+          }
+
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -f "$repo/manage.py" ] || fail 'service_repo_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'venv_python_missing'
+
+          cd "$repo"
+          "$python" - <<'PY'
+          import os
+          os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'geoflow_project.settings')
+
+          import django
+          django.setup()
+
+          from django.db import connections, transaction
+          from django.conf import settings
+
+          alias = getattr(settings, 'CENTRAL_DB_ALIAS', 'default')
+          sql = """
+              SELECT g.code,
+                     g.name,
+                     g.status,
+                     COALESCE(c.db_alias, '') AS db_alias
+                FROM groups g
+                LEFT JOIN group_db_config c ON c.group_id = g.id
+               WHERE lower(COALESCE(g.code, '')) LIKE '%geoflow%'
+                  OR lower(COALESCE(g.name, '')) LIKE '%geoflow%'
+                  OR EXISTS (
+                       SELECT 1
+                         FROM unnest(COALESCE(g.allowed_domains, ARRAY[]::text[])) AS d(domain)
+                        WHERE lower(d.domain) LIKE '%geoflow%'
+                  )
+               ORDER BY g.code
+          """
+
+          with transaction.atomic(using=alias):
+              with connections[alias].cursor() as cur:
+                  cur.execute('SET LOCAL TRANSACTION READ ONLY')
+                  cur.execute(sql)
+                  rows = cur.fetchall()
+
+          print(f'geoflow_group_locator_matches={len(rows)}')
+          for code, name, status, db_alias in rows:
+              print(
+                  'geoflow_group_locator_match '
+                  f'code={code!s} name={name!s} status={status!s} db_alias={db_alias!s}'
+              )
+          PY
+          REMOTE
