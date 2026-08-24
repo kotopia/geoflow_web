@@ -1,0 +1,46 @@
+name: Temporary contract activation run locator
+
+on:
+  pull_request:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/temp-contract-activation-run-locator.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  locate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      REPOSITORY: ${{ github.repository }}
+      TARGET_SHA: 147037fc6fcafa29e2f32975940d83f371c1ab42
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Locate activation release run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ['REPOSITORY']
+          target_sha = os.environ['TARGET_SHA']
+          endpoint = f"repos/{repo}/actions/workflows/temp-contract-list-api-production-activate.yml/runs?branch=release/stabilized-deploy&per_page=10"
+          payload = json.loads(subprocess.check_output(['gh', 'api', endpoint], text=True))
+          runs = payload.get('workflow_runs', [])
+          print(f'temp_contract_activation_locator_total={len(runs)}')
+          matches = [run for run in runs if run.get('head_sha') == target_sha]
+          print(f'temp_contract_activation_locator_matches={len(matches)}')
+          for run in matches:
+              print(
+                  'temp_contract_activation_target '
+                  f"id={run.get('id')} number={run.get('run_number')} attempt={run.get('run_attempt')} "
+                  f"status={run.get('status')} conclusion={run.get('conclusion')} html_url={run.get('html_url')}"
+              )
+          PY
