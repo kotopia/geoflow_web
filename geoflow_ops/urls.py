@@ -42,7 +42,7 @@ urlpatterns = [
 
     path("api/projects/mine/", security_views.my_projects_api, name="my_projects_api"),
     path("api/projects/<uuid:pk>/access/", security_views.project_access_api, name="project_access_api"),
-    path("api/temp/contract-codes/", temp_contract_list_api.contract_code_list, name="temp_contract_code_list"),
+    path("api/temp/contracts/", temp_contract_list_api.contract_list, name="temp_contract_list"),
 
     path("employees/", employee_security_views.employee_list, name="employees_list"),
     path("employees/me/", employee_security_views.employee_me, name="employees_me"),
