@@ -1,0 +1,51 @@
+name: GeoFlow group locator run locator
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/geoflow-group-locator-run-locator.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  locate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Locate latest GeoFlow tenant group locator run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_SHA: 38fcf41d09f95a089870957279a4e19955b78c03
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ['REPOSITORY']
+          target_sha = os.environ['TARGET_SHA']
+          endpoint = f"repos/{repo}/actions/workflows/geoflow-tenant-group-locator.yml/runs?branch=release/stabilized-deploy&per_page=10"
+          payload = json.loads(subprocess.check_output(['gh', 'api', endpoint], text=True))
+          runs = payload.get('workflow_runs', [])
+          print(f'geoflow_group_run_locator_total={len(runs)}')
+          for run in runs:
+              print(
+                  'geoflow_group_run_locator_run '
+                  f"id={run.get('id')} number={run.get('run_number')} attempt={run.get('run_attempt')} "
+                  f"event={run.get('event')} status={run.get('status')} conclusion={run.get('conclusion')} "
+                  f"head_sha={run.get('head_sha')} html_url={run.get('html_url')}"
+              )
+          matches = [run for run in runs if run.get('head_sha') == target_sha]
+          print(f'geoflow_group_run_locator_target_matches={len(matches)}')
+          for run in matches:
+              print(
+                  'geoflow_group_run_locator_target '
+                  f"id={run.get('id')} number={run.get('run_number')} attempt={run.get('run_attempt')} "
+                  f"status={run.get('status')} conclusion={run.get('conclusion')} html_url={run.get('html_url')}"
+              )
+          PY
