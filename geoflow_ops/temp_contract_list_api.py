@@ -15,7 +15,7 @@ from control.services.tenant_db_secret_resolver import (
     resolve_tenant_db_password,
 )
 
-from .models import Contract
+from .models import Contract, Project
 
 
 logger = logging.getLogger(__name__)
@@ -131,12 +131,70 @@ def _ensure_configured_tenant_connection() -> str:
     raise RuntimeError("Temporary contract-list tenant connection could not be registered")
 
 
-@require_GET
-def contract_code_list(request):
-    """Temporary, read-only contract-code list for Google Sheets integration.
+def _project_payload(project: Project) -> dict:
+    return {
+        "id": project.id,
+        "code": project.code,
+        "name": project.name,
+        "start_date": project.start_date,
+        "end_date": project.end_date,
+        "status": project.status,
+        "description": project.description,
+        "org_unit_id": project.org_unit_id,
+        "ext": project.ext,
+        "created_at": project.created_at,
+        "updated_at": project.updated_at,
+    }
 
-    Response shape is intentionally a plain JSON list, e.g.
-    ["2026-001", "2026-002"].
+
+def _contract_payload(contract: Contract, projects: list[Project]) -> dict:
+    primary_project = projects[0] if projects else None
+    return {
+        "contract_id": contract.id,
+        "legacy_id": contract.legacy_id,
+        "contract_code": contract.code,
+        "contract_name": contract.name,
+        "project_id": primary_project.id if primary_project else None,
+        "project_code": primary_project.code if primary_project else None,
+        "project_name": primary_project.name if primary_project else None,
+        "project_codes": [project.code for project in projects if project.code],
+        "start_date": contract.start_date,
+        "end_date": contract.end_date,
+        "amount": contract.amount,
+        "status": contract.status,
+        "kind": contract.kind,
+        "division": contract.division,
+        "client_id": contract.client_id,
+        "client_name": contract.client.name if contract.client_id and contract.client else None,
+        "sub_client_id": contract.sub_client_id,
+        "sub_client_name": (
+            contract.sub_client.name
+            if contract.sub_client_id and contract.sub_client
+            else None
+        ),
+        "org_unit_id": contract.org_unit_id,
+        "org_unit_name": (
+            contract.org_unit.name
+            if contract.org_unit_id and contract.org_unit
+            else None
+        ),
+        "description": contract.description,
+        "ext": contract.ext,
+        "created_at": contract.created_at,
+        "updated_at": contract.updated_at,
+        "projects": [_project_payload(project) for project in projects],
+    }
+
+
+@require_GET
+def contract_list(request):
+    """Temporary, read-only full contract list for Google Sheets integration.
+
+    The response is a JSON array. Each row contains all fields represented by
+    the tenant Contract model, friendly names for related client/org records,
+    the primary project code/name for flat spreadsheet use, and the complete
+    related project list for compatibility with legacy contracts that may have
+    more than one project.
 
     This endpoint is isolated so it can be removed later without migrations or
     changes to the normal contract workflow.
@@ -150,18 +208,31 @@ def contract_code_list(request):
 
     try:
         alias = _ensure_configured_tenant_connection()
-        codes = list(
+        contracts = list(
             Contract.objects.using(alias)
-            .exclude(code__isnull=True)
-            .exclude(code="")
-            .order_by("code")
-            .values_list("code", flat=True)
-            .distinct()
+            .select_related("client", "sub_client", "org_unit")
+            .order_by("code", "name", "id")
         )
+
+        contract_ids = [contract.id for contract in contracts]
+        projects_by_contract: dict = {contract_id: [] for contract_id in contract_ids}
+        if contract_ids:
+            projects = (
+                Project.objects.using(alias)
+                .filter(contract_id__in=contract_ids)
+                .order_by("contract_id", "code", "name", "id")
+            )
+            for project in projects:
+                projects_by_contract.setdefault(project.contract_id, []).append(project)
+
+        rows = [
+            _contract_payload(contract, projects_by_contract.get(contract.id, []))
+            for contract in contracts
+        ]
     except Exception:
         logger.exception("Temporary contract-list API failed")
         return JsonResponse({"detail": "Temporary integration unavailable."}, status=503)
 
-    response = JsonResponse(codes, safe=False, json_dumps_params={"ensure_ascii": False})
+    response = JsonResponse(rows, safe=False, json_dumps_params={"ensure_ascii": False})
     response["Cache-Control"] = "no-store"
     return response
