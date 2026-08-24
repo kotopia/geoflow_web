@@ -54,7 +54,7 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Locate matching active group read-only
+      - name: Locate tenant group candidates read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -99,7 +99,7 @@ jobs:
           from django.conf import settings
 
           alias = getattr(settings, 'CENTRAL_DB_ALIAS', 'default')
-          sql = """
+          match_sql = """
               SELECT g.code,
                      g.name,
                      g.status,
@@ -115,17 +115,36 @@ jobs:
                   )
                ORDER BY g.code
           """
+          active_sql = """
+              SELECT g.code,
+                     g.name,
+                     g.status,
+                     COALESCE(c.db_alias, '') AS db_alias
+                FROM groups g
+                LEFT JOIN group_db_config c ON c.group_id = g.id
+               WHERE lower(COALESCE(g.status, '')) = 'active'
+               ORDER BY g.code
+               LIMIT 50
+          """
 
           with transaction.atomic(using=alias):
               with connections[alias].cursor() as cur:
                   cur.execute('SET LOCAL TRANSACTION READ ONLY')
-                  cur.execute(sql)
-                  rows = cur.fetchall()
+                  cur.execute(match_sql)
+                  matches = cur.fetchall()
+                  if matches:
+                      candidates = matches
+                      source = 'geoflow_text_match'
+                  else:
+                      cur.execute(active_sql)
+                      candidates = cur.fetchall()
+                      source = 'all_active_fallback'
 
-          print(f'geoflow_group_locator_matches={len(rows)}')
-          for code, name, status, db_alias in rows:
+          print(f'geoflow_group_locator_source={source}')
+          print(f'geoflow_group_locator_candidates={len(candidates)}')
+          for code, name, status, db_alias in candidates:
               print(
-                  'geoflow_group_locator_match '
+                  'geoflow_group_locator_candidate '
                   f'code={code!s} name={name!s} status={status!s} db_alias={db_alias!s}'
               )
           PY
