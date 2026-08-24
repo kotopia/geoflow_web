@@ -6,243 +6,6 @@
 {% block content %}
 <style>
 .pre-wrap { white-space: pre-wrap; }
-
-.gf-contract-page {
-  --gf-accent: #2c7be5;
-  --gf-text: #12243c;
-  --gf-muted: #7b8794;
-  --gf-line: #e8edf4;
-  --gf-soft: #f7f9fc;
-}
-
-.gf-contract-page .gf-page-title {
-  margin: 0;
-  color: var(--gf-text);
-  font-size: 1.75rem;
-  font-weight: 700;
-  letter-spacing: -.02em;
-}
-
-.gf-contract-page .gf-panel {
-  background: var(--bs-body-bg, #fff);
-  border: 1px solid var(--gf-line);
-  border-radius: .8rem;
-  box-shadow: 0 .125rem .5rem rgba(18, 36, 60, .035);
-}
-
-.gf-lifecycle {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: .25rem 0 1.4rem;
-  padding: .2rem 1rem 0;
-}
-.gf-lifecycle::before {
-  content: "";
-  position: absolute;
-  left: 13%;
-  right: 13%;
-  top: .95rem;
-  height: 2px;
-  background: #cfd6df;
-}
-.gf-lifecycle-step {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-  color: #77828f;
-  font-size: .98rem;
-  font-weight: 600;
-}
-.gf-lifecycle-dot {
-  width: 1.15rem;
-  height: 1.15rem;
-  margin: .35rem auto .55rem;
-  border: 3px solid #aeb7c2;
-  border-radius: 50%;
-  background: var(--bs-body-bg, #fff);
-}
-.gf-lifecycle[data-phase="contract"] .gf-step-contract,
-.gf-lifecycle[data-phase="execution"] .gf-step-execution,
-.gf-lifecycle[data-phase="closeout"] .gf-step-closeout,
-.gf-lifecycle[data-phase="complete"] .gf-step-complete {
-  color: var(--gf-accent);
-  font-weight: 700;
-}
-.gf-lifecycle[data-phase="contract"] .gf-step-contract .gf-lifecycle-dot,
-.gf-lifecycle[data-phase="execution"] .gf-step-execution .gf-lifecycle-dot,
-.gf-lifecycle[data-phase="closeout"] .gf-step-closeout .gf-lifecycle-dot,
-.gf-lifecycle[data-phase="complete"] .gf-step-complete .gf-lifecycle-dot {
-  border-color: var(--gf-accent);
-}
-
-.gf-contract-info {
-  padding: 1.35rem 1.55rem .25rem;
-  margin-bottom: 1rem;
-}
-.gf-contract-info-title {
-  margin: 0 0 .75rem;
-  color: var(--gf-text);
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-.gf-info-row {
-  display: grid;
-  grid-template-columns: 10.5rem minmax(0, 1fr);
-  align-items: start;
-  gap: 1rem;
-  padding: .75rem .25rem;
-  border-top: 1px solid var(--gf-line);
-}
-.gf-info-row:first-of-type { border-top: 0; }
-.gf-info-label {
-  color: var(--gf-muted);
-  font-size: .9rem;
-  font-weight: 600;
-}
-.gf-info-value {
-  min-width: 0;
-  color: var(--gf-text);
-  font-size: .96rem;
-  font-weight: 500;
-}
-.gf-info-value.gf-strong { font-weight: 700; }
-.gf-current-phase {
-  color: var(--gf-accent);
-  font-weight: 700;
-}
-.gf-access-inline {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  flex-wrap: wrap;
-}
-.gf-access-request {
-  display: flex;
-  gap: .45rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.gf-access-request .form-control { max-width: 22rem; }
-.gf-access-pending-list {
-  margin-top: .65rem;
-  display: grid;
-  gap: .5rem;
-}
-.gf-access-pending-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: .75rem;
-  padding: .55rem .7rem;
-  background: var(--gf-soft);
-  border: 1px solid var(--gf-line);
-  border-radius: .5rem;
-}
-
-.gf-work-card { overflow: hidden; }
-.gf-work-tabs {
-  display: flex;
-  align-items: center;
-  gap: 2rem;
-  padding: 0 1.25rem;
-  border-bottom: 1px solid var(--gf-line);
-}
-.gf-work-tab {
-  border: 0;
-  border-bottom: 3px solid transparent;
-  background: transparent;
-  padding: 1rem .15rem .8rem;
-  color: #697586;
-  font-size: .96rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-.gf-work-tab.active {
-  color: var(--gf-accent);
-  border-bottom-color: var(--gf-accent);
-}
-.gf-work-pane { display: none; padding: .9rem 1.25rem 1rem; }
-.gf-work-pane.active { display: block; }
-.gf-work-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: .5rem;
-  margin-bottom: .25rem;
-}
-
-.gf-contract-timeline {
-  position: relative;
-  padding-left: 2.25rem;
-}
-.gf-contract-timeline::before {
-  content: "";
-  position: absolute;
-  left: .55rem;
-  top: 1.5rem;
-  bottom: 1.5rem;
-  width: 1px;
-  background: #dbe3ec;
-}
-.gf-timeline-item {
-  position: relative;
-  padding: .85rem 0 .9rem;
-  border-bottom: 1px solid var(--gf-line);
-  cursor: pointer;
-}
-.gf-timeline-item:last-child { border-bottom: 0; }
-.gf-timeline-item::before {
-  content: "";
-  position: absolute;
-  left: -2.12rem;
-  top: 1.23rem;
-  width: .72rem;
-  height: .72rem;
-  border-radius: 50%;
-  background: var(--gf-accent);
-  box-shadow: 0 0 0 3px var(--bs-body-bg, #fff);
-}
-.gf-timeline-item.gf-event-void { opacity: .58; }
-.gf-timeline-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-}
-.gf-timeline-title {
-  min-width: 0;
-  color: var(--gf-text);
-  font-size: .98rem;
-  font-weight: 700;
-}
-.gf-timeline-date {
-  flex: 0 0 auto;
-  color: var(--gf-muted);
-  font-size: .84rem;
-  font-weight: 500;
-}
-.gf-timeline-meta {
-  margin-top: .25rem;
-  color: var(--gf-muted);
-  font-size: .82rem;
-}
-.gf-void-label {
-  display: inline-block;
-  margin-left: .4rem;
-  color: #8994a1;
-  font-size: .75rem;
-  font-weight: 600;
-}
-.gf-scope-pane-inner { padding: .35rem 0; }
-
-@media (max-width: 767.98px) {
-  .gf-lifecycle { padding-left: 0; padding-right: 0; }
-  .gf-lifecycle::before { left: 12%; right: 12%; }
-  .gf-info-row { grid-template-columns: 1fr; gap: .25rem; }
-  .gf-work-tabs { gap: 1.25rem; }
-  .gf-timeline-head { flex-direction: column; gap: .2rem; }
-  .gf-access-pending-item { align-items: flex-start; flex-direction: column; }
-}
 </style>
 
 {% if obj %}
@@ -250,7 +13,7 @@
   {% contract_document_access obj.id as doc_access %}
 {% endif %}
 
-<div class="gf-contract-page">
+<div>
   <div class="mb-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
     <div>
       <nav aria-label="breadcrumb" class="mb-2">
@@ -259,135 +22,185 @@
           <li class="breadcrumb-item active" aria-current="page">계약 상세</li>
         </ol>
       </nav>
-      <h1 class="gf-page-title">계약 상세</h1>
+      <h1 class="h3 mb-0">계약 상세</h1>
     </div>
     <div class="d-flex gap-2">
-      {% if not edit_mode and obj %}<button id="btn-edit" class="btn btn-primary btn-sm">편집</button>{% endif %}
+      {% if not edit_mode and obj %}<a href="{{ request.path }}?edit=1" class="btn btn-primary btn-sm">편집</a>{% endif %}
       <a href="{% url 'tenant:contract_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>
     </div>
   </div>
 
   {% if obj and not edit_mode %}
-  <div class="gf-lifecycle" data-phase="{{ wf.major_code }}" aria-label="업무 프로세스">
-    <div class="gf-lifecycle-step gf-step-contract" aria-label="1. 계약"><div class="gf-lifecycle-dot"></div><div>계약</div></div>
-    <div class="gf-lifecycle-step gf-step-execution" aria-label="2. 진행"><div class="gf-lifecycle-dot"></div><div>진행</div></div>
-    <div class="gf-lifecycle-step gf-step-closeout" aria-label="3. 준공"><div class="gf-lifecycle-dot"></div><div>준공</div></div>
-    <div class="gf-lifecycle-step gf-step-complete" aria-label="4. 완료"><div class="gf-lifecycle-dot"></div><div>완료</div></div>
+  <div class="card mb-3">
+    <div class="card-body py-3">
+      <div class="d-flex align-items-center justify-content-center gap-2 gap-md-4 small" aria-label="업무 프로세스">
+        <span class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
+        <span class="text-muted">→</span>
+        <span class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">진행</span>
+        <span class="text-muted">→</span>
+        <span class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
+        <span class="text-muted">→</span>
+        <span class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
+      </div>
+    </div>
   </div>
   {% endif %}
 
   <div class="container-fluid px-0">
     {% if not edit_mode and obj %}
-      <section id="view-mode" class="gf-panel gf-contract-info">
-        <h2 class="gf-contract-info-title">계약정보</h2>
-
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약명</div>
-          <div class="gf-info-value gf-strong">{{ obj.name|default:"-" }}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약번호</div>
-          <div class="gf-info-value">{{ obj.code|default:"-" }}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">발주처</div>
-          <div class="gf-info-value">{{ obj.client.name|default:"-" }}</div>
-        </div>
-        {% if obj.kind == "하도급" %}
-        <div class="gf-info-row">
-          <div class="gf-info-label">원도급</div>
-          <div class="gf-info-value">{{ obj.sub_client.name|default:"-" }}</div>
-        </div>
-        {% endif %}
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약자</div>
-          <div class="gf-info-value">{{ obj.org_unit.name|default:"-" }}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약기간</div>
-          <div class="gf-info-value">{{ obj.start_date|date:"Y-m-d"|default:"-" }} ~ {{ obj.end_date|date:"Y-m-d"|default:"-" }}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약형태</div>
-          <div class="gf-info-value" id="contract-kind-label" data-kind-code="{{ obj.kind|default:'' }}">{{ obj.kind|default:"-" }}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약금액</div>
-          <div class="gf-info-value">{% if obj.amount != None %}₩{{ obj.amount|intcomma }}{% else %}-{% endif %}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">현재 업무단계</div>
-          <div class="gf-info-value"><span class="gf-current-phase">{{ wf.major_label }}</span> / {{ wf.major_event_label|default:"-" }}<span class="visually-hidden">단계 기준: {{ wf.major_event_label|default:"-" }}</span></div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">기타정보</div>
-          <div class="gf-info-value pre-wrap">{{ obj.description|default:"-" }}</div>
-        </div>
-        <div class="gf-info-row">
-          <div class="gf-info-label">계약문서 접근 권한</div>
-          <div class="gf-info-value">
-            {% if doc_access.allowed %}
-              <div class="gf-access-inline"><span class="badge bg-success-subtle text-success-emphasis">열람 가능</span><span class="text-muted small">계약서·계약 첨부 열람 가능</span></div>
-            {% elif doc_access.status == 'pending' %}
-              <div class="gf-access-inline"><span class="badge bg-warning-subtle text-warning-emphasis">승인 대기</span><span class="text-muted small">계약 문서 열람 승인 대기중</span></div>
-            {% else %}
-              <form method="post" action="{% url 'tenant:contract_document_access_request' obj.id %}" class="gf-access-request">
-                {% csrf_token %}
-                <span class="badge bg-secondary-subtle text-secondary-emphasis">열람 권한 없음</span>
-                <input type="text" name="reason" class="form-control form-control-sm" placeholder="열람 사유 (선택)">
-                <button type="submit" class="btn btn-outline-primary btn-sm">계약 문서 열람 요청</button>
-              </form>
-            {% endif %}
-
-            {% if doc_access.can_approve and doc_access.pending %}
-              <div class="gf-access-pending-list">
-                {% for req in doc_access.pending %}
-                  <div class="gf-access-pending-item">
-                    <div>
-                      <div class="small fw-semibold">{{ req.name }}</div>
-                      {% if req.reason %}<div class="small text-muted">{{ req.reason }}</div>{% endif %}
-                    </div>
-                    <div class="d-flex gap-1">
-                      <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="approved"><button class="btn btn-success btn-sm" type="submit">승인</button></form>
-                      <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="rejected"><button class="btn btn-outline-danger btn-sm" type="submit">거절</button></form>
-                    </div>
-                  </div>
-                {% endfor %}
+      <div class="row g-3 align-items-start">
+        <div class="col-md-8">
+          <div id="view-mode" class="card mb-0">
+            <div class="card-header">
+              <h5 class="card-title mb-0">계약정보</h5>
+            </div>
+            <div class="card-body pt-0">
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약명</div>
+                <div class="col-sm-8 col-lg-9 fw-semibold">{{ obj.name|default:"-" }}</div>
               </div>
-            {% endif %}
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약번호</div>
+                <div class="col-sm-8 col-lg-9">{{ obj.code|default:"-" }}</div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">발주처</div>
+                <div class="col-sm-8 col-lg-9">{{ obj.client.name|default:"-" }}</div>
+              </div>
+              {% if obj.kind == "하도급" %}
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">원도급</div>
+                <div class="col-sm-8 col-lg-9">{{ obj.sub_client.name|default:"-" }}</div>
+              </div>
+              {% endif %}
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약자</div>
+                <div class="col-sm-8 col-lg-9">{{ obj.org_unit.name|default:"-" }}</div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약기간</div>
+                <div class="col-sm-8 col-lg-9">{{ obj.start_date|date:"Y-m-d"|default:"-" }} ~ {{ obj.end_date|date:"Y-m-d"|default:"-" }}</div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약형태</div>
+                <div class="col-sm-8 col-lg-9" id="contract-kind-label" data-kind-code="{{ obj.kind|default:'' }}">{{ obj.kind|default:"-" }}</div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약금액</div>
+                <div class="col-sm-8 col-lg-9">{% if obj.amount != None %}₩{{ obj.amount|intcomma }}{% else %}-{% endif %}</div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">현재 업무단계</div>
+                <div class="col-sm-8 col-lg-9"><span class="text-primary fw-semibold">{{ wf.major_label }}</span> / {{ wf.major_event_label|default:"-" }}<span class="visually-hidden">단계 기준: {{ wf.major_event_label|default:"-" }}</span></div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">기타정보</div>
+                <div class="col-sm-8 col-lg-9 pre-wrap">{{ obj.description|default:"-" }}</div>
+              </div>
+              <div class="row py-2 border-top">
+                <div class="col-sm-4 col-lg-3 small text-muted">계약문서 접근 권한</div>
+                <div class="col-sm-8 col-lg-9">
+                  {% if doc_access.allowed %}
+                    <div class="d-flex align-items-center gap-2 flex-wrap"><span class="badge bg-success-subtle text-success-emphasis">열람 가능</span><span class="text-muted small">계약서·계약 첨부 열람 가능</span></div>
+                  {% elif doc_access.status == 'pending' %}
+                    <div class="d-flex align-items-center gap-2 flex-wrap"><span class="badge bg-warning-subtle text-warning-emphasis">승인 대기</span><span class="text-muted small">계약 문서 열람 승인 대기중</span></div>
+                  {% else %}
+                    <form method="post" action="{% url 'tenant:contract_document_access_request' obj.id %}" class="d-flex align-items-center gap-2 flex-wrap">
+                      {% csrf_token %}
+                      <span class="badge bg-secondary-subtle text-secondary-emphasis">열람 권한 없음</span>
+                      <input type="text" name="reason" class="form-control form-control-sm" style="max-width:22rem" placeholder="열람 사유 (선택)">
+                      <button type="submit" class="btn btn-outline-primary btn-sm">계약 문서 열람 요청</button>
+                    </form>
+                  {% endif %}
+
+                  {% if doc_access.can_approve and doc_access.pending %}
+                    <div class="mt-2">
+                      {% for req in doc_access.pending %}
+                        <div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                          <div><div class="small fw-semibold">{{ req.name }}</div>{% if req.reason %}<div class="small text-muted">{{ req.reason }}</div>{% endif %}</div>
+                          <div class="d-flex gap-1">
+                            <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="approved"><button class="btn btn-success btn-sm" type="submit">승인</button></form>
+                            <form method="post" action="{% url 'tenant:contract_document_access_decide' req.id %}">{% csrf_token %}<input type="hidden" name="decision" value="rejected"><button class="btn btn-outline-danger btn-sm" type="submit">거절</button></form>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </section>
 
-      <section class="gf-panel gf-work-card">
-        <div class="gf-work-tabs" role="tablist" aria-label="계약 상세 보조 정보">
-          <button type="button" class="gf-work-tab active" data-gf-tab="timeline" role="tab" aria-selected="true">타임라인</button>
-          <button type="button" class="gf-work-tab" data-gf-tab="scope" role="tab" aria-selected="false">업무범위</button>
-        </div>
+        <div class="col-md-4">
+          <div class="card mb-0">
+            <div class="card-header pb-0">
+              <ul class="nav nav-tabs card-header-tabs" id="contractDetailTabs" role="tablist" aria-label="계약 상세 보조 정보">
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link active"
+                          id="contract-timeline-tab"
+                          data-bs-toggle="tab"
+                          data-bs-target="#contract-timeline-pane"
+                          type="button"
+                          role="tab"
+                          aria-controls="contract-timeline-pane"
+                          aria-selected="true">타임라인</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link"
+                          id="contract-scope-tab"
+                          data-bs-toggle="tab"
+                          data-bs-target="#contract-scope-pane"
+                          type="button"
+                          role="tab"
+                          aria-controls="contract-scope-pane"
+                          aria-selected="false">업무범위</button>
+                </li>
+              </ul>
+            </div>
 
-        <div class="gf-work-pane active" data-gf-pane="timeline">
-          <div class="gf-work-actions">
-            {% if wf.major_code == "closeout" %}<button id="btn-contract-complete" type="button" class="btn btn-sm btn-success">준공 완료</button>{% endif %}
-            <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
+            <div class="card-body">
+              <div class="tab-content" id="contractDetailTabContent">
+                <div class="tab-pane fade show active"
+                     id="contract-timeline-pane"
+                     role="tabpanel"
+                     aria-labelledby="contract-timeline-tab"
+                     tabindex="0">
+                  <div class="d-flex justify-content-end gap-2 mb-3">
+                    {% if wf.major_code == "closeout" %}
+                      <button id="btn-contract-complete"
+                              type="button"
+                              class="btn btn-sm btn-success"
+                              data-bs-toggle="modal"
+                              data-bs-target="#contractCompleteModal">준공 완료</button>
+                    {% endif %}
+                    <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
+                  </div>
+
+                  <ul id="contractTimelineList" class="timeline mt-2 mb-0"></ul>
+                  <div id="contractTimelineEmpty" class="text-muted small text-center py-4 d-none">등록된 이벤트가 없습니다.</div>
+                  <div id="timelineList" class="d-none"></div>
+                  <div id="timelineEmpty" class="d-none"></div>
+                </div>
+
+                <div class="tab-pane fade"
+                     id="contract-scope-pane"
+                     role="tabpanel"
+                     aria-labelledby="contract-scope-tab"
+                     tabindex="0">
+                  {% if not project_for_scope %}
+                    <div class="text-muted small py-3">연결된 프로젝트가 없습니다.</div>
+                  {% elif scope_groups and scope_groups|length %}
+                    {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
+                  {% else %}
+                    <div class="text-muted small py-3">표시할 업무범위가 없습니다.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
           </div>
-          <div id="contractTimelineList" class="gf-contract-timeline"></div>
-          <div id="contractTimelineEmpty" class="text-muted small text-center py-4 d-none">등록된 이벤트가 없습니다.</div>
-          <div id="timelineList" class="d-none"></div>
-          <div id="timelineEmpty" class="d-none"></div>
         </div>
-
-        <div class="gf-work-pane" data-gf-pane="scope">
-          <div class="gf-scope-pane-inner">
-            {% if not project_for_scope %}
-              <div class="text-muted small py-3">연결된 프로젝트가 없습니다.</div>
-            {% elif scope_groups and scope_groups|length %}
-              {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
-            {% else %}
-              <div class="text-muted small py-3">표시할 업무범위가 없습니다.</div>
-            {% endif %}
-          </div>
-        </div>
-      </section>
+      </div>
 
     {% else %}
       <div class="card">
@@ -460,31 +273,12 @@ document.addEventListener("DOMContentLoaded", function () {
   var kindLabel = document.getElementById('contract-kind-label');
   if (kindLabel) { var kindCode = kindLabel.getAttribute('data-kind-code') || ''; if (kindCode && kindLabels[kindCode]) kindLabel.textContent = kindLabels[kindCode]; }
 
-  var btn = document.getElementById("btn-edit");
-  if (btn) btn.addEventListener("click", function () { var url = new URL(window.location.href); url.searchParams.set("edit", "1"); window.location.assign(url.toString()); });
-
   var mount = document.getElementById('eventModalMount');
   if (window.ProcessWorkboardUI && mount) window.ProcessWorkboardUI.init('#eventModalMount');
 
   var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
   var csrfToken = csrfInput ? csrfInput.value : (mount ? mount.getAttribute('data-csrf') : '{{ csrf_token }}');
   if (window.initAttachmentActions) window.initAttachmentActions({ root: document, csrfToken: csrfToken });
-
-  var tabButtons = Array.prototype.slice.call(document.querySelectorAll('[data-gf-tab]'));
-  var tabPanes = Array.prototype.slice.call(document.querySelectorAll('[data-gf-pane]'));
-  tabButtons.forEach(function(tabButton) {
-    tabButton.addEventListener('click', function() {
-      var target = tabButton.getAttribute('data-gf-tab');
-      tabButtons.forEach(function(item) {
-        var active = item === tabButton;
-        item.classList.toggle('active', active);
-        item.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-      tabPanes.forEach(function(pane) {
-        pane.classList.toggle('active', pane.getAttribute('data-gf-pane') === target);
-      });
-    });
-  });
 
   function formatContractEventDate(value) {
     var raw = String(value || '').trim();
@@ -551,35 +345,31 @@ document.addEventListener("DOMContentLoaded", function () {
       visibleEmpty.classList.add('d-none');
 
       events.forEach(function(ev) {
-        var item = document.createElement('div');
-        item.className = 'gf-timeline-item' + (ev.status === 'void' ? ' gf-event-void' : '');
+        var item = document.createElement('li');
+        item.className = 'timeline-item mb-3 cursor-pointer' + (ev.status === 'void' ? ' opacity-50' : '');
         item.setAttribute('role', 'button');
         item.setAttribute('tabindex', '0');
 
-        var head = document.createElement('div');
-        head.className = 'gf-timeline-head';
+        var date = document.createElement('span');
+        date.className = 'float-end text-muted text-sm ms-2';
+        date.textContent = formatContractEventDate(ev.occurred_at || ev.created_at);
 
-        var title = document.createElement('div');
-        title.className = 'gf-timeline-title';
+        var title = document.createElement('strong');
         title.textContent = ev.title || typeLabels[ev.event_type] || ev.event_type || '업무 이벤트';
+
+        item.appendChild(date);
+        item.appendChild(title);
+
         if (ev.status === 'void') {
           var voidLabel = document.createElement('span');
-          voidLabel.className = 'gf-void-label';
+          voidLabel.className = 'badge bg-secondary ms-2';
           voidLabel.textContent = '취소';
-          title.appendChild(voidLabel);
+          item.appendChild(voidLabel);
         }
 
-        var date = document.createElement('div');
-        date.className = 'gf-timeline-date';
-        date.textContent = formatContractEventDate(ev.occurred_at || ev.created_at);
-        head.appendChild(title);
-        head.appendChild(date);
-
         var meta = document.createElement('div');
-        meta.className = 'gf-timeline-meta';
+        meta.className = 'text-muted text-sm mt-1';
         meta.textContent = (stageLabels[ev.stage] || ev.stage || '-') + ' / ' + (typeLabels[ev.event_type] || ev.event_type || '-');
-
-        item.appendChild(head);
         item.appendChild(meta);
 
         function openEvent() {
@@ -592,6 +382,7 @@ document.addEventListener("DOMContentLoaded", function () {
             openEvent();
           }
         });
+
         visibleList.appendChild(item);
       });
     }).catch(function() {
@@ -608,23 +399,22 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  var completeButton = document.getElementById('btn-contract-complete');
   var completeModalEl = document.getElementById('contractCompleteModal');
   var confirmComplete = document.getElementById('btn-confirm-contract-complete');
   var completeDate = document.getElementById('contract-complete-date');
   var completeMemo = document.getElementById('contract-complete-memo');
   var completeAlert = document.getElementById('contract-complete-alert');
-  if (completeButton && completeModalEl && mount) {
-    var completeModal = bootstrap.Modal.getOrCreateInstance(completeModalEl);
-    completeButton.addEventListener('click', function () {
+
+  if (completeModalEl && mount) {
+    completeModalEl.addEventListener('show.bs.modal', function () {
       if (completeDate && !completeDate.value) {
         var now = new Date();
         var local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
         completeDate.value = local.toISOString().slice(0, 10);
       }
       if (completeAlert) completeAlert.classList.add('d-none');
-      completeModal.show();
     });
+
     if (confirmComplete) confirmComplete.addEventListener('click', function () {
       if (!completeDate || !completeDate.value) {
         if (completeAlert) { completeAlert.textContent = '완료일을 입력하세요.'; completeAlert.classList.remove('d-none'); }
