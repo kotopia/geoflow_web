@@ -34,13 +34,13 @@
   <div class="card mb-3">
     <div class="card-body py-3">
       <div class="d-flex align-items-center justify-content-center gap-2 gap-md-4 small" aria-label="업무 프로세스">
-        <span class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
+        <span aria-label="1. 계약" class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
         <span class="text-muted">→</span>
-        <span class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">진행</span>
+        <span aria-label="2. 진행" class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">진행</span>
         <span class="text-muted">→</span>
-        <span class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
+        <span aria-label="3. 준공" class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
         <span class="text-muted">→</span>
-        <span class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
+        <span aria-label="4. 완료" class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
       </div>
     </div>
   </div>
