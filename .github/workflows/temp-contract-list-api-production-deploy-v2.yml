@@ -248,7 +248,11 @@ jobs:
             fail 'login_unhealthy_after_deploy'
           fi
 
-          api_code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 http://127.0.0.1:8011/api/temp/contracts/ || true)"
+          # The production runtime redirects plain HTTP to HTTPS. Simulate the
+          # trusted reverse proxy so SecurityMiddleware reaches the disabled
+          # endpoint itself; a plain HTTP probe would only see a 301 redirect.
+          api_code="$(curl -sS -H 'Host: geoflow.co.kr' -H 'X-Forwarded-Proto: https' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 http://127.0.0.1:8011/api/temp/contracts/ || true)"
+          echo "temp_contract_api_v2_disabled_probe_code=$api_code"
           [ "$api_code" = '404' ] || {
             rollback_code "$previous_sha" "$previous_branch"
             fail 'temporary_api_not_disabled_after_deploy'
