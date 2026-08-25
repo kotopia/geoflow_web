@@ -14,6 +14,7 @@ from . import (
     views_contracts,
     views_execution,
     views_myinfo,
+    views_partners,
     views_project_members,
     views_projects,
 )
@@ -102,14 +103,14 @@ def contract_json(request, pk):
 @require_GET
 def partner_list(request):
     _require(request, "partners.view")
-    return views_contracts.partner_list(request)
+    return views_partners.partner_list(request)
 
 
 @login_required
 @require_http_methods(["GET", "POST"])
 def partner_create(request):
     _require(request, "partners.create")
-    return views_contracts.partner_create(request)
+    return views_partners.partner_create(request)
 
 
 @login_required
@@ -118,21 +119,21 @@ def partner_detail(request, pk):
     _require(request, "partners.view")
     if request.method == "POST" and not gf_has_perm(request, "partners.create"):
         raise PermissionDenied("Permission denied")
-    return views_contracts.partner_detail_page(request, pk)
+    return views_partners.partner_detail_page(request, pk)
 
 
 @login_required
 @require_GET
 def partner_json(request, pk):
     _require(request, "partners.view")
-    return views_contracts.partner_detail_json(request, pk)
+    return views_partners.partner_detail_json(request, pk)
 
 
 @login_required
 @require_GET
 def partner_options(request):
     _require(request, "partners.view")
-    return views_contracts.partners_options(request)
+    return views_partners.partners_options(request)
 
 
 @login_required

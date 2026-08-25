@@ -52,7 +52,7 @@ def get_sse_config() -> dict:
 
 def build_object_key(
     tenant_db_alias: str,
-    entity_type: Literal["employee", "contract", "orgunit", "event"],
+    entity_type: Literal["employee", "contract", "partner", "orgunit", "event"],
     entity_id: str,
     purpose: str,
     extension: str,
@@ -65,6 +65,7 @@ def build_object_key(
     folders = {
         "employee": "employees",
         "contract": "contracts",
+        "partner": "partners",
         "orgunit": "orgunits",
         "event": "events",
     }

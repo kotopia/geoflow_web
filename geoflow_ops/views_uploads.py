@@ -32,13 +32,14 @@ DIRECT_UPLOAD_PURPOSES = {
     ("employee", "photo"),
     ("employee", "photo_thumb"),
     ("employee", "doc"),
+    ("partner", "doc"),
     ("event", "doc"),
 }
 IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PDF_EXTENSIONS = {"pdf"}
 PDF_MIME_TYPES = {"application/pdf"}
-ENTITY_FOLDERS = {"employee": "employees", "event": "events"}
+ENTITY_FOLDERS = {"employee": "employees", "partner": "partners", "event": "events"}
 
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
@@ -96,6 +97,9 @@ def _validate_upload_combination(entity_type, purpose, filename, mime_type, size
     elif entity_type == "event" and purpose == "doc":
         if not extension or extension == "bin" or not mime_type:
             return "Invalid event document type"
+    elif entity_type == "partner" and purpose == "doc":
+        if not extension or extension == "bin":
+            return "Invalid partner document type"
     return None
 
 
