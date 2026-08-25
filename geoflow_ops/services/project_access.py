@@ -16,11 +16,20 @@ FULL_PROJECT_ROLES = frozenset({
     "tenant_manager",
     "manager",
     "group_admin",
+    "project_admin",
+    # Temporary central-role aliases while the control DB is migrated.
     "project_manager",
     "projectmanager",
     "pm",
 })
-PROJECT_LEADER_ROLES = frozenset({"project_leader", "projectleader", "leader", "pl"})
+PROJECT_COORDINATOR_ROLES = frozenset({
+    "project_coordinator",
+    # Temporary central-role aliases while the control DB is migrated.
+    "project_leader",
+    "projectleader",
+    "leader",
+    "pl",
+})
 WORKER_ROLES = frozenset({"worker", "project_worker", "projectworker"})
 VIEWER_ROLES = frozenset({"viewer", "project_viewer", "projectviewer"})
 PROJECT_MEMBER_ROLES = frozenset({"project_manager", "project_leader", "worker", "viewer"})
@@ -194,7 +203,7 @@ def project_access_policy(request, alias: str) -> ProjectAccessPolicy:
 
     if roles & FULL_PROJECT_ROLES:
         mode = "full"
-    elif roles & PROJECT_LEADER_ROLES:
+    elif roles & PROJECT_COORDINATOR_ROLES:
         mode = "leader"
     elif roles & VIEWER_ROLES:
         mode = "viewer"

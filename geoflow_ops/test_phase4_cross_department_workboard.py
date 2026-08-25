@@ -140,15 +140,16 @@ class WorkboardSourceContracts(SimpleTestCase):
             ROOT / "templates" / "geoflow_ops" / "projects" / "project_detail.html"
         ).read_text(encoding="utf-8")
         for token in (
-            'id="workflowStage"',
-            'id="workflowNextTask"',
-            'id="workflowAssignee"',
-            'id="workflowOpenCount"',
+            'id="project-scope-pane"',
+            'id="project-timeline-pane"',
+            'id="project-members-pane"',
+            'id="timelineList"',
             'data-assignment-options-url=',
             "process-workboard-ui.js",
             "ProcessWorkboardUI.init",
         ):
             self.assertIn(token, source)
+        self.assertNotIn("업무 흐름", source)
         self.assertNotIn("ProcessEventsUI.init", source)
 
     def test_contract_detail_uses_same_configurable_workboard_client(self):
@@ -164,13 +165,13 @@ class WorkboardSourceContracts(SimpleTestCase):
             self.assertIn(token, source)
         self.assertNotIn("ProcessEventsUI.init", source)
 
-    def test_project_summary_surfaces_all_projects_under_contract(self):
+    def test_project_summary_omits_linked_project_navigation(self):
         source = (
             ROOT / "templates" / "geoflow_ops" / "projects" / "project_summary.html"
         ).read_text(encoding="utf-8")
-        self.assertIn("project.contract.project_set.all", source)
-        self.assertIn("1:N 계약 구조", source)
-        self.assertIn("tenant:project_detail", source)
+        self.assertNotIn("project.contract.project_set.all", source)
+        self.assertNotIn("1:N 계약 구조", source)
+        self.assertNotIn("연결 프로젝트", source)
 
     def test_workboard_javascript_sends_assignment_only_when_authorized(self):
         source = (
