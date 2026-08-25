@@ -10,7 +10,7 @@ class WorkflowChoice:
 
 
 STAGE_CHOICES = (
-    WorkflowChoice("pre_contract", "계약전"),
+    WorkflowChoice("pre_contract", "계약 준비"),
     WorkflowChoice("contract", "계약"),
     WorkflowChoice("kickoff", "착수"),
     WorkflowChoice("execution", "수행"),
