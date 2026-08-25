@@ -21,13 +21,14 @@ UPLOAD_LIMITS = {
     ("employee", "photo"): ("GEOFLOW_UPLOAD_EMPLOYEE_PHOTO_MAX_BYTES", 15 * 1024 * 1024),
     ("employee", "photo_thumb"): ("GEOFLOW_UPLOAD_EMPLOYEE_THUMB_MAX_BYTES", 2 * 1024 * 1024),
     ("employee", "doc"): ("GEOFLOW_UPLOAD_EMPLOYEE_DOC_MAX_BYTES", 25 * 1024 * 1024),
+    ("partner", "doc"): ("GEOFLOW_UPLOAD_PARTNER_DOC_MAX_BYTES", 25 * 1024 * 1024),
     ("event", "doc"): ("GEOFLOW_UPLOAD_EVENT_DOC_MAX_BYTES", 100 * 1024 * 1024),
 }
 
-BLOCKED_EVENT_EXTENSIONS = {
+BLOCKED_ACTIVE_DOC_EXTENSIONS = {
     "html", "htm", "xhtml", "svg", "js", "mjs", "xml",
 }
-BLOCKED_EVENT_MIME_TYPES = {
+BLOCKED_ACTIVE_DOC_MIME_TYPES = {
     "text/html", "application/xhtml+xml", "image/svg+xml", "application/javascript",
     "text/javascript", "application/ecmascript", "text/ecmascript", "application/xml", "text/xml",
 }
@@ -66,14 +67,7 @@ def _normalize_mime(value) -> str:
 
 
 def _effective_inline_mime(attachment) -> str:
-    """Return a safe inline MIME, including conservative legacy metadata fallback.
-
-    Old attachment rows can predate MIME persistence and may contain an empty or
-    generic octet-stream value. Only those generic values are eligible for a
-    filename-extension fallback, and the fallback is restricted to the same
-    allowlist already accepted for inline rendering. A specific unsafe/unknown
-    stored MIME is never overridden by its filename.
-    """
+    """Return a safe inline MIME, including conservative legacy metadata fallback."""
     stored_mime = _normalize_mime(getattr(attachment, "mime_type", None))
     stored_mime = LEGACY_INLINE_MIME_ALIASES.get(stored_mime, stored_mime)
     if stored_mime in INLINE_SAFE_MIME_TYPES:
@@ -115,11 +109,11 @@ def _guard_upload_payload(request):
             size_bytes = None
         if size_bytes is not None and size_bytes > limit:
             return _json_error("Upload exceeds the configured size limit", status=413)
-    if (entity_type, purpose) == ("event", "doc"):
+    if entity_type in {"partner", "event"} and purpose == "doc":
         filename = data.get("filename") or data.get("original_name") or ""
         extension = extract_extension(str(filename))
         mime_type = _normalize_mime(data.get("mime_type"))
-        if extension in BLOCKED_EVENT_EXTENSIONS or mime_type in BLOCKED_EVENT_MIME_TYPES:
+        if extension in BLOCKED_ACTIVE_DOC_EXTENSIONS or mime_type in BLOCKED_ACTIVE_DOC_MIME_TYPES:
             return _json_error("Active document type is not allowed", status=415)
     return None
 
@@ -167,8 +161,6 @@ def commit(request):
 @login_required
 @require_GET
 def presign_get(request, attachment_id):
-    # Keep the canonical tenant and entity authorization visible in this route;
-    # release contract tests intentionally verify these guards directly.
     try:
         alias = require_tenant_context(request)
     except Exception:
