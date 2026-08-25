@@ -94,9 +94,12 @@ def _validate_upload_combination(entity_type, purpose, filename, mime_type, size
     elif (entity_type, purpose) == ("employee", "doc"):
         if extension not in PDF_EXTENSIONS or mime_type not in PDF_MIME_TYPES:
             return "Unsupported employee document type"
-    elif entity_type in {"partner", "event"} and purpose == "doc":
+    elif entity_type == "event" and purpose == "doc":
         if not extension or extension == "bin" or not mime_type:
-            return f"Invalid {entity_type} document type"
+            return "Invalid event document type"
+    elif entity_type == "partner" and purpose == "doc":
+        if not extension or extension == "bin":
+            return "Invalid partner document type"
     return None
 
 
