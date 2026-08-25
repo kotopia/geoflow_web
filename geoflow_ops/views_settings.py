@@ -8,6 +8,7 @@ from django.db import connections, transaction
 from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect, render
 
+from .process_workflow import STAGE_CHOICES
 from .services.entity_access import require_tenant_context
 
 
@@ -18,6 +19,10 @@ HIDDEN_SETTINGS_SYSTEM_KEYS = {
     "contract.status",
     "hr.position_grade",
     "hr.position_title",
+}
+
+_CANONICAL_EVENT_STAGE_NAMES = {
+    f"event.stage.{choice.code}": choice.label for choice in STAGE_CHOICES
 }
 
 
@@ -51,7 +56,9 @@ def _load_nodes(alias: str):
             "id": row[0],
             "parent_id": row[1] or "",
             "code": row[2] or "",
-            "name": row[3] or "",
+            # Required stages are immutable system vocabulary. Display the
+            # current canonical label without rewriting tenant history rows.
+            "name": _CANONICAL_EVENT_STAGE_NAMES.get(row[9] or "", row[3] or ""),
             "node_type": row[4] or "value",
             "value": row[5] or "",
             "description": row[6] or "",
