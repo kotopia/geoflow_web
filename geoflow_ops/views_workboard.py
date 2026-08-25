@@ -156,9 +156,13 @@ def workboard_event_list(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
 
     event_filter, timeline_mode = _event_filter(request, alias, scope_type, scope_id)
+    # status=void is the retained audit record for a user-visible logical delete.
+    # Normal workboard/timeline APIs hide it; lifecycle services independently
+    # derive state from the same remaining non-void event history.
     events = list(
         ProcessEvent.objects.using(alias)
         .filter(event_filter)
+        .exclude(status="void")
         .order_by("stage", "occurred_at", "created_at")
     )
     attachments = _attachment_map(alias, events)
