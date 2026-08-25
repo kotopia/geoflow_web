@@ -48,11 +48,15 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("currentEvent.scope_id", source)
         self.assertIn("currentEvent = ev", source)
 
-    def test_contract_timeline_uses_void_language_not_physical_delete_language(self):
+    def test_contract_timeline_uses_user_delete_language_but_retains_logical_history(self):
         source = self._client_source()
-        self.assertIn("취소 처리", source)
-        self.assertIn("이력은 삭제되지 않습니다", source)
-        self.assertNotIn("정말 이 이벤트를 삭제하시겠습니까", source)
+        self.assertIn("이 이벤트를 삭제할까요?", source)
+        self.assertIn("이력 보존", source)
+        self.assertIn("window.location.reload()", source)
+        self.assertNotIn("취소 처리", source)
+        backend = (ROOT / "views_events.py").read_text(encoding="utf-8")
+        self.assertIn('event.status = "void"', backend)
+        self.assertNotIn("event.delete()", backend)
 
     def test_contract_timeline_uses_configurable_stage_type_workflow(self):
         source = self._client_source()
@@ -60,6 +64,8 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("types_by_stage", source)
         self.assertIn("function populateEventTypes", source)
         self.assertIn("fStage.onchange", source)
+        self.assertIn("workflow options unavailable", source)
+        self.assertNotIn("pre_contract: [{code:'estimate'", source)
 
     def test_contract_detail_uses_shared_configurable_event_endpoint(self):
         template = (
@@ -102,6 +108,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         stages = dict(settings_options(None, "event.stage"))
         for code in REQUIRED_EVENT_STAGE_CODES:
             self.assertIn(code, stages)
+        self.assertEqual(stages["pre_contract"], "계약 준비")
         self.assertEqual(stages["kickoff"], "착수")
         self.assertEqual(stages["closeout"], "준공")
 
@@ -129,6 +136,13 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertEqual(completed["major_label"], "완료")
         self.assertEqual(completed["filter_key"], "complete")
         self.assertTrue(completed["is_complete"])
+
+    def test_logically_deleted_event_is_hidden_and_cannot_drive_visible_lifecycle(self):
+        workboard = (ROOT / "views_workboard.py").read_text(encoding="utf-8")
+        workflow = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
+        self.assertIn('.exclude(status="void")', workboard)
+        self.assertIn("COALESCE(status, '') <> 'void'", workflow)
+        self.assertIn("highest reached non-void phase wins", workflow)
 
     def test_legacy_completed_status_is_migrated_not_read_at_runtime(self):
         migration = (ROOT / "migrations" / "0026_contract_completion_event_backfill.py").read_text(encoding="utf-8")
@@ -178,13 +192,19 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("event_type: 'closeout_complete'", detail)
         self.assertIn("stage: 'closeout'", detail)
 
-    def test_event_modal_hides_processing_status_and_explains_stage_driven_flow(self):
+    def test_event_modal_is_compact_settings_driven_and_keeps_metadata_collapsed(self):
         modal = (
             ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html"
         ).read_text(encoding="utf-8")
         self.assertIn('class="d-none" id="event-status"', modal)
         self.assertNotIn("처리 상태", modal)
         self.assertIn("업무 단계", modal)
-        self.assertIn("업무 유형이 기타여도 동일합니다", modal)
-        self.assertIn("준공 완료", modal)
+        self.assertIn("환경설정 불러오는 중", modal)
+        self.assertIn('data-bs-toggle="collapse"', modal)
+        self.assertIn("상세 정보", modal)
+        self.assertIn('id="event-updated-at"', modal)
+        self.assertIn('id="btn-delete-event-modal">삭제', modal)
+        self.assertNotIn("modal-lg", modal)
+        self.assertNotIn('value="pre_contract"', modal)
         self.assertNotIn('value="closeout_complete"', modal)
+        self.assertIn("준공 완료", modal)
