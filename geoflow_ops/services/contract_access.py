@@ -9,10 +9,12 @@ from .employee_access import current_employee_id, effective_roles
 
 MANAGEMENT_ROLES = frozenset({
     "tenant_admin", "tenant_administrator", "tenant_manager", "manager",
-    "group_admin", "contract_manager", "admin",
+    "group_admin", "contract_manager", "admin", "project_admin",
+    # Temporary central-role alias while the control DB is migrated.
+    "project_manager", "projectmanager", "pm",
 })
 PROJECT_ROLES = frozenset({
-    "project_manager", "projectmanager", "pm", "project_leader",
+    "project_coordinator", "project_leader",
     "projectleader", "leader", "pl", "worker", "viewer",
 })
 

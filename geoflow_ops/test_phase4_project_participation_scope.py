@@ -42,8 +42,8 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         for role in (
             "tenant_admin",
             "tenant_manager",
-            "project_manager",
-            "project_leader",
+            "project_admin",
+            "project_coordinator",
             "worker",
             "viewer",
         ):
@@ -59,6 +59,34 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
         self.assertIn("active_memberships_for_request", policy)
         self.assertIn("_gf_project_memberships_cache", policy)
         self.assertIn("membership_status='active'", policy)
+
+    def test_central_role_names_do_not_replace_project_membership_values(self):
+        policy = source("geoflow_ops/services/project_access.py")
+        self.assertIn('"project_admin"', policy)
+        self.assertIn('"project_coordinator"', policy)
+        self.assertIn(
+            'PROJECT_MEMBER_ROLES = frozenset({"project_manager", "project_leader", "worker", "viewer"})',
+            policy,
+        )
+
+        migration = source("scripts/ops/migrate_control_project_roles.py")
+        self.assertIn('(\"project_manager\", \"project_admin\"', migration)
+        self.assertIn('(\"project_leader\", \"project_coordinator\"', migration)
+        self.assertIn("role IDs, user assignments, and role-permission mappings remain intact", migration)
+        self.assertIn("connection.rollback()", migration)
+
+    def test_project_detail_matches_contract_detail_adminkit_structure(self):
+        detail = source("geoflow_ops/templates/geoflow_ops/projects/project_detail.html")
+        for label in ('aria-label="1. 계약"', 'aria-label="2. 진행"', 'aria-label="3. 준공"', 'aria-label="4. 완료"'):
+            self.assertIn(label, detail)
+        self.assertIn('class="col-md-8"', detail)
+        self.assertIn('class="col-md-4"', detail)
+        for pane in ("project-scope-pane", "project-timeline-pane", "project-members-pane"):
+            self.assertIn(pane, detail)
+        self.assertNotIn("업무 흐름", detail)
+
+        summary = source("geoflow_ops/templates/geoflow_ops/projects/project_summary.html")
+        self.assertNotIn("연결 프로젝트", summary)
 
     def test_project_list_is_scoped_for_worker_and_viewer_modes(self):
         view = source("geoflow_ops/views_projects.py")

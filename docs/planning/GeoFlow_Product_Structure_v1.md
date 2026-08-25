@@ -226,13 +226,13 @@ effective project access
 |---|---|
 | `tenant_admin` | tenant의 전체 프로젝트 |
 | `manager` | tenant의 전체 프로젝트 |
-| `project_manager` | 활성 project membership으로 지정된 프로젝트만 |
-| `project_leader` | 활성 project membership으로 지정된 프로젝트만 |
+| `project_admin` | tenant의 전체 프로젝트 조회·운영 |
+| `project_coordinator` | tenant의 전체 프로젝트 조회, 활성 project membership 프로젝트 운영 |
 | `worker` | 활성 project membership으로 지정된 프로젝트만 |
 | `view_only` | 활성 project membership으로 지정된 프로젝트만, 읽기 전용 |
 | `guest` | 활성 project membership으로 지정된 프로젝트만, 제한적 읽기 |
 
-tenant 전체 프로젝트 접근은 `tenant_admin`과 `manager`에게만 허용한다. `project_manager`와 `project_leader`는 관리·리더 역할이더라도 지정된 프로젝트 밖의 목록, 상세 또는 하위 객체에 접근할 수 없다. 지정 프로젝트 안에서도 변경·삭제·참여자 배정 같은 행위는 별도 permission을 만족해야 한다.
+tenant 전체 프로젝트 조회는 `tenant_admin`, `manager`, `project_admin`, `project_coordinator`에게 허용한다. `project_admin`은 전체 프로젝트를 운영하고, `project_coordinator`는 활성 project membership으로 지정된 프로젝트만 운영한다. 프로젝트 참여 역할 `project_manager`, `project_leader`, `worker`, `viewer`는 중앙 tenant 역할과 별개로 `prj.project_members`에 저장한다.
 
 ### 9.3 적용 범위
 
@@ -256,7 +256,7 @@ tenant 전체 프로젝트 접근은 `tenant_admin`과 `manager`에게만 허용
 
 - `employee_profile`은 로그인 또는 권한 주체가 아니라 tenant의 직원·인력 관리 데이터다.
 - 전체 직원·구성원 목록과 직원 상세 관리 메뉴는 `tenant_admin`, `manager` 또는 명시적인 직원관리 permission이 있는 사용자만 접근한다.
-- `project_manager`, `project_leader`, `worker`, `view_only`, `guest`는 프로젝트 역할만으로 전체 직원·구성원 목록을 볼 수 없다.
+- `project_coordinator`, `project_leader`, `worker`, `view_only`, `guest`는 역할만으로 전체 직원·구성원 목록을 볼 수 없다. 프로젝트 참여자 조회는 참여 프로젝트 범위로 제한한다.
 - 위 역할은 기본적으로 자신의 계정, 소속, 역할과 연결된 내 정보만 볼 수 있다.
 - 지정 프로젝트 상세 안에서는 그 프로젝트의 참여자 목록을 조회할 수 있다.
 - 프로젝트 참여자 목록은 이름, 프로젝트 역할, 소속 표시명, 참여 상태 등 업무 수행에 필요한 제한된 필드만 제공한다.
@@ -267,7 +267,7 @@ tenant 전체 프로젝트 접근은 `tenant_admin`과 `manager`에게만 허용
 
 기호: `A` 전체 범위, `P` 지정 프로젝트 범위, `R` 읽기 전용, `-` 기본 거부. 실제 구현은 permission codename으로 세분화한다.
 
-| 기능 | tenant_admin | manager | project_manager | project_leader | worker | view_only | guest |
+| 기능 | tenant_admin | manager | project_admin | project_coordinator | worker | view_only | guest |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | tenant 기본정보 조회 | A | A | A | A | R | R | 제한 R |
 | tenant 설정 변경 | A | permission 필요 | - | - | - | - | - |
@@ -295,7 +295,7 @@ tenant 전체 프로젝트 접근은 `tenant_admin`과 `manager`에게만 허용
 
 - 역할명은 권한 묶음의 기본값이며 최종 검사는 permission으로 수행한다.
 - 전체 프로젝트 접근은 `tenant_admin`과 `manager`만 가지며, 위험한 write 동작은 이 역할에도 별도 permission을 요구할 수 있다.
-- `project_manager`와 `project_leader`는 지정 프로젝트에서만 역할 permission을 행사한다.
+- `project_admin`은 전체 프로젝트에서, `project_coordinator`는 지정 프로젝트에서 운영 permission을 행사한다.
 - `view_only`는 상태를 바꾸는 요청을 허용하지 않는다.
 - `guest`는 `view_only`보다 좁은 정보와 기능만 허용한다.
 - 지도 객체, 시설물, 파일, 업무 이벤트와 보고서를 포함한 하위 객체는 상위 프로젝트 접근권한을 상속한다.
@@ -331,7 +331,7 @@ tenant 전체 프로젝트 접근은 `tenant_admin`과 `manager`에게만 허용
 - 이벤트·파일·지도·보고서의 상위 프로젝트 검사 적용
 - deny-by-default DB-free 및 integration test 추가
 
-완료 기준: `tenant_admin`과 `manager`만 전체 프로젝트에 접근하고, `project_manager`, `project_leader`, `worker`, `view_only`, `guest`는 지정 프로젝트만 접근한다. 직접 URL과 모든 하위 객체 접근도 같은 결과를 낸다.
+완료 기준: `tenant_admin`, `manager`, `project_admin`, `project_coordinator`는 전체 프로젝트를 조회한다. `project_admin`은 전체 프로젝트를 운영하고 `project_coordinator`, `worker`, `view_only`, `guest`는 지정 프로젝트만 운영하거나 접근한다. 직접 URL과 모든 하위 객체 접근도 같은 결과를 낸다.
 
 ### Phase 3. 테넌트 정보 구조와 메뉴 정리
 
@@ -433,7 +433,7 @@ cross-database FK는 사용하지 않는다. 중앙 user UUID를 tenant metadata
 ### 14.4 테스트 원칙
 
 - 허용 역할 성공 테스트와 금지 역할 403 테스트를 함께 둔다.
-- project_manager·project_leader·worker·view_only·guest의 미배정 프로젝트 접근을 차단한다.
+- project_coordinator의 미배정 프로젝트 쓰기와 worker·view_only·guest의 미배정 프로젝트 접근을 차단한다.
 - URL 직접 접근, JSON/API, 첨부, 이벤트 등 우회 경로를 검증한다.
 - 다른 tenant ID나 project ID를 payload로 바꾸는 공격을 검증한다.
 - inactive membership, inactive role, inactive project의 fail-closed 동작을 검증한다.
@@ -441,7 +441,7 @@ cross-database FK는 사용하지 않는다. 중앙 user UUID를 tenant metadata
 
 ## 15. v1 결론
 
-GeoFlow v1의 인증·권한 주체는 중앙 `users.id`다. tenant `employee_profile`은 접속자가 아니라 직원·인력 데이터이며, 필요할 때만 중앙 계정과 연결한다. 테넌트 권한은 중앙 `user_group_map`의 role과 permission에서 계산한다. `tenant_admin`과 `manager`만 tenant 전체 프로젝트에 접근하며, `project_manager`, `project_leader`, `worker`, `view_only`, `guest`는 활성 membership으로 지정된 프로젝트만 접근한다. 지도 객체, 시설물, 파일, 업무 이벤트와 보고서도 이 project scope를 그대로 상속한다.
+GeoFlow v1의 인증·권한 주체는 중앙 `users.id`다. tenant `employee_profile`은 접속자가 아니라 직원·인력 데이터이며, 필요할 때만 중앙 계정과 연결한다. 테넌트 권한은 중앙 `user_group_map`의 role과 permission에서 계산한다. `tenant_admin`, `manager`, `project_admin`, `project_coordinator`는 tenant 전체 프로젝트를 조회하며, `project_admin`은 전체 운영, `project_coordinator`는 활성 membership 프로젝트 운영 권한을 가진다. `worker`, `view_only`, `guest`는 활성 membership으로 지정된 프로젝트만 접근한다. 지도 객체, 시설물, 파일, 업무 이벤트와 보고서도 이 project scope를 그대로 상속한다.
 
 전체 직원·구성원 목록과 직원 프로필 관리는 tenant 관리자·manager 또는 별도 직원관리 permission의 영역이다. 프로젝트 역할만 가진 사용자는 내 정보만 볼 수 있으며, 지정 프로젝트 안에서 필요한 제한 필드의 참여자 목록만 조회한다. 직원 데이터 자체는 어떤 경우에도 로그인·권한 원장이 되지 않는다.
 

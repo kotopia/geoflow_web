@@ -14,8 +14,13 @@ FULL_MANAGER_ROLES = frozenset({
     "manager",
     "group_admin",
 })
-PROJECT_MANAGER_ROLES = frozenset({"project_manager", "projectmanager", "pm"})
+PROJECT_ADMIN_ROLES = frozenset({
+    "project_admin",
+    # Temporary central-role aliases while the control DB is migrated.
+    "project_manager", "projectmanager", "pm",
+})
 SELF_ONLY_ROLES = frozenset({
+    "project_coordinator",
     "project_leader",
     "projectleader",
     "leader",
@@ -93,7 +98,7 @@ def employee_access_policy(request, alias: str) -> EmployeeAccessPolicy:
 
     if roles & FULL_MANAGER_ROLES:
         mode = "full"
-    elif roles & PROJECT_MANAGER_ROLES:
+    elif roles & PROJECT_ADMIN_ROLES:
         mode = "all_view"
     elif roles & SELF_ONLY_ROLES:
         mode = "self"
