@@ -32,11 +32,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if not args.database_url:
-        print("CONTROL_DATABASE_URL or --database-url is required", file=sys.stderr)
+    connection_args = args.database_url or {
+        "dbname": os.environ.get("CENTRAL_DB_NAME"),
+        "user": os.environ.get("CENTRAL_DB_USER"),
+        "password": os.environ.get("CENTRAL_DB_PASSWORD"),
+        "host": os.environ.get("CENTRAL_DB_HOST"),
+        "port": os.environ.get("CENTRAL_DB_PORT", "5432"),
+    }
+    if isinstance(connection_args, dict) and not all(connection_args.values()):
+        print("CONTROL_DATABASE_URL or complete CENTRAL_DB_* settings are required", file=sys.stderr)
         return 2
 
-    with psycopg2.connect(args.database_url) as connection:
+    connect = ((connection_args,), {}) if isinstance(connection_args, str) else ((), connection_args)
+    with psycopg2.connect(*connect[0], **connect[1]) as connection:
         connection.autocommit = False
         with connection.cursor() as cursor:
             cursor.execute("LOCK TABLE roles IN SHARE ROW EXCLUSIVE MODE")

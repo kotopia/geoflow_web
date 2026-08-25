@@ -1,0 +1,85 @@
+name: Control project role production activation
+
+on:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - .github/workflows/control-project-role-production-activation.yml
+      - scripts/ops/migrate_control_project_roles.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  activate-control-project-roles:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST" && test -n "$SSH_USER" && test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Deploy exact release, migrate two control roles, and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p 22 -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+          candidate_sha="$1"
+          service='geoflow-stabilized.service'
+          fail() { echo "control_role_activation_blocker=$1"; exit 2; }
+
+          [ "$(systemctl is-active "$service" 2>/dev/null || true)" = active ] || fail service_not_active
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          [ "$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')" = 0 ] || fail production_worktree_dirty
+          git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
+          [ "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$candidate_sha" ] || fail release_advanced
+          git -C "$repo" checkout -B release/stabilized-deploy "$candidate_sha"
+
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail venv_python_missing
+          set -a
+          . "$repo/.env"
+          set +a
+          "$python" "$repo/scripts/ops/migrate_control_project_roles.py"
+          "$python" "$repo/scripts/ops/migrate_control_project_roles.py" --apply
+          sudo -n systemctl restart "$service"
+          sleep 3
+          [ "$(systemctl is-active "$service")" = active ] || fail service_restart_failed
+          code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' http://127.0.0.1:8011/login/)"
+          case "$code" in 2??|3??) ;; *) fail local_healthcheck_failed ;; esac
+          echo "control_role_activation_deployed_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo 'control_role_activation_complete=yes'
+          REMOTE
