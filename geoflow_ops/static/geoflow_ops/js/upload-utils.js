@@ -51,6 +51,7 @@
     var csrfToken = params.csrfToken;
     var parentId = params.parentId || null;
     var eventId = params.eventId || null;
+    var documentTitle = params.documentTitle || null;
     var presignPutUrl = params.presignPutUrl || "/api/uploads/presign-put/";
     var commitUrl = params.commitUrl || "/api/uploads/commit/";
     if (!file || !entityType || !entityId || !purpose || !filename || !csrfToken) {
@@ -87,6 +88,7 @@
         parent_attachment_id: parentId
       };
       if (entityType === "event") commitPayload.event_id = eventId;
+      if (documentTitle) commitPayload.document_title = documentTitle;
       return requestJson(commitUrl, {
         method: "POST",
         headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},

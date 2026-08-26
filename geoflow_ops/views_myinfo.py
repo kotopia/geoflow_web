@@ -9,7 +9,7 @@ from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 
 from geoflow_ops.forms import MyOrgUnitForm
-from geoflow_ops.models import MyOrgUnit
+from geoflow_ops.models import Attachment, MyOrgUnit
 from geoflow_ops.services.hr_masters import (
     MASTER_TABLES,
     list_master_options,
@@ -65,6 +65,22 @@ def _load_master(alias: str, category: str):
     return list_master_options(alias, category, active_only=False)
 
 
+def _load_company_documents(alias: str, org_unit_id, purpose: str):
+    attachments = Attachment.objects.using(alias).filter(
+        entity_type="orgunit",
+        entity_id=org_unit_id,
+        purpose=purpose,
+        active=True,
+        is_deleted=False,
+        deleted_at__isnull=True,
+    ).order_by("created_at", "id")
+    groups = {}
+    for attachment in attachments:
+        title = str((attachment.meta or {}).get("document_title") or "기타 문서")
+        groups.setdefault(title, []).append(attachment)
+    return [{"title": title, "attachments": items} for title, items in groups.items()]
+
+
 @login_required
 def orgunit_list(request):
     alias = _alias(request)
@@ -84,6 +100,8 @@ def orgunit_detail(request, pk):
             "departments": _load_departments(alias, obj.pk),
             "job_grades": _load_master(alias, "position_grade"),
             "job_positions": _load_master(alias, "position_title"),
+            "business_documents": _load_company_documents(alias, obj.pk, "business_registration"),
+            "certification_documents": _load_company_documents(alias, obj.pk, "certification_evaluation"),
         },
     )
 

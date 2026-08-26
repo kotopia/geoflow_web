@@ -1,4 +1,5 @@
 {% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
 
 {% block content %}
 <div class="container-fluid p-0">
@@ -13,6 +14,15 @@
     </div>
   </div>
 
+  <ul class="nav nav-tabs mb-3" id="company-info-tabs" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#company-basic" type="button">기본정보</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#company-business" type="button">사업·등록 정보</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#company-certification" type="button">인증·평가</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#company-org-hr" type="button">조직·인사 기준</button></li>
+  </ul>
+
+  <div class="tab-content">
+  <div class="tab-pane fade show active" id="company-basic">
   <div class="card mb-3">
     <div class="card-header"><h5 class="card-title mb-0">회사 기본정보</h5></div>
     <div class="card-body">
@@ -28,6 +38,12 @@
       </dl>
     </div>
   </div>
+  </div>
+
+  {% include "geoflow_ops/myinfo/_company_document_tab.html" with pane_id="company-business" heading="사업·등록 정보" description="사업자등록증, 업등록증 등 사업 운영에 필요한 문서를 관리합니다." purpose="business_registration" documents=business_documents %}
+  {% include "geoflow_ops/myinfo/_company_document_tab.html" with pane_id="company-certification" heading="인증·평가" description="각종 인증서, 등록증, 신용평가서 등을 관리합니다." purpose="certification_evaluation" documents=certification_documents %}
+
+  <div class="tab-pane fade" id="company-org-hr">
 
   <div class="row g-3 mb-3">
     <div class="col-xl-5">
@@ -120,5 +136,56 @@
   <div class="alert alert-light border small mb-0">
     부서는 회사별로 관리하고, 직급·직위는 테넌트 공통 기준으로 관리합니다. 사용 중지한 직급·직위는 신규 직원 선택 목록에서 제외되며 기존 직원에게 저장된 값은 유지됩니다.
   </div>
+  </div>
+  </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+<script src="{% static 'geoflow_ops/js/upload-utils.js' %}"></script>
+<script>
+(function () {
+  "use strict";
+  var csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]')?.value || "";
+  var entityId = "{{ obj.id|escapejs }}";
+
+  document.querySelectorAll(".company-document-form").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var title = form.querySelector('[name="document_title"]').value.trim();
+      var files = Array.from(form.querySelector('[name="files"]').files || []);
+      var button = form.querySelector('button[type="submit"]');
+      var message = form.querySelector(".upload-message");
+      if (!title || !files.length) return;
+      button.disabled = true;
+      message.textContent = "업로드 중입니다...";
+      files.reduce(function (chain, file) {
+        return chain.then(function () {
+          return window.uploadSingleFile({
+            file: file,
+            entityType: "orgunit",
+            entityId: entityId,
+            purpose: form.dataset.purpose,
+            documentTitle: title,
+            csrfToken: csrfToken
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        window.location.hash = form.closest(".tab-pane").id;
+        window.location.reload();
+      }).catch(function (error) {
+        message.textContent = error.message || "업로드에 실패했습니다.";
+        button.disabled = false;
+      });
+    });
+  });
+
+  window.initAttachmentActions({root: document, csrfToken: csrfToken});
+  if (window.location.hash) {
+    var trigger = document.querySelector('[data-bs-target="' + window.location.hash + '"]');
+    if (trigger && window.bootstrap) new window.bootstrap.Tab(trigger).show();
+  }
+})();
+</script>
 {% endblock %}

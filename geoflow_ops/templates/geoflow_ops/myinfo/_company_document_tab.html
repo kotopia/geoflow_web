@@ -1,0 +1,47 @@
+<div class="tab-pane fade" id="{{ pane_id }}">
+  <div class="card mb-3">
+    <div class="card-header">
+      <h5 class="card-title mb-1">{{ heading }}</h5>
+      <div class="text-muted small">{{ description }}</div>
+    </div>
+    <div class="card-body">
+      <form class="company-document-form row g-2 align-items-end mb-4" data-purpose="{{ purpose }}">
+        {% csrf_token %}
+        <div class="col-lg-4">
+          <label class="form-label">문서유형(제목)</label>
+          <input class="form-control" name="document_title" maxlength="200" placeholder="예: 사업자등록증" required>
+        </div>
+        <div class="col-lg-6">
+          <label class="form-label">첨부파일</label>
+          <input class="form-control" type="file" name="files" multiple required>
+          <div class="form-text">파일당 최대 25MB이며 여러 파일을 한 번에 선택할 수 있습니다.</div>
+        </div>
+        <div class="col-lg-2 d-grid"><button class="btn btn-primary" type="submit">추가</button></div>
+        <div class="col-12 upload-message small text-muted" aria-live="polite"></div>
+      </form>
+
+      {% for group in documents %}
+      <div class="border rounded mb-3">
+        <div class="bg-light border-bottom px-3 py-2 fw-semibold">{{ group.title }}</div>
+        <div class="list-group list-group-flush">
+          {% for attachment in group.attachments %}
+          <div class="list-group-item d-flex align-items-center justify-content-between gap-3" data-att-item="{{ attachment.id }}">
+            <div class="text-truncate">
+              <div class="fw-medium text-truncate">{{ attachment.original_name }}</div>
+              <div class="text-muted small">{{ attachment.size_bytes|filesizeformat }} · {{ attachment.created_at|date:"Y-m-d H:i" }}</div>
+            </div>
+            <div class="btn-group btn-group-sm flex-shrink-0">
+              <button class="btn btn-outline-secondary btn-preview-att" data-att-id="{{ attachment.id }}">보기</button>
+              <button class="btn btn-outline-secondary btn-download-att" data-att-id="{{ attachment.id }}">다운로드</button>
+              <button class="btn btn-outline-danger btn-delete-att" data-att-id="{{ attachment.id }}">삭제</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% empty %}
+      <div class="text-center text-muted border rounded py-5">등록된 문서가 없습니다.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

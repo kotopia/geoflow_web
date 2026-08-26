@@ -42,6 +42,25 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("전체 회사 공통", template)
         self.assertIn("form-switch", template)
 
+    def test_company_detail_uses_four_tabs_and_reuses_private_attachments(self):
+        template = self._read("geoflow_ops/templates/geoflow_ops/myinfo/orgunit_detail.html")
+        document_tab = self._read("geoflow_ops/templates/geoflow_ops/myinfo/_company_document_tab.html")
+        upload_view = self._read("geoflow_ops/views_uploads.py")
+        upload_guard = self._read("geoflow_ops/upload_guard_views.py")
+        detail_view = self._read("geoflow_ops/views_myinfo.py")
+
+        for label in ("기본정보", "사업·등록 정보", "인증·평가", "조직·인사 기준"):
+            self.assertIn(label, template)
+        self.assertNotIn("설정", template)
+        self.assertIn('name="document_title"', document_tab)
+        self.assertIn('name="files" multiple', document_tab)
+        self.assertIn('entityType: "orgunit"', template)
+        self.assertIn('("orgunit", "business_registration")', upload_view)
+        self.assertIn('("orgunit", "certification_evaluation")', upload_view)
+        self.assertIn('meta={"document_title": document_title}', upload_view)
+        self.assertIn("GEOFLOW_UPLOAD_ORGUNIT_DOC_MAX_BYTES", upload_guard)
+        self.assertIn('entity_type="orgunit"', detail_view)
+
     def test_environment_settings_no_longer_exposes_department_editor(self):
         template = self._read("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
         self.assertNotIn("settings_department_save", template)
