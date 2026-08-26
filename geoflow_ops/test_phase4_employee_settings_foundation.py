@@ -133,8 +133,8 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
         self.assertIn('id="employeeHistoryModal"', template)
         self.assertIn('id="history-file-input"', template)
         self.assertIn("multiple", template)
-        self.assertIn("attachments/presign/", template)
-        self.assertIn("attachments/commit/", template)
+        self.assertIn("base + 'presign/'", template)
+        self.assertIn("base + 'commit/'", template)
         self.assertIn("uploadHistoryFile", template)
 
     def test_employee_history_routes_remain_under_employee_security_boundary(self):
