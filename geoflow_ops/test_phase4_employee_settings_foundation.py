@@ -30,7 +30,7 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
         ):
             self.assertNotIn(destructive, lowered)
         self.assertNotIn("employee_project_history", lowered)
-        self.assertIn('("webgisapp", "0020_phase4_project_task_execution")', migration)
+        self.assertIn('(\"webgisapp\", \"0020_phase4_project_task_execution\")', migration)
 
     def test_settings_tree_is_platform_wide_and_not_employee_specific(self):
         migration = source("geoflow_ops/migrations/0021_phase4_employee_settings_foundation.py")
@@ -54,7 +54,15 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
 
     def test_employee_access_policy_matches_reviewed_role_boundaries(self):
         policy = source("geoflow_ops/services/employee_access.py")
-        for role in ("tenant_admin", "tenant_manager", "project_manager", "project_leader", "viewer"):
+        for role in (
+            "tenant_admin",
+            "tenant_manager",
+            "project_admin",
+            "project_coordinator",
+            "project_manager",
+            "project_leader",
+            "viewer",
+        ):
             self.assertIn(role, policy)
         self.assertIn('mode = "full"', policy)
         self.assertIn('mode = "all_view"', policy)
@@ -87,7 +95,61 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
         for label in ("기본정보", "학력", "자격", "기술등급", "경력"):
             self.assertIn(label, template)
         self.assertIn("이전회사 경력", template)
-        self.assertIn("추후 프로젝트 배정에서 자동 누적", template)
+        self.assertIn("프로젝트 참여정보에서 관리", template)
+
+    def test_employee_detail_uses_adminkit_summary_and_card_tabs(self):
+        template = source("geoflow_ops/templates/geoflow_ops/employees/employee_detail.html")
+        self.assertIn("card-header-tabs", template)
+        self.assertIn('id="employeeTabs"', template)
+        self.assertIn("{% employee_summary", template)
+        self.assertIn("근무연수", template)
+        self.assertIn("참여 프로젝트", template)
+        self.assertIn("qualification_badges", template)
+        self.assertIn("technical_badges", template)
+        self.assertIn("summary.status_class", template)
+        presenter = source("geoflow_ops/templatetags/employee_ui.py")
+        self.assertIn('"퇴사": "bg-secondary"', presenter)
+        self.assertIn('"project_admin": "프로젝트 관리자"', presenter)
+        self.assertIn('"project_coordinator": "프로젝트 코디네이터"', presenter)
+        self.assertIn("COUNT(DISTINCT project_id)", presenter)
+
+    def test_employee_history_documents_are_record_scoped_and_verified(self):
+        view = source("geoflow_ops/views_employee_history.py")
+        for table in (
+            "hr.employee_education",
+            "hr.employee_qualification",
+            "hr.employee_technical_grade",
+            "hr.employee_career",
+        ):
+            self.assertIn(table, view)
+        self.assertIn('HISTORY_DOCUMENT_PURPOSE = "history_doc"', view)
+        self.assertIn("WHERE id=%s AND employee_id=%s AND active=true", view)
+        self.assertIn("head_private_object", view)
+        self.assertIn("metadata.encryption_matches", view)
+        self.assertIn('kind=_history_kind(section, record_id)', view)
+        self.assertIn('meta={"history_section": section, "history_record_id": str(record_id)}', view)
+
+        template = source("geoflow_ops/templates/geoflow_ops/employees/employee_detail.html")
+        self.assertIn('id="employeeHistoryModal"', template)
+        self.assertIn('id="history-file-input"', template)
+        self.assertIn("multiple", template)
+        self.assertIn("base + 'presign/'", template)
+        self.assertIn("base + 'commit/'", template)
+        self.assertIn("uploadHistoryFile", template)
+
+    def test_employee_history_routes_remain_under_employee_security_boundary(self):
+        urls = source("geoflow_ops/urls.py")
+        boundary = source("geoflow_ops/employee_security_views.py")
+        preflight = source("control/services/route_security_preflight.py")
+        for route_name in (
+            "employee_history_save",
+            "employee_history_attachment_presign",
+            "employee_history_attachment_commit",
+        ):
+            self.assertIn(route_name, urls)
+            self.assertIn(f"def {route_name}", boundary)
+            self.assertIn(route_name, preflight)
+        self.assertGreaterEqual(boundary.count("if not policy.can_edit(emp_id)"), 4)
 
     def test_preview_and_download_are_distinct_user_actions(self):
         template = source("geoflow_ops/templates/geoflow_ops/employees/employee_detail.html")
@@ -108,6 +170,7 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
             '"/settings/"',
             '"/settings/node/save/"',
             'f"/attachments/preview/{_UUID}/"',
+            'f"/employees/{_UUID}/history/save/"',
         ):
             self.assertIn(path, preflight)
 

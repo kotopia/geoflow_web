@@ -49,6 +49,17 @@ urlpatterns = [
     path("employees/new/", employee_security_views.employee_create, name="employees_create"),
     path("employees/<uuid:emp_id>/", employee_security_views.employee_detail, name="employees_detail"),
     path("employees/<uuid:emp_id>/request-role/", employee_security_views.employee_role_request, name="employees_request_role"),
+    path("employees/<uuid:emp_id>/history/save/", employee_security_views.employee_history_save, name="employee_history_save"),
+    path(
+        "employees/<uuid:emp_id>/history/<str:section>/<uuid:record_id>/attachments/presign/",
+        employee_security_views.employee_history_attachment_presign,
+        name="employee_history_attachment_presign",
+    ),
+    path(
+        "employees/<uuid:emp_id>/history/<str:section>/<uuid:record_id>/attachments/commit/",
+        employee_security_views.employee_history_attachment_commit,
+        name="employee_history_attachment_commit",
+    ),
 
     path("api/hr/options/<str:category>/", employee_security_views.hr_options, name="hr_options"),
 
