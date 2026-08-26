@@ -53,6 +53,7 @@ STATUS_CLASSES = {
     "재직": "bg-success",
     "휴직": "bg-warning text-dark",
     "퇴사": "bg-secondary",
+    "퇴직": "bg-secondary",
 }
 PREVIEWABLE_MIME_TYPES = {
     "application/pdf",
@@ -78,7 +79,7 @@ def _normalize_role(code) -> str:
 def _tenure_label(hire_date, term_date, status: str) -> str:
     if not hire_date:
         return "-"
-    end = term_date if status == "퇴사" and term_date else date.today()
+    end = term_date if status in {"퇴사", "퇴직"} and term_date else date.today()
     if end < hire_date:
         end = hire_date
     months = (end.year - hire_date.year) * 12 + (end.month - hire_date.month)
