@@ -1,6 +1,6 @@
 name: Phase 1 application deploy launcher
 
-# Reviewed code-only deployment trigger for employee detail PR #228.
+# Reviewed code-only deployment trigger for topbar avatar sync PR #230.
 on:
   push:
     branches:
