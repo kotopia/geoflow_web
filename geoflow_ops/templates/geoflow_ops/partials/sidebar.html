@@ -41,14 +41,19 @@
         </ul>
       </li>
 
-      {% if employee_can_manage_settings %}
       <li class="sidebar-header">System</li>
+      {% if employee_can_manage_settings %}
       <li class="sidebar-item">
         <a class="sidebar-link" href="{% url 'tenant:settings_page' %}">
           <i class="align-middle" data-feather="settings"></i><span class="align-middle">환경설정</span>
         </a>
       </li>
       {% endif %}
+      <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'tenant:myinfo_orgunit_list' %}">
+          <i class="align-middle" data-feather="home"></i><span class="align-middle">나의 기업정보</span>
+        </a>
+      </li>
     </ul>
   </div>
 </nav>

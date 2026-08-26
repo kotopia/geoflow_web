@@ -70,6 +70,16 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("hr.position_title", template)
         self.assertIn("hiddenIds", template)
 
+    def test_company_info_menu_is_below_settings_and_not_in_topbar(self):
+        sidebar = self._read("geoflow_ops/templates/geoflow_ops/partials/sidebar.html")
+        topbar = self._read("geoflow_ops/templates/geoflow_ops/partials/topbar.html")
+        settings_position = sidebar.index("환경설정")
+        company_position = sidebar.index("나의 기업정보")
+
+        self.assertLess(settings_position, company_position)
+        self.assertIn("myinfo_orgunit_list", sidebar)
+        self.assertNotIn("myinfo_orgunit_list", topbar)
+
     def test_employee_options_use_hr_master_with_legacy_fallback(self):
         source = self._read("geoflow_ops/employee_security_views.py")
         self.assertIn('category in {"position_grade", "position_title"}', source)
