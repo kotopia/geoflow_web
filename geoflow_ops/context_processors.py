@@ -54,10 +54,6 @@ def topbar_user(request):
     The employee access flags are calculated from the same server-side role policy
     used by employee routes; the sidebar therefore never becomes an independent
     authorization source.
-
-    The avatar is resolved on every request instead of trusting a session-cached
-    attachment id. This keeps the topbar synchronized immediately after a user
-    changes the employee profile photo without requiring logout/login.
     """
     access = _employee_access_context(request)
     vocabulary = _tenant_vocabulary_context()
@@ -67,6 +63,18 @@ def topbar_user(request):
     fallback_email = (getattr(request.user, "email", "") or "").strip()
 
     try:
+        cached_name = request.session.get("topbar_name")
+        has_cached_avatar_key = "topbar_avatar_attachment_id" in request.session
+        cached_avatar = request.session.get("topbar_avatar_attachment_id")
+
+        if cached_name is not None and has_cached_avatar_key:
+            return {
+                "topbar_user_name": cached_name,
+                "avatar_attachment_id": cached_avatar,
+                **access,
+                **vocabulary,
+            }
+
         alias = current_db_alias()
         if not alias:
             return {
@@ -76,48 +84,30 @@ def topbar_user(request):
                 **vocabulary,
             }
 
-        employee_id = access.get("employee_self_id")
-        topbar_name = request.session.get("topbar_name") or fallback_email
+        user_email = fallback_email
+        if not user_email:
+            return {"topbar_user_name": "", "avatar_attachment_id": None, **access, **vocabulary}
+
+        topbar_name = user_email
         avatar_attachment_id = None
 
         with connections[alias].cursor() as cur:
-            if employee_id:
-                cur.execute(
-                    """
-                    SELECT COALESCE(name, ''), COALESCE(email, '')
-                      FROM hr.employee_profile
-                     WHERE id::text = %s
-                     LIMIT 1
-                    """,
-                    [str(employee_id)],
-                )
-                emp_row = cur.fetchone()
-            elif fallback_email:
-                cur.execute(
-                    """
-                    SELECT id::text, COALESCE(name, ''), COALESCE(email, '')
-                      FROM hr.employee_profile
-                     WHERE lower(email) = lower(%s)
-                     ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
-                     LIMIT 1
-                    """,
-                    [fallback_email],
-                )
-                fallback_row = cur.fetchone()
-                if fallback_row:
-                    employee_id = fallback_row[0]
-                    emp_row = fallback_row[1:]
-                else:
-                    emp_row = None
-            else:
-                emp_row = None
+            cur.execute(
+                """
+                SELECT id::text, COALESCE(name, '')
+                  FROM hr.employee_profile
+                 WHERE lower(email) = lower(%s)
+                 LIMIT 1
+                """,
+                [user_email],
+            )
+            emp_row = cur.fetchone()
 
             if emp_row:
-                employee_name = emp_row[0]
-                employee_email = emp_row[1]
-                topbar_name = employee_name or employee_email or fallback_email
+                employee_id = emp_row[0]
+                employee_name = emp_row[1]
+                topbar_name = employee_name or user_email
 
-            if employee_id:
                 cur.execute(
                     """
                     SELECT id::text
@@ -130,7 +120,7 @@ def topbar_user(request):
                      ORDER BY ord, created_at DESC
                      LIMIT 1
                     """,
-                    [str(employee_id)],
+                    [employee_id],
                 )
                 att_row = cur.fetchone()
 
@@ -147,7 +137,7 @@ def topbar_user(request):
                          ORDER BY ord, created_at DESC
                          LIMIT 1
                         """,
-                        [str(employee_id)],
+                        [employee_id],
                     )
                     att_row = cur.fetchone()
 
