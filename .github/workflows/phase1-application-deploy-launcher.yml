@@ -1,6 +1,6 @@
 name: Phase 1 application deploy launcher
 
-# Reviewed code-only deployment trigger for topbar avatar sync PR #230.
+# Reviewed code-only deployment trigger for topbar avatar rollback PR #233.
 on:
   push:
     branches:
