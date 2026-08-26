@@ -1,10 +1,6 @@
-<div class="tab-pane fade" id="{{ pane_id }}">
-  <div class="card mb-3">
-    <div class="card-header">
+<div class="tab-pane fade" id="{{ pane_id }}" role="tabpanel" aria-labelledby="{{ pane_id }}-tab" tabindex="0">
       <h5 class="card-title mb-1">{{ heading }}</h5>
-      <div class="text-muted small">{{ description }}</div>
-    </div>
-    <div class="card-body">
+      <div class="text-muted small mb-4">{{ description }}</div>
       <form class="company-document-form row g-2 align-items-end mb-4" data-purpose="{{ purpose }}">
         {% csrf_token %}
         <div class="col-lg-4">
@@ -42,6 +38,4 @@
       {% empty %}
       <div class="text-center text-muted border rounded py-5">등록된 문서가 없습니다.</div>
       {% endfor %}
-    </div>
-  </div>
 </div>

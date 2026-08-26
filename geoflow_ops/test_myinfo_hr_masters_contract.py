@@ -51,6 +51,10 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
 
         for label in ("기본정보", "사업·등록 정보", "인증·평가", "조직·인사 기준"):
             self.assertIn(label, template)
+        self.assertIn("nav nav-tabs card-header-tabs", template)
+        self.assertIn('class="card-header pb-0"', template)
+        self.assertIn('class="row py-2 border-top"', template)
+        self.assertIn("회사명", template)
         self.assertNotIn("설정", template)
         self.assertIn('name="document_title"', document_tab)
         self.assertIn('name="files" multiple', document_tab)
