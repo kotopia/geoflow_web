@@ -34,12 +34,30 @@ DIRECT_UPLOAD_PURPOSES = {
     ("employee", "doc"),
     ("partner", "doc"),
     ("event", "doc"),
+    ("orgunit", "business_registration"),
+    ("orgunit", "certification_evaluation"),
 }
 IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PDF_EXTENSIONS = {"pdf"}
 PDF_MIME_TYPES = {"application/pdf"}
-ENTITY_FOLDERS = {"employee": "employees", "partner": "partners", "event": "events"}
+ENTITY_FOLDERS = {
+    "employee": "employees",
+    "partner": "partners",
+    "event": "events",
+    "orgunit": "orgunits",
+}
+
+
+def _document_title(data, entity_type):
+    if entity_type != "orgunit":
+        return "", None
+    title = str(data.get("document_title") or "").strip()
+    if not title:
+        return "", "document_title is required"
+    if len(title) > 200:
+        return "", "document_title is too long"
+    return title, None
 
 
 def _json_error(message: str, status: int = 400) -> JsonResponse:
@@ -100,6 +118,9 @@ def _validate_upload_combination(entity_type, purpose, filename, mime_type, size
     elif entity_type == "partner" and purpose == "doc":
         if not extension or extension == "bin":
             return "Invalid partner document type"
+    elif entity_type == "orgunit":
+        if not extension or extension == "bin" or not mime_type:
+            return "Invalid company document type"
     return None
 
 
@@ -254,9 +275,12 @@ def commit(request):
     declared_size = _parse_size(data.get("size_bytes"))
     parent_id = _parse_uuid(data.get("parent_attachment_id")) if data.get("parent_attachment_id") else None
     kind = str(data.get("kind") or "file")[:50]
+    document_title, title_error = _document_title(data, entity_type)
 
     if not object_key or entity_id is None or not original_name:
         return _json_error("Missing or invalid upload metadata")
+    if title_error:
+        return _json_error(title_error)
     event_id, error = _canonical_event_id(entity_type, entity_id, data.get("event_id"))
     if error:
         return _json_error(error)
@@ -304,7 +328,7 @@ def commit(request):
                 parent_id=parent_id,
                 active=True,
                 ord=0,
-                meta={},
+                meta={"document_title": document_title} if document_title else {},
             )
             attachment.save(using=alias)
 

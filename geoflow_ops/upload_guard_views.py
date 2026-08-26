@@ -23,6 +23,8 @@ UPLOAD_LIMITS = {
     ("employee", "doc"): ("GEOFLOW_UPLOAD_EMPLOYEE_DOC_MAX_BYTES", 25 * 1024 * 1024),
     ("partner", "doc"): ("GEOFLOW_UPLOAD_PARTNER_DOC_MAX_BYTES", 25 * 1024 * 1024),
     ("event", "doc"): ("GEOFLOW_UPLOAD_EVENT_DOC_MAX_BYTES", 100 * 1024 * 1024),
+    ("orgunit", "business_registration"): ("GEOFLOW_UPLOAD_ORGUNIT_DOC_MAX_BYTES", 25 * 1024 * 1024),
+    ("orgunit", "certification_evaluation"): ("GEOFLOW_UPLOAD_ORGUNIT_DOC_MAX_BYTES", 25 * 1024 * 1024),
 }
 
 BLOCKED_ACTIVE_DOC_EXTENSIONS = {
@@ -109,7 +111,11 @@ def _guard_upload_payload(request):
             size_bytes = None
         if size_bytes is not None and size_bytes > limit:
             return _json_error("Upload exceeds the configured size limit", status=413)
-    if entity_type in {"partner", "event"} and purpose == "doc":
+    is_active_document = (
+        (entity_type in {"partner", "event"} and purpose == "doc")
+        or (entity_type == "orgunit" and purpose in {"business_registration", "certification_evaluation"})
+    )
+    if is_active_document:
         filename = data.get("filename") or data.get("original_name") or ""
         extension = extract_extension(str(filename))
         mime_type = _normalize_mime(data.get("mime_type"))
