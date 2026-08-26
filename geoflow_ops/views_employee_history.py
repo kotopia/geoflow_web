@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from uuid import UUID
 
 from django.conf import settings
@@ -59,8 +58,15 @@ def _normalize_mime(value) -> str:
 
 
 def _optional_post(request, name: str):
-    value = str(request.POST.get(name) or "").strip()
-    return value or None
+    # The AdminKit history modal contains one field block per history section.
+    # Shared names such as `note` and `issuer` therefore appear more than once
+    # in FormData. Only the active block has a value, so select the first
+    # non-empty value instead of relying on QueryDict.get()'s last-value rule.
+    for raw in request.POST.getlist(name):
+        value = str(raw or "").strip()
+        if value:
+            return value
+    return None
 
 
 def _authorize_employee_edit(request, emp_id) -> str:
