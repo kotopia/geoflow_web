@@ -1,6 +1,6 @@
 name: Phase 1 application deploy launcher
 
-# Reviewed code-only deployment trigger for company information tabs and navigation PRs #235-#236.
+# Reviewed code-only deployment trigger for AdminKit company information UI PR #238.
 on:
   push:
     branches:
