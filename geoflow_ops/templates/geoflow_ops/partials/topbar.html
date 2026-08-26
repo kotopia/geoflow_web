@@ -19,8 +19,8 @@
         <ul class="navbar-nav navbar-align">
             <li class="nav-item dropdown">
                 <a class="nav-icon dropdown-toggle" href="#" id="userDropdown" data-bs-toggle="dropdown">
-                    <img id="gfTopbarAvatar" src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded me-1" alt="User" {% if avatar_attachment_id %}data-avatar-id="{{ avatar_attachment_id }}"{% endif %} />
-                    <span class="text-dark">{{ request.session.user_id }}</span>
+                    <img id="gfTopbarAvatar" src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded-circle me-1" alt="{{ topbar_user_name|default:'사용자' }} 프로필" {% if avatar_attachment_id %}data-avatar-id="{{ avatar_attachment_id }}"{% endif %} />
+                    <span class="text-dark">{{ topbar_user_name|default:request.session.user_id }}</span>
                 </a>
                 <div class="dropdown-menu dropdown-menu-end">
                     <a class="dropdown-item" href="{% url 'control:account_password_change' %}">비밀번호 변경</a>

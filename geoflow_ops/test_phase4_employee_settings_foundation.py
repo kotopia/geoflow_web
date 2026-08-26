@@ -163,6 +163,21 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
         self.assertIn('mode not in {"inline", "download"}', guard)
         self.assertIn('disposition = "inline" if inline_allowed else "attachment"', guard)
 
+    def test_topbar_avatar_tracks_current_employee_photo_without_relogin(self):
+        context = source("geoflow_ops/context_processors.py")
+        self.assertIn('employee_id = access.get("employee_self_id")', context)
+        self.assertIn("resolved on every request", context)
+        self.assertIn("purpose IN ('photo_thumb', 'thumb')", context)
+        self.assertIn("purpose = 'photo'", context)
+        self.assertNotIn("if cached_name is not None and has_cached_avatar_key", context)
+
+        topbar = source("geoflow_ops/templates/geoflow_ops/partials/topbar.html")
+        self.assertIn('id="gfTopbarAvatar"', topbar)
+        self.assertIn('data-avatar-id="{{ avatar_attachment_id }}"', topbar)
+        self.assertIn("topbar_user_name|default:request.session.user_id", topbar)
+        self.assertIn("rounded-circle", topbar)
+        self.assertIn("/api/uploads/presign-get/", topbar)
+
     def test_new_sensitive_routes_are_under_reviewed_boundaries(self):
         preflight = source("control/services/route_security_preflight.py")
         for path in (
