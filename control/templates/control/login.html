@@ -18,10 +18,18 @@
 	<link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
 	<style>
 		body { opacity: 0; }
+		body.login-page {
+			min-height: 100vh;
+			background-image: url("{% static 'control/img/photos/background.jpg' %}");
+			background-size: cover;
+			background-position: center center;
+			background-repeat: no-repeat;
+		}
+		body.login-page > main { min-height: 100vh; }
 	</style>
 </head>
 
-<body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+<body class="login-page" data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
 	<main class="d-flex w-100 h-100">
 		<div class="container d-flex flex-column">
 			<div class="row vh-100">
