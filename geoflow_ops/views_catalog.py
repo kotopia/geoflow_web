@@ -335,7 +335,7 @@ def format_qty(val):
 def build_scope_groups(tenant_alias: str, project_id) -> List[Dict[str, Any]]:
     scope_qs = ProjectScopeItem.objects.using(tenant_alias).filter(
         project_id=project_id, lv3_id__isnull=False, lv4_id__isnull=True
-    )
+    ).extra(select={"task_status": "status"})
     scope_items = list(scope_qs)
     if not scope_items:
         return []
@@ -373,6 +373,7 @@ def build_scope_groups(tenant_alias: str, project_id) -> List[Dict[str, Any]]:
         grouped[l1_id][l2_id].append({
             "l3_name": l3.name, "l3_code": l3.code,
             "unit": s.unit,
+            "status": s.task_status,
             "design_qty": s.design_qty, "completed_qty": s.completed_qty,
             "design_display": format_qty(s.design_qty),
             "completed_display": format_qty(s.completed_qty),

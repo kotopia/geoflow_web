@@ -50,8 +50,8 @@
             {% else %}
               <img src="{% static 'control/img/avatars/avatar-4.jpg' %}" alt="기본 프로필" class="img-fluid rounded-circle mb-3" style="width:150px;height:150px;object-fit:cover;">
             {% endif %}
-            <h5 class="mb-1">{{ profile.name|default:"(이름 없음)" }}</h5>
-            <div class="text-muted mb-2">{{ profile.title|default:profile.position_grade|default:"-" }}</div>
+            <h5 class="mb-2">{{ profile.name|default:"(이름 없음)" }} <span class="small text-muted mb-2">{{ profile.position_grade|default:"-" }}</span></h5>
+            <!-- <div class="text-muted mb-2">{{ profile.position_grade|default:"-" }}</div> -->
             <div class="d-flex justify-content-center gap-1 flex-wrap">
               <span class="badge {{ summary.status_class }}">{{ summary.status }}</span>
               {% for role in summary.role_badges %}<span class="badge {{ role.class }}">{{ role.label }}</span>{% endfor %}
@@ -67,30 +67,30 @@
           </div>
 
           <div class="card-body border-top pt-2">
-            <div class="row py-2 border-bottom">
+            <div class="row py-2">
               <div class="col-4 small text-muted">소속</div>
               <div class="col-8 text-end">{{ summary.org_unit_name }}{% if summary.department_name != '-' %} · {{ summary.department_name }}{% endif %}</div>
             </div>
-            <div class="row py-2 border-bottom">
+            <div class="row py-2">
               <div class="col-4 small text-muted">이메일</div>
               <div class="col-8 text-end text-break">{{ profile.email|default:"-" }}</div>
             </div>
-            <div class="row py-2 border-bottom">
+            <div class="row py-2">
               <div class="col-4 small text-muted">전화</div>
               <div class="col-8 text-end">{{ profile.phone|default:"-" }}</div>
             </div>
-            <div class="row py-2 border-bottom">
+            <!-- <div class="row py-2">
               <div class="col-4 small text-muted">사번</div>
               <div class="col-8 text-end">{{ profile.emp_no|default:"-" }}</div>
-            </div>
-            <div class="row py-2 border-bottom">
-              <div class="col-4 small text-muted">근무연수</div>
-              <div class="col-8 text-end fw-semibold">{{ summary.tenure }}</div>
-            </div>
+            </div> -->
             <div class="row py-2">
+              <div class="col-4 small text-muted">근무연수</div>
+              <div class="col-8 text-end">{{ summary.tenure }}</div>
+            </div>
+            <!-- <div class="row py-2">
               <div class="col-4 small text-muted">참여 프로젝트</div>
               <div class="col-8 text-end fw-semibold">{{ summary.project_count }}개</div>
-            </div>
+            </div> -->
           </div>
 
           <div class="card-body border-top">
@@ -136,13 +136,13 @@
 
       <div class="col-lg-8">
         <div class="card mb-0">
-          <div class="card-header pb-0">
-            <ul class="nav nav-tabs card-header-tabs" id="employeeTabs" role="tablist" aria-label="직원 상세 정보">
+          <div class="card-header">
+            <ul class="nav nav-tabs" id="employeeTabs" role="tablist" aria-label="직원 상세 정보">
               <li class="nav-item" role="presentation"><button class="nav-link active" id="employee-basic-tab" data-employee-tab="basic" data-bs-toggle="tab" data-bs-target="#tab-basic" type="button" role="tab" aria-controls="tab-basic" aria-selected="true">기본정보</button></li>
-              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-education-tab" data-employee-tab="education" data-bs-toggle="tab" data-bs-target="#tab-education" type="button" role="tab" aria-controls="tab-education" aria-selected="false">학력 <span class="badge bg-light text-dark border">{{ education|length }}</span></button></li>
-              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-qualification-tab" data-employee-tab="qualification" data-bs-toggle="tab" data-bs-target="#tab-qualification" type="button" role="tab" aria-controls="tab-qualification" aria-selected="false">자격 <span class="badge bg-light text-dark border">{{ qualifications|length }}</span></button></li>
-              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-grade-tab" data-employee-tab="technical_grade" data-bs-toggle="tab" data-bs-target="#tab-grade" type="button" role="tab" aria-controls="tab-grade" aria-selected="false">기술등급 <span class="badge bg-light text-dark border">{{ technical_grades|length }}</span></button></li>
-              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-career-tab" data-employee-tab="career" data-bs-toggle="tab" data-bs-target="#tab-career" type="button" role="tab" aria-controls="tab-career" aria-selected="false">경력 <span class="badge bg-light text-dark border">{{ careers|length }}</span></button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-education-tab" data-employee-tab="education" data-bs-toggle="tab" data-bs-target="#tab-education" type="button" role="tab" aria-controls="tab-education" aria-selected="false">학력</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-qualification-tab" data-employee-tab="qualification" data-bs-toggle="tab" data-bs-target="#tab-qualification" type="button" role="tab" aria-controls="tab-qualification" aria-selected="false">자격</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-grade-tab" data-employee-tab="technical_grade" data-bs-toggle="tab" data-bs-target="#tab-grade" type="button" role="tab" aria-controls="tab-grade" aria-selected="false">기술등급</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" id="employee-career-tab" data-employee-tab="career" data-bs-toggle="tab" data-bs-target="#tab-career" type="button" role="tab" aria-controls="tab-career" aria-selected="false">경력</button></li>
             </ul>
           </div>
 
@@ -159,20 +159,28 @@
                     </div>
                   </form>
                 {% else %}
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">성명</div><div class="col-sm-8 col-lg-9 fw-semibold">{{ profile.name|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">이메일</div><div class="col-sm-8 col-lg-9">{{ profile.email|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">전화</div><div class="col-sm-8 col-lg-9">{{ profile.phone|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">직위/직책</div><div class="col-sm-8 col-lg-9">{{ profile.title|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">직급</div><div class="col-sm-8 col-lg-9">{{ profile.position_grade|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">사번</div><div class="col-sm-8 col-lg-9">{{ profile.emp_no|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">본사/지점</div><div class="col-sm-8 col-lg-9">{{ summary.org_unit_name }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">부서</div><div class="col-sm-8 col-lg-9">{{ summary.department_name }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">고용형태</div><div class="col-sm-8 col-lg-9">{{ profile.emp_type|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">재직상태</div><div class="col-sm-8 col-lg-9"><span class="badge {{ summary.status_class }}">{{ summary.status }}</span></div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">입사일</div><div class="col-sm-8 col-lg-9">{{ profile.hire_date|date:"Y-m-d"|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">퇴사일</div><div class="col-sm-8 col-lg-9">{{ profile.term_date|date:"Y-m-d"|default:"-" }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">근무연수</div><div class="col-sm-8 col-lg-9">{{ summary.tenure }}</div></div>
-                  <div class="row py-2 border-top"><div class="col-sm-4 col-lg-3 small text-muted">권한 역할</div><div class="col-sm-8 col-lg-9 d-flex flex-wrap gap-1">{% for role in summary.role_badges %}<span class="badge {{ role.class }}">{{ role.label }}</span>{% empty %}<span class="text-muted">-</span>{% endfor %}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">성명</div><div class="col-sm-8 col-lg-9 fw-semibold">{{ profile.name|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">이메일</div><div class="col-sm-8 col-lg-9">{{ profile.email|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">전화</div><div class="col-sm-8 col-lg-9">{{ profile.phone|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom">
+                    <div class="col-sm-4 col-lg-3 small text-muted">주소</div>
+                    <div class="col-sm-8 col-lg-9">
+                      {% if profile.addr_road or profile.addr_detail or profile.addr_zip %}
+                        {% if profile.addr_zip %}[{{ profile.addr_zip }}] {% endif %}{{ profile.addr_road }}{% if profile.addr_detail %} {{ profile.addr_detail }}{% endif %}
+                      {% else %}-{% endif %}
+                    </div>
+                  </div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">직위/직책</div><div class="col-sm-8 col-lg-9">{{ profile.title|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">직급</div><div class="col-sm-8 col-lg-9">{{ profile.position_grade|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">사번</div><div class="col-sm-8 col-lg-9">{{ profile.emp_no|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">본사/지점</div><div class="col-sm-8 col-lg-9">{{ summary.org_unit_name }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">부서</div><div class="col-sm-8 col-lg-9">{{ summary.department_name }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">고용형태</div><div class="col-sm-8 col-lg-9">{{ profile.emp_type|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">재직상태</div><div class="col-sm-8 col-lg-9"><span class="badge {{ summary.status_class }}">{{ summary.status }}</span></div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">입사일</div><div class="col-sm-8 col-lg-9">{{ profile.hire_date|date:"Y-m-d"|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">퇴사일</div><div class="col-sm-8 col-lg-9">{{ profile.term_date|date:"Y-m-d"|default:"-" }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">근무연수</div><div class="col-sm-8 col-lg-9">{{ summary.tenure }}</div></div>
+                  <div class="row py-2 border-bottom"><div class="col-sm-4 col-lg-3 small text-muted">권한 역할</div><div class="col-sm-8 col-lg-9 d-flex flex-wrap gap-1">{% for role in summary.role_badges %}<span class="badge {{ role.class }}">{{ role.label }}</span>{% empty %}<span class="text-muted">-</span>{% endfor %}</div></div>
                 {% endif %}
               </div>
 

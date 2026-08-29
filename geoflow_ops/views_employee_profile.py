@@ -84,7 +84,8 @@ def _fetch_profile(alias: str, emp_id):
             """
             SELECT id::text, email, name, title, role_code, status, phone,
                    hire_date, term_date, org_unit_id::text, department_id::text,
-                   position_grade, emp_type, emp_no, manager_id::text, central_user_id::text
+                   position_grade, emp_type, emp_no, manager_id::text, central_user_id::text,
+                   addr_road, addr_detail, addr_zip
               FROM hr.employee_profile
              WHERE id=%s LIMIT 1
             """,
@@ -99,7 +100,8 @@ def _fetch_profile(alias: str, emp_id):
         "hire_date": row[7], "term_date": row[8], "org_unit_id": row[9] or "",
         "department_id": row[10] or "", "position_grade": row[11] or "",
         "emp_type": row[12] or "", "emp_no": row[13] or "", "manager_id": row[14] or "",
-        "central_user_id": row[15],
+        "central_user_id": row[15], "addr_road": row[16] or "",
+        "addr_detail": row[17] or "", "addr_zip": row[18] or "",
     }
 
 
@@ -109,6 +111,7 @@ def _empty_profile():
         "status": "재직", "phone": "", "hire_date": None, "term_date": None,
         "org_unit_id": "", "department_id": "", "position_grade": "", "emp_type": "",
         "emp_no": "", "manager_id": "", "central_user_id": None,
+        "addr_road": "", "addr_detail": "", "addr_zip": "",
     }
 
 
@@ -240,7 +243,9 @@ def _save_profile(request, alias: str, profile, policy):
             _optional(request, "status") or "재직", _optional(request, "hire_date"),
             _optional(request, "term_date"), _optional(request, "emp_no"),
             _optional(request, "org_unit_id"), _optional(request, "department_id"),
-            _optional(request, "manager_id"), str(profile["id"]),
+            _optional(request, "manager_id"), _optional(request, "addr_road"),
+            _optional(request, "addr_detail"), _optional(request, "addr_zip"),
+            str(profile["id"]),
         ]
         with connections[alias].cursor() as cur:
             cur.execute(
@@ -251,6 +256,7 @@ def _save_profile(request, alias: str, profile, policy):
                        org_unit_id=NULLIF(%s,'')::uuid,
                        department_id=NULLIF(%s,'')::uuid,
                        manager_id=NULLIF(%s,'')::uuid,
+                       addr_road=%s, addr_detail=%s, addr_zip=%s,
                        updated_at=now()
                  WHERE id=%s
                 """,
@@ -261,10 +267,15 @@ def _save_profile(request, alias: str, profile, policy):
             cur.execute(
                 """
                 UPDATE hr.employee_profile
-                   SET name=%s, phone=%s, updated_at=now()
+                   SET name=%s, phone=%s, addr_road=%s, addr_detail=%s, addr_zip=%s,
+                       updated_at=now()
                  WHERE id=%s
                 """,
-                [_optional(request, "name"), _optional(request, "phone"), str(profile["id"])],
+                [
+                    _optional(request, "name"), _optional(request, "phone"),
+                    _optional(request, "addr_road"), _optional(request, "addr_detail"),
+                    _optional(request, "addr_zip"), str(profile["id"]),
+                ],
             )
     messages.success(request, "직원 정보를 저장했습니다.")
     return redirect("tenant:employees_detail", emp_id=profile["id"])
@@ -480,6 +491,9 @@ def employees_create(request):
             "emp_type": _optional(request, "emp_type"),
             "emp_no": _optional(request, "emp_no"),
             "manager_id": _optional(request, "manager_id"),
+            "addr_road": _optional(request, "addr_road"),
+            "addr_detail": _optional(request, "addr_detail"),
+            "addr_zip": _optional(request, "addr_zip"),
         }
         with transaction.atomic(using=alias):
             with connections[alias].cursor() as cur:
@@ -488,18 +502,19 @@ def employees_create(request):
                     INSERT INTO hr.employee_profile
                         (email, name, phone, title, status, hire_date, term_date,
                          org_unit_id, department_id, position_grade, emp_type, emp_no,
-                         manager_id, created_at, updated_at)
+                         manager_id, addr_road, addr_detail, addr_zip, created_at, updated_at)
                     VALUES
                         (%s, %s, %s, %s, %s, %s, %s,
                          NULLIF(%s,'')::uuid, NULLIF(%s,'')::uuid, %s, %s, %s,
-                         NULLIF(%s,'')::uuid, now(), now())
+                         NULLIF(%s,'')::uuid, %s, %s, %s, now(), now())
                     RETURNING id::text
                     """,
                     [
                         email, name, fields["phone"], fields["title"], fields["status"],
                         fields["hire_date"], fields["term_date"], fields["org_unit_id"],
                         fields["department_id"], fields["position_grade"], fields["emp_type"],
-                        fields["emp_no"], fields["manager_id"],
+                        fields["emp_no"], fields["manager_id"], fields["addr_road"],
+                        fields["addr_detail"], fields["addr_zip"],
                     ],
                 )
                 new_id = cur.fetchone()[0]
