@@ -136,9 +136,13 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
   }
 
   function countFromTable(tableEl){
+    return countFromRows(tableEl.querySelectorAll("tbody tr"));
+  }
+
+  function countFromRows(rows, includeRow){
     var c = {all:0,planned:0,active:0,pause:0,cancel:0,complete:0};
-    var rows = tableEl.querySelectorAll("tbody tr");
     for (var i=0;i<rows.length;i++){
+      if (includeRow && !includeRow(rows[i])) continue;
       var s = canonicalStatus(rows[i].dataset.status);
       c.all++;
       if (SYN.planned.indexOf(s)>-1) c.planned++;
@@ -148,6 +152,14 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
       else if (SYN.complete.indexOf(s)>-1) c.complete++;
     }
     return c;
+  }
+
+  function updateTabCounts(container, counts){
+    if (!container) return;
+    for (var i=0;i<ORDER.length;i++){
+      var count = container.querySelector('.gf-k-' + ORDER[i] + ' .count');
+      if (count) count.textContent = counts[ORDER[i]] || 0;
+    }
   }
 
   function buildTabs(container, counts, onSelect, initial, labels){
@@ -217,6 +229,7 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
     var tableEl = document.getElementById(tableId);
     if (!tableEl) return;
     var isContract = tableId === "datatables-contracts";
+    var hasCompletedYearFilter = isContract || tableId === "datatables-projects";
 
     renderBadges(tableEl);
 
@@ -244,15 +257,36 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
     }
 
     var cont = document.querySelector(statusSel);
-    var counts = (cont && datasetCounts(cont)) || countFromTable(tableEl);
+    var previousCompletedToggle = hasCompletedYearFilter ? document.getElementById("showPreviousCompleted") : null;
+    var currentYear = parseInt(tableEl.getAttribute("data-current-year"), 10);
+    var showPreviousCompleted = !!(previousCompletedToggle && previousCompletedToggle.checked);
+
+    function passesCompletedYearFilter(row){
+      if (!hasCompletedYearFilter || showPreviousCompleted || !row || !row.dataset) return true;
+      if (row.dataset.workflowComplete !== "1") return true;
+      var endYear = parseInt(row.dataset.endYear, 10);
+      return !Number.isFinite(endYear) || !Number.isFinite(currentYear) || endYear >= currentYear;
+    }
+
+    function allRows(){
+      if (dt) return dt.rows().nodes().toArray();
+      return Array.prototype.slice.call(tableEl.querySelectorAll("tbody tr"));
+    }
+
+    function filteredCounts(){
+      return countFromRows(allRows(), passesCompletedYearFilter);
+    }
+
+    var counts = hasCompletedYearFilter ? filteredCounts() : ((cont && datasetCounts(cont)) || countFromTable(tableEl));
     var applyDT = null, applyDOM = null;
 
     if (dt) {
       var sel = "all";
       var fn = function (settings, data, idx) {
         if (settings.nTable !== tableEl) return true;
-        if (!sel || sel==="all") return true;
         var node = dt.row(idx).node();
+        if (!passesCompletedYearFilter(node)) return false;
+        if (!sel || sel==="all") return true;
         var s = canonicalStatus(node && node.dataset ? node.dataset.status : "");
         var arr = SYN[sel] || [];
         return arr.indexOf(s) > -1;
@@ -266,16 +300,28 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
         for (var i=0;i<rows.length;i++){
           var s = canonicalStatus(rows[i].dataset.status);
           var arr = SYN[sel2] || [];
-          var ok = (!sel2 || sel2==="all") ? true : (arr.indexOf(s) > -1);
+          var statusOk = (!sel2 || sel2==="all") ? true : (arr.indexOf(s) > -1);
+          var ok = passesCompletedYearFilter(rows[i]) && statusOk;
           rows[i].style.display = ok ? "" : "none";
         }
       };
-      applyDOM = function (k) { sel2 = k || "all"; run(); };
+      applyDOM = function (k) { if (k) sel2 = k; run(); };
     }
 
     if (cont) {
       var onSelect = function (k) { if (applyDT) applyDT(k); else applyDOM(k); };
       buildTabs(cont, counts, onSelect, "all", isContract ? contractLabels() : {});
+    }
+
+    if (previousCompletedToggle) {
+      previousCompletedToggle.addEventListener("change", function(){
+        showPreviousCompleted = previousCompletedToggle.checked;
+        updateTabCounts(cont, filteredCounts());
+        if (dt) dt.draw();
+        else if (applyDOM) applyDOM();
+      });
+      if (dt) dt.draw();
+      else if (applyDOM) applyDOM();
     }
 
     if (already && cont) waitThenReveal(tableEl, statusSel);

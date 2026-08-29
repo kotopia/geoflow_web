@@ -80,6 +80,7 @@ class ContractListView(ListView):
         # Contract lifecycle counts are rendered from the event-derived workflow
         # rows in the list UI. Legacy Contract.status is intentionally ignored.
         ctx["entity"] = "contract"
+        ctx["current_year"] = timezone.localdate().year
         return ctx
 
 @gf_perm_required("contracts.view")
