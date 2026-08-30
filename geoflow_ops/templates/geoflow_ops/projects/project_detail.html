@@ -175,26 +175,28 @@
 
     <div class="col-md-4">
       <div class="card mb-0">
-        <div class="card-header pb-0">
-          <ul class="nav nav-tabs card-header-tabs" id="projectDetailTabs" role="tablist" aria-label="프로젝트 상세 보조 정보">
-            <li class="nav-item" role="presentation"><button class="nav-link active" id="project-scope-tab" data-bs-toggle="tab" data-bs-target="#project-scope-pane" type="button" role="tab" aria-controls="project-scope-pane" aria-selected="true">업무범위</button></li>
-            <li class="nav-item" role="presentation"><button class="nav-link" id="project-timeline-tab" data-bs-toggle="tab" data-bs-target="#project-timeline-pane" type="button" role="tab" aria-controls="project-timeline-pane" aria-selected="false">타임라인</button></li>
+        <div class="card-header">
+          <ul class="nav nav-tabs" id="projectDetailTabs" role="tablist" aria-label="프로젝트 상세 보조 정보">
+            <li class="nav-item" role="presentation"><button class="nav-link active" id="project-timeline-tab" data-bs-toggle="tab" data-bs-target="#project-timeline-pane" type="button" role="tab" aria-controls="project-timeline-pane" aria-selected="true">타임라인</button></li>
+            <li class="nav-item" role="presentation"><button class="nav-link" id="project-scope-tab" data-bs-toggle="tab" data-bs-target="#project-scope-pane" type="button" role="tab" aria-controls="project-scope-pane" aria-selected="false">업무범위</button></li>
             <li class="nav-item" role="presentation"><button class="nav-link" id="project-members-tab" data-bs-toggle="tab" data-bs-target="#project-members-pane" type="button" role="tab" aria-controls="project-members-pane" aria-selected="false">참여자</button></li>
           </ul>
         </div>
         <div class="card-body">
           <div class="tab-content" id="projectDetailTabContent">
-            <div class="tab-pane fade show active" id="project-scope-pane" role="tabpanel" aria-labelledby="project-scope-tab" tabindex="0">
+            <div class="tab-pane fade show active" id="project-timeline-pane" role="tabpanel" aria-labelledby="project-timeline-tab" tabindex="0">
+              <div class="d-flex justify-content-end mb-3"><button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button></div>
+              <ul id="projectTimelineList" class="timeline mt-2 mb-0"></ul>
+              <div id="projectTimelineEmpty" class="text-muted small text-center py-4 d-none">등록된 이벤트가 없습니다.</div>
+              <div id="timelineList" class="d-none"></div>
+              <div id="timelineEmpty" class="d-none"></div>
+            </div>
+            <div class="tab-pane fade" id="project-scope-pane" role="tabpanel" aria-labelledby="project-scope-tab" tabindex="0">
               <div class="d-flex justify-content-end gap-2 mb-3">
                 <button class="btn btn-sm btn-outline-secondary" id="btn-summary-modal" data-project-id="{{ obj.id }}" data-modal-url-tpl="{% url 'tenant:project_summary' pk='00000000-0000-0000-0000-000000000000' %}">현재 업무 편집</button>
                 <button class="btn btn-sm btn-outline-primary" id="btn-scope-modal" data-project-id="{{ obj.id }}" data-modal-url-tpl="{% url 'tenant:project_scope_modal' pk='00000000-0000-0000-0000-000000000000' %}">범위 설정</button>
               </div>
               {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=obj only %}
-            </div>
-            <div class="tab-pane fade" id="project-timeline-pane" role="tabpanel" aria-labelledby="project-timeline-tab" tabindex="0">
-              <div class="d-flex justify-content-end mb-3"><button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button></div>
-              <div id="timelineList"></div>
-              <div id="timelineEmpty" class="text-muted small text-center py-3 d-none">등록된 이벤트가 없습니다.</div>
             </div>
             <div class="tab-pane fade" id="project-members-pane" role="tabpanel" aria-labelledby="project-members-tab" tabindex="0">
               {% include "geoflow_ops/projects/_project_members_panel.html" with project=obj %}
@@ -221,6 +223,7 @@
      data-events-update-url="{% url 'tenant:event_update' '00000000-0000-0000-0000-000000000000' %}"
      data-events-delete-url="{% url 'tenant:event_delete' '00000000-0000-0000-0000-000000000000' %}"
      data-events-modal-ui-url="{% url 'tenant:event_modal_ui' %}"
+     data-workflow-options-url="{% url 'tenant:event_workflow_options' %}"
      data-assignment-options-url="{% url 'tenant:event_assignment_options' %}"
      data-presign-put-url="{% url 'tenant:upload_presign_put' %}"
      data-commit-url="{% url 'tenant:upload_commit' %}">
@@ -236,8 +239,128 @@
   <script src="{% static 'geoflow_ops/js/process-workboard-ui.js' %}"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      if (window.ProcessWorkboardUI) {
-        window.ProcessWorkboardUI.init('#eventModalMount');
+      var mount = document.getElementById('eventModalMount');
+      if (window.ProcessWorkboardUI && mount) window.ProcessWorkboardUI.init('#eventModalMount');
+
+      var csrfInput = document.querySelector('input[name=csrfmiddlewaretoken]');
+      var csrfToken = csrfInput ? csrfInput.value : (mount ? mount.getAttribute('data-csrf') : '{{ csrf_token }}');
+
+      function formatProjectEventDate(value) {
+        var raw = String(value || '').trim();
+        if (!raw) return '-';
+        if (raw.length >= 16) return raw.slice(0, 16).replace('T', ' ');
+        return raw.slice(0, 10);
+      }
+
+      function loadProjectTimeline() {
+        var visibleList = document.getElementById('projectTimelineList');
+        var visibleEmpty = document.getElementById('projectTimelineEmpty');
+        if (!mount || !visibleList || !visibleEmpty) return Promise.resolve();
+
+        var eventsUrl = mount.getAttribute('data-events-list-url');
+        var workflowUrl = mount.getAttribute('data-workflow-options-url');
+        var scopeId = mount.getAttribute('data-scope-id');
+        if (!eventsUrl || !workflowUrl || !scopeId) return Promise.resolve();
+
+        var workflowPromise = fetch(workflowUrl, {
+          method: 'GET',
+          headers: { 'X-CSRFToken': csrfToken },
+          credentials: 'same-origin'
+        }).then(function(response) {
+          if (!response.ok) throw new Error('workflow options failed');
+          return response.json();
+        }).catch(function() { return {}; });
+
+        var eventsPromise = fetch(eventsUrl + '?scope_type=project&scope_id=' + encodeURIComponent(scopeId), {
+          method: 'GET',
+          headers: { 'X-CSRFToken': csrfToken },
+          credentials: 'same-origin'
+        }).then(function(response) {
+          if (!response.ok) throw new Error('event list failed');
+          return response.json();
+        });
+
+        return Promise.all([workflowPromise, eventsPromise]).then(function(results) {
+          var workflow = results[0] || {};
+          var payload = results[1] || {};
+          var stageLabels = {};
+          var typeLabels = {};
+
+          (workflow.stages || []).forEach(function(row) {
+            stageLabels[row.code] = row.label || row.code;
+          });
+          Object.keys(workflow.types_by_stage || {}).forEach(function(stage) {
+            (workflow.types_by_stage[stage] || []).forEach(function(row) {
+              typeLabels[row.code] = row.label || row.code;
+            });
+          });
+
+          var events = (payload.events || []).slice().sort(function(a, b) {
+            var ad = a.occurred_at || a.created_at || '';
+            var bd = b.occurred_at || b.created_at || '';
+            return bd > ad ? 1 : (bd < ad ? -1 : 0);
+          });
+
+          visibleList.replaceChildren();
+          if (!events.length) {
+            visibleEmpty.classList.remove('d-none');
+            return;
+          }
+          visibleEmpty.classList.add('d-none');
+
+          events.forEach(function(ev) {
+            var item = document.createElement('li');
+            item.className = 'timeline-item mb-3 cursor-pointer' + (ev.status === 'void' ? ' opacity-50' : '');
+            item.setAttribute('role', 'button');
+            item.setAttribute('tabindex', '0');
+
+            var date = document.createElement('span');
+            date.className = 'float-end text-muted text-sm ms-2';
+            date.textContent = formatProjectEventDate(ev.occurred_at || ev.created_at);
+
+            var title = document.createElement('strong');
+            title.textContent = ev.title || typeLabels[ev.event_type] || ev.event_type || '업무 이벤트';
+
+            item.appendChild(date);
+            item.appendChild(title);
+
+            if (ev.status === 'void') {
+              var voidLabel = document.createElement('span');
+              voidLabel.className = 'badge bg-secondary ms-2';
+              voidLabel.textContent = '취소';
+              item.appendChild(voidLabel);
+            }
+
+            var meta = document.createElement('div');
+            meta.className = 'text-muted text-sm mt-1';
+            meta.textContent = (stageLabels[ev.stage] || ev.stage || '-') + ' / ' + (typeLabels[ev.event_type] || ev.event_type || '-');
+            item.appendChild(meta);
+
+            function openEvent() {
+              if (window.ProcessWorkboardUI) window.ProcessWorkboardUI.openEditModal(ev);
+            }
+            item.addEventListener('click', openEvent);
+            item.addEventListener('keydown', function(event) {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openEvent();
+              }
+            });
+
+            visibleList.appendChild(item);
+          });
+        }).catch(function() {
+          visibleList.replaceChildren();
+          visibleEmpty.textContent = '업무 이벤트를 불러올 수 없습니다.';
+          visibleEmpty.classList.remove('d-none');
+        });
+      }
+
+      if (mount) {
+        window.setTimeout(loadProjectTimeline, 120);
+        document.addEventListener('hidden.bs.modal', function(event) {
+          if (event.target && event.target.id === 'eventModal') window.setTimeout(loadProjectTimeline, 250);
+        });
       }
     });
   </script>

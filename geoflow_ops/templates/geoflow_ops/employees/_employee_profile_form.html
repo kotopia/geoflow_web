@@ -12,6 +12,15 @@
     <input type="text" name="phone" value="{{ profile.phone }}" class="form-control">
   </div>
 
+  <div class="col-md-12">
+    <label class="form-label">주소</label>
+    <div class="row g-2">
+      <div class="col-md-3"><input type="text" name="addr_zip" value="{{ profile.addr_zip }}" class="form-control" placeholder="우편번호" aria-label="우편번호"></div>
+      <div class="col-md-9"><input type="text" name="addr_road" value="{{ profile.addr_road }}" class="form-control" placeholder="도로명 주소" aria-label="도로명 주소"></div>
+      <div class="col-12"><input type="text" name="addr_detail" value="{{ profile.addr_detail }}" class="form-control" placeholder="상세 주소" aria-label="상세 주소"></div>
+    </div>
+  </div>
+
   {% if can_edit_admin_fields %}
     <div class="col-12 mt-3"><h6 class="mb-0">조직·인사정보</h6></div>
     <div class="col-md-4">

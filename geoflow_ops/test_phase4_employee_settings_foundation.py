@@ -84,7 +84,7 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
     def test_self_service_does_not_allow_self_promotion_fields(self):
         view = source("geoflow_ops/views_employee_profile.py")
         self.assertIn("if policy.can_edit_admin_fields", view)
-        self.assertIn("SET name=%s, phone=%s, updated_at=now()", view)
+        self.assertIn("SET name=%s, phone=%s, addr_road=%s, addr_detail=%s, addr_zip=%s", view)
         self.assertIn("position_grade", view)
         partial = source("geoflow_ops/templates/geoflow_ops/employees/_employee_profile_form.html")
         self.assertIn("{% if can_edit_admin_fields %}", partial)
@@ -99,7 +99,7 @@ class Phase4EmployeeSettingsFoundationTests(unittest.TestCase):
 
     def test_employee_detail_uses_adminkit_summary_and_card_tabs(self):
         template = source("geoflow_ops/templates/geoflow_ops/employees/employee_detail.html")
-        self.assertIn("card-header-tabs", template)
+        self.assertIn('class="nav nav-tabs"', template)
         self.assertIn('id="employeeTabs"', template)
         self.assertIn("{% employee_summary", template)
         self.assertIn("근무연수", template)

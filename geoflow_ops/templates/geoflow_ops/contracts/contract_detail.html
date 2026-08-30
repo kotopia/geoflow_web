@@ -134,8 +134,8 @@
 
         <div class="col-md-4">
           <div class="card mb-0">
-            <div class="card-header pb-0">
-              <ul class="nav nav-tabs card-header-tabs" id="contractDetailTabs" role="tablist" aria-label="계약 상세 보조 정보">
+            <div class="card-header">
+              <ul class="nav nav-tabs" id="contractDetailTabs" role="tablist" aria-label="계약 상세 보조 정보">
                 <li class="nav-item" role="presentation">
                   <button class="nav-link active"
                           id="contract-timeline-tab"
@@ -161,6 +161,7 @@
 
             <div class="card-body">
               <div class="tab-content" id="contractDetailTabContent">
+                <!-- 타임라인 -->
                 <div class="tab-pane fade show active"
                      id="contract-timeline-pane"
                      role="tabpanel"
@@ -176,13 +177,12 @@
                     {% endif %}
                     <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
                   </div>
-
                   <ul id="contractTimelineList" class="timeline mt-2 mb-0"></ul>
                   <div id="contractTimelineEmpty" class="text-muted small text-center py-4 d-none">등록된 이벤트가 없습니다.</div>
                   <div id="timelineList" class="d-none"></div>
                   <div id="timelineEmpty" class="d-none"></div>
                 </div>
-
+                <!-- 업무범위 -->
                 <div class="tab-pane fade"
                      id="contract-scope-pane"
                      role="tabpanel"

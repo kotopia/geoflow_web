@@ -77,6 +77,7 @@ class ProjectListView(ListView):
         ctx["projects"] = projects
         ctx["status_counts"] = counts
         ctx["project_access"] = project_access_policy(self.request, alias)
+        ctx["current_year"] = timezone.localdate().year
         return ctx
 
 

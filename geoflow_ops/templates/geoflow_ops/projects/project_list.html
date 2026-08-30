@@ -42,20 +42,24 @@
              data-count-cancel="0"
              data-count-complete="{{ status_counts.complete|default:0 }}">
         </div>
+        <div class="form-check ms-3">
+          <input class="form-check-input" type="checkbox" id="showPreviousCompleted">
+          <label class="form-check-label" for="showPreviousCompleted">이전년도 완료계약 보기</label>
+        </div>
       </div>
     </div>
 
     <div class="card-body">
-      <table id="datatables-projects" class="table table-responsive table-striped table-hover" width="100%" style="cursor:pointer" data-entity="project">
+      <table id="datatables-projects" class="table table-responsive table-striped table-hover" width="100%" style="cursor:pointer" data-entity="project" data-current-year="{{ current_year }}">
         <thead class="text-center">
           <tr>
             <th>계약번호</th>
             <th>프로젝트 이름</th>
+            <th>업무단계</th>
             <th>시작일</th>
             <th>종료일</th>
             <th>계약형태</th>
             <th>발주처</th>
-            <th>업무단계</th>
             <th>계약자</th>
           </tr>
         </thead>
@@ -65,9 +69,14 @@
           <tr data-id="{{ p.pk }}"
               data-status="{{ wf.filter_key }}"
               data-workflow-phase="{{ wf.major_code }}"
+              data-workflow-complete="{{ wf.is_complete|yesno:'1,0' }}"
+              data-end-year="{{ p.contract.end_date|date:'Y' }}"
               data-href="{% url 'tenant:project_detail' p.pk %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
             <td data-col="code">{{ p.contract.code }}</td>
             <td data-col="name" class="text-truncate">{{ p.contract.name }}</td>
+            <td data-col="workflow" class="text-center">
+              <span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
+            </td>
             <td data-col="start">{{ p.contract.start_date|date:"Y-m-d" }}</td>
             <td data-col="end">{{ p.contract.end_date|date:"Y-m-d" }}</td>
             <td data-col="kind">{{ p.contract.get_kind_display|default:p.contract.kind }}</td>
@@ -79,9 +88,6 @@
                   {{ p.contract.client.name|default:"-" }}
                 {% endif %}
               {% endwith %}
-            </td>
-            <td data-col="workflow" class="text-center">
-              <span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
             </td>
             <td data-col="orgunit">{{ p.contract.org_unit.label|default:"-" }}</td>
           </tr>
