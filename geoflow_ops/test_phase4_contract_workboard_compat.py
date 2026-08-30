@@ -168,7 +168,8 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         template = (
             ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_list.html"
         ).read_text(encoding="utf-8")
-        self.assertIn("업무단계", template)
+        self.assertIn("<th>상태</th>", template)
+        self.assertIn('data-col="workflow"', template)
         self.assertNotIn("운영상태", template)
         self.assertIn("data-workflow-phase", template)
         self.assertIn("planned: '계약'", template)
