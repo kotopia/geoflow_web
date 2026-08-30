@@ -1,6 +1,11 @@
 name: Employee role request production diagnostic
 
 on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/employee-role-request-production-diagnostic.yml
   workflow_dispatch:
 
 permissions:

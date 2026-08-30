@@ -13,6 +13,9 @@ class EmployeeRoleRequestProductionDiagnosticContractTests(unittest.TestCase):
         cls.lowered = cls.source.lower()
 
     def test_is_manual_read_only_production_diagnostic(self):
+        self.assertIn("push:", self.source)
+        self.assertIn("release/stabilized-deploy", self.source)
+        self.assertIn(".github/workflows/employee-role-request-production-diagnostic.yml", self.source)
         self.assertIn("workflow_dispatch:", self.source)
         self.assertIn("environment: production", self.source)
         self.assertIn("permissions:\n  contents: read", self.source)
