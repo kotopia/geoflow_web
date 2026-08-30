@@ -44,9 +44,25 @@ class EmployeeSoftDeleteProductionActivationContractTests(unittest.TestCase):
         self.assertIn('DEPENDENCY = "0026_contract_completion_event_backfill"', self.source)
         self.assertIn('MIGRATION = "0027_employee_profile_soft_delete"', self.source)
         self.assertIn('exists(cur, "hr.employee_profile")', self.source)
+        self.assertIn("deferred_missing_employee_profile", self.source)
+        self.assertIn("employee_soft_delete_activation_tenant_deferred=", self.source)
+        self.assertIn("reason:hr.employee_profile_missing", self.source)
         self.assertIn('exists(cur, "public.django_migrations")', self.source)
         self.assertIn("0026 dependency not applied", self.source)
         self.assertIn("0027 migration record missing", self.source)
+
+    def test_missing_foundation_table_is_deferred_without_false_migration_record(self):
+        missing_check = self.source.index('if not exists(cur, "hr.employee_profile")')
+        deferred = self.source.index('totals["deferred_missing_employee_profile"] += 1', missing_check)
+        continuation = self.source.index("continue", deferred)
+        migration_insert = self.source.index("INSERT INTO django_migrations", continuation)
+        self.assertLess(missing_check, deferred)
+        self.assertLess(deferred, continuation)
+        self.assertLess(continuation, migration_insert)
+        self.assertIn(
+            'totals["migrated"] + totals["already_applied"] + totals["deferred_missing_employee_profile"]',
+            self.source,
+        )
 
     def test_schema_application_is_additive_and_fully_postchecked(self):
         for column in (
