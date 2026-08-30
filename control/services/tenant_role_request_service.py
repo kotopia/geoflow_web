@@ -77,11 +77,11 @@ class SqlTenantRoleRequestRepository:
                        AND requester.password_hash IS NOT NULL
                        AND length(trim(requester.password_hash)) > 0
                        AND (
-                           requester.password_hash LIKE 'pbkdf2_sha256$%'
-                           OR requester.password_hash LIKE 'bcrypt_sha256$%'
-                           OR requester.password_hash LIKE '$2a$%'
-                           OR requester.password_hash LIKE '$2b$%'
-                           OR requester.password_hash LIKE '$2y$%'
+                           requester.password_hash LIKE 'pbkdf2_sha256$%%'
+                           OR requester.password_hash LIKE 'bcrypt_sha256$%%'
+                           OR requester.password_hash LIKE '$2a$%%'
+                           OR requester.password_hash LIKE '$2b$%%'
+                           OR requester.password_hash LIKE '$2y$%%'
                        )
                      FOR KEY SHARE OF requester, active_group, requested_role
                 )
