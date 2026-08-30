@@ -36,6 +36,9 @@ class EmployeeSoftDeleteProductionActivationContractTests(unittest.TestCase):
         self.assertIn("active_tenants", self.source)
         self.assertIn("employee_soft_delete_activation_blocker=no_active_tenants", self.source)
         self.assertIn("not_all_active_tenants_accounted", self.source)
+        self.assertIn("employee_soft_delete_activation_tenant_failure=", self.source)
+        self.assertIn("group_id:{cfg.group_id}", self.source)
+        self.assertIn("pgcode:{pgcode}", self.source)
 
     def test_dependency_table_and_migration_record_are_prechecked(self):
         self.assertIn('DEPENDENCY = "0026_contract_completion_event_backfill"', self.source)
