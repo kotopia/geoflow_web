@@ -63,3 +63,17 @@ class EmployeeRoleRequestCentralAccountBoundaryTests(TestCase):
         )
         self.assertIn('_column_exists(cursor, "roles", "status")', source)
         self.assertIn("requested_role.status", source)
+
+    def test_password_hash_like_wildcards_are_escaped_for_parameterized_sql(self):
+        source = (CONTROL_SERVICES / "tenant_role_request_service.py").read_text(
+            encoding="utf-8"
+        )
+        for pattern in (
+            "pbkdf2_sha256$%%",
+            "bcrypt_sha256$%%",
+            "$2a$%%",
+            "$2b$%%",
+            "$2y$%%",
+        ):
+            self.assertIn(f"LIKE '{pattern}'", source)
+        self.assertEqual(source.count("requester.password_hash LIKE"), 5)
