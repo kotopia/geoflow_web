@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       requires_contract_workflow_activation: ${{ steps.classify.outputs.requires_contract_workflow_activation }}
+      requires_employee_soft_delete_activation: ${{ steps.classify.outputs.requires_employee_soft_delete_activation }}
     steps:
       - name: Checkout exact triggering release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,7 +39,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 2
 
-      - name: Defer to contract workflow activation when 0026 is present
+      - name: Defer to schema activation workflows when 0026 or 0027 is present
         id: classify
         shell: bash
         env:
@@ -46,6 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           requires=false
+          requires_employee_soft_delete=false
           if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
             before="$BEFORE_SHA"
             if [ -n "$before" ] && ! printf '%s' "$before" | grep -Eq '^0+$'; then
@@ -56,15 +58,21 @@ jobs:
             if grep -Fxq 'geoflow_ops/migrations/0026_contract_completion_event_backfill.py' /tmp/geoflow_myinfo_changed.txt; then
               requires=true
             fi
+            if grep -Fxq 'geoflow_ops/migrations/0027_employee_profile_soft_delete.py' /tmp/geoflow_myinfo_changed.txt; then
+              requires_employee_soft_delete=true
+            fi
           fi
           echo "requires_contract_workflow_activation=$requires" >> "$GITHUB_OUTPUT"
+          echo "requires_employee_soft_delete_activation=$requires_employee_soft_delete" >> "$GITHUB_OUTPUT"
           echo "myinfo_hr_requires_contract_workflow_activation=$requires"
+          echo "myinfo_hr_requires_employee_soft_delete_activation=$requires_employee_soft_delete"
 
   myinfo-hr-masters-production-activation:
     needs: classify-myinfo-hr-activation
     if: >-
       github.ref_name == 'release/stabilized-deploy' &&
-      needs.classify-myinfo-hr-activation.outputs.requires_contract_workflow_activation != 'true'
+      needs.classify-myinfo-hr-activation.outputs.requires_contract_workflow_activation != 'true' &&
+      needs.classify-myinfo-hr-activation.outputs.requires_employee_soft_delete_activation != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
