@@ -81,7 +81,14 @@ jobs:
           repo_frames = [(Path(path).name, line, function) for path, line, function in frames if "geoflow" in path.lower()]
           for index, (name, line, function) in enumerate(repo_frames[-8:], 1):
               print(f"role_request_diagnostic_frame_{index}={name}:{line}:{function}")
-          terminal = re.findall(r"(?m)^([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)):\s*(.*)$", block)
+          terminal = []
+          for line in block.splitlines():
+              match = re.search(
+                  r"(?:^|\s)([A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)):\s*(.*)$",
+                  line,
+              )
+              if match:
+                  terminal.append((match.group(1), match.group(2)))
           if terminal:
               exception_name = terminal[-1][0].split(".")[-1]
               message = terminal[-1][1]

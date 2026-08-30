@@ -26,6 +26,8 @@ class EmployeeRoleRequestProductionDiagnosticContractTests(unittest.TestCase):
         self.assertIn("role_request_diagnostic_matching_500s", self.source)
         self.assertIn("role_request_diagnostic_exception", self.source)
         self.assertIn("role_request_diagnostic_message", self.source)
+        self.assertIn("for line in block.splitlines()", self.source)
+        self.assertIn("match.group(1), match.group(2)", self.source)
         self.assertIn('"<uuid>"', self.source)
         self.assertNotIn("print(block)", self.source)
         self.assertNotIn("print(text)", self.source)
