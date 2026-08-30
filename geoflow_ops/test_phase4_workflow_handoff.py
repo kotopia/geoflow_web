@@ -31,7 +31,8 @@ class ContractWorkflowPhaseTests(SimpleTestCase):
     def test_contract_templates_show_four_step_event_driven_workflow(self):
         listing = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_list.html").read_text(encoding="utf-8")
         detail = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html").read_text(encoding="utf-8")
-        self.assertIn("업무단계", listing)
+        self.assertIn("<th>상태</th>", listing)
+        self.assertIn('data-col="workflow"', listing)
         self.assertNotIn("운영상태", listing)
         self.assertIn("현재 업무단계", detail)
         self.assertIn("단계 기준", detail)

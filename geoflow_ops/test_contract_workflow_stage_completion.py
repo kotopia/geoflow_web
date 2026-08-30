@@ -83,7 +83,8 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
 
         self.assertNotIn("p.contract.status", listing)
         self.assertIn("p.contract_workflow", listing)
-        self.assertIn("업무단계", listing)
+        self.assertIn("<th>상태</th>", listing)
+        self.assertIn('data-col="workflow"', listing)
         self.assertNotIn("obj.contract.status", detail)
         self.assertIn("contract_workflow.major_label", detail)
         self.assertIn("업무단계", detail)
