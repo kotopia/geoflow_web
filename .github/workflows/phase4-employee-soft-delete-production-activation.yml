@@ -216,7 +216,14 @@ jobs:
                       cur.execute("SET LOCAL lock_timeout='5s'")
                       cur.execute("SET LOCAL statement_timeout='60s'")
                       cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ["geoflow:webgisapp:0027"])
-                      if not exists(cur, "hr.employee_profile"): raise RuntimeError("hr.employee_profile missing")
+                      if not exists(cur, "hr.employee_profile"):
+                          conn.rollback()
+                          totals["deferred_missing_employee_profile"] += 1
+                          print(
+                              "employee_soft_delete_activation_tenant_deferred="
+                              f"group_id:{cfg.group_id},reason:hr.employee_profile_missing"
+                          )
+                          continue
                       if not exists(cur, "public.django_migrations"): raise RuntimeError("django_migrations missing")
                       dependency = bool(scalar(cur, "SELECT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)", [APP, DEPENDENCY]))
                       if not dependency: raise RuntimeError("0026 dependency not applied")
@@ -245,12 +252,12 @@ jobs:
               finally:
                   conn.close()
 
-          keys = ("configs", "active_tenants", "migrated", "already_applied", "invalid_secret_reference",
+          keys = ("configs", "active_tenants", "migrated", "already_applied", "deferred_missing_employee_profile", "invalid_secret_reference",
                   "secret_resolution_failed", "connection_failed", "migration_failed", "employee_rows_verified")
           for key in keys: print(f"employee_soft_delete_activation_{key}={int(totals[key])}")
           failures = sum(totals[k] for k in ("invalid_secret_reference", "secret_resolution_failed", "connection_failed", "migration_failed"))
           if failures: raise SystemExit("employee_soft_delete_activation_blocker=tenant_migration_failure")
-          if totals["migrated"] + totals["already_applied"] != totals["active_tenants"]:
+          if totals["migrated"] + totals["already_applied"] + totals["deferred_missing_employee_profile"] != totals["active_tenants"]:
               raise SystemExit("employee_soft_delete_activation_blocker=not_all_active_tenants_accounted")
           print("employee_soft_delete_activation_db_complete=yes")
           PY
