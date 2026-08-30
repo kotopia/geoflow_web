@@ -135,6 +135,13 @@ jobs:
               return row[0] if row else None
           def exists(cur, relation):
               return bool(scalar(cur, "SELECT to_regclass(%s) IS NOT NULL", [relation]))
+          def failure_detail(cfg, stage, exc):
+              reason = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
+              pgcode = text(getattr(exc, "pgcode", "")) or "none"
+              print(
+                  "employee_soft_delete_activation_tenant_failure="
+                  f"group_id:{cfg.group_id},stage:{stage},reason:{reason},pgcode:{pgcode}"
+              )
           def apply_0027(cur):
               cur.execute("""
                   ALTER TABLE hr.employee_profile
@@ -189,7 +196,8 @@ jobs:
                   totals["invalid_secret_reference"] += 1
                   continue
               try: password = resolve_tenant_db_password(secret_ref)
-              except Exception:
+              except Exception as exc:
+                  failure_detail(cfg, "secret_resolution", exc)
                   totals["secret_resolution_failed"] += 1
                   continue
               if not password:
@@ -198,7 +206,8 @@ jobs:
               try:
                   conn = psycopg2.connect(dbname=cfg.db_name, user=cfg.db_user, password=password,
                                           host=cfg.db_host, port=cfg.db_port, sslmode="require", connect_timeout=8)
-              except Exception:
+              except Exception as exc:
+                  failure_detail(cfg, "connection", exc)
                   totals["connection_failed"] += 1
                   continue
               try:
@@ -229,8 +238,9 @@ jobs:
                   conn.commit()
                   totals["already_applied" if already else "migrated"] += 1
                   totals["employee_rows_verified"] += before
-              except Exception:
+              except Exception as exc:
                   conn.rollback()
+                  failure_detail(cfg, "migration", exc)
                   totals["migration_failed"] += 1
               finally:
                   conn.close()
