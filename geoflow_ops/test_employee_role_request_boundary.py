@@ -17,7 +17,9 @@ class EmployeeRoleRequestCentralAccountBoundaryTests(TestCase):
 
     def test_live_route_uses_safe_role_request_view_not_legacy_view_directly(self):
         urls = (OPS_DIR / "urls.py").read_text(encoding="utf-8")
-        self.assertIn("views_employee_role_request.employees_request_role_safe", urls)
+        security_view = (OPS_DIR / "employee_security_views.py").read_text(encoding="utf-8")
+        self.assertIn("employee_security_views.employee_role_request", urls)
+        self.assertIn("views_employee_role_request.employees_request_role_safe", security_view)
         self.assertNotIn(
             'views_employees.employees_request_role, name="employees_request_role"',
             urls,

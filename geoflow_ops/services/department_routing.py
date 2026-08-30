@@ -105,6 +105,7 @@ def employee_department_id(alias: str, request) -> str | None:
             SELECT department_id::text
               FROM hr.employee_profile
              WHERE lower(email)=lower(%s)
+               AND is_deleted = false
                AND department_id IS NOT NULL
              LIMIT 1
             """,

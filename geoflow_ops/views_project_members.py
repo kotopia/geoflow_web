@@ -94,6 +94,7 @@ def project_member_options(alias: str, project_id) -> list[dict]:
             SELECT e.id::text, e.name, e.email, e.position_grade, e.title, e.emp_type
               FROM hr.employee_profile e
              WHERE COALESCE(e.status, '재직') <> '퇴사'
+               AND e.is_deleted = false
                AND NOT EXISTS (
                     SELECT 1
                       FROM prj.project_members m
@@ -190,6 +191,7 @@ def project_member_save(request, pk):
                 SELECT 1
                   FROM hr.employee_profile
                  WHERE id=%s
+                   AND is_deleted = false
                    AND COALESCE(status, '재직') <> '퇴사'
                  LIMIT 1
                 """,

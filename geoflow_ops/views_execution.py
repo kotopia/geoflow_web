@@ -157,7 +157,8 @@ def _employee_options(alias: str):
             """
             SELECT id::text, name, title, department_id::text
               FROM hr.employee_profile
-             WHERE status IS NULL OR status <> '퇴사'
+             WHERE (status IS NULL OR status <> '퇴사')
+               AND is_deleted = false
              ORDER BY name, title
             """
         )
@@ -351,7 +352,9 @@ def project_task_save(request, pk):
             cur.execute(
                 """
                 SELECT id::text FROM hr.employee_profile
-                 WHERE id = ANY(%s::uuid[]) AND (status IS NULL OR status <> '퇴사')
+                 WHERE id = ANY(%s::uuid[])
+                   AND is_deleted = false
+                   AND (status IS NULL OR status <> '퇴사')
                 """,
                 [sorted(assignee_ids)],
             )

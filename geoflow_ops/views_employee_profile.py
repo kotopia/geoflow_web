@@ -8,11 +8,14 @@ from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
+from control.services_identity import lookup_user_id_from_request
+from control.gf_authz.permissions import gf_has_perm
 
 from .models import Attachment
 from .services.employee_access import employee_access_policy
 from .services.entity_access import require_tenant_context
 from .services.s3_service import generate_presigned_get_url
+from .services.tenant_settings import settings_options
 from .views_employees import (
     HR_LOCAL_OPTIONS,
     _get_employee_roles_for_central,
@@ -67,6 +70,54 @@ def _settings_options(alias: str, category: str):
     return sorted(HR_LOCAL_OPTIONS.get(category, []), key=lambda item: item.get("ord", 9999))
 
 
+def _employment_status_options(alias: str, current_statuses=()):
+    configured = settings_options(alias, "hr.status")
+    all_configured = settings_options(alias, "hr.status", include_inactive=True)
+    if configured:
+        options = [
+            {"code": code, "name": label, "ord": index * 10}
+            for index, (code, label) in enumerate(configured, start=1)
+        ]
+    else:
+        options = [dict(item) for item in _settings_options(alias, "status")]
+    all_labels = {str(code or ""): str(label or code or "") for code, label in all_configured}
+    known = {str(item.get("code") or "") for item in options}
+    for raw_status in current_statuses:
+        status = str(raw_status or "").strip()
+        if status and status not in known:
+            options.append({"code": status, "name": all_labels.get(status, status), "ord": 9999})
+            known.add(status)
+    return options
+
+
+def _retired_status_codes(alias: str) -> list[str]:
+    retired_labels = {"퇴사", "퇴직"}
+    configured = settings_options(alias, "hr.status", include_inactive=True)
+    items = (
+        [{"code": code, "name": label} for code, label in configured]
+        if configured
+        else _settings_options(alias, "status")
+    )
+    return [
+        str(item.get("code") or "").strip()
+        for item in items
+        if str(item.get("code") or "").strip() in retired_labels
+        or str(item.get("name") or "").strip() in retired_labels
+    ]
+
+
+def _audit_actor(request) -> str:
+    user_id = lookup_user_id_from_request(request)
+    if user_id:
+        return str(user_id)
+    user = getattr(request, "user", None)
+    return str(
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or ""
+    ).strip().lower()
+
+
 def hr_options(request, category: str):
     alias = require_tenant_context(request)
     items = _settings_options(alias, category)
@@ -85,7 +136,9 @@ def _fetch_profile(alias: str, emp_id):
             SELECT id::text, email, name, title, role_code, status, phone,
                    hire_date, term_date, org_unit_id::text, department_id::text,
                    position_grade, emp_type, emp_no, manager_id::text, central_user_id::text,
-                   addr_road, addr_detail, addr_zip
+                   addr_road, addr_detail, addr_zip,
+                   is_deleted, deleted_at, deleted_by, delete_reason,
+                   restored_at, restored_by
               FROM hr.employee_profile
              WHERE id=%s LIMIT 1
             """,
@@ -102,6 +155,9 @@ def _fetch_profile(alias: str, emp_id):
         "emp_type": row[12] or "", "emp_no": row[13] or "", "manager_id": row[14] or "",
         "central_user_id": row[15], "addr_road": row[16] or "",
         "addr_detail": row[17] or "", "addr_zip": row[18] or "",
+        "is_deleted": bool(row[19]), "deleted_at": row[20],
+        "deleted_by": row[21] or "", "delete_reason": row[22] or "",
+        "restored_at": row[23], "restored_by": row[24] or "",
     }
 
 
@@ -112,6 +168,8 @@ def _empty_profile():
         "org_unit_id": "", "department_id": "", "position_grade": "", "emp_type": "",
         "emp_no": "", "manager_id": "", "central_user_id": None,
         "addr_road": "", "addr_detail": "", "addr_zip": "",
+        "is_deleted": False, "deleted_at": None, "deleted_by": "",
+        "delete_reason": "", "restored_at": None, "restored_by": "",
     }
 
 
@@ -122,28 +180,53 @@ def employees_list(request):
         if policy.self_employee_id:
             return redirect("tenant:employees_detail", emp_id=policy.self_employee_id)
         raise PermissionDenied("Employee profile is not linked to this login.")
-    with connections[alias].cursor() as cur:
-        cur.execute(
-            """
+    include_deleted = bool(
+        policy.can_soft_delete
+        and gf_has_perm(request, "directory.edit")
+        and str(request.GET.get("include_deleted") or "").lower() in {"1", "true", "yes"}
+    )
+    list_sql = """
             SELECT id::text, email, name, title, role_code, status, phone,
-                   position_grade, emp_no
+                   position_grade, emp_no, is_deleted, deleted_at
+              FROM hr.employee_profile
+             WHERE is_deleted = false
+             ORDER BY name, email
+            """
+    if include_deleted:
+        list_sql = """
+            SELECT id::text, email, name, title, role_code, status, phone,
+                   position_grade, emp_no, is_deleted, deleted_at
               FROM hr.employee_profile
              ORDER BY name, email
             """
-        )
+    with connections[alias].cursor() as cur:
+        cur.execute(list_sql)
         rows = cur.fetchall()
     employees = [
         {
             "id": row[0], "email": row[1] or "", "name": row[2] or "",
             "title": row[3] or "", "role_code": row[4] or "", "status": row[5] or "",
             "phone": row[6] or "", "position_grade": row[7] or "", "emp_no": row[8] or "",
+            "is_deleted": bool(row[9]), "deleted_at": row[10],
         }
         for row in rows
     ]
+    status_options = _employment_status_options(alias, (item["status"] for item in employees))
+    status_labels = {item["code"]: item["name"] for item in status_options}
+    for employee in employees:
+        employee["status_label"] = status_labels.get(employee["status"], employee["status"] or "-")
     return render(
         request,
         "geoflow_ops/employees/employee_list.html",
-        {"employees": employees, "employee_access": policy},
+        {
+            "employees": employees,
+            "employee_access": policy,
+            "employment_statuses": status_options,
+            "include_deleted": include_deleted,
+            "can_manage_deleted_employees": bool(
+                policy.can_soft_delete and gf_has_perm(request, "directory.edit")
+            ),
+        },
     )
 
 
@@ -156,6 +239,84 @@ def employee_me(request):
             return redirect("tenant:employees_list")
         raise PermissionDenied("Employee profile is not linked to this login.")
     return redirect("tenant:employees_detail", emp_id=policy.self_employee_id)
+
+
+def employee_soft_delete(request, emp_id, *, alias: str, policy):
+    if (
+        not policy.can_soft_delete
+        or not policy.can_edit_admin_fields(emp_id)
+        or not gf_has_perm(request, "directory.edit")
+    ):
+        raise PermissionDenied("Permission denied")
+    if str(policy.self_employee_id or "") == str(emp_id):
+        return HttpResponseBadRequest("현재 로그인한 직원은 삭제 처리할 수 없습니다.")
+    reason = str(request.POST.get("delete_reason") or "").strip()
+    if not reason:
+        return HttpResponseBadRequest("삭제 사유를 입력하세요.")
+    if len(reason) > 1000:
+        return HttpResponseBadRequest("삭제 사유는 1000자 이내로 입력하세요.")
+
+    retired_codes = _retired_status_codes(alias)
+    if not retired_codes:
+        return HttpResponseBadRequest("환경설정에서 퇴사 상태를 확인할 수 없습니다.")
+    actor = _audit_actor(request)
+    if not actor:
+        raise PermissionDenied("Authenticated central identity is required")
+
+    with transaction.atomic(using=alias):
+        with connections[alias].cursor() as cur:
+            cur.execute(
+                """
+                UPDATE hr.employee_profile
+                   SET is_deleted=true,
+                       deleted_at=now(),
+                       deleted_by=%s,
+                       delete_reason=%s,
+                       restored_at=NULL,
+                       restored_by=NULL,
+                       updated_at=now()
+                 WHERE id=%s
+                   AND is_deleted=false
+                   AND status = ANY(%s::text[])
+                """,
+                [actor, reason, str(emp_id), retired_codes],
+            )
+            changed = cur.rowcount
+    if changed != 1:
+        return HttpResponseBadRequest("퇴사 상태의 삭제되지 않은 직원만 삭제 처리할 수 있습니다.")
+    messages.success(request, "직원을 삭제 목록으로 이동했습니다. 기존 이력과 연결 정보는 유지됩니다.")
+    return redirect("tenant:employees_list")
+
+
+def employee_restore(request, emp_id, *, alias: str, policy):
+    if (
+        not policy.can_soft_delete
+        or not policy.can_edit_admin_fields(emp_id)
+        or not gf_has_perm(request, "directory.edit")
+    ):
+        raise PermissionDenied("Permission denied")
+    actor = _audit_actor(request)
+    if not actor:
+        raise PermissionDenied("Authenticated central identity is required")
+    with transaction.atomic(using=alias):
+        with connections[alias].cursor() as cur:
+            cur.execute(
+                """
+                UPDATE hr.employee_profile
+                   SET is_deleted=false,
+                       restored_at=now(),
+                       restored_by=%s,
+                       updated_at=now()
+                 WHERE id=%s
+                   AND is_deleted=true
+                """,
+                [actor, str(emp_id)],
+            )
+            changed = cur.rowcount
+    if changed != 1:
+        return HttpResponseBadRequest("복구할 삭제 직원이 없습니다.")
+    messages.success(request, "직원을 복구했습니다. 재직상태는 기존 퇴사 상태로 유지됩니다.")
+    return redirect("tenant:employees_detail", emp_id=emp_id)
 
 
 def _history_rows(alias: str, table: str, columns: str, emp_id):
@@ -379,8 +540,12 @@ def employees_detail(request, emp_id):
         return redirect("tenant:employees_me" if not policy.can_list else "tenant:employees_list")
     if not policy.can_view(profile["id"]):
         raise PermissionDenied("Permission denied")
+    if profile["is_deleted"] and not policy.can_soft_delete:
+        raise PermissionDenied("Permission denied")
 
     if request.method == "POST":
+        if profile["is_deleted"]:
+            raise PermissionDenied("Deleted employee profiles must be restored before editing")
         section = str(request.POST.get("section") or "profile").strip().lower()
         if section == "profile":
             return _save_profile(request, alias, profile, policy)
@@ -430,7 +595,17 @@ def employees_detail(request, emp_id):
     )
     education, qualifications, technical_grades, careers = _employee_history(alias, profile["id"])
     wants_edit = str(request.GET.get("edit", "")).lower() in {"1", "true", "yes"}
-    edit_mode = bool(wants_edit and policy.can_edit(profile["id"]))
+    edit_mode = bool(wants_edit and policy.can_edit(profile["id"]) and not profile["is_deleted"])
+    status_options = _employment_status_options(alias, [profile["status"]])
+    status_labels = {item["code"]: item["name"] for item in status_options}
+    profile["status_label"] = status_labels.get(profile["status"], profile["status"] or "-")
+    retired_codes = set(_retired_status_codes(alias))
+    can_soft_delete = bool(
+        policy.can_soft_delete
+        and gf_has_perm(request, "directory.edit")
+        and policy.can_edit_admin_fields(profile["id"])
+        and str(policy.self_employee_id or "") != str(profile["id"])
+    )
 
     return render(
         request,
@@ -445,8 +620,12 @@ def employees_detail(request, emp_id):
             "edit_mode": edit_mode,
             "can_edit_profile": policy.can_edit(profile["id"]),
             "can_edit_admin_fields": policy.can_edit_admin_fields(profile["id"]),
-            "can_assign_roles": policy.can_assign_roles,
+            "can_assign_roles": bool(policy.can_assign_roles and not profile["is_deleted"]),
             "can_list_employees": policy.can_list,
+            "can_delete_employee": bool(
+                can_soft_delete and not profile["is_deleted"] and profile["status"] in retired_codes
+            ),
+            "can_restore_employee": bool(can_soft_delete and profile["is_deleted"]),
             "photo_attachment": photo_attachment,
             "photo_url": photo_url,
             "doc_attachments": doc_attachments,
@@ -455,6 +634,7 @@ def employees_detail(request, emp_id):
             "technical_grades": technical_grades,
             "careers": careers,
             "technical_grade_options": _settings_options(alias, "technical_grade"),
+            "employment_statuses": status_options,
         },
     )
 
@@ -475,9 +655,18 @@ def employees_create(request):
         if not email or not name:
             return HttpResponseBadRequest("이메일과 이름은 필수입니다.")
         with connections[alias].cursor() as cur:
-            cur.execute("SELECT 1 FROM hr.employee_profile WHERE lower(email)=lower(%s) LIMIT 1", [email])
-            if cur.fetchone():
-                return HttpResponseBadRequest("이미 등록된 이메일입니다.")
+            cur.execute(
+                "SELECT is_deleted FROM hr.employee_profile WHERE lower(email)=lower(%s) LIMIT 1",
+                [email],
+            )
+            existing = cur.fetchone()
+            if existing:
+                message = (
+                    "삭제된 직원에 같은 이메일이 있습니다. 삭제된 직원 보기에서 복구한 뒤 수정하세요."
+                    if bool(existing[0])
+                    else "이미 등록된 이메일입니다."
+                )
+                return HttpResponseBadRequest(message)
 
         fields = {
             "phone": _optional(request, "phone"),
@@ -532,6 +721,8 @@ def employees_create(request):
             "can_edit_admin_fields": True,
             "can_assign_roles": policy.can_assign_roles,
             "can_list_employees": True,
+            "can_delete_employee": False,
+            "can_restore_employee": False,
             "org_units": _load_org_units(alias),
             "departments": [],
             "managers": _load_managers(alias),
@@ -544,5 +735,6 @@ def employees_create(request):
             "technical_grades": [],
             "careers": [],
             "technical_grade_options": _settings_options(alias, "technical_grade"),
+            "employment_statuses": _employment_status_options(alias),
         },
     )

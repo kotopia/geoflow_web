@@ -256,7 +256,8 @@ def assignment_options(request):
             """
             SELECT id::text, name, title, department_id::text, status, org_unit_id::text
               FROM hr.employee_profile
-             WHERE status IS NULL OR status <> '퇴사'
+             WHERE (status IS NULL OR status <> '퇴사')
+               AND is_deleted = false
              ORDER BY name, id
             """
         )

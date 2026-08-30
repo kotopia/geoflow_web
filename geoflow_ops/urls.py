@@ -48,6 +48,8 @@ urlpatterns = [
     path("employees/me/", employee_security_views.employee_me, name="employees_me"),
     path("employees/new/", employee_security_views.employee_create, name="employees_create"),
     path("employees/<uuid:emp_id>/", employee_security_views.employee_detail, name="employees_detail"),
+    path("employees/<uuid:emp_id>/delete/", employee_security_views.employee_soft_delete, name="employees_soft_delete"),
+    path("employees/<uuid:emp_id>/restore/", employee_security_views.employee_restore, name="employees_restore"),
     path("employees/<uuid:emp_id>/request-role/", employee_security_views.employee_role_request, name="employees_request_role"),
     path("employees/<uuid:emp_id>/history/save/", employee_security_views.employee_history_save, name="employee_history_save"),
     path(

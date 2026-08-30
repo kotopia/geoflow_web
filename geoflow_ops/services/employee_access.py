@@ -58,6 +58,7 @@ def current_employee_id(alias: str, request) -> str | None:
             SELECT id::text
               FROM hr.employee_profile
              WHERE lower(email) = lower(%s)
+               AND is_deleted = false
              ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
              LIMIT 1
             """,
@@ -75,6 +76,10 @@ class EmployeeAccessPolicy:
     can_create: bool
     can_manage_settings: bool
     can_assign_roles: bool
+
+    @property
+    def can_soft_delete(self) -> bool:
+        return self.mode == "full"
 
     def can_view(self, employee_id) -> bool:
         target = str(employee_id or "")
