@@ -137,7 +137,8 @@ def _employee_options(alias: str):
             """
             SELECT id::text, name, title
               FROM hr.employee_profile
-             WHERE status IS NULL OR status <> '퇴사'
+             WHERE (status IS NULL OR status <> '퇴사')
+               AND is_deleted = false
              ORDER BY name, title
             """
         )

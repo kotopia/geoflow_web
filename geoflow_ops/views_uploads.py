@@ -174,6 +174,7 @@ def _refresh_avatar_session(request, alias, attachment):
                 SELECT id::text, name
                   FROM hr.employee_profile
                  WHERE lower(email) = lower(%s)
+                   AND is_deleted = false
                  LIMIT 1
                 """,
                 [user_email],

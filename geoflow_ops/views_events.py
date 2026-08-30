@@ -102,7 +102,8 @@ def _assignment_target_exists(alias: str, table: str, target_id: UUID) -> bool:
     if table not in {"hr.departments", "hr.employee_profile"}:
         return False
     with connections[alias].cursor() as cur:
-        cur.execute(f"SELECT 1 FROM {table} WHERE id = %s LIMIT 1", [target_id])
+        active_clause = " AND is_deleted=false" if table == "hr.employee_profile" else ""
+        cur.execute(f"SELECT 1 FROM {table} WHERE id = %s{active_clause} LIMIT 1", [target_id])
         return cur.fetchone() is not None
 
 

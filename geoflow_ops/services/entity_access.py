@@ -55,7 +55,7 @@ def scope_exists(alias: str, scope_type: str, scope_id: UUID) -> bool:
     if scope_type == "employee":
         with connections[alias].cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM hr.employee_profile WHERE id = %s LIMIT 1",
+                "SELECT 1 FROM hr.employee_profile WHERE id = %s AND is_deleted=false LIMIT 1",
                 [scope_id],
             )
             return cur.fetchone() is not None

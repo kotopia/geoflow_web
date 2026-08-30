@@ -20,11 +20,21 @@
       <h1 class="h3 mb-0">{% if create_mode %}직원 등록{% else %}직원 상세{% endif %}</h1>
     </div>
     <div class="d-flex gap-2">
-      {% if not create_mode and not edit_mode and can_edit_profile %}<a href="?edit=1" class="btn btn-primary btn-sm">편집</a>{% endif %}
-      {% if not create_mode and can_assign_roles %}<a href="{% url 'tenant:employees_request_role' profile.id %}" class="btn btn-outline-primary btn-sm">권한 요청</a>{% endif %}
+      {% if not create_mode and not edit_mode and can_edit_profile and not profile.is_deleted %}<a href="?edit=1" class="btn btn-primary btn-sm">편집</a>{% endif %}
+      {% if not create_mode and can_assign_roles and not profile.is_deleted %}<a href="{% url 'tenant:employees_request_role' profile.id %}" class="btn btn-outline-primary btn-sm">권한 요청</a>{% endif %}
+      {% if can_delete_employee %}<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#employeeDeleteModal">삭제</button>{% endif %}
+      {% if can_restore_employee %}
+        <form method="post" action="{% url 'tenant:employees_restore' profile.id %}" onsubmit="return confirm('이 직원을 복구할까요? 재직상태는 퇴사로 유지됩니다.');">
+          {% csrf_token %}<button type="submit" class="btn btn-outline-success btn-sm">복구</button>
+        </form>
+      {% endif %}
       {% if can_list_employees %}<a href="{% url 'tenant:employees_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>{% endif %}
     </div>
   </div>
+
+  {% if profile.is_deleted %}
+    <div class="alert alert-warning">삭제된 직원입니다. 기존 프로젝트·이력·첨부 연결은 유지되며 신규 담당자 선택에서는 제외됩니다.{% if profile.delete_reason %}<div class="small mt-1">삭제 사유: {{ profile.delete_reason }}</div>{% endif %}</div>
+  {% endif %}
 
   {% if create_mode %}
     <div class="card">
@@ -242,6 +252,23 @@
     </div>
   {% endif %}
 </div>
+
+{% if can_delete_employee %}
+<div class="modal fade" id="employeeDeleteModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog"><div class="modal-content">
+    <form method="post" action="{% url 'tenant:employees_soft_delete' profile.id %}">
+      {% csrf_token %}
+      <div class="modal-header"><h5 class="modal-title">직원 삭제</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+      <div class="modal-body">
+        <p>직원 목록과 신규 담당자 선택에서 숨깁니다. 기존 프로젝트·이력·첨부 기록은 삭제되지 않으며 복구할 수 있습니다.</p>
+        <label class="form-label" for="employee-delete-reason">삭제 사유 <span class="text-danger">*</span></label>
+        <textarea class="form-control" id="employee-delete-reason" name="delete_reason" rows="3" maxlength="1000" required></textarea>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button><button type="submit" class="btn btn-danger">삭제 처리</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
 
 {% if not create_mode and edit_mode and can_edit_profile %}
 <div class="modal fade" id="employeeHistoryModal" tabindex="-1" aria-hidden="true">

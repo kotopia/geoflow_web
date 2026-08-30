@@ -1,13 +1,11 @@
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
 import logging
 
 from django.db import DatabaseError, connections
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
 
-from control.decorators import require_perm
-from control.middleware import current_db_alias
+from control.gf_authz.permissions import gf_has_perm
 from control.services import central_repo as C
 from control.services.tenant_role_request_service import (
     TenantRoleRequest,
@@ -17,22 +15,27 @@ from control.services.tenant_role_request_service import (
 from control.services_identity import lookup_user_id_from_request
 
 from .views_employees import _is_forbidden_central_role, _require_role_code_column
+from .services.entity_access import require_tenant_context
 
 
 logger = logging.getLogger(__name__)
 
 
-@login_required
-@require_perm("directory.roles.assign")
-def employees_request_role_safe(request, emp_id):
+def employees_request_role_safe(request, emp_id, *, alias: str):
     """Request a tenant role without provisioning or mutating central identities."""
 
-    alias = current_db_alias()
+    user = getattr(request, "user", None)
+    if not user or not getattr(user, "is_authenticated", False):
+        return HttpResponseForbidden("Forbidden")
+    if not gf_has_perm(request, "directory.roles.assign"):
+        return HttpResponseForbidden("Forbidden")
+    if alias != require_tenant_context(request):
+        return HttpResponseForbidden("Forbidden")
     _require_role_code_column(alias)
 
     with connections[alias].cursor() as cursor:
         cursor.execute(
-            "SELECT email, name, role_code FROM hr.employee_profile WHERE id=%s LIMIT 1",
+            "SELECT email, name, role_code FROM hr.employee_profile WHERE id=%s AND is_deleted=false LIMIT 1",
             [str(emp_id)],
         )
         row = cursor.fetchone()
@@ -48,7 +51,12 @@ def employees_request_role_safe(request, emp_id):
         return redirect("tenant:employees_detail", emp_id=emp_id)
 
     if request.method == "GET":
-        roles = C.list_active_roles()
+        try:
+            roles = C.list_active_roles()
+        except DatabaseError:
+            logger.warning("Active role lookup failed for tenant role request")
+            messages.error(request, "요청 가능한 권한 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+            return redirect("tenant:employees_detail", emp_id=emp_id)
         role_codes = [
             role["code"]
             for role in roles

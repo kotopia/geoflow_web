@@ -97,6 +97,7 @@ def topbar_user(request):
                 SELECT id::text, COALESCE(name, '')
                   FROM hr.employee_profile
                  WHERE lower(email) = lower(%s)
+                   AND is_deleted = false
                  LIMIT 1
                 """,
                 [user_email],

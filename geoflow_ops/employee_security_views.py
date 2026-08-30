@@ -72,6 +72,34 @@ def employee_detail(request, emp_id):
 @never_cache
 @login_required
 @require_POST
+def employee_soft_delete(request, emp_id):
+    alias, policy = _policy(request)
+    if (
+        not policy.can_soft_delete
+        or not policy.can_edit_admin_fields(emp_id)
+        or not gf_has_perm(request, "directory.edit")
+    ):
+        raise PermissionDenied("Permission denied")
+    return views_employee_profile.employee_soft_delete(request, emp_id, alias=alias, policy=policy)
+
+
+@never_cache
+@login_required
+@require_POST
+def employee_restore(request, emp_id):
+    alias, policy = _policy(request)
+    if (
+        not policy.can_soft_delete
+        or not policy.can_edit_admin_fields(emp_id)
+        or not gf_has_perm(request, "directory.edit")
+    ):
+        raise PermissionDenied("Permission denied")
+    return views_employee_profile.employee_restore(request, emp_id, alias=alias, policy=policy)
+
+
+@never_cache
+@login_required
+@require_POST
 def employee_history_save(request, emp_id):
     _, policy = _policy(request)
     if not policy.can_edit(emp_id):
@@ -127,11 +155,11 @@ def hr_options(request, category):
 @login_required
 @require_http_methods(["GET", "POST"])
 def employee_role_request(request, emp_id):
-    _, policy = _policy(request)
+    alias, policy = _policy(request)
     if (
         not policy.can_assign_roles
         or not policy.can_edit_admin_fields(emp_id)
         or not gf_has_perm(request, "directory.roles.assign")
     ):
         raise PermissionDenied("Permission denied")
-    return views_employee_role_request.employees_request_role_safe(request, emp_id)
+    return views_employee_role_request.employees_request_role_safe(request, emp_id, alias=alias)

@@ -124,7 +124,9 @@ def _load_departments(alias, org_unit_id):
 
 def _load_managers(alias):
     with connections[alias].cursor() as cur:
-        cur.execute("SELECT id::text, name FROM hr.employee_profile ORDER BY name")
+        cur.execute(
+            "SELECT id::text, name FROM hr.employee_profile WHERE is_deleted=false ORDER BY name"
+        )
         return [{"id": row[0], "name": row[1]} for row in cur.fetchall()]
 
 

@@ -159,15 +159,16 @@ def employee_summary(context, profile, employee_roles, org_units, departments, q
         if label:
             technical_labels.append(label)
 
-    status = str((profile or {}).get("status") or "-")
+    status_code = str((profile or {}).get("status") or "-")
+    status = str((profile or {}).get("status_label") or status_code)
     return {
         "status": status,
-        "status_class": STATUS_CLASSES.get(status, "bg-light text-dark border"),
+        "status_class": STATUS_CLASSES.get(status_code, "bg-light text-dark border"),
         "role_badges": role_badges,
         "tenure": _tenure_label(
             (profile or {}).get("hire_date"),
             (profile or {}).get("term_date"),
-            status,
+            status_code,
         ),
         "project_count": _project_count(alias, (profile or {}).get("id")),
         "org_unit_name": _find_name(org_units, (profile or {}).get("org_unit_id")) or "-",
