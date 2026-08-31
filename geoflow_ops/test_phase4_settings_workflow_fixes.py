@@ -84,6 +84,31 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn('key == "event.stage" or key.startswith("event.stage.")', view)
         self.assertIn("필수 업무단계는 시스템 기준값으로 수정할 수 없습니다.", view)
 
+    def test_environment_settings_shows_six_stage_standard_and_hides_retired_system_rows(self):
+        template = source("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
+        view = source("geoflow_ops/views_settings.py")
+        process = source("geoflow_ops/process_workflow.py")
+
+        self.assertIn('id="workflow-standard-settings"', template)
+        self.assertIn("업무 프로세스 기준", template)
+        self.assertIn("workflow_settings", view)
+        self.assertIn("def _workflow_settings_summary", view)
+        for label in ("준비", "계약", "착수", "수행", "준공", "완료"):
+            self.assertIn(f'WorkflowChoice("', process)
+            self.assertIn(label, process)
+        for retired_key in (
+            '"event.stage.pre_contract"',
+            '"event.stage.inspection"',
+            '"event.stage.billing"',
+            '"event.type.pre_contract"',
+            '"event.type.inspection"',
+            '"event.type.billing"',
+        ):
+            self.assertIn(retired_key, view)
+        self.assertIn("DEPRECATED_EVENT_TYPE_CODES", view)
+        self.assertIn("canonical_stage != parent_stage", view)
+        self.assertIn("이력 호환을 위해 데이터베이스에 보존", template)
+
     def test_canonical_transition_events_are_available_in_generic_event_dropdown(self):
         process = source("geoflow_ops/process_workflow.py")
         service = source("geoflow_ops/services/tenant_settings.py")
