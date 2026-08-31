@@ -93,9 +93,15 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("업무 프로세스 기준", template)
         self.assertIn("workflow_settings", view)
         self.assertIn("def _workflow_settings_summary", view)
-        for label in ("준비", "계약", "착수", "수행", "준공", "완료"):
-            self.assertIn(f'WorkflowChoice("', process)
-            self.assertIn(label, process)
+        for token in (
+            'WorkflowChoice("preparation", "준비")',
+            'WorkflowChoice("contract", "계약")',
+            'WorkflowChoice("kickoff", "착수")',
+            'WorkflowChoice("execution", "수행")',
+            'WorkflowChoice("closeout", "준공")',
+            'WorkflowChoice("complete", "완료")',
+        ):
+            self.assertIn(token, process)
         for retired_key in (
             '"event.stage.pre_contract"',
             '"event.stage.inspection"',
