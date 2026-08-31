@@ -54,8 +54,9 @@ def _parse_year(value):
 def _terminal_contract_ids(alias: str) -> list[str]:
     """Return terminal contracts from the event ledger only.
 
-    Migration 0026 converts historic completed Contract.status rows into explicit
-    closeout_complete events before runtime stops consulting the legacy value.
+    Migration 0026 converted historic completed Contract.status rows into
+    closeout_complete events. New workflow completion is closeout_approved;
+    both are terminal history, as is an explicit contract cancellation.
     """
     with connections[alias].cursor() as cur:
         cur.execute(
@@ -64,7 +65,7 @@ def _terminal_contract_ids(alias: str) -> list[str]:
               FROM ops.process_events
              WHERE contract_id IS NOT NULL
                AND COALESCE(status, '') <> 'void'
-               AND event_type IN ('closeout_complete', 'contract_cancel')
+               AND event_type IN ('closeout_approved', 'closeout_complete', 'contract_cancel')
             """
         )
         return [row[0] for row in cur.fetchall() if row and row[0]]
