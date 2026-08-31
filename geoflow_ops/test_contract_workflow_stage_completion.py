@@ -46,6 +46,15 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertIn("Finance, custom and ordinary non-transition events", runtime)
         self.assertNotIn("phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)", runtime)
 
+    def test_workflow_summary_falls_back_when_tenant_event_schema_is_missing(self):
+        source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
+        self.assertIn("SELECT to_regclass('ops.process_events')", source)
+        self.assertIn("_EVENT_SUMMARY_REQUIRED_COLUMNS", source)
+        self.assertIn("information_schema.columns", source)
+        self.assertIn("if not _process_event_summary_schema_ready(alias):", source)
+        self.assertIn("return _default_workflow_summaries(contracts.keys())", source)
+        self.assertIn("'active_event_labels': []".replace("'", '"'), source.replace("'", '"'))
+
     def test_completion_is_the_closeout_approval_event(self):
         self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_approved")
         self.assertEqual(transition_stage_for_event("closeout_approved"), "complete")
