@@ -189,7 +189,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("complete: '완료'", template)
         self.assertIn("gf-k-cancel", template)
 
-    def test_contract_detail_retains_existing_completion_button_as_legacy_client(self):
+    def test_contract_detail_uses_six_stage_process_and_canonical_closeout_approval(self):
         forms = (ROOT / "forms.py").read_text(encoding="utf-8")
         detail = (
             ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html"
@@ -198,8 +198,11 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertNotIn('settings_options(alias, "contract.status")', forms)
         self.assertNotIn('name="status"', detail)
         self.assertNotIn("운영상태", detail)
+        for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
+            self.assertIn(label, detail)
         self.assertIn('id="btn-contract-complete"', detail)
-        self.assertIn("event_type: 'closeout_complete'", detail)
+        self.assertIn("event_type: 'closeout_approved'", detail)
+        self.assertNotIn("event_type: 'closeout_complete'", detail)
         self.assertIn("normalize_event_type_for_write", security)
         self.assertIn("closeout_complete -> closeout_approved", security)
 
