@@ -57,7 +57,11 @@ def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
 
 
 def fallback_stage_for_contract_status(status: str | None) -> str:
-    """Deprecated compatibility helper for old callers only."""
+    """Deprecated compatibility helper for old callers only.
+
+    Runtime workflow is event-derived; Contract.status is not the lifecycle
+    source of truth.
+    """
 
     status = str(status or "").strip().lower()
     if status in {"planned", "계약전"}:
@@ -124,7 +128,7 @@ def _event_highlight_active(occurred_at, payload) -> bool:
 
 
 def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
-    """Derive Process Stage and current event-type badges from event history.
+    """Derive event-derived Process Stage and current event-type badges.
 
     Stage advances only through reviewed transition events. Ordinary events such
     as 변경, 업무보고, 중지/재개 and 준공검사는 history only. Active event
