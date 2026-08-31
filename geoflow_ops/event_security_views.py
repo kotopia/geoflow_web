@@ -15,6 +15,8 @@ from .models import ProcessEvent
 from .process_workflow import (
     CONTRACT_COMPLETION_EVENT_TYPE,
     default_stage_for_event,
+    is_canonical_event_type,
+    normalize_event_type_for_write,
     normalize_stage,
 )
 from .services.entity_access import require_tenant_context
@@ -48,6 +50,32 @@ def _assignment_write_forbidden(request) -> bool:
     )
 
 
+def _canonicalize_workflow_write(data: dict) -> dict:
+    """Apply the reviewed Event Type -> category Stage contract to new writes.
+
+    Process Stage itself remains event-derived; this only prevents a client from
+    storing a canonical event under an unrelated event-category stage. Custom
+    tenant event types keep their submitted stage.
+    """
+
+    normalized = dict(data)
+    if "event_type" in normalized:
+        event_type = normalize_event_type_for_write(normalized.get("event_type"))
+        normalized["event_type"] = event_type
+        if is_canonical_event_type(event_type):
+            normalized["stage"] = default_stage_for_event(event_type) or ""
+    elif "stage" in normalized:
+        normalized["stage"] = normalize_stage(normalized.get("stage"))
+    return normalized
+
+
+def _replace_request_json_body(request, data: dict) -> None:
+    # This boundary owns the JSON contract and delegates immediately to the
+    # legacy implementation. Replacing the cached body keeps one canonical write
+    # path without duplicating the persistence code.
+    request._body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
 def _completion_action_error(alias: str, data: dict, *, stage: str, event_type: str):
     """Enforce the dedicated human completion action server-side."""
     if event_type != CONTRACT_COMPLETION_EVENT_TYPE:
@@ -67,12 +95,14 @@ def _completion_action_error(alias: str, data: dict, *, stage: str, event_type: 
     except (TypeError, ValueError, AttributeError):
         return "Invalid completion contract"
 
-    # The action is only valid after the contract has genuinely entered 준공.
+    # The action is only valid after a reviewed 준공 전환 event has placed the
+    # contract in closeout. Historical closeout events remain sufficient during
+    # the compatibility period.
     reached_closeout = (
         ProcessEvent.objects.using(alias)
         .filter(contract_id=contract_id, stage="closeout")
         .exclude(status="void")
-        .exclude(event_type=CONTRACT_COMPLETION_EVENT_TYPE)
+        .exclude(event_type__in=(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_complete"))
         .exists()
     )
     if not reached_closeout:
@@ -80,7 +110,10 @@ def _completion_action_error(alias: str, data: dict, *, stage: str, event_type: 
 
     already_complete = (
         ProcessEvent.objects.using(alias)
-        .filter(contract_id=contract_id, event_type=CONTRACT_COMPLETION_EVENT_TYPE)
+        .filter(
+            contract_id=contract_id,
+            event_type__in=(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_complete"),
+        )
         .exclude(status="void")
         .exists()
     )
@@ -91,9 +124,11 @@ def _completion_action_error(alias: str, data: dict, *, stage: str, event_type: 
 
 def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
     if creating:
-        event_type = str(data.get("event_type") or "").strip()
+        event_type = normalize_event_type_for_write(data.get("event_type"))
         stage = normalize_stage(data.get("stage"))
-        if not stage and event_type:
+        if is_canonical_event_type(event_type):
+            stage = default_stage_for_event(event_type) or ""
+        elif not stage and event_type:
             stage = default_stage_for_event(event_type) or ""
         status = str(data.get("status") or "open").strip()
 
@@ -120,8 +155,14 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
     existing_type = str(existing.event_type or "").strip()
     existing_status = str(existing.status or "").strip()
 
+    incoming_type = (
+        normalize_event_type_for_write(data.get("event_type"))
+        if "event_type" in data
+        else existing_type
+    )
     incoming_stage = normalize_stage(data.get("stage")) if "stage" in data else existing_stage
-    incoming_type = str(data.get("event_type") or "").strip() if "event_type" in data else existing_type
+    if is_canonical_event_type(incoming_type):
+        incoming_stage = default_stage_for_event(incoming_type) or incoming_stage
     incoming_status = str(data.get("status") or "").strip() if "status" in data else existing_status
 
     stage_changed = incoming_stage != existing_stage
@@ -129,8 +170,8 @@ def _workflow_error(alias: str, data: dict, *, existing=None, creating: bool):
     status_changed = incoming_status != existing_status
 
     # Existing historical/custom combinations remain editable for unrelated
-    # fields. The configured workflow is enforced only when the workflow value
-    # actually changes, not merely because the UI resubmits the current value.
+    # fields. The configured workflow is enforced only when workflow values
+    # actually change.
     if stage_changed or type_changed:
         if incoming_stage not in settings_codes(alias, "event.stage"):
             return "Invalid stage"
@@ -186,9 +227,11 @@ def event_create(request):
 
     data = _payload(request)
     if data is not None:
+        data = _canonicalize_workflow_write(data)
         error = _workflow_error(alias, data, creating=True)
         if error:
             return JsonResponse({"error": error}, status=400)
+        _replace_request_json_body(request, data)
     return views_events.create_event(request)
 
 
@@ -202,6 +245,9 @@ def event_update(request, event_id):
     data = _payload(request)
     if data is not None:
         existing = ProcessEvent.objects.using(alias).filter(pk=event_id).first()
+        data = _canonicalize_workflow_write(data)
+        if existing and "event_type" not in data and is_canonical_event_type(existing.event_type):
+            data["stage"] = default_stage_for_event(existing.event_type) or normalize_stage(existing.stage)
         error = _workflow_error(
             alias,
             data,
@@ -210,4 +256,5 @@ def event_update(request, event_id):
         )
         if error:
             return JsonResponse({"error": error}, status=400)
+        _replace_request_json_body(request, data)
     return views_events.update_event(request, event_id)
