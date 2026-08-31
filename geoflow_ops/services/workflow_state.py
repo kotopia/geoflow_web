@@ -126,10 +126,11 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     """Derive event-derived Process Stage and current event-type badges.
 
     Stage advances only through reviewed transition events. Ordinary events such
-    as 변경, 업무보고, 중지/재개 and 준공검사는 history only. The
-    highest reached transition wins, so later non-transition events cannot move
-    the lifecycle backwards. Active event emphasis is returned separately as the
-    exact configured event type label for `[Process Stage] [이벤트 유형]`.
+    as 변경, 업무보고, 중지/재개 and 준공검사는 history only. Finance, custom and ordinary non-transition events
+    never change the Process Stage. The highest reached transition wins, so later
+    non-transition events cannot move the lifecycle backwards. Active event
+    emphasis is returned separately as the exact configured event type label for
+    `[Process Stage] [이벤트 유형]`.
     """
     contracts = {str(row.id): row for row in contract_rows}
     if not contracts:
