@@ -7,6 +7,7 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
         <link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.1/dist/style.css">
+        <link rel="stylesheet" href="{% static 'geoflow_ops/css/process-timeline-horizontal.css' %}">
         <script src="{% static 'control/js/settings.js' %}"></script>
     </head>
 
@@ -27,6 +28,13 @@
           (function () {
             function parsed(id) { var el=document.getElementById(id); if(!el)return {}; try{return JSON.parse(el.textContent||'{}');}catch(e){return {};} }
             window.GEOFLOW_TENANT_VOCABULARY={contractStatus:parsed('gf-contract-status-labels'),contractKind:parsed('gf-contract-kind-labels')};
+            document.addEventListener('DOMContentLoaded', function(){
+              document.querySelectorAll('[aria-label="업무 프로세스"]').forEach(function(flow){
+                var stages=Array.from(flow.querySelectorAll(':scope > span[aria-label]'));
+                var current=stages.findIndex(function(stage){return stage.classList.contains('text-primary');});
+                stages.forEach(function(stage,index){stage.classList.toggle('gf-stage-complete',current>=0&&index<current);});
+              });
+            });
           })();
         </script>
         <script src="{% static 'control/js/app.js' %}"></script>
