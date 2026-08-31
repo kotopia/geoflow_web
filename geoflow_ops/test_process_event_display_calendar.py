@@ -103,3 +103,9 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
             self.assertIn(label, contract)
             self.assertIn(label, project)
+
+    def test_modal_calendar_sync_does_not_retrigger_mutation_observer_forever(self):
+        js = source("static/geoflow_ops/js/process-event-display-calendar.js")
+        self.assertIn("var nextLabel=calendar.checked?", js)
+        self.assertIn("if(label.textContent!==nextLabel)label.textContent=nextLabel;", js)
+        self.assertNotIn("label.textContent=calendar.checked?'캘린더에서 제거':'캘린더에 추가';", js)
