@@ -53,6 +53,20 @@ jobs:
           service='geoflow-stabilized.service'
           echo 'signup_csrf_diag_service_active='"$(systemctl is-active "$service" 2>/dev/null || true)"
           logs="$(journalctl -u "$service" --since '45 minutes ago' --no-pager 2>/dev/null || true)"
+          latest_origin_failure="$(printf '%s\n' "$logs" | grep -i 'Origin checking failed' | tail -n1 || true)"
+          if [ -n "$latest_origin_failure" ]; then
+            case "$latest_origin_failure" in
+              *'https://geoflow.co.kr'*) origin_category='apex_https' ;;
+              *'http://geoflow.co.kr'*) origin_category='apex_http' ;;
+              *'https://www.geoflow.co.kr'*) origin_category='www_https' ;;
+              *'http://www.geoflow.co.kr'*) origin_category='www_http' ;;
+              *'null'*) origin_category='null_or_restricted' ;;
+              *) origin_category='other' ;;
+            esac
+            echo "signup_csrf_diag_latest_origin_category=$origin_category"
+          else
+            echo 'signup_csrf_diag_latest_origin_category=not_found'
+          fi
           # Verification token is carried in URL fragment and is never sent to the server.
           # Emit only normalized CSRF reason categories, never full request/log lines.
           if printf '%s\n' "$logs" | grep -qi 'CSRF cookie not set'; then
