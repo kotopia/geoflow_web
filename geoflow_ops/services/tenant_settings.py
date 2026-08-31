@@ -4,6 +4,7 @@ from django.db import connections
 
 from geoflow_ops.process_workflow import (
     DEPRECATED_EVENT_TYPE_CODES,
+    DEPRECATED_STAGE_CODES,
     EVENT_DEFAULT_STAGE,
     EVENT_TYPE_CHOICES,
     STAGE_CHOICES,
@@ -200,7 +201,11 @@ def settings_codes(alias: str | None, system_key: str, *, include_inactive: bool
 
 
 def event_workflow_options(alias: str | None):
-    stages = settings_options(alias, "event.stage")
+    stages = [
+        (code, label)
+        for code, label in settings_options(alias, "event.stage")
+        if code not in DEPRECATED_STAGE_CODES
+    ]
     statuses = settings_options(alias, "event.status")
     types_by_stage = {}
     for stage_code, _label in stages:
