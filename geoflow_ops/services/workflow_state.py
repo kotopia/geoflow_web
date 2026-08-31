@@ -46,6 +46,16 @@ _PHASE_RANK = {
     "complete": 50,
 }
 
+_EVENT_SUMMARY_REQUIRED_COLUMNS = {
+    "contract_id",
+    "stage",
+    "event_type",
+    "occurred_at",
+    "payload",
+    "status",
+    "created_at",
+}
+
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
     """Return the exact six-stage process code and label."""
@@ -101,8 +111,39 @@ def _stage_summary(stage: str | None) -> dict:
     }
 
 
+def _default_workflow_summaries(contract_ids) -> dict[str, dict]:
+    return {contract_id: _stage_summary("preparation") for contract_id in contract_ids}
+
+
+def _process_event_summary_schema_ready(alias: str) -> bool:
+    """Return whether this tenant can support the workflow summary query.
+
+    Some legacy/provisioning tenants legitimately do not have ops.process_events
+    yet, and older schemas can have the table without the Phase 4 lineage/payload
+    columns. Contract/project navigation must remain available in those tenants;
+    they fall back to the initial Process Stage until the event schema is
+    provisioned instead of raising a database ProgrammingError and returning 500.
+    """
+    with connections[alias].cursor() as cur:
+        cur.execute("SELECT to_regclass('ops.process_events')")
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            return False
+        cur.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_schema = 'ops'
+               AND table_name = 'process_events'
+            """
+        )
+        columns = {str(item[0]) for item in cur.fetchall()}
+    return _EVENT_SUMMARY_REQUIRED_COLUMNS.issubset(columns)
+
+
 def _event_highlight_active(occurred_at, payload) -> bool:
-    display = dict((payload or {}).get("display") or {})
+    payload = payload if isinstance(payload, dict) else {}
+    display = dict(payload.get("display") or {})
     if not bool(display.get("highlight_enabled", False)):
         return False
     today = timezone.localdate()
@@ -135,6 +176,13 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     contracts = {str(row.id): row for row in contract_rows}
     if not contracts:
         return {}
+
+    # A tenant can exist before the Phase 4 event schema is provisioned. The
+    # contract/project list must not become unavailable just because event
+    # history is not available yet.
+    if not _process_event_summary_schema_ready(alias):
+        return _default_workflow_summaries(contracts.keys())
+
     reached: dict[str, tuple[int, str]] = {}
     active_labels: dict[str, list[str]] = {contract_id: [] for contract_id in contracts}
     with connections[alias].cursor() as cur:
