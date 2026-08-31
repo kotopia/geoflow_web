@@ -81,12 +81,14 @@ jobs:
           print('signup_sender_effective_present=' + yn(sender))
           print('signup_sender_is_geoflow_local=' + yn(sender_lower.endswith('@geoflow.local')))
           print('signup_sender_is_naver_address=' + yn(sender_lower.endswith('@naver.com')))
+          print('signup_sender_is_gmail_address=' + yn(sender_lower.endswith('@gmail.com')))
           print('signup_sender_matches_smtp_account=' + yn(bool(sender_lower and normalized_account and sender_lower == normalized_account)))
           print('signup_smtp_host_is_naver=' + yn(smtp_host == 'smtp.naver.com'))
+          print('signup_smtp_host_is_gmail=' + yn(smtp_host == 'smtp.gmail.com'))
           print('signup_smtp_tls_enabled=' + yn(use_tls))
           print('signup_smtp_credentials_present=' + yn(bool(smtp_user and smtp_password)))
 
-          if not sender or smtp_host != 'smtp.naver.com' or smtp_port != 587 or not use_tls or not smtp_user or not smtp_password:
+          if not sender or smtp_host not in {'smtp.naver.com', 'smtp.gmail.com'} or smtp_port != 587 or not use_tls or not smtp_user or not smtp_password:
               print('signup_sender_diagnostic_result=config_not_ready')
               raise SystemExit(2)
 

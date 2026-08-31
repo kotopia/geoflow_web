@@ -104,8 +104,7 @@ jobs:
           from django.conf import settings
           from control.services.production_runtime_preflight import inspect_production_runtime_preflight
           from control.services.signup_runtime_readiness import (
-              NAVER_SMTP_HOST,
-              NAVER_SMTP_PORT,
+              SUPPORTED_SMTP_HOST_PORTS,
               SMTP_BACKEND,
               signup_public_runtime_ready,
           )
@@ -189,9 +188,11 @@ jobs:
           print(f"signup_diag_verification_url_ready={yes(verification_url_ok)}")
 
           backend_ok = str(getattr(settings, "EMAIL_BACKEND", "")).strip() == SMTP_BACKEND
-          host_ok = str(getattr(settings, "EMAIL_HOST", "")).strip().lower() == NAVER_SMTP_HOST
+          configured_host = str(getattr(settings, "EMAIL_HOST", "")).strip().lower()
+          expected_port = SUPPORTED_SMTP_HOST_PORTS.get(configured_host)
+          host_ok = expected_port is not None
           port = getattr(settings, "EMAIL_PORT", None)
-          port_ok = isinstance(port, int) and not isinstance(port, bool) and port == NAVER_SMTP_PORT
+          port_ok = isinstance(port, int) and not isinstance(port, bool) and port == expected_port
           tls_ok = getattr(settings, "EMAIL_USE_TLS", False) is True
           smtp_user_ok = bool(str(getattr(settings, "EMAIL_HOST_USER", "") or "").strip())
           smtp_password_ok = bool(str(getattr(settings, "EMAIL_HOST_PASSWORD", "") or "").strip())

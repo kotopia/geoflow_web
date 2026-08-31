@@ -30,6 +30,7 @@ jobs:
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
       SMTP_USER: ${{ secrets.GEOFLOW_SMTP_USER }}
       SMTP_APP_PASSWORD: ${{ secrets.GEOFLOW_SMTP_APP_PASSWORD }}
+      SMTP_PROVIDER_HOST: smtp.gmail.com
 
     steps:
       - name: Checkout reviewed release branch
@@ -75,7 +76,7 @@ jobs:
               raise SystemExit(2)
 
           try:
-              with smtplib.SMTP('smtp.naver.com', 587, timeout=20) as client:
+              with smtplib.SMTP(os.environ['SMTP_PROVIDER_HOST'], 587, timeout=20) as client:
                   client.ehlo()
                   client.starttls(context=ssl.create_default_context())
                   client.ehlo()
@@ -172,14 +173,14 @@ jobs:
           env_path = Path(sys.argv[1])
           values = dotenv_values(env_path)
 
-          host = (values.get('EMAIL_HOST') or 'smtp.naver.com').strip()
+          host = (values.get('EMAIL_HOST') or '').strip()
           raw_port = (values.get('EMAIL_PORT') or '587').strip()
           user = values.get('EMAIL_HOST_USER')
           password = values.get('EMAIL_HOST_PASSWORD')
           use_tls = str(values.get('EMAIL_USE_TLS') or 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 
           print('server_smtp_env_present=yes')
-          print(f"server_smtp_host_is_naver={'yes' if host.lower() == 'smtp.naver.com' else 'no'}")
+          print(f"server_smtp_host_is_gmail={'yes' if host.lower() == 'smtp.gmail.com' else 'no'}")
           print(f"server_smtp_tls_enabled={'yes' if use_tls else 'no'}")
 
           try:
