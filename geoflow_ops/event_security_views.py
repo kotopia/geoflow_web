@@ -39,12 +39,15 @@ def _payload_contains_assignment_write(request) -> bool:
 
 
 def _assignment_write_forbidden(request) -> bool:
-    return _payload_contains_assignment_write(request) and not gf_has_perm(request, "directory.view")
+    return _payload_contains_assignment_write(request) and not gf_has_perm(
+        request, "directory.view"
+    )
 
 
 def _canonicalize_workflow_write(data: dict) -> dict:
     normalized = dict(data)
     if "event_type" in normalized:
+        # Legacy client normalization remains explicit: closeout_complete -> closeout_approved.
         event_type = normalize_event_type_for_write(normalized.get("event_type"))
         normalized["event_type"] = event_type
         if is_canonical_event_type(event_type):
