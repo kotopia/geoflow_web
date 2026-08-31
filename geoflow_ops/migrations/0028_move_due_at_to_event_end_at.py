@@ -29,7 +29,7 @@ UPDATE ops.process_events
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("geoflow_ops", "0027_employee_profile_soft_delete"),
+        ("webgisapp", "0027_employee_profile_soft_delete"),
     ]
 
     operations = [
