@@ -49,7 +49,6 @@ _PHASE_RANK = {
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
     """Return the exact six-stage process code and label."""
-
     normalized = normalize_stage(stage) or "preparation"
     if normalized not in CONTRACT_LIFECYCLE_STAGE_PHASES:
         normalized = "execution"
@@ -62,7 +61,6 @@ def fallback_stage_for_contract_status(status: str | None) -> str:
     Runtime workflow is event-derived; Contract.status is not the lifecycle
     source of truth.
     """
-
     status = str(status or "").strip().lower()
     if status in {"planned", "계약전"}:
         return "preparation"
@@ -74,7 +72,6 @@ def fallback_stage_for_contract_status(status: str | None) -> str:
 def _stage_summary(stage: str | None) -> dict:
     stage = normalize_stage(stage) or "preparation"
     major_code = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage, "preparation")
-
     phase_class = {
         "preparation": "bg-warning text-dark",
         "contract": "bg-primary",
@@ -83,7 +80,6 @@ def _stage_summary(stage: str | None) -> dict:
         "closeout": "bg-info text-dark",
         "complete": "bg-secondary",
     }.get(major_code, "bg-light text-dark")
-
     major_event_label = {
         "preparation": "계약 전 준비",
         "contract": "계약 체결",
@@ -92,7 +88,6 @@ def _stage_summary(stage: str | None) -> dict:
         "closeout": "준공계 제출",
         "complete": "준공 승인",
     }.get(major_code, "-")
-
     return {
         "stage": stage,
         "stage_label": _DISPLAY_MAJOR_LABELS.get(major_code, major_code),
@@ -131,18 +126,16 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     """Derive event-derived Process Stage and current event-type badges.
 
     Stage advances only through reviewed transition events. Ordinary events such
-    as 변경, 업무보고, 중지/재개 and 준공검사는 history only. Active event
-    emphasis is returned separately as the exact configured event type label so
-    list/detail UIs can render `[Process Stage] [이벤트 유형]` consistently.
+    as 변경, 업무보고, 중지/재개 and 준공검사는 history only. The
+    highest reached transition wins, so later non-transition events cannot move
+    the lifecycle backwards. Active event emphasis is returned separately as the
+    exact configured event type label for `[Process Stage] [이벤트 유형]`.
     """
-
     contracts = {str(row.id): row for row in contract_rows}
     if not contracts:
         return {}
-
     reached: dict[str, tuple[int, str]] = {}
     active_labels: dict[str, list[str]] = {contract_id: [] for contract_id in contracts}
-
     with connections[alias].cursor() as cur:
         cur.execute(
             """
@@ -157,23 +150,19 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
         for contract_id, raw_stage, raw_event_type, occurred_at, payload in cur.fetchall():
             event_type = str(raw_event_type or "").strip()
             target_stage = transition_stage_for_event(event_type)
-
             if not target_stage and event_type in DEPRECATED_EVENT_TYPE_CODES:
                 legacy_stage = normalize_stage(raw_stage)
                 if legacy_stage in CONTRACT_LIFECYCLE_STAGE_PHASES:
                     target_stage = legacy_stage
-
             if target_stage in _PHASE_RANK:
                 rank = _PHASE_RANK[target_stage]
                 current = reached.get(contract_id)
                 if current is None or rank > current[0]:
                     reached[contract_id] = (rank, target_stage)
-
             if _event_highlight_active(occurred_at, payload):
                 label = _EVENT_TYPE_LABELS.get(event_type, event_type)
                 if label and label not in active_labels.setdefault(contract_id, []):
                     active_labels[contract_id].append(label)
-
     result: dict[str, dict] = {}
     for contract_id in contracts:
         stage = reached.get(contract_id, (0, "preparation"))[1]
