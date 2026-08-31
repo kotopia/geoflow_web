@@ -58,17 +58,18 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertNotIn("code != CONTRACT_COMPLETION_EVENT_TYPE", service)
         self.assertIn("code not in DEPRECATED_EVENT_TYPE_CODES", service)
 
-    def test_legacy_contract_completion_client_is_normalized_on_write(self):
+    def test_legacy_completion_alias_remains_supported_but_contract_ui_writes_canonical_event(self):
         workflow = (ROOT / "process_workflow.py").read_text(encoding="utf-8")
         security = (ROOT / "event_security_views.py").read_text(encoding="utf-8")
         detail = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html").read_text(encoding="utf-8")
         self.assertIn('LEGACY_CONTRACT_COMPLETION_EVENT_TYPE = "closeout_complete"', workflow)
         self.assertIn("normalize_event_type_for_write", security)
         self.assertIn("_replace_request_json_body", security)
-        # The pre-existing dedicated button remains backward-compatible while
-        # persistence is normalized to the canonical 준공승인 event.
         self.assertIn('id="btn-contract-complete"', detail)
-        self.assertIn("event_type: 'closeout_complete'", detail)
+        self.assertIn("event_type: 'closeout_approved'", detail)
+        self.assertNotIn("event_type: 'closeout_complete'", detail)
+        for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
+            self.assertIn(label, detail)
 
     def test_legacy_completed_status_is_converted_then_preserved_as_history(self):
         migration = (ROOT / "migrations" / "0026_contract_completion_event_backfill.py").read_text(encoding="utf-8")
