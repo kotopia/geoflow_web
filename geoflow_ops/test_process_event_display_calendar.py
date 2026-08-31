@@ -19,15 +19,13 @@ def source(path):
 
 class ProcessEventDisplayCalendarTests(SimpleTestCase):
     def test_environment_process_stage_is_exact_six_stage_lifecycle(self):
-        self.assertEqual(
-            [(x.code, x.label) for x in STAGE_CHOICES],
-            [
-                ("preparation", "준비"), ("contract", "계약"),
-                ("kickoff", "착수"), ("execution", "수행"),
-                ("closeout", "준공"), ("complete", "완료"),
-            ],
-        )
-        self.assertEqual(settings_options(None, "event.stage"), tuple((x.code, x.label) for x in STAGE_CHOICES))
+        expected = [
+            ("preparation", "준비"), ("contract", "계약"),
+            ("kickoff", "착수"), ("execution", "수행"),
+            ("closeout", "준공"), ("complete", "완료"),
+        ]
+        self.assertEqual([(x.code, x.label) for x in STAGE_CHOICES], expected)
+        self.assertEqual(list(settings_options(None, "event.stage")), expected)
         settings_view = source("views_settings.py")
         self.assertIn("_ensure_canonical_stage_nodes", settings_view)
         self.assertIn("GeoFlow 필수 Process Stage", settings_view)
@@ -49,8 +47,8 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
 
     def test_completion_has_no_redundant_complete_event(self):
         self.assertEqual(transition_stage_for_event("closeout_approved"), "complete")
-        self.assertEqual(options := event_workflow_options(None)["types_by_stage"]["complete"], [])
-        self.assertFalse(options)
+        options = event_workflow_options(None)["types_by_stage"]["complete"]
+        self.assertEqual(options, [])
 
     def test_event_modal_has_highlight_end_and_calendar_controls(self):
         modal = source("templates/geoflow_ops/events/_event_modal.html")
