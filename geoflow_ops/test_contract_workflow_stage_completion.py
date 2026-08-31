@@ -103,3 +103,5 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertNotIn("obj.contract.status", detail)
         self.assertIn("contract_workflow.major_label", detail)
         self.assertIn("업무단계", detail)
+        for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
+            self.assertIn(label, detail)
