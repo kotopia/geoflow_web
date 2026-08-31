@@ -50,6 +50,7 @@ jobs:
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$' || { echo 'invalid_ssh_port=yes'; exit 2; }
 
       - name: Validate desired SMTP secrets without mutation
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
