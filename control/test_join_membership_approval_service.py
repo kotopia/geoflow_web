@@ -13,6 +13,18 @@ from control.services.join_membership_approval_service import (
 
 
 class JoinMembershipApprovalServiceTests(TestCase):
+    def test_password_hash_like_wildcards_are_escaped_for_parameterized_sql(self):
+        source = getsource(SqlJoinMembershipApprovalRepository.apply)
+        for pattern in (
+            "pbkdf2_sha256$%%",
+            "bcrypt_sha256$%%",
+            "$2a$%%",
+            "$2b$%%",
+            "$2y$%%",
+        ):
+            self.assertIn(f"LIKE '{pattern}'", source)
+        self.assertEqual(source.count("signup_user.password_hash LIKE"), 5)
+
     def test_service_rejects_when_atomic_repository_cannot_apply(self):
         repository = MagicMock()
         repository.alias = "central"
