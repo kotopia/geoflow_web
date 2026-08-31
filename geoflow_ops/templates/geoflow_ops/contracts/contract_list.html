@@ -66,7 +66,12 @@
   <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
   <script>
     window.GEOFLOW_TENANT_VOCABULARY = window.GEOFLOW_TENANT_VOCABULARY || {};
-    window.GEOFLOW_TENANT_VOCABULARY.contractStatus = {planned:'계약', active:'진행', pause:'준공', complete:'완료'};
+    window.GEOFLOW_TENANT_VOCABULARY.contractStatus = {
+      planned: '계약',
+      active: '진행',
+      pause: '준공',
+      complete: '완료'
+    };
     document.addEventListener('DOMContentLoaded', function(){
       const vocab = window.GEOFLOW_TENANT_VOCABULARY || {};
       const kindLabels = vocab.contractKind || {};
