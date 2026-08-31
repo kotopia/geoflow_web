@@ -80,11 +80,11 @@ class SqlJoinMembershipApprovalRepository:
                        AND signup_user.password_hash IS NOT NULL
                        AND length(trim(signup_user.password_hash)) > 0
                        AND (
-                           signup_user.password_hash LIKE 'pbkdf2_sha256$%'
-                           OR signup_user.password_hash LIKE 'bcrypt_sha256$%'
-                           OR signup_user.password_hash LIKE '$2a$%'
-                           OR signup_user.password_hash LIKE '$2b$%'
-                           OR signup_user.password_hash LIKE '$2y$%'
+                           signup_user.password_hash LIKE 'pbkdf2_sha256$%%'
+                           OR signup_user.password_hash LIKE 'bcrypt_sha256$%%'
+                           OR signup_user.password_hash LIKE '$2a$%%'
+                           OR signup_user.password_hash LIKE '$2b$%%'
+                           OR signup_user.password_hash LIKE '$2y$%%'
                        )
                       JOIN groups AS active_group
                         ON active_group.id=join_request.group_id
