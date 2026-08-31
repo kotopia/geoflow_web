@@ -38,7 +38,7 @@ def join_request_decide_view(request, req_id, action):
     jr = C.get_join_request(req_id)
     if not jr:
         messages.error(request, "요청을 찾을 수 없습니다.")
-        return redirect("join_requests_pending")
+        return redirect("control:join_requests_pending")
 
     requested_email = (jr.get("requested_email") or "").strip().lower()
     group_id = jr.get("group_id")
@@ -47,7 +47,7 @@ def join_request_decide_view(request, req_id, action):
     decided_by = lookup_user_id_from_request(request)
     if not decided_by:
         messages.error(request, "요청을 처리할 수 없습니다. 관리자 상태를 확인하세요.")
-        return redirect("join_requests_pending")
+        return redirect("control:join_requests_pending")
 
     if action == "reject":
         if jr.get("status") != "pending" or not C.reject_join_request_if_pending(
@@ -58,9 +58,9 @@ def join_request_decide_view(request, req_id, action):
                 request,
                 "요청을 처리할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
         messages.success(request, "요청을 거절했습니다.")
-        return redirect("join_requests_pending")
+        return redirect("control:join_requests_pending")
 
     if action == "approve":
         if jr.get("status") != "pending":
@@ -68,7 +68,7 @@ def join_request_decide_view(request, req_id, action):
                 request,
                 "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
 
         role_id = C.get_role_id_by_code(role_code)
         if not role_id:
@@ -76,14 +76,14 @@ def join_request_decide_view(request, req_id, action):
                 request,
                 "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
 
         if not C.group_is_active(group_id):
             messages.error(
                 request,
                 "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
 
         account = C.get_existing_user_account_by_email(requested_email)
         if not account or account.get("is_active") is not True:
@@ -91,7 +91,7 @@ def join_request_decide_view(request, req_id, action):
                 request,
                 "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
         user_id = account["id"]
 
         try:
@@ -109,20 +109,20 @@ def join_request_decide_view(request, req_id, action):
                 request,
                 "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
         except Exception:
             logger.warning("Join approval transaction failed")
             messages.error(
                 request,
                 "요청을 승인할 수 없습니다. 요청 상태를 확인하세요.",
             )
-            return redirect("join_requests_pending")
+            return redirect("control:join_requests_pending")
 
         messages.success(request, "승인 완료")
-        return redirect("join_requests_pending")
+        return redirect("control:join_requests_pending")
 
     messages.error(request, "올바르지 않은 요청입니다.")
-    return redirect("join_requests_pending")
+    return redirect("control:join_requests_pending")
 
 
 @login_required

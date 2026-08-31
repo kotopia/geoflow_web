@@ -174,7 +174,7 @@ class JoinApprovalFollowUpOrderingTests(SimpleTestCase):
 
         response, _ = self._call(services, mail)
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         self.assertEqual(events, ["db-approved", "token-created", "mail-sent"])
 
     def test_db_approval_failure_prevents_token_and_mail(self):
@@ -186,7 +186,7 @@ class JoinApprovalFollowUpOrderingTests(SimpleTestCase):
 
         response, messages = self._call(services, mail)
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.user_has_password.assert_not_called()
         services.create_set_password_token.assert_not_called()
         mail.send_set_password_email.assert_not_called()
@@ -199,7 +199,7 @@ class JoinApprovalFollowUpOrderingTests(SimpleTestCase):
 
         response, _ = self._call(services, mail)
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.create_set_password_token.assert_not_called()
         mail.send_set_password_email.assert_not_called()
 
@@ -214,7 +214,7 @@ class JoinApprovalFollowUpOrderingTests(SimpleTestCase):
 
         response, messages = self._call(services, mail)
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.approve_join_request_membership.assert_called_once()
         services.create_set_password_token.assert_called_once_with("user-key")
         messages.warning.assert_called_once()
@@ -230,7 +230,7 @@ class JoinApprovalFollowUpOrderingTests(SimpleTestCase):
 
         response, messages = self._call(services, mail)
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.approve_join_request_membership.assert_called_once()
         mail.send_set_password_email.assert_not_called()
         messages.warning.assert_called_once()
