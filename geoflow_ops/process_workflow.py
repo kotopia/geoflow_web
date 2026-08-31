@@ -131,9 +131,13 @@ CONTRACT_LIFECYCLE_STAGE_PHASES = {
 }
 
 # Final completion is a reviewed human event under the 준공 category. The legacy
-# closeout_complete event remains recognized for already-migrated history.
+# closeout_complete event remains recognized for already-migrated history and old
+# clients, but new writes are normalized to closeout_approved.
 CONTRACT_COMPLETION_EVENT_TYPE = "closeout_approved"
 LEGACY_CONTRACT_COMPLETION_EVENT_TYPE = "closeout_complete"
+EVENT_TYPE_WRITE_ALIASES = {
+    LEGACY_CONTRACT_COMPLETION_EVENT_TYPE: CONTRACT_COMPLETION_EVENT_TYPE,
+}
 
 # Known legacy system event types are hidden from the new-event dropdown while
 # remaining valid historical values. Custom tenant-defined types are unaffected.
@@ -149,6 +153,13 @@ def normalize_stage(value: object) -> str:
 
     text = str(value or "").strip()
     return LEGACY_STAGE_ALIASES.get(text, text)
+
+
+def normalize_event_type_for_write(value: object) -> str:
+    """Normalize reviewed legacy client writes without rewriting stored history."""
+
+    code = str(value or "").strip()
+    return EVENT_TYPE_WRITE_ALIASES.get(code, code)
 
 
 def default_stage_for_event(event_type: object) -> str | None:
