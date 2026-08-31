@@ -4,6 +4,7 @@ from django.db import connections
 
 from geoflow_ops.process_workflow import (
     CONTRACT_COMPLETION_EVENT_TYPE,
+    DEPRECATED_EVENT_TYPE_CODES,
     EVENT_DEFAULT_STAGE,
     EVENT_TYPE_CHOICES,
     STAGE_CHOICES,
@@ -12,8 +13,7 @@ from geoflow_ops.process_workflow import (
 
 
 # Legacy contract.status vocabulary is retained for backward compatibility only.
-# New Contract lifecycle UI/business logic does not use this setting except for
-# the one-way historic completed-contract compatibility bridge.
+# New Contract lifecycle UI/business logic does not use this setting.
 CONTRACT_STATUS_FALLBACK = (
     ("planned", "계약전"),
     ("active", "진행"),
@@ -38,14 +38,22 @@ EMPLOYMENT_TYPE_FALLBACK = (
     ("인턴", "인턴"),
 )
 
+_EVENT_LABELS = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
+
 # These options are workflow invariants. They remain available even when an old
 # tenant settings tree predates them, deactivates them, or changes their label.
-# Extra tenant-defined stages/types can still be appended after these required
-# canonical options.
+# Extra tenant-defined stages/types can still be appended after the canonical
+# options. Known retired system event codes are filtered only from new-event UI;
+# their history remains valid.
 SYSTEM_REQUIRED_OPTIONS = {
     "event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES),
-    "event.type.closeout": ((CONTRACT_COMPLETION_EVENT_TYPE, "완료"),),
 }
+for _stage in STAGE_CHOICES:
+    SYSTEM_REQUIRED_OPTIONS[f"event.type.{_stage.code}"] = tuple(
+        (event_type, _EVENT_LABELS.get(event_type, event_type))
+        for event_type, default_stage in EVENT_DEFAULT_STAGE.items()
+        if default_stage == _stage.code
+    )
 
 CONTRACT_STATUS_ALIASES = {
     "planned": "planned",
@@ -97,13 +105,11 @@ def _fallback_for(system_key: str):
         return tuple((choice.code, choice.label) for choice in EVENT_STATUS_CHOICES)
     if system_key.startswith("event.type."):
         stage = system_key.rsplit(".", 1)[-1]
-        labels = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
         rows = [
-            (event_type, labels.get(event_type, event_type))
+            (event_type, _EVENT_LABELS.get(event_type, event_type))
             for event_type, default_stage in EVENT_DEFAULT_STAGE.items()
             if default_stage == stage
         ]
-        rows.append(("etc", labels.get("etc", "기타")))
         return tuple(rows)
     return ()
 
@@ -200,14 +206,14 @@ def event_workflow_options(alias: str | None):
     types_by_stage = {}
     for stage_code, _label in stages:
         options = settings_options(alias, f"event.type.{stage_code}")
-        # Final completion is recorded only through the dedicated 준공 완료
-        # action on Contract detail, not through the generic event dropdown.
-        if stage_code == "closeout":
-            options = [
-                (code, label)
-                for code, label in options
-                if code != CONTRACT_COMPLETION_EVENT_TYPE
-            ]
+        # Retired system codes remain historical data only. Final completion is
+        # recorded through the dedicated 준공 승인 action, not the generic picker.
+        options = [
+            (code, label)
+            for code, label in options
+            if code not in DEPRECATED_EVENT_TYPE_CODES
+            and code != CONTRACT_COMPLETION_EVENT_TYPE
+        ]
         types_by_stage[stage_code] = options
     return {
         "stages": stages,
