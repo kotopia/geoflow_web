@@ -7,36 +7,18 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
         <link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.1/dist/style.css">
+        <link rel="stylesheet" href="{% static 'geoflow_ops/css/process-timeline-horizontal.css' %}">
         <script src="{% static 'control/js/settings.js' %}"></script>
     </head>
 
     <body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
-        <div id="globalSpinner" class="gf-spinner-overlay d-none" aria-hidden="true">
-            <div class="text-center">
-                <div class="spinner-border" role="status" aria-label="Loading"></div>
-                <div class="mt-2 text-muted small">로딩중…</div>
-            </div>
-        </div>
-
-        <style>
-            .gf-spinner-overlay{
-                position: fixed; inset: 0; display: flex;
-                align-items: center; justify-content: center;
-                background-color: rgba(255,255,255,.6);
-                backdrop-filter: blur(2px);
-                z-index: 2000;
-            }
-        </style>
-
+        <div id="globalSpinner" class="gf-spinner-overlay d-none" aria-hidden="true"><div class="text-center"><div class="spinner-border" role="status" aria-label="Loading"></div><div class="mt-2 text-muted small">로딩중…</div></div></div>
+        <style>.gf-spinner-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background-color:rgba(255,255,255,.6);backdrop-filter:blur(2px);z-index:2000;}</style>
         <div class="wrapper">
         {% include "geoflow_ops/partials/sidebar.html" %}
         <div class="main">
             {% include "geoflow_ops/partials/topbar.html" %}
-            <main class="content">
-            <div class="container-fluid p-0">
-                {% block content %}{% endblock %}
-            </div>
-            </main>
+            <main class="content"><div class="container-fluid p-0">{% block content %}{% endblock %}</div></main>
         </div>
         </div>
 
@@ -44,21 +26,21 @@
         {{ gf_contract_kind_labels|json_script:"gf-contract-kind-labels" }}
         <script>
           (function () {
-            function parsed(id) {
-              var el = document.getElementById(id);
-              if (!el) return {};
-              try { return JSON.parse(el.textContent || '{}'); } catch (e) { return {}; }
-            }
-            window.GEOFLOW_TENANT_VOCABULARY = {
-              contractStatus: parsed('gf-contract-status-labels'),
-              contractKind: parsed('gf-contract-kind-labels')
-            };
+            function parsed(id) { var el=document.getElementById(id); if(!el)return {}; try{return JSON.parse(el.textContent||'{}');}catch(e){return {};} }
+            window.GEOFLOW_TENANT_VOCABULARY={contractStatus:parsed('gf-contract-status-labels'),contractKind:parsed('gf-contract-kind-labels')};
+            document.addEventListener('DOMContentLoaded', function(){
+              document.querySelectorAll('[aria-label="업무 프로세스"]').forEach(function(flow){
+                var stages=Array.from(flow.querySelectorAll(':scope > span[aria-label]'));
+                var current=stages.findIndex(function(stage){return stage.classList.contains('text-primary');});
+                stages.forEach(function(stage,index){stage.classList.toggle('gf-stage-complete',current>=0&&index<current);});
+              });
+            });
           })();
         </script>
         <script src="{% static 'control/js/app.js' %}"></script>
         <script src="{% static 'control/js/datatables.js' %}"></script>
         <script src="{% static 'geoflow_ops/js/project-members-ui.js' %}"></script>
-
+        <script src="{% static 'geoflow_ops/js/process-event-display-calendar.js' %}"></script>
         {% block scripts %}{% endblock %}
     </body>
 </html>

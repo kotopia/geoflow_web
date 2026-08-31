@@ -7,104 +7,40 @@
       </div>
       <div class="modal-body py-3">
         <div id="event-alert" class="alert alert-danger d-none py-2"></div>
-
         <input type="hidden" id="event-scope-type-hidden" value="{{ scope_type }}">
         <input type="hidden" id="event-scope-id-hidden" value="{{ scope_id }}">
         <input type="hidden" id="event-id" value="">
-        <!-- Internal history-integrity field only. Hidden from the user. -->
         <select class="d-none" id="event-status" aria-hidden="true" tabindex="-1">
-          <option value="open" selected>진행중</option>
-          <option value="done">완료</option>
-          <option value="draft">작성중</option>
-          <option value="void">삭제</option>
+          <option value="open" selected>진행중</option><option value="done">완료</option><option value="draft">작성중</option><option value="void">삭제</option>
         </select>
 
         <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label">업무 단계</label>
-            <select class="form-select" id="event-stage">
-              <option value="">환경설정 불러오는 중...</option>
-            </select>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">업무 유형</label>
-            <select class="form-select" id="event-type">
-              <option value="">업무 단계를 선택하세요</option>
-            </select>
-          </div>
+          <div class="col-md-6"><label class="form-label">이벤트 분류</label><select class="form-select" id="event-stage"><option value="">환경설정 불러오는 중...</option></select></div>
+          <div class="col-md-6"><label class="form-label">이벤트 유형</label><select class="form-select" id="event-type"><option value="">분류를 선택하세요</option></select></div>
+          <div class="col-12"><label class="form-label">제목</label><input type="text" class="form-control" id="event-title" placeholder="(선택)"></div>
+          <div class="col-md-6"><label class="form-label">발생일</label><input type="date" class="form-control" id="event-occurred-at"></div>
+          <div class="col-md-6"><label class="form-label">완료 예정일</label><input type="date" class="form-control" id="event-due-at"></div>
 
-          <div class="col-12">
-            <label class="form-label">제목</label>
-            <input type="text" class="form-control" id="event-title" placeholder="(선택)">
-          </div>
+          <div class="col-12"><hr class="my-1"><div class="fw-semibold small mb-2">표시 및 일정</div></div>
+          <div class="col-md-5"><div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" id="event-highlight-enabled"><label class="form-check-label" for="event-highlight-enabled">강조 표시</label></div></div>
+          <div class="col-md-7"><label class="form-label">강조 기간</label><div class="input-group"><input type="number" min="1" max="3650" value="7" class="form-control" id="event-highlight-days"><span class="input-group-text">일</span></div></div>
+          <div class="col-md-7"><label class="form-label">종료일</label><input type="date" class="form-control" id="event-end-at"></div>
+          <div class="col-md-5 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="event-until-closed"><label class="form-check-label" for="event-until-closed">종료일 미지정</label></div></div>
+          <div class="col-12"><div class="form-text">종료일이 없으면 발생일 기준 기본 7일간 강조합니다. 종료일 미지정은 해제 시까지 계속 강조합니다.</div></div>
+          <div class="col-12"><button type="button" class="btn btn-outline-primary btn-sm" id="btn-event-calendar-toggle"><i class="align-middle me-1" data-feather="calendar"></i><span id="event-calendar-label">캘린더에 추가</span></button><input type="checkbox" id="event-calendar-enabled" class="d-none"></div>
 
-          <div class="col-md-6">
-            <label class="form-label">발생일</label>
-            <input type="date" class="form-control" id="event-occurred-at">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">완료 예정일</label>
-            <input type="date" class="form-control" id="event-due-at">
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">담당 부서</label>
-            <select class="form-select" id="event-owner-department"><option value="">미지정</option></select>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">담당자</label>
-            <select class="form-select" id="event-assignee-employee"><option value="">미지정</option></select>
-          </div>
-          <div class="col-12">
-            <div class="text-muted small" id="event-assignment-help">부서/담당자 배정은 디렉터리 조회 권한이 있을 때 사용할 수 있습니다.</div>
-          </div>
-
-          <div class="col-12">
-            <label class="form-label">메모</label>
-            <textarea class="form-control" id="event-memo" rows="3"></textarea>
-          </div>
+          <div class="col-md-6"><label class="form-label">담당 부서</label><select class="form-select" id="event-owner-department"><option value="">미지정</option></select></div>
+          <div class="col-md-6"><label class="form-label">담당자</label><select class="form-select" id="event-assignee-employee"><option value="">미지정</option></select></div>
+          <div class="col-12"><div class="text-muted small" id="event-assignment-help">부서/담당자 배정은 디렉터리 조회 권한이 있을 때 사용할 수 있습니다.</div></div>
+          <div class="col-12"><label class="form-label">메모</label><textarea class="form-control" id="event-memo" rows="3"></textarea></div>
         </div>
 
-        <div id="event-attach-section" class="d-none mt-3 pt-3 border-top">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong class="small">첨부</strong>
-            <button type="button" class="btn btn-sm btn-outline-primary" id="btn-timeline-attach"><i class="fas fa-paperclip"></i> 파일 선택</button>
-          </div>
-          <div id="event-attachment-list" class="small"></div>
-          <div class="text-muted small mt-2">이벤트를 저장한 뒤 첨부 업로드가 활성화됩니다.</div>
-        </div>
+        <div id="event-attach-section" class="d-none mt-3 pt-3 border-top"><div class="d-flex justify-content-between align-items-center mb-2"><strong class="small">첨부</strong><button type="button" class="btn btn-sm btn-outline-primary" id="btn-timeline-attach"><i class="fas fa-paperclip"></i> 파일 선택</button></div><div id="event-attachment-list" class="small"></div><div class="text-muted small mt-2">이벤트를 저장한 뒤 첨부 업로드가 활성화됩니다.</div></div>
 
-        <div class="accordion accordion-flush mt-3 border-top" id="eventMetaAccordion">
-          <div class="accordion-item">
-            <h2 class="accordion-header" id="eventMetaHeading">
-              <button class="accordion-button collapsed px-0 py-2 small text-muted" type="button"
-                      data-bs-toggle="collapse" data-bs-target="#eventMetaCollapse"
-                      aria-expanded="false" aria-controls="eventMetaCollapse">
-                상세 정보
-              </button>
-            </h2>
-            <div id="eventMetaCollapse" class="accordion-collapse collapse" aria-labelledby="eventMetaHeading" data-bs-parent="#eventMetaAccordion">
-              <div class="accordion-body px-0 pt-2 pb-0">
-                <div class="row g-2">
-                  <div class="col-md-6"><label class="small text-muted">Scope Type</label><input type="text" class="form-control form-control-sm" id="event-scope-type" disabled></div>
-                  <div class="col-md-6"><label class="small text-muted">Scope ID</label><input type="text" class="form-control form-control-sm" id="event-scope-id" disabled></div>
-                  <div class="col-md-6"><label class="small text-muted">생성일</label><input type="text" class="form-control form-control-sm" id="event-created-at" disabled></div>
-                  <div class="col-md-6"><label class="small text-muted">생성자</label><input type="text" class="form-control form-control-sm" id="event-created-by" disabled></div>
-                  <div class="col-12"><label class="small text-muted">수정일</label><input type="text" class="form-control form-control-sm" id="event-updated-at" disabled></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="text-muted small mt-2">업무 단계에 따라 환경설정의 업무 유형만 표시됩니다. 최종 완료는 계약 상세의 <strong>준공 완료</strong>에서 확정합니다.</div>
+        <div class="accordion accordion-flush mt-3 border-top" id="eventMetaAccordion"><div class="accordion-item"><h2 class="accordion-header" id="eventMetaHeading"><button class="accordion-button collapsed px-0 py-2 small text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#eventMetaCollapse" aria-expanded="false" aria-controls="eventMetaCollapse">상세 정보</button></h2><div id="eventMetaCollapse" class="accordion-collapse collapse" aria-labelledby="eventMetaHeading" data-bs-parent="#eventMetaAccordion"><div class="accordion-body px-0 pt-2 pb-0"><div class="row g-2"><div class="col-md-6"><label class="small text-muted">Scope Type</label><input type="text" class="form-control form-control-sm" id="event-scope-type" disabled></div><div class="col-md-6"><label class="small text-muted">Scope ID</label><input type="text" class="form-control form-control-sm" id="event-scope-id" disabled></div><div class="col-md-6"><label class="small text-muted">생성일</label><input type="text" class="form-control form-control-sm" id="event-created-at" disabled></div><div class="col-md-6"><label class="small text-muted">생성자</label><input type="text" class="form-control form-control-sm" id="event-created-by" disabled></div><div class="col-12"><label class="small text-muted">수정일</label><input type="text" class="form-control form-control-sm" id="event-updated-at" disabled></div></div></div></div></div></div>
+        <div class="text-muted small mt-2">Process Stage(업무 단계)는 이벤트 유형에 의해 자동 전환됩니다. 정산 이벤트는 Process Stage를 변경하지 않습니다.</div>
       </div>
-
-      <div class="modal-footer py-2">
-        <button type="button" class="btn btn-outline-danger me-auto d-none" id="btn-delete-event-modal">삭제</button>
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
-        <button type="button" class="btn btn-primary" id="btn-save-event">저장</button>
-      </div>
+      <div class="modal-footer py-2"><button type="button" class="btn btn-outline-danger me-auto d-none" id="btn-delete-event-modal">삭제</button><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button><button type="button" class="btn btn-primary" id="btn-save-event">저장</button></div>
     </div>
   </div>
 </div>

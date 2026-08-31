@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access
+from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
 from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views
 from . import temp_contract_list_api
 from .views_home_security import tenant_home
@@ -9,6 +9,8 @@ app_name = "tenant"
 
 urlpatterns = [
     path('', tenant_home, name='home'),
+    path('calendar/', views_calendar.calendar_page, name='calendar'),
+    path('api/calendar/events/', views_calendar.calendar_events, name='calendar_events'),
 
     path('contracts/', security_views.contract_list, name='contract_list'),
     path("contracts/new/", security_views.contract_create, name="contract_create"),
@@ -31,10 +33,8 @@ urlpatterns = [
     path("projects/<uuid:pk>/members/", security_views.project_members_panel, name="project_members_panel"),
     path("projects/<uuid:pk>/members/save/", security_views.project_member_save, name="project_member_save"),
     path("projects/<uuid:pk>/members/<uuid:member_id>/revoke/", security_views.project_member_revoke, name="project_member_revoke"),
-
     path("projects/<uuid:pk>/summary/", security_views.project_summary, name="project_summary"),
     path("projects/<uuid:pk>/summary-save/", security_views.project_summary_save, name="project_summary_save"),
-
     path("projects/<uuid:pk>/scope-modal/", security_views.project_scope_modal, name="project_scope_modal"),
     path("projects/<uuid:pk>/scope-save/", security_views.project_scope_save, name="project_scope_save"),
     path("projects/<uuid:pk>/scope-summary/", security_views.project_scope_summary, name="project_scope_summary"),
@@ -52,24 +52,15 @@ urlpatterns = [
     path("employees/<uuid:emp_id>/restore/", employee_security_views.employee_restore, name="employees_restore"),
     path("employees/<uuid:emp_id>/request-role/", employee_security_views.employee_role_request, name="employees_request_role"),
     path("employees/<uuid:emp_id>/history/save/", employee_security_views.employee_history_save, name="employee_history_save"),
-    path(
-        "employees/<uuid:emp_id>/history/<str:section>/<uuid:record_id>/attachments/presign/",
-        employee_security_views.employee_history_attachment_presign,
-        name="employee_history_attachment_presign",
-    ),
-    path(
-        "employees/<uuid:emp_id>/history/<str:section>/<uuid:record_id>/attachments/commit/",
-        employee_security_views.employee_history_attachment_commit,
-        name="employee_history_attachment_commit",
-    ),
-
+    path("employees/<uuid:emp_id>/history/<str:section>/<uuid:record_id>/attachments/presign/", employee_security_views.employee_history_attachment_presign, name="employee_history_attachment_presign"),
+    path("employees/<uuid:emp_id>/history/<str:section>/<uuid:record_id>/attachments/commit/", employee_security_views.employee_history_attachment_commit, name="employee_history_attachment_commit"),
     path("api/hr/options/<str:category>/", employee_security_views.hr_options, name="hr_options"),
 
     path("settings/", settings_security_views.settings_page, name="settings_page"),
     path("settings/node/save/", settings_security_views.settings_node_save, name="settings_node_save"),
     path("settings/department/save/", settings_security_views.department_save, name="settings_department_save"),
 
-    path("myinfo/org-units/", security_views.orgunit_list,  name="myinfo_orgunit_list"),
+    path("myinfo/org-units/", security_views.orgunit_list, name="myinfo_orgunit_list"),
     path("myinfo/org-units/new/", security_views.orgunit_create, name="myinfo_orgunit_create"),
     path("myinfo/org-units/<uuid:pk>/", security_views.orgunit_detail, name="myinfo_orgunit_detail"),
     path("myinfo/org-units/<uuid:pk>/edit/", security_views.orgunit_update, name="myinfo_orgunit_update"),

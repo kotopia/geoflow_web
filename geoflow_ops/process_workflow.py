@@ -9,9 +9,7 @@ class WorkflowChoice:
     label: str
 
 
-# GeoFlow process lifecycle. Billing/settlement is intentionally not a process
-# stage because financial events may happen in parallel with, or long after,
-# technical completion.
+# GeoFlow Process Stage is one exact six-step lifecycle.
 STAGE_CHOICES = (
     WorkflowChoice("preparation", "준비"),
     WorkflowChoice("contract", "계약"),
@@ -21,8 +19,13 @@ STAGE_CHOICES = (
     WorkflowChoice("complete", "완료"),
 )
 
-# Canonical event vocabulary for the first process-stage rollout. Work-scope and
-# finance event vocabularies are deliberately left out of this boundary.
+# Event categories reuse Process Stage labels where possible, but settlement is
+# deliberately an event-only category: finance can occur in parallel and never
+# advances the technical Process Stage.
+EVENT_CATEGORY_CHOICES = STAGE_CHOICES + (
+    WorkflowChoice("settlement", "정산"),
+)
+
 EVENT_TYPE_CHOICES = (
     WorkflowChoice("estimate", "견적"),
     WorkflowChoice("bid", "입찰"),
@@ -34,15 +37,16 @@ EVENT_TYPE_CHOICES = (
     WorkflowChoice("kickoff_meeting", "착수회의"),
     WorkflowChoice("kickoff_approved", "착수승인"),
     WorkflowChoice("progress_report", "업무보고"),
-    WorkflowChoice("suspend", "용역중지"),
-    WorkflowChoice("resume", "용역재개"),
+    WorkflowChoice("suspend", "중지"),
+    WorkflowChoice("resume", "재개"),
     WorkflowChoice("closeout_submitted", "준공계"),
     WorkflowChoice("closeout_inspection", "준공검사"),
     WorkflowChoice("closeout_approved", "준공승인"),
+    WorkflowChoice("advance_payment", "선급금"),
+    WorkflowChoice("progress_payment", "기성금"),
+    WorkflowChoice("final_payment", "준공금"),
 )
 
-# Internal event record state is retained only for history integrity (open/void,
-# draft compatibility, etc.). Process Stage never reads these values directly.
 STATUS_CHOICES = (
     WorkflowChoice("draft", "작성중"),
     WorkflowChoice("open", "진행중"),
@@ -50,8 +54,8 @@ STATUS_CHOICES = (
     WorkflowChoice("void", "취소"),
 )
 
-# Only reviewed historical tokens are normalized. Unknown/custom values remain
-# untouched so tenant history is never silently reinterpreted.
+DEFAULT_HIGHLIGHT_DAYS = 7
+
 LEGACY_STAGE_ALIASES = {
     "pre_contract": "preparation",
     "project": "execution",
@@ -59,8 +63,7 @@ LEGACY_STAGE_ALIASES = {
     "blilling": "billing",
 }
 
-# Old system stage categories can remain in tenant settings/history, but they are
-# not offered for new canonical event creation.
+# Retired system stage rows stay readable as history but are not Process Stage.
 DEPRECATED_STAGE_CODES = frozenset({
     "pre_contract",
     "inspection",
@@ -69,8 +72,8 @@ DEPRECATED_STAGE_CODES = frozenset({
     "project",
 })
 
-# Event category stage. This is where the event belongs in the event selector;
-# it is NOT necessarily the stage reached after the event occurs.
+# This is the event category used by the selector. For the six lifecycle groups
+# it matches Process Stage; settlement is intentionally event-only.
 EVENT_DEFAULT_STAGE = {
     "estimate": "preparation",
     "bid": "preparation",
@@ -87,10 +90,11 @@ EVENT_DEFAULT_STAGE = {
     "closeout_submitted": "closeout",
     "closeout_inspection": "closeout",
     "closeout_approved": "closeout",
+    "advance_payment": "settlement",
+    "progress_payment": "settlement",
+    "final_payment": "settlement",
 }
 
-# Historical codes remain readable/editable for production history but are not
-# part of the canonical dropdown. Their old category is retained for validation.
 LEGACY_EVENT_DEFAULT_STAGE = {
     "contract_doc": "contract",
     "period_extension": "contract",
@@ -103,7 +107,7 @@ LEGACY_EVENT_DEFAULT_STAGE = {
     "completion_doc": "closeout",
     "delivery": "closeout",
     "closeout_complete": "closeout",
-    "advance_payment": "billing",
+    # Old finance vocabulary remains readable. advance_payment is now canonical.
     "progress_invoice": "billing",
     "invoice": "billing",
     "tax_invoice": "billing",
@@ -111,8 +115,6 @@ LEGACY_EVENT_DEFAULT_STAGE = {
     "etc": "execution",
 }
 
-# Only these events advance the Process Stage. Ordinary events such as 변경,
-# 업무보고, 용역중지/재개 and 준공검사 never advance the lifecycle by themselves.
 EVENT_TRANSITION_TARGETS = {
     "contract_signed": "contract",
     "kickoff_submitted": "kickoff",
@@ -121,7 +123,6 @@ EVENT_TRANSITION_TARGETS = {
     "closeout_approved": "complete",
 }
 
-# Reviewed historical transition equivalents preserve existing production state.
 LEGACY_EVENT_TRANSITION_TARGETS = {
     "contract_doc": "contract",
     "kickoff_doc": "kickoff",
@@ -130,7 +131,6 @@ LEGACY_EVENT_TRANSITION_TARGETS = {
     "closeout_complete": "complete",
 }
 
-# Exact lifecycle mapping used by the workflow summary service.
 CONTRACT_LIFECYCLE_STAGE_PHASES = {
     "preparation": "preparation",
     "contract": "contract",
@@ -140,34 +140,22 @@ CONTRACT_LIFECYCLE_STAGE_PHASES = {
     "complete": "complete",
 }
 
-# Final completion is a reviewed human event under the 준공 category. The legacy
-# closeout_complete event remains recognized for already-migrated history and old
-# clients, but new writes are normalized to closeout_approved.
 CONTRACT_COMPLETION_EVENT_TYPE = "closeout_approved"
 LEGACY_CONTRACT_COMPLETION_EVENT_TYPE = "closeout_complete"
 EVENT_TYPE_WRITE_ALIASES = {
     LEGACY_CONTRACT_COMPLETION_EVENT_TYPE: CONTRACT_COMPLETION_EVENT_TYPE,
 }
 
-# Known legacy system event types are hidden from the new-event dropdown while
-# remaining valid historical values. Custom tenant-defined types are unaffected.
 DEPRECATED_EVENT_TYPE_CODES = frozenset(LEGACY_EVENT_DEFAULT_STAGE)
-
-# Core event stages are system-required. Tenant settings may contain extra stages,
-# but these six process stages must always remain available and immutable.
 REQUIRED_EVENT_STAGE_CODES = tuple(choice.code for choice in STAGE_CHOICES)
 
 
 def normalize_stage(value: object) -> str:
-    """Normalize only reviewed legacy aliases and preserve all other values."""
-
     text = str(value or "").strip()
     return LEGACY_STAGE_ALIASES.get(text, text)
 
 
 def normalize_event_type_for_write(value: object) -> str:
-    """Normalize reviewed legacy client writes without rewriting stored history."""
-
     code = str(value or "").strip()
     return EVENT_TYPE_WRITE_ALIASES.get(code, code)
 
