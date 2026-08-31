@@ -8,22 +8,36 @@ from django.db import connections, transaction
 from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect, render
 
-from .process_workflow import STAGE_CHOICES
+from .process_workflow import (
+    DEPRECATED_EVENT_TYPE_CODES,
+    EVENT_DEFAULT_STAGE,
+    EVENT_TRANSITION_TARGETS,
+    EVENT_TYPE_CHOICES,
+    STAGE_CHOICES,
+)
 from .services.entity_access import require_tenant_context
 
 
 NODE_TYPES = {"group", "category", "value"}
 # These rows remain in the database for compatibility/history but are no longer
-# user-facing settings. Contract lifecycle is now derived from event workflow.
+# user-facing settings. Runtime history can still read their stored codes.
 HIDDEN_SETTINGS_SYSTEM_KEYS = {
     "contract.status",
     "hr.position_grade",
     "hr.position_title",
+    "event.stage.pre_contract",
+    "event.stage.inspection",
+    "event.stage.billing",
+    "event.type.pre_contract",
+    "event.type.inspection",
+    "event.type.billing",
 }
 
 _CANONICAL_EVENT_STAGE_NAMES = {
     f"event.stage.{choice.code}": choice.label for choice in STAGE_CHOICES
 }
+_EVENT_TYPE_LABELS = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
+_STAGE_LABELS = {choice.code: choice.label for choice in STAGE_CHOICES}
 
 
 def _is_immutable_event_stage(system_key: object) -> bool:
@@ -73,12 +87,40 @@ def _load_nodes(alias: str):
 
 
 def _visible_nodes(nodes):
-    """Hide deprecated setting roots and all descendants without deleting data."""
+    """Hide retired system vocabulary without deleting tenant history.
+
+    Migration 0023 seeded the earlier seven-category workflow. The runtime now
+    uses the six-stage Process Stage contract. Old system rows are kept in the DB
+    so historical ProcessEvent records remain interpretable, but they must not be
+    presented as current Environment Settings.
+    """
+
+    by_id = {node["id"]: node for node in nodes}
     hidden_ids = {
         node["id"]
         for node in nodes
         if node.get("system_key") in HIDDEN_SETTINGS_SYSTEM_KEYS
     }
+
+    for node in nodes:
+        if node["id"] in hidden_ids or node.get("node_type") != "value":
+            continue
+        parent = by_id.get(node.get("parent_id") or "")
+        parent_key = str((parent or {}).get("system_key") or "")
+        if not parent_key.startswith("event.type."):
+            continue
+
+        event_type = str(node.get("code") or "").strip()
+        parent_stage = parent_key[len("event.type."):]
+        canonical_stage = EVENT_DEFAULT_STAGE.get(event_type)
+        if event_type in DEPRECATED_EVENT_TYPE_CODES:
+            hidden_ids.add(node["id"])
+        elif canonical_stage and canonical_stage != parent_stage:
+            # A few codes (for example suspend/resume) existed under a different
+            # old category. Preserve the row but do not display it in that stale
+            # position; the canonical workflow summary below shows the new one.
+            hidden_ids.add(node["id"])
+
     changed = True
     while changed:
         changed = False
@@ -87,6 +129,40 @@ def _visible_nodes(nodes):
                 hidden_ids.add(node["id"])
                 changed = True
     return [node for node in nodes if node["id"] not in hidden_ids]
+
+
+def _workflow_settings_summary():
+    """Return the fixed Process Stage/Event Type contract shown in settings."""
+
+    result = []
+    for stage in STAGE_CHOICES:
+        event_types = []
+        for event_type, category_stage in EVENT_DEFAULT_STAGE.items():
+            if category_stage != stage.code:
+                continue
+            target = EVENT_TRANSITION_TARGETS.get(event_type)
+            event_types.append(
+                {
+                    "code": event_type,
+                    "label": _EVENT_TYPE_LABELS.get(event_type, event_type),
+                    "transition_target": target or "",
+                    "transition_label": _STAGE_LABELS.get(target, "") if target else "",
+                }
+            )
+        entry_events = [
+            _EVENT_TYPE_LABELS.get(event_type, event_type)
+            for event_type, target in EVENT_TRANSITION_TARGETS.items()
+            if target == stage.code
+        ]
+        result.append(
+            {
+                "code": stage.code,
+                "label": stage.label,
+                "event_types": event_types,
+                "entry_events": entry_events,
+            }
+        )
+    return result
 
 
 def _load_org_units(alias: str):
@@ -143,6 +219,7 @@ def settings_page(request):
         {
             "settings_tree": _build_tree(nodes),
             "settings_nodes": nodes,
+            "workflow_settings": _workflow_settings_summary(),
             "org_units": _load_org_units(alias),
             "departments": _load_departments(alias),
         },

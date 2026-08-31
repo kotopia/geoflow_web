@@ -22,6 +22,46 @@
     <a href="{% url 'tenant:myinfo_orgunit_list' %}" class="btn btn-outline-primary btn-sm">나의 기업정보로 이동</a>
   </div>
 
+  <div class="card mb-3" id="workflow-standard-settings">
+    <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+      <div>
+        <h5 class="card-title mb-1">업무 프로세스 기준</h5>
+        <div class="small text-muted">Process Stage와 표준 Event Type은 계약·프로젝트에서 동일한 기준을 사용합니다.</div>
+      </div>
+      <span class="badge bg-light text-dark border">시스템 기준</span>
+    </div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-3 row-cols-xl-6 g-2">
+        {% for stage in workflow_settings %}
+        <div class="col">
+          <div class="border rounded p-3 h-100">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <span class="badge bg-primary-subtle text-primary-emphasis">{{ forloop.counter }}</span>
+              <strong>{{ stage.label }}</strong>
+            </div>
+            {% if stage.entry_events %}
+              <div class="small text-muted mb-2">진입: {{ stage.entry_events|join:", " }}</div>
+            {% elif stage.code == 'preparation' %}
+              <div class="small text-muted mb-2">계약 생성 시 초기 단계</div>
+            {% endif %}
+            <div class="d-flex flex-column gap-1">
+              {% for event in stage.event_types %}
+                <div class="small">
+                  <span>{{ event.label }}</span>
+                  {% if event.transition_target %}<span class="badge bg-light text-dark border ms-1">→ {{ event.transition_label }}</span>{% endif %}
+                </div>
+              {% empty %}
+                <div class="small text-muted">최종 단계</div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="small text-muted mt-3">기존 계약전·검사·청구/정산 시스템 분류와 과거 이벤트 코드는 이력 호환을 위해 데이터베이스에 보존하되, 현재 업무 프로세스 설정과 신규 이벤트 선택에서는 제외합니다.</div>
+    </div>
+  </div>
+
   <div class="row g-3">
     <div class="col-lg-7">
       <div class="card h-100">
@@ -122,9 +162,9 @@ document.addEventListener('DOMContentLoaded', function () {
     else if(locked){help.textContent='시스템 기본 항목은 코드·상위분류·유형을 변경할 수 없습니다.';help.classList.remove('d-none');}
     else{help.classList.add('d-none');}
   }
-  function selectNode(node,tr){selected=node;childAdd.disabled=node.node_type==='value';tbody.querySelectorAll('tr').forEach(function(row){row.classList.remove('table-primary');});tr.classList.add('table-primary');document.getElementById('settings-form-title').textContent='환경설정 수정';document.getElementById('settings-node-id').value=node.id;document.getElementById('settings-parent-id').value=node.parent_id||'';document.getElementById('settings-code').value=node.code||'';document.getElementById('settings-name').value=node.name||'';document.getElementById('settings-node-type').value=node.node_type||'value';document.getElementById('settings-value').value=node.value||'';document.getElementById('settings-description').value=node.description||'';document.getElementById('settings-ord').value=node.ord||0;document.getElementById('settings-active').checked=!!node.active;setLocked(node);}
+  function selectNode(node,tr){selected=node;childAdd.disabled=node.node_type==='value'||!!node.immutable;tbody.querySelectorAll('tr').forEach(function(row){row.classList.remove('table-primary');});tr.classList.add('table-primary');document.getElementById('settings-form-title').textContent='환경설정 수정';document.getElementById('settings-node-id').value=node.id;document.getElementById('settings-parent-id').value=node.parent_id||'';document.getElementById('settings-code').value=node.code||'';document.getElementById('settings-name').value=node.name||'';document.getElementById('settings-node-type').value=node.node_type||'value';document.getElementById('settings-value').value=node.value||'';document.getElementById('settings-description').value=node.description||'';document.getElementById('settings-ord').value=node.ord||0;document.getElementById('settings-active').checked=!!node.active;setLocked(node);}
   function resetForm(parentId){selected=null;childAdd.disabled=true;tbody.querySelectorAll('tr').forEach(function(row){row.classList.remove('table-primary');});document.getElementById('settings-form-title').textContent=parentId?'하위 환경설정 추가':'최상위 환경설정 추가';document.getElementById('settings-node-id').value='';document.getElementById('settings-parent-id').value=parentId||'';document.getElementById('settings-code').value='';document.getElementById('settings-name').value='';document.getElementById('settings-node-type').value=parentId?'value':'group';document.getElementById('settings-value').value='';document.getElementById('settings-description').value='';document.getElementById('settings-ord').value=0;document.getElementById('settings-active').checked=true;setLocked(null);}
-  document.getElementById('btn-tree-expand').addEventListener('click',function(){collapsed.clear();refreshTreeVisibility();});document.getElementById('btn-tree-collapse').addEventListener('click',function(){nodes.forEach(function(node){if(hasChildren(node))collapsed.add(node.id);});refreshTreeVisibility();});document.getElementById('btn-root-add').addEventListener('click',function(){resetForm('');});childAdd.addEventListener('click',function(){if(selected&&selected.node_type!=='value')resetForm(selected.id);});document.getElementById('btn-form-reset').addEventListener('click',function(){resetForm('');});document.getElementById('settings-node-form').addEventListener('submit',function(){if(selected&&selected.immutable)return false;document.querySelectorAll('#settings-node-form :disabled').forEach(function(el){el.disabled=false;});});
+  document.getElementById('btn-tree-expand').addEventListener('click',function(){collapsed.clear();refreshTreeVisibility();});document.getElementById('btn-tree-collapse').addEventListener('click',function(){nodes.forEach(function(node){if(hasChildren(node))collapsed.add(node.id);});refreshTreeVisibility();});document.getElementById('btn-root-add').addEventListener('click',function(){resetForm('');});childAdd.addEventListener('click',function(){if(selected&&selected.node_type!=='value'&&!selected.immutable)resetForm(selected.id);});document.getElementById('btn-form-reset').addEventListener('click',function(){resetForm('');});document.getElementById('settings-node-form').addEventListener('submit',function(){if(selected&&selected.immutable)return false;document.querySelectorAll('#settings-node-form :disabled').forEach(function(el){el.disabled=false;});});
   appendRows('',0);refreshTreeVisibility();resetForm('');
 });
 </script>

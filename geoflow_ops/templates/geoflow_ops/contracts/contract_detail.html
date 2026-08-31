@@ -33,14 +33,18 @@
   {% if obj and not edit_mode %}
   <div class="card mb-3">
     <div class="card-body py-3">
-      <div class="d-flex align-items-center justify-content-center gap-2 gap-md-4 small" aria-label="업무 프로세스">
-        <span aria-label="1. 계약" class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
+      <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 gap-lg-3 small" aria-label="업무 프로세스">
+        <span aria-label="1. 준비" class="{% if wf.major_code == 'preparation' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준비</span>
         <span class="text-muted">→</span>
-        <span aria-label="2. 진행" class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">진행</span>
+        <span aria-label="2. 계약" class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
         <span class="text-muted">→</span>
-        <span aria-label="3. 준공" class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
+        <span aria-label="3. 착수" class="{% if wf.major_code == 'kickoff' %}text-primary fw-semibold{% else %}text-muted{% endif %}">착수</span>
         <span class="text-muted">→</span>
-        <span aria-label="4. 완료" class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
+        <span aria-label="4. 수행" class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">수행</span>
+        <span class="text-muted">→</span>
+        <span aria-label="5. 준공" class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
+        <span class="text-muted">→</span>
+        <span aria-label="6. 완료" class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
       </div>
     </div>
   </div>
@@ -173,7 +177,7 @@
                               type="button"
                               class="btn btn-sm btn-success"
                               data-bs-toggle="modal"
-                              data-bs-target="#contractCompleteModal">준공 완료</button>
+                              data-bs-target="#contractCompleteModal">준공 승인</button>
                     {% endif %}
                     <button id="btn-add-event" type="button" class="btn btn-sm btn-outline-primary">이벤트 추가</button>
                   </div>
@@ -220,7 +224,7 @@
               <div class="col-md-6"><label class="form-label">발주처 <span class="text-danger">*</span></label><select id="client" name="client" class="form-select" data-selected="{{ client_selected|default:form.client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="발주처 선택"></select></div>
               <div class="col-md-6 {% if form.kind.value != '하도급' %}d-none{% endif %}" id="sub_client_group"><label class="form-label">원도급</label><select id="sub_client" name="sub_client" class="form-select" data-selected="{{ subclient_selected|default:form.sub_client.value|default_if_none:'' }}" data-choices="true" data-choices-search-true data-placeholder="원도급 선택"></select></div>
               <div class="col-md-6"><label class="form-label">계약자</label>{{ form.org_unit }}</div>
-              <div class="col-12"><div class="alert alert-light border small mb-0">업무 프로세스는 직접 입력하지 않습니다. 이벤트의 <strong>업무단계</strong>가 계약 → 진행 → 준공을 자동 계산하고, 최종 완료는 준공 단계의 <strong>준공 완료</strong> 버튼으로 확정합니다.</div></div>
+              <div class="col-12"><div class="alert alert-light border small mb-0">업무 프로세스는 직접 입력하지 않습니다. 이벤트가 <strong>체결 → 계약</strong>, <strong>착수계 → 착수</strong>, <strong>착수승인 → 수행</strong>, <strong>준공계 → 준공</strong>, <strong>준공승인 → 완료</strong> 순서로 Process Stage를 전환합니다.</div></div>
               <hr/><h5 class="h6 card-title">기타정보</h5>
               <div class="col-md-12"><textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:'' }}</textarea></div>
             </div>
@@ -237,14 +241,14 @@
 <div class="modal fade" id="contractCompleteModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">준공 완료</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-header"><h5 class="modal-title">준공 승인</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
       <div class="modal-body">
         <div id="contract-complete-alert" class="alert alert-danger d-none"></div>
-        <div class="alert alert-light border small">이 작업은 계약의 최종 업무단계를 <strong>완료</strong>로 확정하고 타임라인에 완료 이벤트를 남깁니다. 청구·입금·미수금 등 정산 업무는 이후에도 별도로 계속 관리할 수 있습니다.</div>
-        <div class="mb-3"><label class="form-label">완료일</label><input type="date" class="form-control" id="contract-complete-date" required></div>
+        <div class="alert alert-light border small">준공 승인을 등록하면 계약의 Process Stage가 <strong>완료</strong>로 전환되고 타임라인에 준공승인 이벤트가 남습니다. 청구·입금·미수금 등 정산 업무는 Process Stage와 별도로 계속 관리할 수 있습니다.</div>
+        <div class="mb-3"><label class="form-label">승인일</label><input type="date" class="form-control" id="contract-complete-date" required></div>
         <div><label class="form-label">메모</label><textarea class="form-control" id="contract-complete-memo" rows="3" placeholder="최종 검사·인수 등 필요한 내용을 기록하세요. (선택)"></textarea></div>
       </div>
-      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button><button type="button" class="btn btn-success" id="btn-confirm-contract-complete">완료 확정</button></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button><button type="button" class="btn btn-success" id="btn-confirm-contract-complete">준공 승인</button></div>
     </div>
   </div>
 </div>
@@ -417,7 +421,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (confirmComplete) confirmComplete.addEventListener('click', function () {
       if (!completeDate || !completeDate.value) {
-        if (completeAlert) { completeAlert.textContent = '완료일을 입력하세요.'; completeAlert.classList.remove('d-none'); }
+        if (completeAlert) { completeAlert.textContent = '승인일을 입력하세요.'; completeAlert.classList.remove('d-none'); }
         return;
       }
       confirmComplete.disabled = true;
@@ -425,9 +429,9 @@ document.addEventListener("DOMContentLoaded", function () {
         scope_type: 'contract',
         scope_id: mount.getAttribute('data-scope-id'),
         stage: 'closeout',
-        event_type: 'closeout_complete',
+        event_type: 'closeout_approved',
         status: 'done',
-        title: '준공 완료',
+        title: '준공 승인',
         occurred_at: completeDate.value,
         due_at: null,
         memo: completeMemo ? completeMemo.value : '',
@@ -439,12 +443,12 @@ document.addEventListener("DOMContentLoaded", function () {
         credentials: 'same-origin',
         body: JSON.stringify(payload)
       }).then(function (response) {
-        if (!response.ok) return response.json().catch(function(){return {};}).then(function(data){ throw new Error(data.error || '완료 처리에 실패했습니다.'); });
+        if (!response.ok) return response.json().catch(function(){return {};}).then(function(data){ throw new Error(data.error || '준공 승인 처리에 실패했습니다.'); });
         return response.json();
       }).then(function () {
         window.location.reload();
       }).catch(function (error) {
-        if (completeAlert) { completeAlert.textContent = error.message || '완료 처리에 실패했습니다.'; completeAlert.classList.remove('d-none'); }
+        if (completeAlert) { completeAlert.textContent = error.message || '준공 승인 처리에 실패했습니다.'; completeAlert.classList.remove('d-none'); }
       }).finally(function () { confirmComplete.disabled = false; });
     });
   }

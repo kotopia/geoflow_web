@@ -3,84 +3,92 @@ from __future__ import annotations
 from django.db import connections
 
 from geoflow_ops.process_workflow import (
-    CONTRACT_COMPLETION_EVENT_TYPE,
     CONTRACT_LIFECYCLE_STAGE_PHASES,
+    DEPRECATED_EVENT_TYPE_CODES,
+    normalize_stage,
+    transition_stage_for_event,
 )
 
 
 _DISPLAY_MAJOR_LABELS = {
+    "preparation": "준비",
     "contract": "계약",
-    "execution": "진행",
+    "kickoff": "착수",
+    "execution": "수행",
     "closeout": "준공",
     "complete": "완료",
 }
 
-# Shared list-core compatibility tokens only. These are UI filter adapters and
-# are not Contract.status values or persisted lifecycle state.
+# Shared list-core compatibility tokens only. These are presentation/filter
+# adapters; they are not persisted workflow state.
 _LIST_FILTER_KEY_BY_MAJOR = {
+    "preparation": "planned",
     "contract": "planned",
+    "kickoff": "active",
     "execution": "active",
     "closeout": "pause",
     "complete": "complete",
 }
 
 _PHASE_RANK = {
+    "preparation": 0,
     "contract": 10,
-    "execution": 20,
-    "closeout": 30,
+    "kickoff": 20,
+    "execution": 30,
+    "closeout": 40,
+    "complete": 50,
 }
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
-    """Preserve the established stage-group helper contract for old callers."""
-    stage = str(stage or "").strip()
-    if stage in {"pre_contract", "contract"}:
-        return "contract", "계약(전)"
-    if stage in {"kickoff", "execution", "inspection"}:
-        return "execution", "수행(진행)"
-    if stage in {"closeout", "billing"}:
-        return "closeout", "준공"
-    return "execution", "수행(진행)"
+    """Return the exact six-stage process code and label."""
+
+    normalized = normalize_stage(stage) or "preparation"
+    if normalized not in CONTRACT_LIFECYCLE_STAGE_PHASES:
+        normalized = "execution"
+    return normalized, _DISPLAY_MAJOR_LABELS[normalized]
 
 
 def fallback_stage_for_contract_status(status: str | None) -> str:
     """Deprecated compatibility helper for old callers only.
 
-    Contract lifecycle rendering does not call this function. Runtime lifecycle is
-    event-only after migration 0026 converts historic completed status rows into
-    explicit closeout_complete events.
+    Runtime lifecycle rendering is event-derived. Historic completed status rows
+    were already converted to explicit completion events by migration 0026.
     """
+
     status = str(status or "").strip().lower()
     if status in {"planned", "계약전"}:
-        return "pre_contract"
+        return "preparation"
     if status in {"complete", "completed", "완료"}:
-        return "closeout"
+        return "complete"
     return "execution"
 
 
-def _stage_summary(stage: str | None, *, is_complete: bool = False) -> dict:
-    stage = str(stage or "").strip() or "contract"
-    major_code = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage, "contract")
-    if is_complete:
-        major_code = "complete"
+def _stage_summary(stage: str | None) -> dict:
+    stage = normalize_stage(stage) or "preparation"
+    major_code = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage, "preparation")
 
     phase_class = {
-        "contract": "bg-warning text-dark",
-        "execution": "bg-primary",
+        "preparation": "bg-warning text-dark",
+        "contract": "bg-primary",
+        "kickoff": "bg-info text-dark",
+        "execution": "bg-success",
         "closeout": "bg-info text-dark",
         "complete": "bg-secondary",
     }.get(major_code, "bg-light text-dark")
 
     major_event_label = {
-        "contract": "계약 생성",
-        "execution": "업무단계: 착수/수행/검사",
-        "closeout": "업무단계: 준공",
-        "complete": "완료",
+        "preparation": "계약 전 준비",
+        "contract": "계약 체결",
+        "kickoff": "착수계 제출",
+        "execution": "착수 승인",
+        "closeout": "준공계 제출",
+        "complete": "준공 승인",
     }.get(major_code, "-")
 
     return {
         "stage": stage,
-        "stage_label": major_event_label,
+        "stage_label": _DISPLAY_MAJOR_LABELS.get(major_code, major_code),
         "major_event_label": major_event_label,
         "major_code": major_code,
         "major_label": _DISPLAY_MAJOR_LABELS.get(major_code, major_code),
@@ -91,22 +99,20 @@ def _stage_summary(stage: str | None, *, is_complete: bool = False) -> dict:
 
 
 def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
-    """Derive 계약 -> 진행 -> 준공 -> 완료 entirely from event history.
+    """Derive 준비 -> 계약 -> 착수 -> 수행 -> 준공 -> 완료 from event history.
 
-    Coarse phase movement is based on the selected event *stage*, not event type:
-    - pre_contract / contract -> 계약
-    - kickoff / execution / inspection -> 진행
-    - closeout -> 준공
-    - billing -> no technical phase change
+    New workflow state advances only when a reviewed transition event occurs:
+    계약 체결 -> 계약, 착수계 -> 착수, 착수승인 -> 수행,
+    준공계 -> 준공, 준공승인 -> 완료.
 
-    Phase never regresses because the highest reached non-void phase wins.
-    Therefore stage=kickoff + event_type=etc still starts 진행, and any non-void
-    stage=closeout event enters 준공.
+    Ordinary events such as 변경, 업무보고, 용역중지/재개 and 준공검사는
+    timeline history only and never advance Process Stage. Stage never regresses;
+    the highest reached transition wins.
 
-    Final 완료 is explicit and event-only. Only a non-void closeout_complete event
-    marks the contract complete. Migration 0026 converts historic completed
-    Contract.status rows into those events and clears the migrated legacy value,
-    so this runtime service never reads or writes Contract.status.
+    Reviewed legacy transition event codes remain recognized. For other known
+    legacy system event codes only, their historical stored stage is used as a
+    compatibility fallback so deployed history does not unexpectedly regress.
+    Billing/settlement stages never advance the technical Process Stage.
     """
 
     contracts = {str(row.id): row for row in contract_rows}
@@ -114,7 +120,6 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
         return {}
 
     reached: dict[str, tuple[int, str]] = {}
-    completed_contracts: set[str] = set()
 
     with connections[alias].cursor() as cur:
         cur.execute(
@@ -127,34 +132,33 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
             [list(contracts.keys())],
         )
         for contract_id, raw_stage, raw_event_type in cur.fetchall():
-            stage = str(raw_stage or "").strip()
             event_type = str(raw_event_type or "").strip()
+            target_stage = transition_stage_for_event(event_type)
 
-            if event_type == CONTRACT_COMPLETION_EVENT_TYPE:
-                completed_contracts.add(contract_id)
+            if not target_stage and event_type in DEPRECATED_EVENT_TYPE_CODES:
+                legacy_stage = normalize_stage(raw_stage)
+                if legacy_stage in CONTRACT_LIFECYCLE_STAGE_PHASES:
+                    target_stage = legacy_stage
 
-            phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)
-            if not phase:
-                # billing and custom/unknown stages remain timeline history only.
+            if target_stage not in _PHASE_RANK:
+                # Finance, custom and ordinary non-transition events remain
+                # timeline history only.
                 continue
 
-            rank = _PHASE_RANK[phase]
+            rank = _PHASE_RANK[target_stage]
             current = reached.get(contract_id)
             if current is None or rank > current[0]:
-                reached[contract_id] = (rank, stage)
+                reached[contract_id] = (rank, target_stage)
 
     result: dict[str, dict] = {}
     for contract_id in contracts:
-        stage = reached.get(contract_id, (0, "contract"))[1]
-        result[contract_id] = _stage_summary(
-            stage,
-            is_complete=contract_id in completed_contracts,
-        )
+        stage = reached.get(contract_id, (0, "preparation"))[1]
+        result[contract_id] = _stage_summary(stage)
     return result
 
 
 def contract_workflow_summary(alias: str, contract) -> dict:
     return contract_workflow_summaries(alias, [contract]).get(
         str(contract.id),
-        _stage_summary("contract"),
+        _stage_summary("preparation"),
     )

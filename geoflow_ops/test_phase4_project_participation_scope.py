@@ -77,7 +77,14 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
 
     def test_project_detail_matches_contract_detail_adminkit_structure(self):
         detail = source("geoflow_ops/templates/geoflow_ops/projects/project_detail.html")
-        for label in ('aria-label="1. 계약"', 'aria-label="2. 진행"', 'aria-label="3. 준공"', 'aria-label="4. 완료"'):
+        for label in (
+            'aria-label="1. 준비"',
+            'aria-label="2. 계약"',
+            'aria-label="3. 착수"',
+            'aria-label="4. 수행"',
+            'aria-label="5. 준공"',
+            'aria-label="6. 완료"',
+        ):
             self.assertIn(label, detail)
         self.assertIn('class="col-md-8"', detail)
         self.assertIn('class="col-md-4"', detail)
