@@ -47,21 +47,38 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
 
     def test_completion_has_no_redundant_complete_event(self):
         self.assertEqual(transition_stage_for_event("closeout_approved"), "complete")
-        options = event_workflow_options(None)["types_by_stage"]["complete"]
-        self.assertEqual(options, [])
+        self.assertEqual(event_workflow_options(None)["types_by_stage"]["complete"], [])
 
-    def test_event_modal_has_highlight_end_and_calendar_controls(self):
+    def test_event_modal_uses_occurred_and_end_dates_only(self):
         modal = source("templates/geoflow_ops/events/_event_modal.html")
-        for token in (
-            "event-highlight-enabled", "event-highlight-days", "event-end-at",
-            "event-until-closed", "event-calendar-enabled", "캘린더에 추가",
-            "종료일 미지정", "이벤트 분류",
-        ):
-            self.assertIn(token, modal)
-        views = source("views_events.py")
-        for token in ("highlight_enabled", "highlight_days", "end_at", "until_closed", "calendar_enabled", "highlight_active"):
-            self.assertIn(token, views)
-        self.assertIn("DEFAULT_HIGHLIGHT_DAYS = 7", source("process_workflow.py"))
+        self.assertIn("event-occurred-at", modal)
+        self.assertIn("event-end-at", modal)
+        self.assertIn("캘린더에 추가", modal)
+        self.assertNotIn("완료 예정일", modal)
+        self.assertNotIn("event-due-at", modal)
+        self.assertNotIn("event-highlight-enabled", modal)
+        self.assertNotIn("event-highlight-days", modal)
+        self.assertNotIn("event-until-closed", modal)
+
+    def test_legacy_due_at_is_migrated_to_end_at(self):
+        migration = source("migrations/0028_move_due_at_to_event_end_at.py")
+        self.assertIn("to_char(due_at, 'YYYY-MM-DD')", migration)
+        self.assertIn("'end_at'", migration)
+        self.assertIn("SET due_at = NULL", migration)
+
+    def test_current_stage_badges_use_exact_event_type_labels(self):
+        workflow = source("services/workflow_state.py")
+        js = source("static/geoflow_ops/js/process-event-display-calendar.js")
+        contract_list = source("templates/geoflow_ops/contracts/contract_list.html")
+        project_list = source("templates/geoflow_ops/projects/project_list.html")
+        self.assertIn("active_event_labels", workflow)
+        self.assertIn("suspend:'중지'", js)
+        self.assertIn("resume:'재개'", js)
+        self.assertNotIn("용역 중지", js)
+        self.assertNotIn("용역 재개", js)
+        self.assertIn("wf.active_event_labels", contract_list)
+        self.assertIn("wf.active_event_labels", project_list)
+        self.assertNotIn("insertAdjacentElement('afterend'", js)
 
     def test_calendar_page_and_feed_are_wired(self):
         urls = source("urls.py")
@@ -86,10 +103,3 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
             self.assertIn(label, contract)
             self.assertIn(label, project)
-
-    def test_no_schema_migration_needed_for_display_policy(self):
-        models = source("models.py")
-        views = source("views_events.py")
-        self.assertIn("payload = models.JSONField", models)
-        self.assertIn('merged["display"]', views)
-        self.assertIn("DISPLAY_KEYS", views)
