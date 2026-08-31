@@ -69,6 +69,14 @@ def _catalog_admin_wrappers(path: Path) -> dict[str, str]:
 
 
 class CentralRouteAuthorizationContractTests(unittest.TestCase):
+    def test_join_decision_redirects_use_control_namespace(self):
+        source = (ROOT / "views_join.py").read_text(encoding="utf-8")
+        self.assertNotIn('redirect("join_requests_pending")', source)
+        self.assertGreaterEqual(
+            source.count('redirect("control:join_requests_pending")'),
+            1,
+        )
+
     def test_central_management_routes_stay_on_reviewed_handlers(self):
         routes = _route_handlers(ROOT / "urls.py")
         expected = {

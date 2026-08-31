@@ -67,7 +67,7 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
 
         response, messages, approve = self._call(services)
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.get_or_create_user_by_email.assert_not_called()
         services.create_user.assert_not_called()
         services.approve_join_request_membership.assert_not_called()
@@ -93,7 +93,7 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
             actor_user_id=actor_user_id,
         )
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.get_or_create_user_by_email.assert_not_called()
         services.create_user.assert_not_called()
         services.upsert_user_group_membership.assert_not_called()
@@ -147,7 +147,7 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
 
         response, messages, approve = self._call(services, action="reject")
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.get_or_create_user_by_email.assert_not_called()
         services.create_user.assert_not_called()
         services.upsert_user_group_membership.assert_not_called()
@@ -166,7 +166,7 @@ class JoinApprovalActiveAccountPreconditionTests(SimpleTestCase):
 
         response, messages, approve = self._call(services, action="reject")
 
-        self.assertEqual(response, "join_requests_pending")
+        self.assertEqual(response, "control:join_requests_pending")
         services.reject_join_request_if_pending.assert_not_called()
         services.upsert_user_group_membership.assert_not_called()
         services.create_set_password_token.assert_not_called()
