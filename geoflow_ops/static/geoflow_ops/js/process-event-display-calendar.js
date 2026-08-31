@@ -17,7 +17,11 @@
   function syncCalendar(){
     var calendar=byId('event-calendar-enabled'),label=byId('event-calendar-label'),button=byId('btn-event-calendar-toggle');
     if(calendar&&label&&button){
-      label.textContent=calendar.checked?'캘린더에서 제거':'캘린더에 추가';
+      var nextLabel=calendar.checked?'캘린더에서 제거':'캘린더에 추가';
+      // MutationObserver가 modal DOM 변화를 감시하므로 동일한 textContent를
+      // 매번 다시 쓰면 childList mutation이 재발생해 무한 callback loop가 된다.
+      // 실제 값이 달라질 때만 DOM을 변경한다.
+      if(label.textContent!==nextLabel)label.textContent=nextLabel;
       button.classList.toggle('btn-primary',calendar.checked);
       button.classList.toggle('btn-outline-primary',!calendar.checked);
     }
@@ -133,12 +137,16 @@
     if(note)note.textContent='업무단계는 준비 → 계약 → 착수 → 수행 → 준공 → 완료의 Process Stage와 동일합니다. 정산(선급금·기성금·준공금)은 이벤트 전용 분류이며 Process Stage를 변경하지 않습니다.';
   }
 
+  // 이벤트 모달은 필요할 때 AJAX로 mount에 삽입된다. 이 observer는 그 삽입을
+  // 감지하기 위한 것이며 syncCalendar는 DOM 값이 실제로 달라질 때만 변경한다.
+  // 따라서 modal open 시 Bootstrap/DOM mutation과 서로 재귀 호출하지 않는다.
   var observer=new MutationObserver(function(){installModalControls();});
   observer.observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded',function(){
     markProcessTimeline();
     loadCurrentStageBadges();
     fixSettingsCopy();
+    installModalControls();
     var add=byId('btn-add-event');if(add)add.addEventListener('click',function(){window.setTimeout(resetDisplay,70);window.setTimeout(resetDisplay,200);});
   });
   var attempts=0,timer=window.setInterval(function(){
