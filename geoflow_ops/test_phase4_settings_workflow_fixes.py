@@ -40,13 +40,11 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertNotIn('name="status"', detail)
         self.assertNotIn("운영상태", detail)
 
-        # Runtime completion is event-only; old completed status values are
-        # converted into closeout_complete events by migration 0026.
         runtime_body = workflow.split("def contract_workflow_summaries", 1)[1]
         self.assertNotIn('getattr(contract, "status"', runtime_body)
         self.assertNotIn("SELECT status FROM ctr.contracts", workflow)
         self.assertNotIn("UPDATE ctr.contracts", workflow)
-        self.assertIn("event-only", workflow)
+        self.assertIn("event-derived", workflow)
         self.assertIn("legacy_contract_status_migration", migration)
         self.assertIn("SET status = NULL", migration)
         self.assertIn("'closeout_complete'", migration)
@@ -73,7 +71,8 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("category.system_key IS NULL", service)
         self.assertIn("SYSTEM_REQUIRED_OPTIONS", service)
         self.assertIn('"event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES)', service)
-        self.assertIn("CONTRACT_COMPLETION_EVENT_TYPE", service)
+        self.assertIn('SYSTEM_REQUIRED_OPTIONS[f"event.type.{_stage.code}"]', service)
+        self.assertIn("DEPRECATED_EVENT_TYPE_CODES", service)
 
     def test_required_event_stages_are_immutable_in_ui_and_server(self):
         template = source("geoflow_ops/templates/geoflow_ops/settings/settings_page.html")
@@ -85,23 +84,23 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn('key == "event.stage" or key.startswith("event.stage.")', view)
         self.assertIn("필수 업무단계는 시스템 기준값으로 수정할 수 없습니다.", view)
 
-    def test_completion_event_is_hidden_from_generic_event_dropdown(self):
+    def test_canonical_transition_events_are_available_in_generic_event_dropdown(self):
+        process = source("geoflow_ops/process_workflow.py")
         service = source("geoflow_ops/services/tenant_settings.py")
-        modal = source("geoflow_ops/templates/geoflow_ops/events/_event_modal.html")
-        detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
-        self.assertIn("Final completion is recorded only through the dedicated 준공 완료", service)
-        self.assertIn("if code != CONTRACT_COMPLETION_EVENT_TYPE", service)
-        self.assertNotIn('value="closeout_complete"', modal)
-        self.assertIn("btn-contract-complete", detail)
-        self.assertIn("event_type: 'closeout_complete'", detail)
+        self.assertIn('WorkflowChoice("closeout_approved", "준공승인")', process)
+        self.assertIn("Canonical transition", service)
+        self.assertNotIn("code != CONTRACT_COMPLETION_EVENT_TYPE", service)
+        self.assertIn("code not in DEPRECATED_EVENT_TYPE_CODES", service)
 
-    def test_event_type_is_filtered_by_stage_in_ui_and_rejected_server_side(self):
+    def test_event_type_is_filtered_by_stage_and_canonicalized_server_side(self):
         event_guard = source("geoflow_ops/event_security_views.py")
         js = source("geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js")
         urls = source("geoflow_ops/urls.py")
         self.assertIn("def workflow_options", event_guard)
         self.assertIn("event_type_allowed(alias, stage, event_type)", event_guard)
         self.assertIn("event_type_allowed(alias, incoming_stage, incoming_type)", event_guard)
+        self.assertIn("_canonicalize_workflow_write", event_guard)
+        self.assertIn("normalize_event_type_for_write", event_guard)
         self.assertIn("stage_changed = incoming_stage != existing_stage", event_guard)
         self.assertIn("type_changed = incoming_type != existing_type", event_guard)
         self.assertIn("function populateEventTypes", js)
@@ -131,16 +130,19 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("계약직·일용직·파견·용역·프리랜서", template)
         self.assertIn("'일용직', '일용직'", migration)
 
-    def test_contract_list_uses_four_event_derived_lifecycle_labels(self):
+    def test_contract_list_keeps_shared_four_filter_groups_over_six_stage_workflow(self):
         base = source("geoflow_ops/templates/geoflow_ops/base_tenant.html")
         list_template = source("geoflow_ops/templates/geoflow_ops/contracts/contract_list.html")
         js = source("geoflow_ops/static/geoflow_ops/js/gf-list-core.js")
+        workflow = source("geoflow_ops/services/workflow_state.py")
         self.assertIn("GEOFLOW_TENANT_VOCABULARY", base)
         self.assertIn("data-kind-code", list_template)
         self.assertIn("contractKind", list_template)
         self.assertNotIn("운영상태", list_template)
         for token in ("planned: '계약'", "active: '진행'", "pause: '준공'", "complete: '완료'"):
             self.assertIn(token, list_template)
+        self.assertIn('"preparation": "planned"', workflow)
+        self.assertIn('"kickoff": "active"', workflow)
         self.assertIn("function canonicalStatus", js)
         self.assertIn('completed:"complete"', js)
 
