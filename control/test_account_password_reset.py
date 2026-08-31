@@ -224,4 +224,6 @@ class AccountPasswordResetRouteTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "window.location.hash")
         self.assertContains(response, "history.replaceState")
+        self.assertContains(response, '<meta name="referrer" content="same-origin">')
+        self.assertNotContains(response, '<meta name="referrer" content="no-referrer">')
         self.assertIn("no-cache", response.headers.get("Cache-Control", ""))
