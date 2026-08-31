@@ -3,7 +3,6 @@ from __future__ import annotations
 from django.db import connections
 
 from geoflow_ops.process_workflow import (
-    CONTRACT_COMPLETION_EVENT_TYPE,
     DEPRECATED_EVENT_TYPE_CODES,
     EVENT_DEFAULT_STAGE,
     EVENT_TYPE_CHOICES,
@@ -206,13 +205,13 @@ def event_workflow_options(alias: str | None):
     types_by_stage = {}
     for stage_code, _label in stages:
         options = settings_options(alias, f"event.type.{stage_code}")
-        # Retired system codes remain historical data only. Final completion is
-        # recorded through the dedicated 준공 승인 action, not the generic picker.
+        # Retired system codes remain historical data only. Canonical transition
+        # events remain selectable because creating the event is the reviewed
+        # Process Stage transition mechanism.
         options = [
             (code, label)
             for code, label in options
             if code not in DEPRECATED_EVENT_TYPE_CODES
-            and code != CONTRACT_COMPLETION_EVENT_TYPE
         ]
         types_by_stage[stage_code] = options
     return {
