@@ -1,0 +1,11 @@
+[aria-label="업무 프로세스"]{display:flex!important;align-items:flex-start!important;justify-content:stretch!important;gap:0!important;width:100%;padding:.35rem .5rem .15rem;overflow-x:auto}
+[aria-label="업무 프로세스"]>span[aria-label]{position:relative;flex:1 0 110px;text-align:center;padding-top:30px;font-size:.82rem;line-height:1.25;z-index:1}
+[aria-label="업무 프로세스"]>span[aria-label]::before{content:"";position:absolute;top:7px;left:50%;transform:translateX(-50%);width:14px;height:14px;border-radius:50%;background:var(--bs-gray-300);border:3px solid var(--bs-body-bg);box-shadow:0 0 0 2px var(--bs-gray-300);z-index:2}
+[aria-label="업무 프로세스"]>span[aria-label]::after{content:"";position:absolute;top:13px;left:calc(50% + 10px);width:calc(100% - 20px);height:2px;background:var(--bs-gray-300);z-index:0}
+[aria-label="업무 프로세스"]>span[aria-label]:last-of-type::after{display:none}
+[aria-label="업무 프로세스"]>span[aria-label].text-primary::before{background:var(--bs-primary);box-shadow:0 0 0 3px rgba(var(--bs-primary-rgb),.2)}
+[aria-label="업무 프로세스"]>span[aria-label].gf-stage-complete{color:var(--bs-success)!important;font-weight:600}
+[aria-label="업무 프로세스"]>span[aria-label].gf-stage-complete::before{background:var(--bs-success);box-shadow:0 0 0 2px var(--bs-success)}
+[aria-label="업무 프로세스"]>span[aria-label].gf-stage-complete::after{background:var(--bs-success)}
+[aria-label="업무 프로세스"]>span:not([aria-label]){display:none!important}
+@media(max-width:767.98px){[aria-label="업무 프로세스"]>span[aria-label]{flex-basis:92px;font-size:.76rem}}
