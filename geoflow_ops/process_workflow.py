@@ -59,6 +59,16 @@ LEGACY_STAGE_ALIASES = {
     "blilling": "billing",
 }
 
+# Old system stage categories can remain in tenant settings/history, but they are
+# not offered for new canonical event creation.
+DEPRECATED_STAGE_CODES = frozenset({
+    "pre_contract",
+    "inspection",
+    "billing",
+    "blilling",
+    "project",
+})
+
 # Event category stage. This is where the event belongs in the event selector;
 # it is NOT necessarily the stage reached after the event occurs.
 EVENT_DEFAULT_STAGE = {
