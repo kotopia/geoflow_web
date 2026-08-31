@@ -30,6 +30,7 @@ jobs:
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
       SMTP_USER: ${{ secrets.GEOFLOW_SMTP_USER }}
       SMTP_APP_PASSWORD: ${{ secrets.GEOFLOW_SMTP_APP_PASSWORD }}
+      SMTP_PROVIDER_HOST: smtp.gmail.com
 
     steps:
       - name: Checkout reviewed release branch
@@ -54,7 +55,7 @@ jobs:
           user = os.environ['SMTP_USER'].strip()
           password = os.environ['SMTP_APP_PASSWORD']
           try:
-              with smtplib.SMTP('smtp.naver.com', 587, timeout=20) as c:
+              with smtplib.SMTP(os.environ['SMTP_PROVIDER_HOST'], 587, timeout=20) as c:
                   c.ehlo()
                   c.starttls(context=ssl.create_default_context())
                   c.ehlo()
@@ -177,11 +178,13 @@ jobs:
               raise SystemExit(2)
 
           updates = {
-              'EMAIL_HOST': 'smtp.naver.com',
+              'USE_SMTP_EMAIL': '1',
+              'EMAIL_HOST': 'smtp.gmail.com',
               'EMAIL_PORT': '587',
               'EMAIL_USE_TLS': 'true',
               'EMAIL_HOST_USER': user,
               'EMAIL_HOST_PASSWORD': password,
+              'DEFAULT_FROM_EMAIL': user,
           }
           lines = env_path.read_text().splitlines()
           seen = set()
@@ -217,7 +220,8 @@ jobs:
           user = (values.get('EMAIL_HOST_USER') or '').strip()
           password = values.get('EMAIL_HOST_PASSWORD') or ''
           tls = str(values.get('EMAIL_USE_TLS') or '').strip().lower() in {'1','true','yes','on'}
-          if host != 'smtp.naver.com' or port != 587 or not user or not password or not tls:
+          sender = (values.get('DEFAULT_FROM_EMAIL') or '').strip().lower()
+          if host != 'smtp.gmail.com' or port != 587 or not user or not password or not tls or sender != user.lower():
               print('smtp_sync_server_config_valid=no')
               raise SystemExit(2)
           try:

@@ -325,7 +325,7 @@ jobs:
               'SIGNUP_EMAIL_VERIFICATION_OUTBOX_MAX_ATTEMPTS': '5',
               'EMAIL_TIMEOUT': '20',
               'USE_SMTP_EMAIL': '1',
-              'EMAIL_HOST': 'smtp.naver.com',
+              'EMAIL_HOST': 'smtp.gmail.com',
               'EMAIL_PORT': '587',
               'EMAIL_USE_TLS': 'true',
               'DEFAULT_FROM_EMAIL': smtp_user,

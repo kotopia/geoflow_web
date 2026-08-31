@@ -4,8 +4,11 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from control.services.signup_runtime_readiness import (
+    GMAIL_SMTP_HOST,
+    GMAIL_SMTP_PORT,
     NAVER_SMTP_HOST,
     NAVER_SMTP_PORT,
+    SUPPORTED_SMTP_HOST_PORTS,
     SMTP_BACKEND,
     signup_public_runtime_ready,
 )
@@ -54,7 +57,6 @@ class SignupPublicRuntimeReadinessTests(SimpleTestCase):
         invalid = (
             {"EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend"},
             {"EMAIL_HOST": "smtp.example.com"},
-            {"EMAIL_HOST": "smtp.gmail.com"},
             {"EMAIL_PORT": 465},
             {"EMAIL_HOST_USER": ""},
             {"EMAIL_HOST_PASSWORD": ""},
@@ -83,14 +85,41 @@ class SignupPublicRuntimeReadinessTests(SimpleTestCase):
 
 
 class SignupMailProcessorAlignmentTests(SimpleTestCase):
-    def test_runtime_provider_matches_disclosed_naver_processor(self):
+    def test_runtime_providers_include_naver_and_gmail_starttls(self):
         source = __import__(
             "inspect"
         ).getsource(signup_public_runtime_ready)
-        self.assertIn("host.lower() != NAVER_SMTP_HOST", source)
-        self.assertIn("port != NAVER_SMTP_PORT", source)
+        self.assertIn("SUPPORTED_SMTP_HOST_PORTS.get(host.lower())", source)
         self.assertEqual(NAVER_SMTP_HOST, "smtp.naver.com")
         self.assertEqual(NAVER_SMTP_PORT, 587)
+        self.assertEqual(GMAIL_SMTP_HOST, "smtp.gmail.com")
+        self.assertEqual(GMAIL_SMTP_PORT, 587)
+        self.assertEqual(
+            SUPPORTED_SMTP_HOST_PORTS,
+            {"smtp.naver.com": 587, "smtp.gmail.com": 587},
+        )
+
+    @patch("control.services.signup_runtime_readiness.load_signup_email_verification_key_ring")
+    @patch("control.services.signup_runtime_readiness.load_signup_verification_outbox_config")
+    def test_gmail_smtp_runtime_is_ready(self, outbox_config, key_ring):
+        outbox_config.return_value = SimpleNamespace(
+            verification_url="https://example.com/signup/verify/"
+        )
+        settings_obj = SimpleNamespace(
+            EMAIL_BACKEND=SMTP_BACKEND,
+            EMAIL_HOST=GMAIL_SMTP_HOST,
+            EMAIL_PORT=GMAIL_SMTP_PORT,
+            EMAIL_HOST_USER="sender@gmail.com",
+            EMAIL_HOST_PASSWORD="app-password",
+            DEFAULT_FROM_EMAIL="sender@gmail.com",
+            EMAIL_USE_TLS=True,
+            EMAIL_USE_SSL=False,
+            SITE_ORIGIN="https://example.com",
+            SIGNUP_EMAIL_VERIFICATION_ACTIVE_KEY_ID="active",
+            SIGNUP_EMAIL_VERIFICATION_HMAC_KEYS_JSON="configured",
+            ENABLE_SIGNUP_EMAIL_VERIFICATION_OUTBOX=True,
+        )
+        self.assertTrue(signup_public_runtime_ready(settings_obj=settings_obj, environ={}))
 
 
 class SignupHttpsReadinessTests(SimpleTestCase):

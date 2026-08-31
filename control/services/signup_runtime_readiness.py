@@ -14,6 +14,12 @@ from .signup_verification_service import EmailVerificationConfigurationError
 SMTP_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 NAVER_SMTP_HOST = "smtp.naver.com"
 NAVER_SMTP_PORT = 587
+GMAIL_SMTP_HOST = "smtp.gmail.com"
+GMAIL_SMTP_PORT = 587
+SUPPORTED_SMTP_HOST_PORTS = {
+    NAVER_SMTP_HOST: NAVER_SMTP_PORT,
+    GMAIL_SMTP_HOST: GMAIL_SMTP_PORT,
+}
 EXPECTED_VERIFICATION_PATH = "/signup/verify/"
 
 
@@ -101,9 +107,10 @@ def signup_public_runtime_ready(
 
     if backend != SMTP_BACKEND:
         return False
-    if host.lower() != NAVER_SMTP_HOST:
+    expected_port = SUPPORTED_SMTP_HOST_PORTS.get(host.lower())
+    if expected_port is None:
         return False
-    if isinstance(port, bool) or not isinstance(port, int) or port != NAVER_SMTP_PORT:
+    if isinstance(port, bool) or not isinstance(port, int) or port != expected_port:
         return False
     if not user or not password or not sender:
         return False

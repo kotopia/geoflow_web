@@ -92,7 +92,7 @@ jobs:
           password = str(getattr(settings, 'EMAIL_HOST_PASSWORD', '') or '')
           use_tls = bool(getattr(settings, 'EMAIL_USE_TLS', False))
 
-          if not recipient or not sender or host != 'smtp.naver.com' or port != 587 or not user or not password or not use_tls:
+          if not recipient or not sender or host not in {'smtp.naver.com', 'smtp.gmail.com'} or port != 587 or not user or not password or not use_tls:
               print('signup_recipient_probe_result=config_not_ready')
               raise SystemExit(2)
 

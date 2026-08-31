@@ -105,8 +105,9 @@ jobs:
           smtp_password = str(getattr(settings, 'EMAIL_HOST_PASSWORD', '') or '')
 
           print('signup_data_diag_sender_present=' + ('yes' if sender else 'no'))
-          print('signup_data_diag_smtp_ready=' + ('yes' if (host == 'smtp.naver.com' and port == 587 and use_tls and smtp_user and smtp_password) else 'no'))
-          if not recipient or not sender or host != 'smtp.naver.com' or port != 587 or not use_tls or not smtp_user or not smtp_password:
+          supported_host = host in {'smtp.naver.com', 'smtp.gmail.com'}
+          print('signup_data_diag_smtp_ready=' + ('yes' if (supported_host and port == 587 and use_tls and smtp_user and smtp_password) else 'no'))
+          if not recipient or not sender or not supported_host or port != 587 or not use_tls or not smtp_user or not smtp_password:
               raise SystemExit(2)
 
           subject = '[GeoFlow] SMTP 전송 진단'
