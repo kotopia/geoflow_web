@@ -1,0 +1,34 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block title %}Finance Excel 가져오기 | GeoFlow{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div><h1 class="h3 mb-1">Finance Excel 가져오기</h1><div class="text-muted">기존 세금계산서 및 입출금대장 XLSX를 GeoFlow Finance로 이관합니다.</div></div>
+  <a href="{% url 'tenant:finance_page' %}" class="btn btn-outline-secondary btn-sm">Finance로 돌아가기</a>
+</div>
+{% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card"><div class="card-header"><h5 class="card-title mb-0">XLSX 업로드</h5></div><div class="card-body">
+      <form method="post" enctype="multipart/form-data">{% csrf_token %}
+        <div class="mb-3"><label class="form-label">가져오기 유형 *</label><select name="import_type" class="form-select" required><option value="invoice">세금계산서</option><option value="transaction">입출금대장</option></select></div>
+        <div class="mb-3"><label class="form-label">Excel 파일 *</label><input type="file" name="file" class="form-control" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></div>
+        <button class="btn btn-primary" type="submit">가져오기</button>
+      </form>
+    </div></div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card mb-3"><div class="card-header"><h5 class="card-title mb-0">세금계산서 인식 헤더</h5></div><div class="card-body small">
+      <p class="mb-2">필수: <strong>구분, 거래처, 공급가액</strong></p>
+      <div class="text-muted">작성일, 발행일, 구분(매출/매입), 거래처, 계약명/계약번호, 프로젝트명/코드, 공급가액, 부가세, 합계, 계산서번호/승인번호, 상태, 비고를 자동 인식합니다.</div>
+    </div></div>
+    <div class="card"><div class="card-header"><h5 class="card-title mb-0">입출금대장 인식 헤더</h5></div><div class="card-body small">
+      <p class="mb-2">필수: <strong>거래일자, 구분, 금액</strong></p>
+      <div class="text-muted">거래일자, 구분(입금/출금), 금액, 거래처, 계좌명/계좌번호, 적요, 계약명/계약번호, 프로젝트명/코드, 분류, 증빙유형, 비고를 자동 인식합니다.</div>
+      <hr><div class="text-muted">구분·상태·분류·증빙유형은 Excel 텍스트를 하드코딩하지 않고 현재 <code>ops.settings_nodes</code>의 코드 또는 표시명과 대조합니다. 계약·거래처·프로젝트·계좌가 일치하지 않는 행은 저장하지 않고 오류로 분리합니다.</div>
+    </div></div>
+  </div>
+</div>
+{% if import_errors %}
+<div class="card mt-3"><div class="card-header"><h5 class="card-title mb-0">최근 가져오기 오류</h5></div><div class="card-body"><ol class="mb-0 small">{% for e in import_errors %}<li>{{ e }}</li>{% endfor %}</ol></div></div>
+{% endif %}
+{% endblock %}

@@ -15,7 +15,14 @@
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:project_list' %}"><i class="align-middle" data-feather="folder"></i><span class="align-middle">프로젝트</span></a></li>
 
       <li class="sidebar-header">Finance</li>
-      <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_page' %}"><i class="align-middle" data-feather="credit-card"></i><span class="align-middle">파이낸스</span></a></li>
+      <li class="sidebar-item">
+        <a data-bs-target="#finance-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="credit-card"></i><span class="align-middle">파이낸스</span></a>
+        <ul id="finance-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_page' %}">대장·현황</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_documents' %}">증빙파일</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_import' %}">Excel 가져오기</a></li>
+        </ul>
+      </li>
 
       <li class="sidebar-header">직원</li>
       <li class="sidebar-item">
