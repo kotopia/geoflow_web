@@ -1,5 +1,10 @@
 (function (window, document) {
   'use strict';
+  // base_tenant.html is the canonical loader. Guard against accidental duplicate
+  // execution so window.fetch and ProcessWorkboardUI are never wrapped twice.
+  if (window.__GEOFLOW_EVENT_DISPLAY_CALENDAR_LOADED__) return;
+  window.__GEOFLOW_EVENT_DISPLAY_CALENDAR_LOADED__ = true;
+
   var originalFetch = window.fetch.bind(window);
   var lastEditingEvent = null;
   var EVENT_LABELS = {
@@ -18,9 +23,6 @@
     var calendar=byId('event-calendar-enabled'),label=byId('event-calendar-label'),button=byId('btn-event-calendar-toggle');
     if(calendar&&label&&button){
       var nextLabel=calendar.checked?'캘린더에서 제거':'캘린더에 추가';
-      // MutationObserver가 modal DOM 변화를 감시하므로 동일한 textContent를
-      // 매번 다시 쓰면 childList mutation이 재발생해 무한 callback loop가 된다.
-      // 실제 값이 달라질 때만 DOM을 변경한다.
       if(label.textContent!==nextLabel)label.textContent=nextLabel;
       button.classList.toggle('btn-primary',calendar.checked);
       button.classList.toggle('btn-outline-primary',!calendar.checked);
@@ -30,9 +32,20 @@
     var button=byId('btn-event-calendar-toggle'),calendar=byId('event-calendar-enabled');
     if(button&&calendar&&button.dataset.gfBound!=='1'){
       button.dataset.gfBound='1';
-      button.addEventListener('click',function(){calendar.checked=!calendar.checked;syncCalendar();});
+      button.addEventListener('click',function(e){
+        e.preventDefault();
+        calendar.checked=!calendar.checked;
+        syncCalendar();
+      });
     }
     syncCalendar();
+  }
+  function scheduleModalControls(){
+    // The event modal is fetched asynchronously. Two bounded callbacks are enough
+    // for both a warm modal and its first AJAX insertion; unlike MutationObserver
+    // they cannot feed back on DOM writes or monopolize the browser main thread.
+    window.setTimeout(installModalControls,80);
+    window.setTimeout(installModalControls,240);
   }
   function fillDisplay(ev){
     installModalControls();
@@ -58,8 +71,6 @@
       body.highlight_enabled=(typeof existing.highlight_enabled==='boolean')?existing.highlight_enabled:true;
       body.highlight_days=parseInt(existing.highlight_days||'7',10)||7;
       body.until_closed=(eventType==='suspend'&&!endAt);
-      // 완료예정일(due_at)은 더 이상 사용자 데이터가 아니다. 기존 값은
-      // migration에서 종료일로 이관되고, 이후 쓰기에서는 비운다.
       body.due_at=null;
       return Object.assign({},options,{body:JSON.stringify(body)});
     }catch(e){return options;}
@@ -137,24 +148,23 @@
     if(note)note.textContent='업무단계는 준비 → 계약 → 착수 → 수행 → 준공 → 완료의 Process Stage와 동일합니다. 정산(선급금·기성금·준공금)은 이벤트 전용 분류이며 Process Stage를 변경하지 않습니다.';
   }
 
-  // 이벤트 모달은 필요할 때 AJAX로 mount에 삽입된다. 이 observer는 그 삽입을
-  // 감지하기 위한 것이며 syncCalendar는 DOM 값이 실제로 달라질 때만 변경한다.
-  // 따라서 modal open 시 Bootstrap/DOM mutation과 서로 재귀 호출하지 않는다.
-  var observer=new MutationObserver(function(){installModalControls();});
-  observer.observe(document.documentElement,{childList:true,subtree:true});
   document.addEventListener('DOMContentLoaded',function(){
     markProcessTimeline();
     loadCurrentStageBadges();
     fixSettingsCopy();
     installModalControls();
-    var add=byId('btn-add-event');if(add)add.addEventListener('click',function(){window.setTimeout(resetDisplay,70);window.setTimeout(resetDisplay,200);});
+    var add=byId('btn-add-event');
+    if(add)add.addEventListener('click',function(){scheduleModalControls();window.setTimeout(resetDisplay,90);window.setTimeout(resetDisplay,250);});
+    var timeline=byId('timelineList');
+    if(timeline)timeline.addEventListener('click',function(){scheduleModalControls();});
   });
+
   var attempts=0,timer=window.setInterval(function(){
     attempts+=1;var api=window.ProcessWorkboardUI;
     if(api&&!api.__displayCalendarWrapped){
       var create=api.openCreateModal,edit=api.openEditModal;
-      api.openCreateModal=function(){lastEditingEvent=null;var result=create.apply(api,arguments);window.setTimeout(resetDisplay,80);window.setTimeout(resetDisplay,220);return result;};
-      api.openEditModal=function(ev){lastEditingEvent=ev||null;var result=edit.apply(api,arguments);window.setTimeout(function(){fillDisplay(lastEditingEvent);},80);window.setTimeout(function(){fillDisplay(lastEditingEvent);},220);return result;};
+      api.openCreateModal=function(){lastEditingEvent=null;var result=create.apply(api,arguments);scheduleModalControls();window.setTimeout(resetDisplay,90);window.setTimeout(resetDisplay,250);return result;};
+      api.openEditModal=function(ev){lastEditingEvent=ev||null;var result=edit.apply(api,arguments);scheduleModalControls();window.setTimeout(function(){fillDisplay(lastEditingEvent);},90);window.setTimeout(function(){fillDisplay(lastEditingEvent);},250);return result;};
       api.__displayCalendarWrapped=true;window.clearInterval(timer);
     }else if(attempts>200){window.clearInterval(timer);}
   },25);
