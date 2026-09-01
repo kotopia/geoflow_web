@@ -1,8 +1,6 @@
 from django.urls import path
-from . import views
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
 from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views
-from . import temp_contract_list_api
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -42,7 +40,6 @@ urlpatterns = [
 
     path("api/projects/mine/", security_views.my_projects_api, name="my_projects_api"),
     path("api/projects/<uuid:pk>/access/", security_views.project_access_api, name="project_access_api"),
-    path("api/temp/contracts/", temp_contract_list_api.contract_list, name="temp_contract_list"),
 
     path("employees/", employee_security_views.employee_list, name="employees_list"),
     path("employees/me/", employee_security_views.employee_me, name="employees_me"),
