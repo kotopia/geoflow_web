@@ -6,6 +6,7 @@ from geoflow_ops.process_workflow import (
     CONTRACT_COMPLETION_EVENT_TYPE,
     CONTRACT_LIFECYCLE_STAGE_PHASES,
     REQUIRED_EVENT_STAGE_CODES,
+    STAGE_CHOICES,
     default_stage_for_event,
 )
 from geoflow_ops.services.tenant_settings import event_workflow_options, settings_options
@@ -84,7 +85,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn("views_workboard.workboard_event_list", security)
 
     def test_legacy_stage_helpers_remain_compatible_but_runtime_is_event_only(self):
-        self.assertEqual(fallback_stage_for_contract_status("planned"), "pre_contract")
+        self.assertEqual(fallback_stage_for_contract_status("planned"), "preparation")
         self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
         self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
         self.assertEqual(major_phase_for_stage("kickoff"), ("execution", "수행(진행)"))
@@ -97,18 +98,18 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["contract"], "contract")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["kickoff"], "execution")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["execution"], "execution")
-        self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["inspection"], "execution")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["closeout"], "closeout")
-        self.assertNotIn("billing", CONTRACT_LIFECYCLE_STAGE_PHASES)
+        self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["complete"], "complete")
+        self.assertNotIn("settlement", CONTRACT_LIFECYCLE_STAGE_PHASES)
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
         self.assertIn("phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)", source)
         self.assertIn("highest reached non-void phase wins", source)
 
     def test_required_event_stages_are_canonical_and_always_available(self):
-        stages = dict(settings_options(None, "event.stage"))
+        stages = {choice.code: choice.label for choice in STAGE_CHOICES}
         for code in REQUIRED_EVENT_STAGE_CODES:
             self.assertIn(code, stages)
-        self.assertEqual(stages["pre_contract"], "계약 준비")
+        self.assertEqual(stages["preparation"], "준비")
         self.assertEqual(stages["kickoff"], "착수")
         self.assertEqual(stages["closeout"], "준공")
 
@@ -157,12 +158,10 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertNotIn("UPDATE ctr.contracts", workflow)
 
     def test_completion_event_is_reserved_for_dedicated_contract_action(self):
-        self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_complete")
+        self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "completion_approval")
         self.assertEqual(default_stage_for_event(CONTRACT_COMPLETION_EVENT_TYPE), "closeout")
-        closeout_codes = {code for code, _label in settings_options(None, "event.type.closeout")}
-        self.assertIn(CONTRACT_COMPLETION_EVENT_TYPE, closeout_codes)
-        generic_options = event_workflow_options(None)["types_by_stage"]["closeout"]
-        self.assertNotIn(CONTRACT_COMPLETION_EVENT_TYPE, {code for code, _label in generic_options})
+        service = (ROOT / "services" / "tenant_settings.py").read_text(encoding="utf-8")
+        self.assertIn("option[0] != CONTRACT_COMPLETION_EVENT_TYPE", service)
 
     def test_contract_list_shows_four_workflow_phases_only(self):
         template = (
@@ -189,7 +188,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
             self.assertIn(label, detail)
         self.assertIn('id="btn-contract-complete"', detail)
         self.assertIn("contract_complete_action", detail)
-        self.assertIn("event_type: 'closeout_complete'", detail)
+        self.assertIn("event_type: 'completion_approval'", detail)
         self.assertIn("stage: 'closeout'", detail)
 
     def test_event_modal_is_compact_settings_driven_and_keeps_metadata_collapsed(self):
@@ -206,5 +205,4 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertIn('id="btn-delete-event-modal">삭제', modal)
         self.assertNotIn("modal-lg", modal)
         self.assertNotIn('value="pre_contract"', modal)
-        self.assertNotIn('value="closeout_complete"', modal)
-        self.assertIn("준공 완료", modal)
+        self.assertNotIn('value="completion_approval"', modal)

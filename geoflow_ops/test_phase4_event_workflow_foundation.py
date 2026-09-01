@@ -16,15 +16,15 @@ ROOT = Path(__file__).resolve().parent
 class Phase4EventWorkflowVocabularyTests(SimpleTestCase):
     def test_known_legacy_stage_aliases_are_normalized(self):
         self.assertEqual(normalize_stage("project"), "execution")
-        self.assertEqual(normalize_stage("blilling"), "billing")
+        self.assertEqual(normalize_stage("blilling"), "settlement")
 
     def test_unknown_legacy_stage_is_preserved(self):
         self.assertEqual(normalize_stage("customer_custom_stage"), "customer_custom_stage")
 
     def test_new_event_types_have_expected_default_stages(self):
         self.assertEqual(default_stage_for_event("kickoff_doc"), "kickoff")
-        self.assertEqual(default_stage_for_event("inspection_request"), "inspection")
-        self.assertEqual(default_stage_for_event("tax_invoice"), "billing")
+        self.assertEqual(default_stage_for_event("completion_inspection"), "closeout")
+        self.assertEqual(default_stage_for_event("final_payment"), "settlement")
 
     def test_project_scope_uses_project_permission_vocabulary(self):
         self.assertEqual(SCOPE_PERMISSIONS["project"]["read"], "projects.view")

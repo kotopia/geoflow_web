@@ -66,7 +66,7 @@ class Phase4TaskMigrationContractTests(SimpleTestCase):
         self.assertIn('gf_has_perm(request, "directory.view")', source)
         self.assertIn("qs.exclude(status__in=", source)
         self.assertIn("def _terminal_contract_ids", source)
-        self.assertIn("event_type IN ('closeout_complete', 'contract_cancel')", source)
+        self.assertIn("event_type IN ('completion_approval', 'contract_cancel')", source)
         self.assertIn("exclude(contract_id__in=terminal_contract_ids)", source)
         self.assertNotIn("FROM ctr.contracts", source.split("def _terminal_contract_ids", 1)[1].split("def _task_rows", 1)[0])
         self.assertNotIn("exclude(contract__status__in=terminal)", source)

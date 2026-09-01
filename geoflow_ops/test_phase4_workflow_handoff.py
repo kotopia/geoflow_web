@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent
 
 class ContractWorkflowPhaseTests(SimpleTestCase):
     def test_major_contract_flow_groups_detail_stages_without_replacing_them(self):
-        self.assertEqual(major_phase_for_stage("pre_contract"), ("contract", "계약(전)"))
+        self.assertEqual(major_phase_for_stage("preparation"), ("contract", "계약(전)"))
         self.assertEqual(major_phase_for_stage("contract"), ("contract", "계약(전)"))
         self.assertEqual(major_phase_for_stage("kickoff"), ("execution", "수행(진행)"))
         self.assertEqual(major_phase_for_stage("execution"), ("execution", "수행(진행)"))
@@ -24,7 +24,7 @@ class ContractWorkflowPhaseTests(SimpleTestCase):
         self.assertEqual(major_phase_for_stage("billing"), ("closeout", "준공"))
 
     def test_contract_status_is_legacy_fallback_not_workflow_source_of_truth(self):
-        self.assertEqual(fallback_stage_for_contract_status("planned"), "pre_contract")
+        self.assertEqual(fallback_stage_for_contract_status("planned"), "preparation")
         self.assertEqual(fallback_stage_for_contract_status("complete"), "closeout")
         self.assertEqual(fallback_stage_for_contract_status("active"), "execution")
 
@@ -54,7 +54,7 @@ class SharedEventHandoffContractTests(SimpleTestCase):
         self.assertIn("_create_inspection_handoff_event", source)
         self.assertIn('"handoff": "business_to_management"', source)
         self.assertIn("route_project_inspection_request_to_management", source)
-        self.assertIn('event_type="inspection_request"', source)
+        self.assertIn('event_type="completion_inspection"', source)
 
     def test_department_routing_is_scoped_to_contract_company(self):
         source = (ROOT / "services" / "department_routing.py").read_text(encoding="utf-8")
