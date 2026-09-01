@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
-from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views, finance_import_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views, finance_import_views, finance_attachment_views, finance_documents_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -26,6 +26,10 @@ urlpatterns = [
 
     path("finance/", finance_security_views.finance_page, name="finance_page"),
     path("finance/import/", finance_import_views.finance_import, name="finance_import"),
+    path("finance/documents/", finance_documents_views.finance_documents, name="finance_documents"),
+    path("finance/attachments/presign/", finance_attachment_views.finance_attachment_presign, name="finance_attachment_presign"),
+    path("finance/attachments/commit/", finance_attachment_views.finance_attachment_commit, name="finance_attachment_commit"),
+    path("finance/attachments/<str:record_type>/<uuid:record_id>/download/", finance_attachment_views.finance_attachment_download, name="finance_attachment_download"),
     path("finance/claims/save/", finance_security_views.claim_save, name="finance_claim_save"),
     path("finance/invoices/save/", finance_security_views.invoice_save, name="finance_invoice_save"),
     path("finance/payment-requests/save/", finance_security_views.payment_request_save, name="finance_payment_request_save"),
