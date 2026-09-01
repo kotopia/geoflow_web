@@ -104,8 +104,14 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
             self.assertIn(label, contract)
             self.assertIn(label, project)
 
-    def test_modal_calendar_sync_does_not_retrigger_mutation_observer_forever(self):
+    def test_event_modal_binding_has_no_document_wide_mutation_observer(self):
         js = source("static/geoflow_ops/js/process-event-display-calendar.js")
-        self.assertIn("var nextLabel=calendar.checked?", js)
+        self.assertNotIn("new MutationObserver", js)
+        self.assertNotIn("observer.observe", js)
+        self.assertIn("scheduleModalControls", js)
+        self.assertIn("__GEOFLOW_EVENT_DISPLAY_CALENDAR_LOADED__", js)
         self.assertIn("if(label.textContent!==nextLabel)label.textContent=nextLabel;", js)
-        self.assertNotIn("label.textContent=calendar.checked?'캘린더에서 제거':'캘린더에 추가';", js)
+
+    def test_event_display_script_is_cache_busted_after_freeze_fix(self):
+        base = source("templates/geoflow_ops/base_tenant.html")
+        self.assertIn("process-event-display-calendar.js' %}?v=20260901-2", base)
