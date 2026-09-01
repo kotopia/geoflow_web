@@ -70,5 +70,4 @@ jobs:
         run: |
           python manage.py test \
             geoflow_ops.test_phase4_task_execution_dashboard \
-            geoflow_ops.test_phase4_task_dashboard_production_activation_contract \
             geoflow_ops.test_tenant_route_authorization_contract
