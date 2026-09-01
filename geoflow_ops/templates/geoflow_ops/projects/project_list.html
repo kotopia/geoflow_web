@@ -47,6 +47,7 @@
         </thead>
         <tbody>
           {% for p in projects %}
+          {# p.contract_workflow remains the server-derived linked-contract lifecycle source; the tag augments it with legacy-aware active event badges. #}
           {% contract_workflow p.contract as wf %}
           <tr data-id="{{ p.pk }}"
               data-status="{{ wf.filter_key }}"
