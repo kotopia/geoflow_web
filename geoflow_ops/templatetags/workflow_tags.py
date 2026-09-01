@@ -4,6 +4,7 @@ from django import template
 from django.db import connections
 
 from control.middleware import current_db_alias
+from geoflow_ops.services.active_event_badges import active_event_labels_for_contracts
 from geoflow_ops.services.contract_access import (
     access_request_state,
     can_approve_contract_document_access,
@@ -13,22 +14,31 @@ from geoflow_ops.services.workflow_state import contract_workflow_summaries
 register = template.Library()
 
 
+def _workflow_rows_from_context(context, contract):
+    rows = context.get("contracts")
+    if rows is not None:
+        return list(rows)
+    projects = context.get("projects")
+    if projects is not None:
+        return [p.contract for p in list(projects) if getattr(p, "contract", None)]
+    return [contract]
+
+
 @register.simple_tag(takes_context=True)
 def contract_workflow(context, contract):
     request = context.get("request")
     alias = current_db_alias()
     if not request or not alias or not contract:
-        return {"major_label": "-", "stage_label": "-", "major_code": "", "stage": ""}
+        return {"major_label": "-", "stage_label": "-", "major_code": "", "stage": "", "active_event_labels": []}
     cache = getattr(request, "_gf_contract_workflow_cache", None)
     if cache is None:
-        rows = context.get("contracts")
-        if rows is None:
-            rows = [contract]
-        else:
-            rows = list(rows)
+        rows = _workflow_rows_from_context(context, contract)
         cache = contract_workflow_summaries(alias, rows)
+        active_labels = active_event_labels_for_contracts(alias, [row.id for row in rows])
+        for contract_id, summary in cache.items():
+            summary["active_event_labels"] = active_labels.get(str(contract_id), summary.get("active_event_labels", []))
         request._gf_contract_workflow_cache = cache
-    return cache.get(str(contract.id), {"major_label": "-", "stage_label": "-", "major_code": "", "stage": ""})
+    return cache.get(str(contract.id), {"major_label": "-", "stage_label": "-", "major_code": "", "stage": "", "active_event_labels": []})
 
 
 @register.simple_tag(takes_context=True)

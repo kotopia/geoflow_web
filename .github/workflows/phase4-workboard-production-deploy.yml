@@ -10,9 +10,15 @@ on:
       - geoflow_ops/event_security_views.py
       - geoflow_ops/upload_guard_views.py
       - geoflow_ops/urls.py
+      - geoflow_ops/templatetags/workflow_tags.py
+      - geoflow_ops/services/active_event_badges.py
+      - geoflow_ops/templates/geoflow_ops/base_tenant.html
+      - geoflow_ops/templates/geoflow_ops/contracts/contract_list.html
+      - geoflow_ops/templates/geoflow_ops/projects/project_list.html
       - geoflow_ops/templates/geoflow_ops/events/_event_modal.html
       - geoflow_ops/templates/geoflow_ops/projects/project_detail.html
       - geoflow_ops/templates/geoflow_ops/projects/project_summary.html
+      - geoflow_ops/static/geoflow_ops/js/project-contract-card-parity.js
       - geoflow_ops/static/geoflow_ops/js/process-events-ui.js
       - geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
   workflow_dispatch:
