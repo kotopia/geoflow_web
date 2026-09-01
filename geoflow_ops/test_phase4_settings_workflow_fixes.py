@@ -62,10 +62,13 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("data-workflow-options-url", detail)
         for key in ("contract.kind", "event.stage", "employee.position_grade", "employee.position_title"):
             self.assertIn(key, migration)
+        self.assertIn("'event.type'", migration)
+        self.assertNotIn("workflow.stage.settlement", migration)
+        self.assertIn("workflow.event_group.settlement", migration)
         self.assertIn("def event_workflow_options", service)
         self.assertIn("def event_type_allowed", service)
         self.assertIn("category.field_ref = %s", service)
-        self.assertIn("event_type.parent_id = stage.id", service)
+        self.assertIn("event_type.parent_id = event_group.id", service)
         self.assertNotIn("SYSTEM_REQUIRED_OPTIONS", service)
         self.assertIn("CONTRACT_COMPLETION_EVENT_TYPE", service)
 
@@ -78,6 +81,8 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("def _is_immutable_event_stage", view)
         self.assertIn('key.startswith("workflow.stage.")', view)
         self.assertIn("필수 업무단계는 시스템 기준값으로 수정할 수 없습니다.", view)
+        self.assertIn('"workflow.event_group.complete"', view)
+        self.assertIn("workflow.event_group.complete", template)
 
     def test_completion_event_is_hidden_from_generic_event_dropdown(self):
         service = source("geoflow_ops/services/tenant_settings.py")

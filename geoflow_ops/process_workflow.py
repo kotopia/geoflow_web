@@ -17,7 +17,6 @@ STAGE_CHOICES = (
     WorkflowChoice("execution", "수행"),
     WorkflowChoice("closeout", "준공"),
     WorkflowChoice("complete", "완료"),
-    WorkflowChoice("settlement", "정산"),
 )
 
 EVENT_TYPE_CHOICES = (
@@ -40,7 +39,7 @@ STATUS_CHOICES = (
 
 LEGACY_STAGE_ALIASES = {
     "pre_contract": "preparation", "project": "execution",
-    "inspection": "closeout", "billing": "settlement", "blilling": "settlement",
+    "inspection": "closeout", "billing": "complete", "blilling": "complete",
 }
 
 EVENT_DEFAULT_STAGE = {
@@ -49,8 +48,7 @@ EVENT_DEFAULT_STAGE = {
     "kickoff_doc": "kickoff", "kickoff_meeting": "kickoff", "kickoff_approval": "kickoff",
     "work_report": "execution", "suspend": "execution", "resume": "execution",
     "completion_doc": "closeout", "completion_inspection": "closeout",
-    "completion_approval": "closeout", "advance_payment": "settlement",
-    "progress_payment": "settlement", "final_payment": "settlement",
+    "completion_approval": "closeout",
 }
 
 CONTRACT_LIFECYCLE_STAGE_PHASES = {

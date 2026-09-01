@@ -70,11 +70,11 @@ def _event_types(alias: str, stage_code: str, *, include_inactive: bool = False)
             """
             SELECT event_type.code, event_type.name
               FROM ops.settings_nodes category
-              JOIN ops.settings_nodes stage ON stage.parent_id = category.id
-              JOIN ops.settings_nodes event_type ON event_type.parent_id = stage.id
-             WHERE category.field_ref = 'event.stage'
-               AND stage.code = %s
-               AND category.active = true AND stage.active = true
+              JOIN ops.settings_nodes event_group ON event_group.parent_id = category.id
+              JOIN ops.settings_nodes event_type ON event_type.parent_id = event_group.id
+             WHERE category.field_ref = 'event.type'
+               AND event_group.code IN (%s, 'settlement')
+               AND category.active = true AND event_group.active = true
                AND (%s OR event_type.active = true)
              ORDER BY event_type.ord, event_type.name, event_type.id
             """,

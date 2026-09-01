@@ -22,6 +22,13 @@ def _is_immutable_event_stage(system_key: object) -> bool:
     return key.startswith("workflow.stage.")
 
 
+def _rejects_child_event_type(system_key: object) -> bool:
+    return str(system_key or "").strip() in {
+        "workflow.stage.complete",
+        "workflow.event_group.complete",
+    }
+
+
 def _uuid_or_none(value):
     if value in (None, ""):
         return None
@@ -166,7 +173,7 @@ def settings_node_save(request):
                 parent = cur.fetchone()
                 if not parent:
                     return HttpResponseBadRequest("상위 환경설정 항목을 찾을 수 없습니다.")
-                if parent[1] == "workflow.stage.complete" and not node_id:
+                if _rejects_child_event_type(parent[1]) and not node_id:
                     return HttpResponseBadRequest("완료 단계에는 업무유형을 추가할 수 없습니다.")
 
             if node_id:

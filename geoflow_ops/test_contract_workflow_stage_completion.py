@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from geoflow_ops.process_workflow import (
     CONTRACT_COMPLETION_EVENT_TYPE,
     CONTRACT_LIFECYCLE_STAGE_PHASES,
+    REQUIRED_EVENT_STAGE_CODES,
 )
 
 
@@ -19,6 +20,7 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["closeout"], "closeout")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["complete"], "complete")
         self.assertNotIn("settlement", CONTRACT_LIFECYCLE_STAGE_PHASES)
+        self.assertNotIn("settlement", REQUIRED_EVENT_STAGE_CODES)
 
     def test_event_type_does_not_drive_progress_or_closeout(self):
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
