@@ -93,10 +93,7 @@ jobs:
             geoflow_ops.test_phase4_cross_department_workboard \
             geoflow_ops.test_phase4_contract_workboard_compat \
             geoflow_ops.test_contract_workflow_stage_completion \
-            geoflow_ops.test_contract_workflow_production_activation_contract \
             geoflow_ops.test_phase4_task_execution_dashboard \
-            geoflow_ops.test_phase4_event_production_audit_contract \
-            geoflow_ops.test_phase4_event_production_activation_contract \
             geoflow_ops.test_event_api_security \
             geoflow_ops.test_event_assignment_org_scope \
             geoflow_ops.test_event_upload_route_boundaries

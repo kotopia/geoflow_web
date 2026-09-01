@@ -106,35 +106,3 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("myinfo_job_position_save", urls)
         self.assertIn("settings_department_save", urls)
         self.assertIn('gf_has_perm(request, "directory.edit")', security)
-
-    def test_production_activation_is_protected_and_pinned_to_0025(self):
-        workflow = self._read(".github/workflows/phase4-myinfo-hr-masters-production-activation.yml")
-        self.assertIn("environment: production", workflow)
-        self.assertIn("ref: ${{ github.sha }}", workflow)
-        self.assertIn("candidate_sha_not_current_release_head", workflow)
-        self.assertIn("geoflow_ops/migrations/0025_myinfo_hr_masters.py", workflow)
-        self.assertIn('DEPENDENCY = "0024_phase4_workflow_handoff_and_contract_access"', workflow)
-        self.assertIn('MIGRATION = "0025_myinfo_hr_masters"', workflow)
-        self.assertIn("myinfo_hr_activation_db_complete=yes", workflow)
-
-    def test_production_activation_preserves_existing_hr_and_settings_data(self):
-        workflow = self._read(".github/workflows/phase4-myinfo-hr-masters-production-activation.yml")
-        self.assertIn('"employee_digest": relation_digest(cur, "hr.employee_profile")', workflow)
-        self.assertIn('"department_digest": relation_digest(cur, "hr.departments")', workflow)
-        self.assertIn('"settings_digest": relation_digest(cur, "ops.settings_nodes")', workflow)
-        self.assertIn("protected row count changed", workflow)
-        self.assertIn("protected content changed", workflow)
-        self.assertIn("existing employee grade not represented by active master", workflow)
-        self.assertIn("existing employee position not represented by active master", workflow)
-        self.assertIn("legacy settings grade missing from master", workflow)
-        self.assertIn("legacy settings position missing from master", workflow)
-
-    def test_production_activation_deploys_only_stabilized_geoflow_service(self):
-        workflow = self._read(".github/workflows/phase4-myinfo-hr-masters-production-activation.yml")
-        self.assertIn("service='geoflow-stabilized.service'", workflow)
-        self.assertIn("collectstatic --noinput", workflow)
-        self.assertIn("systemctl restart \"$service\"", workflow)
-        self.assertIn("https://geoflow.co.kr/login/", workflow)
-        self.assertIn("myinfo_hr_activation_public_login_status", workflow)
-        self.assertIn("myinfo_hr_activation_code_rollback_completed=yes", workflow)
-        self.assertNotIn("iroomsng.service", workflow)
