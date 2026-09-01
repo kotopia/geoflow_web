@@ -28,7 +28,7 @@
     </div></div>
   </div>
 </div>
-{% if request.session.finance_import_errors %}
-<div class="card mt-3"><div class="card-header"><h5 class="card-title mb-0">최근 가져오기 오류</h5></div><div class="card-body"><ol class="mb-0 small">{% for e in request.session.finance_import_errors %}<li>{{ e }}</li>{% endfor %}</ol></div></div>
+{% if import_errors %}
+<div class="card mt-3"><div class="card-header"><h5 class="card-title mb-0">최근 가져오기 오류</h5></div><div class="card-body"><ol class="mb-0 small">{% for e in import_errors %}<li>{{ e }}</li>{% endfor %}</ol></div></div>
 {% endif %}
 {% endblock %}
