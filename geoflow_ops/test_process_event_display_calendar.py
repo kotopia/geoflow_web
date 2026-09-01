@@ -25,10 +25,10 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
             ("closeout", "준공"), ("complete", "완료"),
         ]
         self.assertEqual([(x.code, x.label) for x in STAGE_CHOICES], expected)
-        self.assertEqual(list(settings_options(None, "event.stage")), expected)
+        self.assertEqual(list(settings_options(None, "event.stage")), [])
         settings_view = source("views_settings.py")
-        self.assertIn("_ensure_canonical_stage_nodes", settings_view)
-        self.assertIn("GeoFlow 필수 Process Stage", settings_view)
+        self.assertIn('key.startswith("workflow.stage.")', settings_view)
+        self.assertIn("field_ref", settings_view)
 
     def test_settlement_is_event_only_and_never_process_transition(self):
         self.assertEqual(EVENT_DEFAULT_STAGE["advance_payment"], "settlement")
@@ -38,16 +38,17 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         self.assertIsNone(transition_stage_for_event("progress_payment"))
         self.assertIsNone(transition_stage_for_event("final_payment"))
         self.assertNotIn("settlement", EVENT_TRANSITION_TARGETS.values())
-        options = event_workflow_options(None)
-        self.assertIn(("settlement", "정산"), options["stages"])
-        self.assertEqual(dict(options["types_by_stage"]["settlement"]), {
-            "advance_payment": "선급금", "progress_payment": "기성금", "final_payment": "준공금",
-        })
-        self.assertNotIn(("settlement", "정산"), options["process_stages"])
+        migration = source("migrations/0029_unified_settings_registry.py")
+        self.assertNotIn("workflow.stage.settlement", migration)
+        self.assertIn("workflow.event_group.settlement", migration)
+        for label in ("선급금", "기성금", "준공금"):
+            self.assertIn(label, migration)
 
     def test_completion_has_no_redundant_complete_event(self):
         self.assertEqual(transition_stage_for_event("closeout_approved"), "complete")
-        self.assertEqual(event_workflow_options(None)["types_by_stage"]["complete"], [])
+        migration = source("migrations/0029_unified_settings_registry.py")
+        self.assertIn("workflow.event_group.complete", migration)
+        self.assertNotIn("('workflow.event_group.complete',", migration)
 
     def test_event_modal_uses_occurred_and_end_dates_only(self):
         modal = source("templates/geoflow_ops/events/_event_modal.html")

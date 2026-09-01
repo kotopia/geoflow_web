@@ -2,12 +2,9 @@ from __future__ import annotations
 from django import forms
 from .models import Contract, Partner, Project, MyOrgUnit
 from control.middleware import current_db_alias
-from .services.tenant_settings import (
-    CONTRACT_KIND_FALLBACK,
-    settings_options,
-)
+from .services.tenant_settings import settings_options
 
-KIND_CHOICES = list(CONTRACT_KIND_FALLBACK)
+KIND_CHOICES = []
 
 
 class ISODateInput(forms.DateInput):

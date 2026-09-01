@@ -3,45 +3,45 @@ from __future__ import annotations
 from django.db import connections
 
 
-MASTER_TABLES = {
-    "position_grade": "hr.job_grades",
-    "position_title": "hr.job_positions",
+MASTER_FIELD_REFS = {
+    "position_grade": "employee.position_grade",
+    "position_title": "employee.position_title",
 }
 
 
 def master_table_exists(alias: str, category: str) -> bool:
-    relation = MASTER_TABLES.get(category)
-    if not relation:
+    field_ref = MASTER_FIELD_REFS.get(category)
+    if not field_ref:
         return False
     with connections[alias].cursor() as cur:
-        cur.execute("SELECT to_regclass(%s) IS NOT NULL", [relation])
-        row = cur.fetchone()
-    return bool(row and row[0])
+        cur.execute("SELECT 1 FROM ops.settings_nodes WHERE field_ref=%s LIMIT 1", [field_ref])
+        return cur.fetchone() is not None
 
 
 def list_master_options(alias: str, category: str, *, active_only: bool = True):
-    relation = MASTER_TABLES.get(category)
-    if not relation:
+    field_ref = MASTER_FIELD_REFS.get(category)
+    if not field_ref:
         return []
-    where = "WHERE active = true" if active_only else ""
     with connections[alias].cursor() as cur:
         cur.execute(
-            f"""
-            SELECT id::text, code, name, ord, active, system_default
-              FROM {relation}
-              {where}
-             ORDER BY ord, name, code
             """
+            SELECT child.id::text, child.name, child.ord, child.active, child.locked
+              FROM ops.settings_nodes category
+              JOIN ops.settings_nodes child ON child.parent_id=category.id
+             WHERE category.field_ref=%s AND (%s=false OR child.active=true)
+             ORDER BY child.ord, child.name, child.id
+            """,
+            [field_ref, active_only],
         )
         rows = cur.fetchall()
     return [
         {
             "id": row[0],
-            "code": row[1] or "",
-            "name": row[2] or "",
-            "ord": row[3] or 0,
-            "active": bool(row[4]),
-            "system_default": bool(row[5]),
+            "code": "",
+            "name": row[1] or "",
+            "ord": row[2] or 0,
+            "active": bool(row[3]),
+            "system_default": bool(row[4]),
         }
         for row in rows
     ]

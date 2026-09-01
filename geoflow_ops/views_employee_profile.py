@@ -17,7 +17,6 @@ from .services.entity_access import require_tenant_context
 from .services.s3_service import generate_presigned_get_url
 from .services.tenant_settings import settings_options
 from .views_employees import (
-    HR_LOCAL_OPTIONS,
     _get_employee_roles_for_central,
     _load_departments,
     _load_managers,
@@ -30,11 +29,11 @@ from .views_employees import (
 logger = logging.getLogger(__name__)
 
 OPTION_SYSTEM_KEYS = {
-    "position_grade": "hr.position_grade",
-    "position_title": "hr.position_title",
-    "employment_type": "hr.employment_type",
-    "status": "hr.status",
-    "technical_grade": "hr.technical_grade",
+    "position_grade": "employee.position_grade",
+    "position_title": "employee.position_title",
+    "employment_type": "employee.employment_type",
+    "status": "employee.status",
+    "technical_grade": "employee.technical_grade",
 }
 
 
@@ -46,33 +45,18 @@ def _table_exists(alias: str, relation: str) -> bool:
 
 
 def _settings_options(alias: str, category: str):
-    system_key = OPTION_SYSTEM_KEYS.get(category)
-    if system_key and _table_exists(alias, "ops.settings_nodes"):
-        with connections[alias].cursor() as cur:
-            cur.execute(
-                """
-                SELECT child.code, child.name, child.ord
-                  FROM ops.settings_nodes category
-                  JOIN ops.settings_nodes child ON child.parent_id = category.id
-                 WHERE category.system_key = %s
-                   AND category.active = true
-                   AND child.active = true
-                 ORDER BY child.ord, child.name, child.code
-                """,
-                [system_key],
-            )
-            rows = cur.fetchall()
-        if rows:
-            return [
-                {"code": row[0] or "", "name": row[1] or row[0] or "", "ord": row[2] or 0}
-                for row in rows
-            ]
-    return sorted(HR_LOCAL_OPTIONS.get(category, []), key=lambda item: item.get("ord", 9999))
+    field_ref = OPTION_SYSTEM_KEYS.get(category)
+    if not field_ref:
+        return []
+    return [
+        {"code": code, "name": label, "ord": index * 10}
+        for index, (code, label) in enumerate(settings_options(alias, field_ref), start=1)
+    ]
 
 
 def _employment_status_options(alias: str, current_statuses=()):
-    configured = settings_options(alias, "hr.status")
-    all_configured = settings_options(alias, "hr.status", include_inactive=True)
+    configured = settings_options(alias, "employee.status")
+    all_configured = settings_options(alias, "employee.status", include_inactive=True)
     if configured:
         options = [
             {"code": code, "name": label, "ord": index * 10}
@@ -92,7 +76,7 @@ def _employment_status_options(alias: str, current_statuses=()):
 
 def _retired_status_codes(alias: str) -> list[str]:
     retired_labels = {"퇴사", "퇴직"}
-    configured = settings_options(alias, "hr.status", include_inactive=True)
+    configured = settings_options(alias, "employee.status", include_inactive=True)
     items = (
         [{"code": code, "name": label} for code, label in configured]
         if configured

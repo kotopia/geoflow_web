@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from uuid import UUID, NAMESPACE_URL, uuid4, uuid5
+from uuid import UUID, uuid4
 
 from django.contrib import messages
 from django.db import connections, transaction
@@ -10,10 +10,8 @@ from django.shortcuts import redirect, render
 
 from .process_workflow import (
     DEPRECATED_EVENT_TYPE_CODES,
-    EVENT_CATEGORY_CHOICES,
     EVENT_DEFAULT_STAGE,
     EVENT_TRANSITION_TARGETS,
-    EVENT_TYPE_CHOICES,
     STAGE_CHOICES,
 )
 from .services.entity_access import require_tenant_context
@@ -22,8 +20,6 @@ from .services.entity_access import require_tenant_context
 NODE_TYPES = {"group", "category", "value"}
 HIDDEN_SETTINGS_SYSTEM_KEYS = {
     "contract.status",
-    "hr.position_grade",
-    "hr.position_title",
     "event.stage.pre_contract",
     "event.stage.inspection",
     "event.stage.billing",
@@ -33,13 +29,19 @@ HIDDEN_SETTINGS_SYSTEM_KEYS = {
 }
 
 _CANONICAL_EVENT_STAGE_NAMES = {f"event.stage.{choice.code}": choice.label for choice in STAGE_CHOICES}
-_EVENT_TYPE_LABELS = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
 _STAGE_LABELS = {choice.code: choice.label for choice in STAGE_CHOICES}
 
 
 def _is_immutable_event_stage(system_key: object) -> bool:
     key = str(system_key or "").strip()
-    return key == "event.stage" or key.startswith("event.stage.")
+    return key.startswith("workflow.stage.")
+
+
+def _rejects_child_event_type(system_key: object) -> bool:
+    return str(system_key or "").strip() in {
+        "workflow.stage.complete",
+        "workflow.event_group.complete",
+    }
 
 
 def _uuid_or_none(value):
@@ -51,60 +53,11 @@ def _uuid_or_none(value):
         return None
 
 
-def _synthetic_uuid(kind: str, code: str) -> str:
-    return str(uuid5(NAMESPACE_URL, f"https://geoflow.co.kr/settings/{kind}/{code}"))
-
-
-def _ensure_canonical_stage_nodes(nodes):
-    """Present event.stage as the exact Process Stage, even on old tenant seeds.
-
-    Historical database rows remain untouched. Missing preparation/complete rows
-    are represented as immutable system nodes so Environment Settings and the
-    runtime Process Stage can never disagree.
-    """
-    result = list(nodes)
-    stage_root = next((n for n in result if n.get("system_key") == "event.stage"), None)
-    if not stage_root:
-        return result
-    existing = {n.get("code"): n for n in result if n.get("parent_id") == stage_root["id"]}
-    canonical_codes = {choice.code for choice in STAGE_CHOICES}
-    for choice in STAGE_CHOICES:
-        node = existing.get(choice.code)
-        if node:
-            node["name"] = choice.label
-            node["active"] = True
-            node["immutable"] = True
-            node["locked"] = True
-            node["ord"] = (list(canonical_codes).index(choice.code) + 1) * 10 if False else next(i for i,c in enumerate(STAGE_CHOICES,1) if c.code==choice.code)*10
-            continue
-        result.append({
-            "id": _synthetic_uuid("stage", choice.code),
-            "parent_id": stage_root["id"],
-            "code": choice.code,
-            "name": choice.label,
-            "node_type": "value",
-            "value": choice.code,
-            "description": "GeoFlow 필수 Process Stage",
-            "ord": next(i for i,c in enumerate(STAGE_CHOICES,1) if c.code==choice.code)*10,
-            "active": True,
-            "system_key": f"event.stage.{choice.code}",
-            "locked": True,
-            "immutable": True,
-            "synthetic": True,
-        })
-    # Old/current custom children of the system stage root must not make the
-    # Process Stage vocabulary larger than the reviewed six stages.
-    for node in result:
-        if node.get("parent_id") == stage_root["id"] and node.get("code") not in canonical_codes:
-            node["hide_from_current_stage"] = True
-    return result
-
-
 def _load_nodes(alias: str):
     with connections[alias].cursor() as cur:
         cur.execute("""
             SELECT id::text, parent_id::text, code, name, node_type, value,
-                   description, ord, active, system_key, locked
+                   description, ord, active, system_key, locked, field_ref
               FROM ops.settings_nodes
              ORDER BY COALESCE(parent_id::text, ''), ord, name, code
         """)
@@ -115,9 +68,10 @@ def _load_nodes(alias: str):
         "node_type": row[4] or "value", "value": row[5] or "",
         "description": row[6] or "", "ord": row[7] or 0, "active": bool(row[8]),
         "system_key": row[9] or "", "locked": bool(row[10]),
+        "field_ref": row[11] or "",
         "immutable": _is_immutable_event_stage(row[9]),
     } for row in rows]
-    return _ensure_canonical_stage_nodes(nodes)
+    return nodes
 
 
 def _visible_nodes(nodes):
@@ -146,31 +100,36 @@ def _visible_nodes(nodes):
     return [node for node in nodes if node["id"] not in hidden_ids]
 
 
-def _workflow_settings_summary():
+def _workflow_settings_summary(nodes):
+    by_parent = defaultdict(list)
+    for node in nodes:
+        by_parent[node.get("parent_id") or ""].append(node)
+    type_root = next((node for node in nodes if node.get("field_ref") == "event.type"), None)
+    if not type_root:
+        return []
     result = []
-    for group in EVENT_CATEGORY_CHOICES:
+    groups = sorted(by_parent.get(type_root["id"], []), key=lambda node: (node["ord"], node["name"]))
+    all_event_types = [item for group in groups for item in by_parent.get(group["id"], [])]
+    for group in groups:
         event_types = []
-        for event_type, category in EVENT_DEFAULT_STAGE.items():
-            if category != group.code:
-                continue
-            target = EVENT_TRANSITION_TARGETS.get(event_type)
+        for event_type in sorted(by_parent.get(group["id"], []), key=lambda node: (node["ord"], node["name"])):
+            target = EVENT_TRANSITION_TARGETS.get(event_type["code"])
             event_types.append({
-                "code": event_type,
-                "label": _EVENT_TYPE_LABELS.get(event_type, event_type),
+                "code": event_type["code"],
+                "label": event_type["name"],
                 "transition_target": target or "",
                 "transition_label": _STAGE_LABELS.get(target, "") if target else "",
             })
         entry_events = [
-            _EVENT_TYPE_LABELS.get(event_type, event_type)
-            for event_type, target in EVENT_TRANSITION_TARGETS.items()
-            if target == group.code
+            item["name"] for item in all_event_types
+            if EVENT_TRANSITION_TARGETS.get(item["code"]) == group["code"]
         ]
         result.append({
-            "code": group.code,
-            "label": group.label,
+            "code": group["code"],
+            "label": group["name"],
             "event_types": event_types,
             "entry_events": entry_events,
-            "event_only": group.code == "settlement",
+            "event_only": group["code"] == "settlement",
         })
     return result
 
@@ -208,24 +167,27 @@ def settings_page(request):
     nodes=_visible_nodes(_load_nodes(alias))
     return render(request,"geoflow_ops/settings/settings_page.html",{
         "settings_tree":_build_tree(nodes),"settings_nodes":nodes,
-        "workflow_settings":_workflow_settings_summary(),"org_units":_load_org_units(alias),"departments":_load_departments(alias),
+        "workflow_settings":_workflow_settings_summary(nodes),"org_units":_load_org_units(alias),"departments":_load_departments(alias),
     })
 
 
 def settings_node_save(request):
     alias=require_tenant_context(request)
     node_id=_uuid_or_none(request.POST.get("node_id")); parent_id=_uuid_or_none(request.POST.get("parent_id"))
-    code=str(request.POST.get("code") or "").strip(); name=str(request.POST.get("name") or "").strip()
+    code=str(request.POST.get("code") or "").strip() or f"node-{uuid4().hex}"; name=str(request.POST.get("name") or "").strip()
     node_type=str(request.POST.get("node_type") or "value").strip().lower(); value=str(request.POST.get("value") or "").strip() or None
     description=str(request.POST.get("description") or "").strip() or None; active=str(request.POST.get("active") or "").lower() in {"1","true","yes","on"}
     try: ord_value=int(request.POST.get("ord") or 0)
     except (TypeError,ValueError): ord_value=0
-    if not code or not name or node_type not in NODE_TYPES: return HttpResponseBadRequest("환경설정 코드, 이름, 유형을 확인하세요.")
+    if not name or node_type not in NODE_TYPES: return HttpResponseBadRequest("환경설정 이름과 유형을 확인하세요.")
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
             if parent_id:
-                cur.execute("SELECT id FROM ops.settings_nodes WHERE id=%s",[str(parent_id)])
-                if not cur.fetchone(): return HttpResponseBadRequest("상위 환경설정 항목을 찾을 수 없습니다.")
+                cur.execute("SELECT id, system_key FROM ops.settings_nodes WHERE id=%s",[str(parent_id)])
+                parent = cur.fetchone()
+                if not parent: return HttpResponseBadRequest("상위 환경설정 항목을 찾을 수 없습니다.")
+                if _rejects_child_event_type(parent[1]) and not node_id:
+                    return HttpResponseBadRequest("완료 단계에는 업무유형을 추가할 수 없습니다.")
             if node_id:
                 cur.execute("SELECT locked, code, parent_id::text, node_type, system_key FROM ops.settings_nodes WHERE id=%s FOR UPDATE",[str(node_id)])
                 existing=cur.fetchone()
