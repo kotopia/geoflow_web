@@ -5,26 +5,17 @@ from django.db import connections
 from geoflow_ops.process_workflow import (
     DEPRECATED_EVENT_TYPE_CODES,
     DEPRECATED_STAGE_CODES,
-    EVENT_CATEGORY_CHOICES,
-    EVENT_DEFAULT_STAGE,
-    EVENT_TYPE_CHOICES,
     STAGE_CHOICES,
     STATUS_CHOICES as EVENT_STATUS_CHOICES,
 )
 
-CONTRACT_STATUS_FALLBACK = (("planned", "계약전"), ("active", "진행"), ("pause", "중지"), ("complete", "완료"), ("cancel", "취소"))
-CONTRACT_KIND_FALLBACK = (("총액", "총액계약"), ("공동", "공동계약"), ("장기계속", "장기계속계약"), ("단가", "단가계약"), ("하도급", "하도급계약"))
-EMPLOYMENT_TYPE_FALLBACK = (("정규직", "정규직"), ("계약직", "계약직"), ("일용직", "일용직"), ("파견", "파견"), ("용역", "용역"), ("프리랜서", "프리랜서"), ("인턴", "인턴"))
-_EVENT_LABELS = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
-
-# event.stage is exactly Process Stage. Settlement is event-only.
-SYSTEM_REQUIRED_OPTIONS = {"event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES)}
-for _stage in EVENT_CATEGORY_CHOICES:
-    SYSTEM_REQUIRED_OPTIONS[f"event.type.{_stage.code}"] = tuple(
-        (event_type, _EVENT_LABELS.get(event_type, event_type))
-        for event_type, default_stage in EVENT_DEFAULT_STAGE.items()
-        if default_stage == _stage.code
-    )
+FIELD_REF_ALIASES = {
+    "hr.employment_type": "employee.employment_type",
+    "hr.status": "employee.status",
+    "hr.technical_grade": "employee.technical_grade",
+    "hr.position_grade": "employee.position_grade",
+    "hr.position_title": "employee.position_title",
+}
 
 CONTRACT_STATUS_ALIASES = {"planned": "planned", "계약전": "planned", "active": "active", "진행": "active", "진행중": "active", "pause": "pause", "paused": "pause", "중지": "pause", "보류": "pause", "complete": "complete", "completed": "complete", "완료": "complete", "cancel": "cancel", "canceled": "cancel", "cancelled": "cancel", "취소": "cancel"}
 
@@ -46,52 +37,22 @@ def normalize_contract_status(value: object) -> str:
     return CONTRACT_STATUS_ALIASES.get(text.lower(), CONTRACT_STATUS_ALIASES.get(text, text))
 
 
-def _fallback_for(system_key: str):
-    if system_key == "contract.status":
-        return CONTRACT_STATUS_FALLBACK
-    if system_key == "contract.kind":
-        return CONTRACT_KIND_FALLBACK
-    if system_key == "hr.employment_type":
-        return EMPLOYMENT_TYPE_FALLBACK
-    if system_key == "event.stage":
-        return tuple((choice.code, choice.label) for choice in STAGE_CHOICES)
-    if system_key == "event.status":
-        return tuple((choice.code, choice.label) for choice in EVENT_STATUS_CHOICES)
-    if system_key.startswith("event.type."):
-        group = system_key.rsplit(".", 1)[-1]
-        return tuple(
-            (event_type, _EVENT_LABELS.get(event_type, event_type))
-            for event_type, default_group in EVENT_DEFAULT_STAGE.items()
-            if default_group == group
-        )
-    return ()
-
-
-def _configured_rows(alias: str, system_key: str):
+def _configured_rows(alias: str, field_ref: str):
     with connections[alias].cursor() as cur:
-        if system_key.startswith("event.type."):
-            group = system_key[len("event.type."):]
+        if field_ref.startswith("event.type."):
+            group = field_ref[len("event.type."):]
             cur.execute(
                 """
-                SELECT child.code, child.name, child.active
-                  FROM ops.settings_nodes category
-                  JOIN ops.settings_nodes child ON child.parent_id = category.id
-                 WHERE category.active = true
-                   AND (
-                        category.system_key = %s
-                        OR (
-                            category.system_key IS NULL
-                            AND category.code = %s
-                            AND category.parent_id = (
-                                SELECT id FROM ops.settings_nodes
-                                 WHERE system_key='event.type'
-                                 LIMIT 1
-                            )
-                        )
-                   )
+                 SELECT child.code, child.name, child.active
+                  FROM ops.settings_nodes root
+                  JOIN ops.settings_nodes event_group ON event_group.parent_id = root.id
+                  JOIN ops.settings_nodes child ON child.parent_id = event_group.id
+                 WHERE root.field_ref = 'event.type'
+                   AND root.active = true AND event_group.active = true
+                   AND event_group.code = %s
                  ORDER BY child.ord, child.name, child.code
                 """,
-                [system_key, group],
+                [group],
             )
         else:
             cur.execute(
@@ -99,37 +60,26 @@ def _configured_rows(alias: str, system_key: str):
                 SELECT child.code, child.name, child.active
                   FROM ops.settings_nodes category
                   JOIN ops.settings_nodes child ON child.parent_id = category.id
-                 WHERE category.system_key = %s
+                 WHERE category.field_ref = %s
                    AND category.active = true
                  ORDER BY child.ord, child.name, child.code
                 """,
-                [system_key],
+                [field_ref],
             )
         return cur.fetchall()
 
 
-def _merge_required_options(system_key: str, options):
-    required = list(SYSTEM_REQUIRED_OPTIONS.get(system_key, ()))
-    if not required:
-        return list(options)
-    required_codes = {str(code or "") for code, _label in required}
-    result = list(required)
-    result.extend((code, label) for code, label in options if str(code or "") not in required_codes)
-    return result
-
-
-def settings_options(alias: str | None, system_key: str, *, include_inactive: bool = False):
-    fallback = list(_fallback_for(system_key))
+def settings_options(alias: str | None, field_ref: str, *, include_inactive: bool = False):
+    field_ref = FIELD_REF_ALIASES.get(field_ref, field_ref)
+    if field_ref == "event.status":
+        return [(choice.code, choice.label) for choice in EVENT_STATUS_CHOICES]
     if not alias or not _table_exists(alias, "ops.settings_nodes"):
-        return _merge_required_options(system_key, fallback)
+        return []
     try:
-        rows = _configured_rows(alias, system_key)
+        rows = _configured_rows(alias, field_ref)
     except Exception:
-        return _merge_required_options(system_key, fallback)
-    if not rows:
-        return _merge_required_options(system_key, fallback)
-    configured = [(row[0] or "", row[1] or row[0] or "") for row in rows if include_inactive or bool(row[2])]
-    return _merge_required_options(system_key, configured)
+        return []
+    return [(row[0] or "", row[1] or row[0] or "") for row in rows if include_inactive or bool(row[2])]
 
 
 def settings_codes(alias: str | None, system_key: str, *, include_inactive: bool = False) -> set[str]:

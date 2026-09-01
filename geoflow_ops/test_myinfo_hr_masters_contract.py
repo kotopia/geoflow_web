@@ -70,8 +70,7 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertNotIn("settings_department_save", template)
         self.assertNotIn("새 담당부서", template)
         self.assertIn("나의 기업정보로 이동", template)
-        self.assertIn("hr.position_grade", template)
-        self.assertIn("hr.position_title", template)
+        self.assertNotIn("hrMasterKeys", template)
         self.assertIn("hiddenIds", template)
 
     def test_company_info_menu_is_below_settings_and_not_in_topbar(self):
@@ -84,12 +83,16 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertIn("myinfo_orgunit_list", sidebar)
         self.assertNotIn("myinfo_orgunit_list", topbar)
 
-    def test_employee_options_use_hr_master_with_legacy_fallback(self):
+    def test_employee_options_use_unified_registry_master(self):
         source = self._read("geoflow_ops/employee_security_views.py")
+        master = self._read("geoflow_ops/services/hr_masters.py")
         self.assertIn('category in {"position_grade", "position_title"}', source)
         self.assertIn("master_table_exists(alias, category)", source)
         self.assertIn("list_master_options(alias, category, active_only=True)", source)
         self.assertIn("return views_employee_profile.hr_options(request, category)", source)
+        self.assertIn("MASTER_FIELD_REFS", master)
+        self.assertIn("ops.settings_nodes", master)
+        self.assertNotIn("hr.job_grades", master)
 
     def test_used_grade_or_position_cannot_be_disabled(self):
         source = self._read("geoflow_ops/views_myinfo.py")

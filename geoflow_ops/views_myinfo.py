@@ -11,7 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from geoflow_ops.forms import MyOrgUnitForm
 from geoflow_ops.models import Attachment, MyOrgUnit
 from geoflow_ops.services.hr_masters import (
-    MASTER_TABLES,
+    MASTER_FIELD_REFS,
     list_master_options,
     master_table_exists,
 )
@@ -213,7 +213,7 @@ def orgunit_department_save(request, pk):
 def _master_save(request, pk, *, category: str, label: str, prefix: str):
     alias = _alias(request)
     obj = get_object_or_404(MyOrgUnit.objects.using(alias), pk=pk)
-    relation = MASTER_TABLES[category]
+    field_ref = MASTER_FIELD_REFS[category]
     employee_column = {
         "position_grade": "position_grade",
         "position_title": "title",
@@ -229,7 +229,7 @@ def _master_save(request, pk, *, category: str, label: str, prefix: str):
         with connections[alias].cursor() as cur:
             if master_id:
                 cur.execute(
-                    f"SELECT name FROM {relation} WHERE id=%s FOR UPDATE",
+                    "SELECT name FROM ops.settings_nodes WHERE id=%s FOR UPDATE",
                     [str(master_id)],
                 )
                 row = cur.fetchone()
@@ -252,7 +252,7 @@ def _master_save(request, pk, *, category: str, label: str, prefix: str):
                             f"직원 정보를 먼저 변경한 뒤 사용 중지하세요."
                         )
                 cur.execute(
-                    f"UPDATE {relation} SET active=%s, updated_at=now() WHERE id=%s",
+                    "UPDATE ops.settings_nodes SET active=%s, updated_at=now() WHERE id=%s",
                     [active, str(master_id)],
                 )
                 messages.success(request, f"{label} 사용 여부를 변경했습니다.")
@@ -260,19 +260,27 @@ def _master_save(request, pk, *, category: str, label: str, prefix: str):
                 if not name:
                     return HttpResponseBadRequest(f"추가할 {label}명을 입력하세요.")
                 cur.execute(
-                    f"SELECT 1 FROM {relation} WHERE lower(name)=lower(%s) LIMIT 1",
-                    [name],
+                    """SELECT 1 FROM ops.settings_nodes child
+                         JOIN ops.settings_nodes category ON category.id=child.parent_id
+                        WHERE category.field_ref=%s AND lower(child.name)=lower(%s) LIMIT 1""",
+                    [field_ref, name],
                 )
                 if cur.fetchone():
                     return HttpResponseBadRequest(f"동일한 {label}이 이미 있습니다.")
-                cur.execute(f"SELECT COALESCE(MAX(ord), 0) + 10 FROM {relation}")
+                cur.execute(
+                    """SELECT COALESCE(MAX(child.ord), 0) + 10
+                         FROM ops.settings_nodes category
+                         LEFT JOIN ops.settings_nodes child ON child.parent_id=category.id
+                        WHERE category.field_ref=%s""",
+                    [field_ref],
+                )
                 ord_value = int(cur.fetchone()[0] or 10)
                 cur.execute(
-                    f"""
-                    INSERT INTO {relation} (code, name, ord, active, system_default)
-                    VALUES (%s, %s, %s, true, false)
-                    """,
-                    [f"{prefix}-{uuid4().hex}", name, ord_value],
+                    """INSERT INTO ops.settings_nodes
+                           (parent_id, code, name, node_type, ord, active, locked)
+                         SELECT id, %s, %s, 'value', %s, true, false
+                           FROM ops.settings_nodes WHERE field_ref=%s""",
+                    [f"node-{uuid4().hex}", name, ord_value, field_ref],
                 )
                 messages.success(request, f"{label}을 추가했습니다.")
 

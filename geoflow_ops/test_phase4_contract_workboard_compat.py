@@ -6,6 +6,7 @@ from geoflow_ops.process_workflow import (
     CONTRACT_COMPLETION_EVENT_TYPE,
     CONTRACT_LIFECYCLE_STAGE_PHASES,
     REQUIRED_EVENT_STAGE_CODES,
+    STAGE_CHOICES,
     default_stage_for_event,
     transition_stage_for_event,
 )
@@ -113,7 +114,7 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertNotIn("phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)", source)
 
     def test_required_event_stages_are_canonical_and_always_available(self):
-        stages = dict(settings_options(None, "event.stage"))
+        stages = {choice.code: choice.label for choice in STAGE_CHOICES}
         for code in REQUIRED_EVENT_STAGE_CODES:
             self.assertIn(code, stages)
         self.assertEqual(stages["preparation"], "준비")
@@ -171,10 +172,9 @@ class ContractWorkboardCompatibilityTests(SimpleTestCase):
         self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_approved")
         self.assertEqual(default_stage_for_event(CONTRACT_COMPLETION_EVENT_TYPE), "closeout")
         self.assertEqual(transition_stage_for_event(CONTRACT_COMPLETION_EVENT_TYPE), "complete")
-        closeout_codes = {code for code, _label in settings_options(None, "event.type.closeout")}
-        self.assertIn(CONTRACT_COMPLETION_EVENT_TYPE, closeout_codes)
-        generic_options = event_workflow_options(None)["types_by_stage"]["closeout"]
-        self.assertIn(CONTRACT_COMPLETION_EVENT_TYPE, {code for code, _label in generic_options})
+        self.assertEqual(default_stage_for_event(CONTRACT_COMPLETION_EVENT_TYPE), "closeout")
+        migration = (ROOT / "migrations" / "0029_unified_settings_registry.py").read_text(encoding="utf-8")
+        self.assertIn(CONTRACT_COMPLETION_EVENT_TYPE, migration)
 
     def test_contract_list_keeps_shared_filter_groups_over_exact_process_stage(self):
         template = (
