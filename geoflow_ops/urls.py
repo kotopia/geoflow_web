@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
-from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -14,6 +14,7 @@ urlpatterns = [
     path("contracts/new/", security_views.contract_create, name="contract_create"),
     path("contracts/<uuid:pk>/", security_views.contract_detail, name="contract_detail"),
     path("contracts/<uuid:pk>/json/", security_views.contract_json, name="contract_json"),
+    path("contracts/<uuid:contract_id>/finance-summary/", finance_security_views.contract_finance_summary, name="contract_finance_summary"),
     path("contracts/<uuid:contract_id>/document-access/request/", views_contract_access.request_contract_document_access, name="contract_document_access_request"),
     path("contracts/document-access/<uuid:request_id>/decide/", views_contract_access.decide_contract_document_access, name="contract_document_access_decide"),
 
@@ -22,6 +23,13 @@ urlpatterns = [
     path('partners/<uuid:pk>/', security_views.partner_detail, name='partner_detail'),
     path('partners/<uuid:pk>/json/', security_views.partner_json, name='partner_detail_json'),
     path('partners/options/', security_views.partner_options, name='partner_options'),
+
+    path("finance/", finance_security_views.finance_page, name="finance_page"),
+    path("finance/claims/save/", finance_security_views.claim_save, name="finance_claim_save"),
+    path("finance/invoices/save/", finance_security_views.invoice_save, name="finance_invoice_save"),
+    path("finance/payment-requests/save/", finance_security_views.payment_request_save, name="finance_payment_request_save"),
+    path("finance/transactions/save/", finance_security_views.transaction_save, name="finance_transaction_save"),
+    path("finance/accounts/save/", finance_security_views.account_save, name="finance_account_save"),
 
     path("catalog/board/", security_views.catalog_board, name="catalog_board"),
 
