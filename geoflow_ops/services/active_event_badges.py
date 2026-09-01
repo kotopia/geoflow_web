@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.db import connections
 from django.db.models import Q
+from django.db.utils import DatabaseError
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
@@ -11,6 +13,16 @@ from geoflow_ops.process_workflow import DEFAULT_HIGHLIGHT_DAYS, EVENT_TYPE_CHOI
 
 
 _EVENT_TYPE_LABELS = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
+
+
+def _process_events_ready(alias: str) -> bool:
+    try:
+        with connections[alias].cursor() as cur:
+            cur.execute("SELECT to_regclass('ops.process_events')")
+            row = cur.fetchone()
+        return bool(row and row[0])
+    except DatabaseError:
+        return False
 
 
 def _highlight_active(event) -> bool:
@@ -41,11 +53,13 @@ def active_event_labels_for_contracts(alias: str, contract_ids) -> dict[str, lis
     Older ProcessEvent rows can have contract_id/project_id unset while their
     scope_type/scope_id still points at the contract or project. Detail APIs read
     by scope, so list summaries must resolve the same rows instead of relying on
-    contract_id alone.
+    contract_id alone. Legacy tenants without ops.process_events safely return
+    empty badge lists rather than making contract/project navigation unavailable.
     """
     ids = [str(value) for value in contract_ids if value]
-    if not ids:
-        return {}
+    labels: dict[str, list[str]] = {contract_id: [] for contract_id in ids}
+    if not ids or not _process_events_ready(alias):
+        return labels
 
     project_rows = Project.objects.using(alias).filter(contract_id__in=ids).values_list("id", "contract_id")
     project_to_contract = {str(project_id): str(contract_id) for project_id, contract_id in project_rows}
@@ -55,7 +69,6 @@ def active_event_labels_for_contracts(alias: str, contract_ids) -> dict[str, lis
     if project_ids:
         query |= Q(scope_type="project", scope_id__in=project_ids)
 
-    labels: dict[str, list[str]] = {contract_id: [] for contract_id in ids}
     events = (
         ProcessEvent.objects.using(alias)
         .filter(query)
