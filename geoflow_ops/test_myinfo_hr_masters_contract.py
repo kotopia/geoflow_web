@@ -47,8 +47,9 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
         self.assertNotIn("settings_department_save", template)
         self.assertNotIn("새 담당부서", template)
         self.assertIn("나의 기업정보로 이동", template)
-        self.assertIn("hr.position_grade", template)
-        self.assertIn("hr.position_title", template)
+        self.assertIn("직급·직위", template)
+        self.assertNotIn("hr.position_grade", template)
+        self.assertNotIn("hr.position_title", template)
         self.assertIn("hiddenIds", template)
 
     def test_employee_options_use_hr_master_with_legacy_fallback(self):

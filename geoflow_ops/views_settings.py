@@ -8,27 +8,18 @@ from django.db import connections, transaction
 from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect, render
 
-from .process_workflow import STAGE_CHOICES
 from .services.entity_access import require_tenant_context
 
 
 NODE_TYPES = {"group", "category", "value"}
 # These rows remain in the database for compatibility/history but are no longer
 # user-facing settings. Contract lifecycle is now derived from event workflow.
-HIDDEN_SETTINGS_SYSTEM_KEYS = {
-    "contract.status",
-    "hr.position_grade",
-    "hr.position_title",
-}
-
-_CANONICAL_EVENT_STAGE_NAMES = {
-    f"event.stage.{choice.code}": choice.label for choice in STAGE_CHOICES
-}
+HIDDEN_SETTINGS_SYSTEM_KEYS = {"contract.status"}
 
 
 def _is_immutable_event_stage(system_key: object) -> bool:
     key = str(system_key or "").strip()
-    return key == "event.stage" or key.startswith("event.stage.")
+    return key.startswith("workflow.stage.")
 
 
 def _uuid_or_none(value):
@@ -45,7 +36,7 @@ def _load_nodes(alias: str):
         cur.execute(
             """
             SELECT id::text, parent_id::text, code, name, node_type, value,
-                   description, ord, active, system_key, locked
+                   description, ord, active, system_key, locked, field_ref
               FROM ops.settings_nodes
              ORDER BY COALESCE(parent_id::text, ''), ord, name, code
             """
@@ -58,7 +49,7 @@ def _load_nodes(alias: str):
             "code": row[2] or "",
             # Required stages are immutable system vocabulary. Display the
             # current canonical label without rewriting tenant history rows.
-            "name": _CANONICAL_EVENT_STAGE_NAMES.get(row[9] or "", row[3] or ""),
+            "name": row[3] or "",
             "node_type": row[4] or "value",
             "value": row[5] or "",
             "description": row[6] or "",
@@ -66,6 +57,7 @@ def _load_nodes(alias: str):
             "active": bool(row[8]),
             "system_key": row[9] or "",
             "locked": bool(row[10]),
+            "field_ref": row[11] or "",
             "immutable": _is_immutable_event_stage(row[9]),
         }
         for row in rows
@@ -153,7 +145,7 @@ def settings_node_save(request):
     alias = require_tenant_context(request)
     node_id = _uuid_or_none(request.POST.get("node_id"))
     parent_id = _uuid_or_none(request.POST.get("parent_id"))
-    code = str(request.POST.get("code") or "").strip()
+    code = str(request.POST.get("code") or "").strip() or f"node-{uuid4().hex}"
     name = str(request.POST.get("name") or "").strip()
     node_type = str(request.POST.get("node_type") or "value").strip().lower()
     value = str(request.POST.get("value") or "").strip() or None
@@ -164,15 +156,18 @@ def settings_node_save(request):
     except (TypeError, ValueError):
         ord_value = 0
 
-    if not code or not name or node_type not in NODE_TYPES:
-        return HttpResponseBadRequest("환경설정 코드, 이름, 유형을 확인하세요.")
+    if not name or node_type not in NODE_TYPES:
+        return HttpResponseBadRequest("환경설정 이름과 유형을 확인하세요.")
 
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
             if parent_id:
-                cur.execute("SELECT id FROM ops.settings_nodes WHERE id=%s", [str(parent_id)])
-                if not cur.fetchone():
+                cur.execute("SELECT id, system_key FROM ops.settings_nodes WHERE id=%s", [str(parent_id)])
+                parent = cur.fetchone()
+                if not parent:
                     return HttpResponseBadRequest("상위 환경설정 항목을 찾을 수 없습니다.")
+                if parent[1] == "workflow.stage.complete" and not node_id:
+                    return HttpResponseBadRequest("완료 단계에는 업무유형을 추가할 수 없습니다.")
 
             if node_id:
                 cur.execute(

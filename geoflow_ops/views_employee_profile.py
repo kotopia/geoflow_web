@@ -27,11 +27,11 @@ from .views_employees import (
 logger = logging.getLogger(__name__)
 
 OPTION_SYSTEM_KEYS = {
-    "position_grade": "hr.position_grade",
-    "position_title": "hr.position_title",
-    "employment_type": "hr.employment_type",
-    "status": "hr.status",
-    "technical_grade": "hr.technical_grade",
+    "position_grade": "employee.position_grade",
+    "position_title": "employee.position_title",
+    "employment_type": "employee.employment_type",
+    "status": "employee.status",
+    "technical_grade": "employee.technical_grade",
 }
 
 
@@ -51,7 +51,7 @@ def _settings_options(alias: str, category: str):
                 SELECT child.code, child.name, child.ord
                   FROM ops.settings_nodes category
                   JOIN ops.settings_nodes child ON child.parent_id = category.id
-                 WHERE category.system_key = %s
+                 WHERE category.field_ref = %s
                    AND category.active = true
                    AND child.active = true
                  ORDER BY child.ord, child.name, child.code

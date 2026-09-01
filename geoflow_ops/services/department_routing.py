@@ -6,17 +6,13 @@ from django.db import connections
 MANAGEMENT_DEPARTMENT_NAME = "관리부"
 MANAGEMENT_EVENT_TYPES = {
     "kickoff_doc",
-    "inspection_request",
-    "inspection",
-    "correction_request",
-    "reinspection",
+    "kickoff_approval",
     "completion_doc",
-    "delivery",
+    "completion_inspection",
+    "completion_approval",
     "advance_payment",
-    "progress_invoice",
-    "invoice",
-    "tax_invoice",
-    "payment",
+    "progress_payment",
+    "final_payment",
 }
 
 

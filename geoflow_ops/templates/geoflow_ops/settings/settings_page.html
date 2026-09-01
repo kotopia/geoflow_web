@@ -7,7 +7,7 @@
   <div class="d-flex align-items-center justify-content-between mb-3 gap-3 flex-wrap">
     <div>
       <h1 class="h3 mb-1">환경설정</h1>
-      <div class="text-muted">계약·프로젝트·업무·GIS에서 공통으로 사용하는 코드와 업무 규칙을 관리합니다.</div>
+      <div class="text-muted">계약·인사·업무에서 공통으로 사용하는 선택값과 업무 규칙을 관리합니다.</div>
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <button type="button" id="btn-tree-expand" class="btn btn-outline-secondary btn-sm">전체 펼치기</button>
@@ -18,7 +18,7 @@
   </div>
 
   <div class="alert alert-light border d-flex justify-content-between align-items-center gap-3 flex-wrap">
-    <div><strong>회사·부서·직급·직위</strong>는 설정값이 아니라 실제 조직·인사 마스터로 관리합니다.</div>
+    <div><strong>직급·직위</strong>는 인사 선택값으로 통합했습니다. 회사·부서는 조직 마스터로 분리해 관리합니다.</div>
     <a href="{% url 'tenant:myinfo_orgunit_list' %}" class="btn btn-outline-primary btn-sm">나의 기업정보로 이동</a>
   </div>
 
@@ -33,7 +33,7 @@
           <div class="table-responsive" style="max-height: calc(100vh - 220px); overflow-y:auto;">
             <table class="table table-hover align-middle mb-0" id="settings-tree-table">
               <thead class="sticky-top bg-white">
-                <tr><th>이름</th><th style="width:150px">코드</th><th style="width:100px">유형</th><th style="width:80px" class="text-center">순서</th><th style="width:90px" class="text-center">상태</th></tr>
+                <tr><th>이름</th><th style="width:100px">유형</th><th style="width:80px" class="text-center">순서</th><th style="width:90px" class="text-center">상태</th></tr>
               </thead>
               <tbody id="settings-tree-body"></tbody>
             </table>
@@ -53,15 +53,14 @@
               <label class="form-label">상위 항목</label>
               <select class="form-select" name="parent_id" id="settings-parent-id">
                 <option value="">최상위</option>
-                {% for node in settings_nodes %}<option value="{{ node.id }}">{{ node.name }} ({{ node.code }})</option>{% endfor %}
+                {% for node in settings_nodes %}<option value="{{ node.id }}">{{ node.name }}</option>{% endfor %}
               </select>
               <div class="form-text">대분류 → 분류 → 값 구조로 구성하며 필요한 경우 분류 단계는 확장할 수 있습니다.</div>
             </div>
             <div class="row g-3">
-              <div class="col-md-6"><label class="form-label">코드</label><input type="text" class="form-control" name="code" id="settings-code" maxlength="100" required></div>
+              <input type="hidden" name="code" id="settings-code"><input type="hidden" name="value" id="settings-value">
               <div class="col-md-6"><label class="form-label">유형</label><select class="form-select" name="node_type" id="settings-node-type" required><option value="group">대분류</option><option value="category">중/소분류</option><option value="value">값</option></select></div>
               <div class="col-12"><label class="form-label">표시 이름</label><input type="text" class="form-control" name="name" id="settings-name" maxlength="200" required></div>
-              <div class="col-md-8"><label class="form-label">저장 값</label><input type="text" class="form-control" name="value" id="settings-value"><div class="form-text">값 항목이면 비워둘 때 코드가 그대로 사용될 수 있습니다.</div></div>
               <div class="col-md-4"><label class="form-label">정렬순서</label><input type="number" class="form-control" name="ord" id="settings-ord" value="0"></div>
               <div class="col-12"><label class="form-label">설명</label><textarea class="form-control" name="description" id="settings-description" rows="3"></textarea></div>
               <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="active" value="1" id="settings-active" checked><label class="form-check-label" for="settings-active">사용</label></div></div>
@@ -83,7 +82,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const allNodes = JSON.parse(document.getElementById('settings-nodes-data').textContent || '[]');
-  const hrMasterKeys = new Set(['hr.position_grade', 'hr.position_title']);
+  const hrMasterKeys = new Set([]);
   const hiddenIds = new Set(allNodes.filter(function(node){return hrMasterKeys.has(node.system_key || '');}).map(function(node){return node.id;}));
   let foundHiddenChild = true;
   while (foundHiddenChild) {
@@ -111,7 +110,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if(hasChildren(node)){const toggle=document.createElement('button');toggle.type='button';toggle.className='btn btn-link btn-sm text-decoration-none p-0 me-2';toggle.dataset.treeToggle='1';toggle.style.width='18px';toggle.addEventListener('click',function(e){e.stopPropagation();if(collapsed.has(node.id))collapsed.delete(node.id);else collapsed.add(node.id);refreshTreeVisibility();});wrap.appendChild(toggle);}else{const spacer=document.createElement('span');spacer.className='me-2';spacer.style.width='18px';spacer.textContent='·';wrap.appendChild(spacer);}
     const strong=document.createElement('span');strong.className=node.active?'fw-semibold':'text-muted text-decoration-line-through';strong.textContent=node.name;wrap.appendChild(strong);
     if(node.immutable){const badge=document.createElement('span');badge.className='badge bg-light text-dark border ms-2';badge.textContent='필수·고정';wrap.appendChild(badge);}else if(node.locked){const badge=document.createElement('span');badge.className='badge bg-light text-dark border ms-2';badge.textContent='기본';wrap.appendChild(badge);}
-    name.appendChild(wrap); const code=document.createElement('td');code.textContent=node.code;const type=document.createElement('td');type.textContent=typeLabel(node.node_type);const ord=document.createElement('td');ord.className='text-center';ord.textContent=String(node.ord||0);const active=document.createElement('td');active.className='text-center';active.innerHTML=node.active?'<span class="badge bg-success">사용</span>':'<span class="badge bg-secondary">중지</span>';tr.append(name,code,type,ord,active);tr.addEventListener('click',function(){selectNode(node,tr);});tbody.appendChild(tr);appendRows(node.id,depth+1);
+    name.appendChild(wrap);const type=document.createElement('td');type.textContent=typeLabel(node.node_type);const ord=document.createElement('td');ord.className='text-center';ord.textContent=String(node.ord||0);const active=document.createElement('td');active.className='text-center';active.innerHTML=node.active?'<span class="badge bg-success">사용</span>':'<span class="badge bg-secondary">중지</span>';tr.append(name,type,ord,active);tr.addEventListener('click',function(){selectNode(node,tr);});tbody.appendChild(tr);appendRows(node.id,depth+1);
   });}
   function setLocked(node){
     const locked=!!(node&&node.locked), immutable=!!(node&&node.immutable), help=document.getElementById('settings-locked-help'), save=document.getElementById('settings-save-button');
@@ -122,7 +121,7 @@ document.addEventListener('DOMContentLoaded', function () {
     else if(locked){help.textContent='시스템 기본 항목은 코드·상위분류·유형을 변경할 수 없습니다.';help.classList.remove('d-none');}
     else{help.classList.add('d-none');}
   }
-  function selectNode(node,tr){selected=node;childAdd.disabled=node.node_type==='value';tbody.querySelectorAll('tr').forEach(function(row){row.classList.remove('table-primary');});tr.classList.add('table-primary');document.getElementById('settings-form-title').textContent='환경설정 수정';document.getElementById('settings-node-id').value=node.id;document.getElementById('settings-parent-id').value=node.parent_id||'';document.getElementById('settings-code').value=node.code||'';document.getElementById('settings-name').value=node.name||'';document.getElementById('settings-node-type').value=node.node_type||'value';document.getElementById('settings-value').value=node.value||'';document.getElementById('settings-description').value=node.description||'';document.getElementById('settings-ord').value=node.ord||0;document.getElementById('settings-active').checked=!!node.active;setLocked(node);}
+  function selectNode(node,tr){selected=node;childAdd.disabled=node.node_type==='value'||node.system_key==='workflow.stage.complete';tbody.querySelectorAll('tr').forEach(function(row){row.classList.remove('table-primary');});tr.classList.add('table-primary');document.getElementById('settings-form-title').textContent='환경설정 수정';document.getElementById('settings-node-id').value=node.id;document.getElementById('settings-parent-id').value=node.parent_id||'';document.getElementById('settings-code').value=node.code||'';document.getElementById('settings-name').value=node.name||'';document.getElementById('settings-node-type').value=node.node_type||'value';document.getElementById('settings-value').value=node.value||'';document.getElementById('settings-description').value=node.description||'';document.getElementById('settings-ord').value=node.ord||0;document.getElementById('settings-active').checked=!!node.active;setLocked(node);}
   function resetForm(parentId){selected=null;childAdd.disabled=true;tbody.querySelectorAll('tr').forEach(function(row){row.classList.remove('table-primary');});document.getElementById('settings-form-title').textContent=parentId?'하위 환경설정 추가':'최상위 환경설정 추가';document.getElementById('settings-node-id').value='';document.getElementById('settings-parent-id').value=parentId||'';document.getElementById('settings-code').value='';document.getElementById('settings-name').value='';document.getElementById('settings-node-type').value=parentId?'value':'group';document.getElementById('settings-value').value='';document.getElementById('settings-description').value='';document.getElementById('settings-ord').value=0;document.getElementById('settings-active').checked=true;setLocked(null);}
   document.getElementById('btn-tree-expand').addEventListener('click',function(){collapsed.clear();refreshTreeVisibility();});document.getElementById('btn-tree-collapse').addEventListener('click',function(){nodes.forEach(function(node){if(hasChildren(node))collapsed.add(node.id);});refreshTreeVisibility();});document.getElementById('btn-root-add').addEventListener('click',function(){resetForm('');});childAdd.addEventListener('click',function(){if(selected&&selected.node_type!=='value')resetForm(selected.id);});document.getElementById('btn-form-reset').addEventListener('click',function(){resetForm('');});document.getElementById('settings-node-form').addEventListener('submit',function(){if(selected&&selected.immutable)return false;document.querySelectorAll('#settings-node-form :disabled').forEach(function(el){el.disabled=false;});});
   appendRows('',0);refreshTreeVisibility();resetForm('');

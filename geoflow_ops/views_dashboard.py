@@ -64,7 +64,7 @@ def _terminal_contract_ids(alias: str) -> list[str]:
               FROM ops.process_events
              WHERE contract_id IS NOT NULL
                AND COALESCE(status, '') <> 'void'
-               AND event_type IN ('closeout_complete', 'contract_cancel')
+               AND event_type IN ('completion_approval', 'contract_cancel')
             """
         )
         return [row[0] for row in cur.fetchall() if row and row[0]]

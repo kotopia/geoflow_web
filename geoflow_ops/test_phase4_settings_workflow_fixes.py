@@ -54,25 +54,19 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
     def test_contract_kind_and_event_vocabularies_remain_tenant_settings_driven(self):
         forms = source("geoflow_ops/forms.py")
         service = source("geoflow_ops/services/tenant_settings.py")
-        migration = source("geoflow_ops/migrations/0023_phase4_configurable_workflow_foundation.py")
+        migration = source("geoflow_ops/migrations/0027_unified_settings_registry.py")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
         self.assertIn('settings_options(alias, "contract.kind")', forms)
         self.assertIn("for value, label in form.kind.field.choices", detail)
         self.assertIn("process-workboard-ui.js", detail)
         self.assertIn("data-workflow-options-url", detail)
-        for key in (
-            "contract.status", "contract.kind", "event.stage", "event.type", "event.status",
-            "event.type.pre_contract", "event.type.contract", "event.type.kickoff",
-            "event.type.execution", "event.type.inspection", "event.type.closeout",
-            "event.type.billing",
-        ):
+        for key in ("contract.kind", "event.stage", "employee.position_grade", "employee.position_title"):
             self.assertIn(key, migration)
         self.assertIn("def event_workflow_options", service)
         self.assertIn("def event_type_allowed", service)
-        self.assertIn("category.code = %s", service)
-        self.assertIn("category.system_key IS NULL", service)
-        self.assertIn("SYSTEM_REQUIRED_OPTIONS", service)
-        self.assertIn('"event.stage": tuple((choice.code, choice.label) for choice in STAGE_CHOICES)', service)
+        self.assertIn("category.field_ref = %s", service)
+        self.assertIn("event_type.parent_id = stage.id", service)
+        self.assertNotIn("SYSTEM_REQUIRED_OPTIONS", service)
         self.assertIn("CONTRACT_COMPLETION_EVENT_TYPE", service)
 
     def test_required_event_stages_are_immutable_in_ui_and_server(self):
@@ -82,18 +76,17 @@ class Phase4SettingsWorkflowFixesTests(unittest.TestCase):
         self.assertIn("node.immutable", template)
         self.assertIn("settings-save-button", template)
         self.assertIn("def _is_immutable_event_stage", view)
-        self.assertIn('key == "event.stage" or key.startswith("event.stage.")', view)
+        self.assertIn('key.startswith("workflow.stage.")', view)
         self.assertIn("필수 업무단계는 시스템 기준값으로 수정할 수 없습니다.", view)
 
     def test_completion_event_is_hidden_from_generic_event_dropdown(self):
         service = source("geoflow_ops/services/tenant_settings.py")
         modal = source("geoflow_ops/templates/geoflow_ops/events/_event_modal.html")
         detail = source("geoflow_ops/templates/geoflow_ops/contracts/contract_detail.html")
-        self.assertIn("Final completion is recorded only through the dedicated 준공 완료", service)
-        self.assertIn("if code != CONTRACT_COMPLETION_EVENT_TYPE", service)
-        self.assertNotIn('value="closeout_complete"', modal)
+        self.assertIn("option[0] != CONTRACT_COMPLETION_EVENT_TYPE", service)
+        self.assertNotIn('value="completion_approval"', modal)
         self.assertIn("btn-contract-complete", detail)
-        self.assertIn("event_type: 'closeout_complete'", detail)
+        self.assertIn("event_type: 'completion_approval'", detail)
 
     def test_event_type_is_filtered_by_stage_in_ui_and_rejected_server_side(self):
         event_guard = source("geoflow_ops/event_security_views.py")

@@ -182,7 +182,7 @@ def _create_inspection_handoff_event(alias: str, request, project: Project, task
     if ProcessEvent.objects.using(alias).filter(
         scope_type="project",
         scope_id=project.pk,
-        event_type="inspection_request",
+        event_type="completion_inspection",
         payload__source_scope_item_id=source_item_id,
     ).exclude(status="void").exists():
         return
@@ -199,8 +199,8 @@ def _create_inspection_handoff_event(alias: str, request, project: Project, task
         contract_id=project.contract_id,
         project_id=project.pk,
         owner_department_id=UUID(management_department) if management_department else None,
-        stage="inspection",
-        event_type="inspection_request",
+        stage="closeout",
+        event_type="completion_inspection",
         title="검사요청 · 관리부 업무이관",
         memo="프로젝트 검사요청 업무 완료에 따라 관리부로 업무를 이관합니다.",
         status="done",

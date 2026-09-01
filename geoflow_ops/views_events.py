@@ -341,7 +341,7 @@ def update_event(request, event_id):
 
     for key, value in cleaned.items():
         setattr(event, key, value)
-    if event.scope_type == "project" and event.event_type == "inspection_request" and event.status == "done":
+    if event.scope_type == "project" and event.event_type == "completion_inspection" and event.status == "done":
         management_department = route_project_inspection_request_to_management(alias, event.scope_id)
         if management_department:
             event.owner_department_id = UUID(management_department)

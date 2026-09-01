@@ -28,18 +28,21 @@ _PHASE_RANK = {
     "contract": 10,
     "execution": 20,
     "closeout": 30,
+    "complete": 40,
 }
 
 
 def major_phase_for_stage(stage: str | None) -> tuple[str, str]:
     """Preserve the established stage-group helper contract for old callers."""
     stage = str(stage or "").strip()
-    if stage in {"pre_contract", "contract"}:
+    if stage in {"preparation", "contract"}:
         return "contract", "계약(전)"
-    if stage in {"kickoff", "execution", "inspection"}:
+    if stage in {"kickoff", "execution"}:
         return "execution", "수행(진행)"
-    if stage in {"closeout", "billing"}:
+    if stage == "closeout":
         return "closeout", "준공"
+    if stage == "complete":
+        return "complete", "완료"
     return "execution", "수행(진행)"
 
 
@@ -52,7 +55,7 @@ def fallback_stage_for_contract_status(status: str | None) -> str:
     """
     status = str(status or "").strip().lower()
     if status in {"planned", "계약전"}:
-        return "pre_contract"
+        return "preparation"
     if status in {"complete", "completed", "완료"}:
         return "closeout"
     return "execution"
@@ -73,7 +76,7 @@ def _stage_summary(stage: str | None, *, is_complete: bool = False) -> dict:
 
     major_event_label = {
         "contract": "계약 생성",
-        "execution": "업무단계: 착수/수행/검사",
+        "execution": "업무단계: 착수/수행",
         "closeout": "업무단계: 준공",
         "complete": "완료",
     }.get(major_code, "-")
@@ -94,16 +97,16 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     """Derive 계약 -> 진행 -> 준공 -> 완료 entirely from event history.
 
     Coarse phase movement is based on the selected event *stage*, not event type:
-    - pre_contract / contract -> 계약
-    - kickoff / execution / inspection -> 진행
+    - preparation / contract -> 계약
+    - kickoff / execution -> 진행
     - closeout -> 준공
-    - billing -> no technical phase change
+    - settlement -> no technical phase change
 
     Phase never regresses because the highest reached non-void phase wins.
     Therefore stage=kickoff + event_type=etc still starts 진행, and any non-void
     stage=closeout event enters 준공.
 
-    Final 완료 is explicit and event-only. Only a non-void closeout_complete event
+    Final 완료 is explicit and event-only. Only a non-void completion_approval event
     marks the contract complete. Migration 0026 converts historic completed
     Contract.status rows into those events and clears the migrated legacy value,
     so this runtime service never reads or writes Contract.status.
@@ -135,7 +138,7 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
 
             phase = CONTRACT_LIFECYCLE_STAGE_PHASES.get(stage)
             if not phase:
-                # billing and custom/unknown stages remain timeline history only.
+                # settlement and custom/unknown stages remain timeline history only.
                 continue
 
             rank = _PHASE_RANK[phase]

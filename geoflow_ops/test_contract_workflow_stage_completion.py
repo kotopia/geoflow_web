@@ -16,9 +16,9 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["contract"], "contract")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["kickoff"], "execution")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["execution"], "execution")
-        self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["inspection"], "execution")
         self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["closeout"], "closeout")
-        self.assertNotIn("billing", CONTRACT_LIFECYCLE_STAGE_PHASES)
+        self.assertEqual(CONTRACT_LIFECYCLE_STAGE_PHASES["complete"], "complete")
+        self.assertNotIn("settlement", CONTRACT_LIFECYCLE_STAGE_PHASES)
 
     def test_event_type_does_not_drive_progress_or_closeout(self):
         source = (ROOT / "services" / "workflow_state.py").read_text(encoding="utf-8")
@@ -30,7 +30,7 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
 
     def test_completion_requires_dedicated_server_action_after_closeout(self):
         security = (ROOT / "event_security_views.py").read_text(encoding="utf-8")
-        self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "closeout_complete")
+        self.assertEqual(CONTRACT_COMPLETION_EVENT_TYPE, "completion_approval")
         self.assertIn('CONTRACT_COMPLETION_ACTION_SOURCE = "contract_complete_action"', security)
         self.assertIn("def _completion_action_error", security)
         self.assertIn('stage != "closeout"', security)
@@ -42,13 +42,13 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
     def test_generic_event_options_hide_final_completion(self):
         service = (ROOT / "services" / "tenant_settings.py").read_text(encoding="utf-8")
         modal = (ROOT / "templates" / "geoflow_ops" / "events" / "_event_modal.html").read_text(encoding="utf-8")
-        self.assertIn("if code != CONTRACT_COMPLETION_EVENT_TYPE", service)
-        self.assertNotIn('value="closeout_complete"', modal)
+        self.assertIn("option[0] != CONTRACT_COMPLETION_EVENT_TYPE", service)
+        self.assertNotIn('value="completion_approval"', modal)
 
     def test_contract_detail_completion_button_creates_canonical_event(self):
         detail = (ROOT / "templates" / "geoflow_ops" / "contracts" / "contract_detail.html").read_text(encoding="utf-8")
         self.assertIn('id="btn-contract-complete"', detail)
-        self.assertIn("event_type: 'closeout_complete'", detail)
+        self.assertIn("event_type: 'completion_approval'", detail)
         self.assertIn("stage: 'closeout'", detail)
         self.assertIn("source: 'contract_complete_action'", detail)
         self.assertIn("완료일", detail)
@@ -67,7 +67,7 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         terminal = dashboard.split("def _terminal_contract_ids", 1)[1].split("def _task_rows", 1)[0]
         self.assertNotIn('getattr(contract, "status"', runtime)
         self.assertNotIn("FROM ctr.contracts", terminal)
-        self.assertIn("event_type IN ('closeout_complete', 'contract_cancel')", terminal)
+        self.assertIn("event_type IN ('completion_approval', 'contract_cancel')", terminal)
 
     def test_project_pages_use_linked_contract_workflow_not_contract_status(self):
         views = (ROOT / "views_projects.py").read_text(encoding="utf-8")
