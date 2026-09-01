@@ -1,6 +1,6 @@
 {# templates/geoflow_ops/projects/project_list.html #}
 {% extends "geoflow_ops/base_tenant.html" %}
-{% load humanize static %}
+{% load humanize static workflow_tags %}
 {% block title %}Projects | GeoFlow{% endblock %}
 
 {% block content %}
@@ -47,7 +47,7 @@
         </thead>
         <tbody>
           {% for p in projects %}
-          {% with wf=p.contract_workflow %}
+          {% contract_workflow p.contract as wf %}
           <tr data-id="{{ p.pk }}"
               data-status="{{ wf.filter_key }}"
               data-workflow-phase="{{ wf.major_code }}"
@@ -70,7 +70,6 @@
             </td>
             <td data-col="orgunit">{{ p.contract.org_unit.label|default:"-" }}</td>
           </tr>
-          {% endwith %}
           {% endfor %}
         </tbody>
       </table>
