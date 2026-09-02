@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 import logging
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 from .env_values import (
@@ -101,6 +102,15 @@ INSTALLED_APPS = [
 ]
 
 # -------------------------------------------------------------------
+# GeoDjango native library paths (optional, primarily for Windows)
+# -------------------------------------------------------------------
+# Django's Windows fallback probes a fixed set of GDAL DLL names. Newer QGIS
+# releases may ship a newer DLL (for example gdal313.dll), so local launchers can
+# provide the exact verified DLL paths through environment variables.
+GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH") or None
+GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH") or None
+
+# -------------------------------------------------------------------
 # GeoDjango 라이브러리 체크 (Windows)
 # -------------------------------------------------------------------
 # PostGIS 백엔드를 사용하는 경우 GDAL/GEOS가 필요합니다.
@@ -115,13 +125,13 @@ def _check_geodjango_libraries():
     try:
         from django.contrib.gis import gdal
         gdal_ok = True
-    except (ImportError, OSError):
+    except (ImportError, OSError, ImproperlyConfigured):
         logger.warning("GeoDjango GDAL library unavailable")
 
     try:
         from django.contrib.gis import geos
         geos_ok = True
-    except (ImportError, OSError):
+    except (ImportError, OSError, ImproperlyConfigured):
         logger.warning("GeoDjango GEOS library unavailable")
 
     if not gdal_ok or not geos_ok:
