@@ -38,7 +38,10 @@ DO $$
 DECLARE
   only_org uuid;
 BEGIN
-  SELECT min(id) INTO only_org FROM ops.my_org_units HAVING count(*)=1;
+  SELECT id INTO only_org
+    FROM ops.my_org_units
+   WHERE (SELECT count(*) FROM ops.my_org_units)=1
+   LIMIT 1;
   IF only_org IS NOT NULL THEN
     UPDATE fin.accounts SET my_org_unit_id=only_org WHERE my_org_unit_id IS NULL;
     UPDATE fin.claims SET my_org_unit_id=only_org WHERE my_org_unit_id IS NULL;
