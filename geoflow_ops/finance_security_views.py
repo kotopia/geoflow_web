@@ -77,6 +77,23 @@ def _linked_org_id(alias, table, record_id, org_column):
     return row[0] if row and row[0] else None
 
 
+def _apply_contract_defaults(alias, request):
+    contract_id = str(request.POST.get("contract_id") or "").strip()
+    if not contract_id:
+        return
+    with connections[alias].cursor() as cur:
+        cur.execute("SELECT client_id::text,org_unit_id::text FROM ctr.contracts WHERE id=%s LIMIT 1", [contract_id])
+        row = cur.fetchone()
+    if not row:
+        return
+    post = request.POST.copy()
+    if not str(post.get("partner_id") or "").strip() and row[0]:
+        post["partner_id"] = row[0]
+    if not str(post.get("my_org_unit_id") or "").strip() and row[1]:
+        post["my_org_unit_id"] = row[1]
+    request._post = post
+
+
 def _validate_contract_account_org(alias, request):
     contract_id = str(request.POST.get("contract_id") or "").strip()
     account_id = str(request.POST.get("account_id") or "").strip()
@@ -162,6 +179,7 @@ def finance_import_frame(request):
 @require_POST
 def claim_save(request):
     alias = _require_write(request)
+    _apply_contract_defaults(alias, request)
     for field_ref, post_name in (("finance.claim_type", "claim_type"), ("finance.claim_status", "status")):
         error = _validate_reference(alias, request, field_ref, post_name)
         if error:
@@ -173,6 +191,7 @@ def claim_save(request):
 @require_POST
 def invoice_save(request):
     alias = _require_write(request)
+    _apply_contract_defaults(alias, request)
     for field_ref, post_name in (("finance.invoice_type", "invoice_type"), ("finance.invoice_status", "status")):
         error = _validate_reference(alias, request, field_ref, post_name)
         if error:
@@ -193,6 +212,7 @@ def invoice_save(request):
 @require_POST
 def payment_request_save(request):
     alias = _require_write(request)
+    _apply_contract_defaults(alias, request)
     for field_ref, post_name in (("finance.payment_status", "status"), ("finance.transaction_category", "category_code")):
         error = _validate_reference(alias, request, field_ref, post_name)
         if error:
@@ -204,6 +224,7 @@ def payment_request_save(request):
 @require_POST
 def transaction_save(request):
     alias = _require_write(request)
+    _apply_contract_defaults(alias, request)
     for field_ref, post_name in (
         ("finance.transaction_type", "transaction_type"),
         ("finance.transaction_category", "category_code"),
