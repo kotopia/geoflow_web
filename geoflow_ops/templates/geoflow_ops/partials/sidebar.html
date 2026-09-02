@@ -19,8 +19,12 @@
         <a data-bs-target="#finance-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="credit-card"></i><span class="align-middle">파이낸스</span></a>
         <ul id="finance-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
           <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_page' %}">대장·현황</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_documents' %}">증빙파일</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_import' %}">Excel 가져오기</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_claims' %}">청구·수금</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_invoices' %}">세금계산서</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_payments' %}">지급</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_ledger' %}">입출금대장</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_balance' %}">미수·미지급</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_settings' %}">계좌·카드</a></li>
         </ul>
       </li>
 
