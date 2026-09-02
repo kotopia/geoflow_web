@@ -61,7 +61,10 @@ def _record(alias, record_type, record_id):
         return None
     table, attachment_column, purpose = config
     with connections[alias].cursor() as cur:
-        cur.execute(f"SELECT contract_id::text, {attachment_column}::text FROM {table} WHERE id=%s LIMIT 1", [str(record_id)])
+        cur.execute(
+            f"SELECT contract_id::text, {attachment_column}::text FROM {table} WHERE id=%s AND is_deleted=false LIMIT 1",
+            [str(record_id)],
+        )
         row = cur.fetchone()
     if not row:
         return None
@@ -126,7 +129,7 @@ def finance_attachment_commit(request):
             meta={"finance_record_type": record_type, "finance_record_id": str(record_id)},
         )
         with connections[alias].cursor() as cur:
-            cur.execute(f"UPDATE {record['table']} SET {record['column']}=%s, updated_at=now() WHERE id=%s", [str(attachment.id), str(record_id)])
+            cur.execute(f"UPDATE {record['table']} SET {record['column']}=%s, updated_at=now() WHERE id=%s AND is_deleted=false", [str(attachment.id), str(record_id)])
     return JsonResponse({"attachment_id": str(attachment.id), "original_name": attachment.original_name})
 
 
