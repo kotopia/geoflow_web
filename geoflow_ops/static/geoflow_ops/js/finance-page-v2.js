@@ -136,11 +136,27 @@
   }
 
   var fieldMaps = {
-    claim: ["record_id:id", "claim_date:date", "due_date:dueDate", "expected_receipt_date:receiptDate", "title:title", "contract_id:contractId", "partner_id:partnerId", "claim_type:claimType", "supply_amount:supply", "vat_amount:vat", "total_amount:total", "status:status", "memo:memo"],
+    claim: ["record_id:id", "claim_date:date", "due_date:dueDate", "expected_receipt_date:receiptDate", "contract_id:contractId", "partner_id:partnerId", "claim_type:claimType", "supply_amount:supply", "vat_amount:vat", "total_amount:total", "status:status", "memo:memo"],
     invoice: ["record_id:id", "written_date:writtenDate", "issued_date:issuedDate", "invoice_type:type", "contract_id:contractId", "partner_id:partnerId", "claim_id:claimId", "payment_request_id:paymentId", "approval_no:approvalNo", "supply_amount:supply", "vat_amount:vat", "total_amount:total", "status:status", "memo:memo"],
-    payment: ["record_id:id", "request_date:date", "due_date:dueDate", "title:title", "contract_id:contractId", "partner_id:partnerId", "amount:amount", "category_code:category", "status:status", "memo:memo"],
+    payment: ["record_id:id", "request_date:date", "due_date:dueDate", "contract_id:contractId", "partner_id:partnerId", "amount:amount", "category_code:category", "status:status", "memo:memo"],
     transaction: ["record_id:id", "transaction_date:date", "transaction_type:type", "amount:amount", "contract_id:contractId", "partner_id:partnerId", "account_id:accountId", "description:description", "claim_id:claimId", "payment_request_id:paymentId", "category_code:category", "evidence_type:evidence", "memo:memo"]
   };
+
+  var editTitles = {
+    claim: "청구 수정",
+    invoice: "세금계산서 수정",
+    payment: "지급 수정",
+    transaction: "입출금 수정"
+  };
+
+  function rowTitle(button, kind) {
+    var row = button.closest("tr");
+    if (!row) return "";
+    if (kind === "claim" || kind === "payment") {
+      return row.children[1] ? row.children[1].textContent.trim() : "";
+    }
+    return "";
+  }
 
   function prepareEdit(button) {
     var kind = button.getAttribute("data-kind");
@@ -152,8 +168,11 @@
       var parts = pair.split(":");
       setField(form, parts[0], button.dataset[parts[1]] || "");
     });
+    if (kind === "claim" || kind === "payment") {
+      setField(form, "title", rowTitle(button, kind));
+    }
     var title = modal.querySelector("[data-fin-modal-title]");
-    if (title) title.textContent = button.getAttribute("data-title") || "수정";
+    if (title) title.textContent = editTitles[kind] || "수정";
     var submit = modal.querySelector("[data-fin-submit-label]");
     if (submit) submit.textContent = "수정 저장";
     modalInstance(modal).show();
