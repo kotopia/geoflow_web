@@ -23,12 +23,20 @@ ROUTE_SECURITY_BOUNDARIES = (
     (f"/partners/{_UUID}/json/", "tenant:partner_detail_json", "geoflow_ops.security_views", "partner_json"),
     ("/partners/options/", "tenant:partner_options", "geoflow_ops.security_views", "partner_options"),
     ("/finance/", "tenant:finance_page", "geoflow_ops.finance_security_views", "finance_page"),
-    ("/finance/import/", "tenant:finance_import", "geoflow_ops.finance_import_views_v3", "finance_import"),
+    ("/finance/claims/", "tenant:finance_claims", "geoflow_ops.finance_security_views", "finance_claims"),
+    ("/finance/invoices/", "tenant:finance_invoices", "geoflow_ops.finance_security_views", "finance_invoices"),
+    ("/finance/payments/", "tenant:finance_payments", "geoflow_ops.finance_security_views", "finance_payments"),
+    ("/finance/ledger/", "tenant:finance_ledger", "geoflow_ops.finance_security_views", "finance_ledger"),
+    ("/finance/balance/", "tenant:finance_balance", "geoflow_ops.finance_security_views", "finance_balance"),
+    ("/finance/settings/", "tenant:finance_settings", "geoflow_ops.finance_security_views", "finance_settings"),
+    ("/finance/import/", "tenant:finance_import", "geoflow_ops.finance_import_views_v4", "finance_import"),
     ("/finance/documents/", "tenant:finance_documents", "geoflow_ops.finance_documents_views", "finance_documents"),
     ("/finance/claims/save/", "tenant:finance_claim_save", "geoflow_ops.finance_security_views", "claim_save"),
     ("/finance/invoices/save/", "tenant:finance_invoice_save", "geoflow_ops.finance_security_views", "invoice_save"),
     ("/finance/payment-requests/save/", "tenant:finance_payment_request_save", "geoflow_ops.finance_security_views", "payment_request_save"),
     ("/finance/transactions/save/", "tenant:finance_transaction_save", "geoflow_ops.finance_security_views", "transaction_save"),
+    ("/finance/accounts/save/", "tenant:finance_account_save", "geoflow_ops.finance_security_views", "account_save"),
+    ("/finance/cards/save/", "tenant:finance_card_save", "geoflow_ops.finance_security_views", "card_save"),
     (f"/finance/claim/{_UUID}/delete/", "tenant:finance_record_delete", "geoflow_ops.finance_security_views", "record_soft_delete"),
     (f"/finance/claim/{_UUID}/restore/", "tenant:finance_record_restore", "geoflow_ops.finance_security_views", "record_restore"),
     (f"/finance/claim/{_UUID}/purge/", "tenant:finance_record_purge", "geoflow_ops.finance_security_views", "record_hard_delete"),
@@ -84,40 +92,17 @@ class RouteSecurityBoundaryCheck:
 
 
 def inspect_route_security_boundaries() -> tuple[RouteSecurityBoundaryCheck, ...]:
-    """Verify security-sensitive URL routes still point at reviewed boundary views."""
-
     checks: list[RouteSecurityBoundaryCheck] = []
     for path, expected_view_name, expected_module, expected_name in ROUTE_SECURITY_BOUNDARIES:
         code = "route_boundary_" + expected_view_name.replace(":", "_")
         try:
             match = resolve(path)
         except Resolver404:
-            checks.append(
-                RouteSecurityBoundaryCheck(
-                    code=code,
-                    ready=False,
-                    message="Required security-sensitive route is not resolvable.",
-                )
-            )
+            checks.append(RouteSecurityBoundaryCheck(code=code, ready=False, message="Required security-sensitive route is not resolvable."))
             continue
-
         func = match.func
         module = str(getattr(func, "__module__", ""))
         name = str(getattr(func, "__name__", ""))
-        ready = bool(
-            match.view_name == expected_view_name
-            and module == expected_module
-            and name == expected_name
-        )
-        checks.append(
-            RouteSecurityBoundaryCheck(
-                code=code,
-                ready=ready,
-                message=(
-                    "Reviewed route boundary is intact."
-                    if ready
-                    else "Security-sensitive route no longer points at the reviewed boundary view."
-                ),
-            )
-        )
+        ready = bool(match.view_name == expected_view_name and module == expected_module and name == expected_name)
+        checks.append(RouteSecurityBoundaryCheck(code=code, ready=ready, message=("Reviewed route boundary is intact." if ready else "Security-sensitive route no longer points at the reviewed boundary view.")))
     return tuple(checks)
