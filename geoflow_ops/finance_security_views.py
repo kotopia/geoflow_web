@@ -64,6 +64,28 @@ def _validate_reference(alias, request, field_ref, post_name):
     return None
 
 
+def _linked_org_id(alias, table, record_id, org_column):
+    value = str(record_id or "").strip()
+    if not value:
+        return None
+    with connections[alias].cursor() as cur:
+        cur.execute(f"SELECT {org_column}::text FROM {table} WHERE id=%s LIMIT 1", [value])
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+def _validate_contract_account_org(alias, request):
+    contract_id = str(request.POST.get("contract_id") or "").strip()
+    account_id = str(request.POST.get("account_id") or "").strip()
+    if not contract_id or not account_id:
+        return None
+    contract_org = _linked_org_id(alias, "ctr.contracts", contract_id, "org_unit_id")
+    account_org = _linked_org_id(alias, "fin.accounts", account_id, "my_org_unit_id")
+    if contract_org and account_org and contract_org != account_org:
+        return HttpResponseBadRequest("선택한 계약의 귀속회사와 계좌의 귀속회사가 다릅니다.")
+    return None
+
+
 @login_required
 @require_GET
 def finance_page(request):
@@ -167,6 +189,9 @@ def transaction_save(request):
         error = _validate_reference(alias, request, field_ref, post_name)
         if error:
             return error
+    org_error = _validate_contract_account_org(alias, request)
+    if org_error:
+        return org_error
     transaction_type = str(request.POST.get("transaction_type") or "").strip()
     claim_id = str(request.POST.get("claim_id") or "").strip()
     payment_id = str(request.POST.get("payment_request_id") or "").strip()
