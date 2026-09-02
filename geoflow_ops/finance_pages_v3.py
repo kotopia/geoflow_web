@@ -34,6 +34,11 @@ def _valid_org(alias, org_id):
 def settings_page(request):
     alias = require_tenant_context(request)
     org_units, contracts, partners, accounts, cards = v2._master_data(alias)
+    with connections[alias].cursor() as cur:
+        cur.execute("SELECT id::text,COALESCE(memo,'') FROM fin.accounts")
+        memo_by_id = {r[0]: r[1] for r in cur.fetchall()}
+    for account in accounts:
+        account["memo"] = memo_by_id.get(account["id"], "")
     return render(
         request,
         "geoflow_ops/finance/finance_accounts_cards.html",
