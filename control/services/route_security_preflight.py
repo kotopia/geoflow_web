@@ -23,7 +23,7 @@ ROUTE_SECURITY_BOUNDARIES = (
     (f"/partners/{_UUID}/json/", "tenant:partner_detail_json", "geoflow_ops.security_views", "partner_json"),
     ("/partners/options/", "tenant:partner_options", "geoflow_ops.security_views", "partner_options"),
     ("/finance/", "tenant:finance_page", "geoflow_ops.finance_security_views", "finance_page"),
-    ("/finance/import/", "tenant:finance_import", "geoflow_ops.finance_import_views_v2", "finance_import"),
+    ("/finance/import/", "tenant:finance_import", "geoflow_ops.finance_import_views_v3", "finance_import"),
     ("/finance/documents/", "tenant:finance_documents", "geoflow_ops.finance_documents_views", "finance_documents"),
     ("/finance/claims/save/", "tenant:finance_claim_save", "geoflow_ops.finance_security_views", "claim_save"),
     ("/finance/invoices/save/", "tenant:finance_invoice_save", "geoflow_ops.finance_security_views", "invoice_save"),

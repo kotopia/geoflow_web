@@ -5,6 +5,7 @@ botocore==1.35.99
 Django==5.2.16
 gunicorn==26.0.0
 openpyxl==3.1.5
+python-calamine==0.8.2
 psycopg2-binary==2.9.10
 sqlparse==0.5.3
 tzdata==2025.2
