@@ -68,6 +68,22 @@
 
   function applyRefLabels(){var raw=document.getElementById("finance-ref-data");if(!raw)return;var refs={};try{refs=JSON.parse(raw.textContent||"{}");}catch(e){}var refMaps={};Object.keys(refs).forEach(function(key){refMaps[key]={};(refs[key]||[]).forEach(function(o){refMaps[key][String(o.code)]=o.name;});});document.querySelectorAll("[data-ref-field]").forEach(function(el){var key=el.dataset.refField,code=String(el.textContent||"").trim();if(refMaps[key]&&refMaps[key][code])el.textContent=refMaps[key][code];});}
 
+  function injectDeleteButtons(){
+    var tokenEl=document.querySelector('input[name="csrfmiddlewaretoken"]'),token=tokenEl?tokenEl.value:'';
+    if(!token)return;
+    document.querySelectorAll('[data-fin-edit][data-id][data-kind]').forEach(function(btn){
+      var kind=String(btn.dataset.kind||''),id=String(btn.dataset.id||'');
+      if(['payment','transaction'].indexOf(kind)<0||!id)return;
+      var cell=btn.parentElement;if(!cell||cell.querySelector('[data-fin-dynamic-delete="'+kind+'"]'))return;
+      var form=document.createElement('form');form.method='post';form.action='/finance/'+encodeURIComponent(kind)+'/'+encodeURIComponent(id)+'/delete/';form.className='d-inline ms-1';form.dataset.finDynamicDelete=kind;
+      var csrfInput=document.createElement('input');csrfInput.type='hidden';csrfInput.name='csrfmiddlewaretoken';csrfInput.value=token;form.appendChild(csrfInput);
+      var next=document.createElement('input');next.type='hidden';next.name='next';next.value=window.location.pathname+window.location.search;form.appendChild(next);
+      var del=document.createElement('button');del.type='submit';del.className='btn btn-sm btn-outline-danger';del.textContent='삭제';form.appendChild(del);
+      form.addEventListener('submit',function(e){if(!window.confirm('삭제함으로 이동하시겠습니까?'))e.preventDefault();});
+      cell.appendChild(form);
+    });
+  }
+
   document.addEventListener("DOMContentLoaded",function(){
     document.querySelectorAll("input").forEach(function(el){if(moneyInput(el))prepMoney(el);});
     document.querySelectorAll("form[data-fin-money-form]").forEach(bindMoney);
@@ -78,6 +94,7 @@
     document.querySelectorAll("[data-fin-attachment-download]").forEach(function(b){b.addEventListener("click",function(){downloadAttachment(b.closest("[data-fin-attachment-panel]"));});});
     document.querySelectorAll("[data-fin-import-open]").forEach(function(b){b.addEventListener("click",function(){var f=document.querySelector("[data-fin-import-frame]");if(f)f.src=window.location.origin+"/finance/import/?modal=1&import_type="+encodeURIComponent(b.dataset.importType||"transaction");});});
     window.addEventListener("message",function(event){if(event&&event.origin===window.location.origin&&event.data&&event.data.type==="finance-import-complete")window.location.reload();});
+    injectDeleteButtons();
     applyRefLabels();
   });
 })();
