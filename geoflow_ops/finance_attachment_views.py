@@ -62,13 +62,29 @@ def _record(alias, record_type, record_id):
     table, attachment_column, purpose = config
     with connections[alias].cursor() as cur:
         cur.execute(
-            f"SELECT contract_id::text, {attachment_column}::text FROM {table} WHERE id=%s AND is_deleted=false LIMIT 1",
+            f"SELECT contract_id::text, my_org_unit_id::text, {attachment_column}::text FROM {table} WHERE id=%s AND is_deleted=false LIMIT 1",
             [str(record_id)],
         )
         row = cur.fetchone()
     if not row:
         return None
-    return {"table": table, "column": attachment_column, "purpose": purpose, "contract_id": row[0], "attachment_id": row[1]}
+    contract_id, org_unit_id, attachment_id = row
+    if contract_id:
+        entity_type, entity_id = "contract", contract_id
+    elif org_unit_id:
+        entity_type, entity_id = "orgunit", org_unit_id
+    else:
+        return None
+    return {
+        "table": table,
+        "column": attachment_column,
+        "purpose": purpose,
+        "contract_id": contract_id,
+        "org_unit_id": org_unit_id,
+        "attachment_id": attachment_id,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+    }
 
 
 @login_required
@@ -79,8 +95,8 @@ def finance_attachment_presign(request):
     record_type = str(data.get("record_type") or "").strip().lower()
     record_id = _uuid(data.get("record_id"))
     record = _record(alias, record_type, record_id)
-    if not record or not record["contract_id"]:
-        return JsonResponse({"error": "증빙 첨부를 위해 계약 연결이 필요합니다."}, status=400)
+    if not record:
+        return JsonResponse({"error": "증빙 첨부를 위해 귀속회사 또는 계약 연결이 필요합니다."}, status=400)
     filename = str(data.get("filename") or "").strip()
     mime_type = str(data.get("mime_type") or "application/octet-stream").split(";", 1)[0].strip().lower()
     try:
@@ -90,7 +106,7 @@ def finance_attachment_presign(request):
     extension = extract_extension(filename)
     if not filename or size_bytes < 1 or size_bytes > MAX_BYTES or extension in BLOCKED_EXTENSIONS or extension == "bin":
         return JsonResponse({"error": "파일 형식 또는 크기를 확인하세요. 최대 25MB입니다."}, status=400)
-    object_key = build_object_key(alias, "contract", record["contract_id"], record["purpose"], extension)
+    object_key = build_object_key(alias, record["entity_type"], record["entity_id"], record["purpose"], extension)
     presigned = generate_presigned_put_url(object_key, mime_type=mime_type, expires_in=900)
     return JsonResponse({"object_key": object_key, **presigned})
 
@@ -103,11 +119,12 @@ def finance_attachment_commit(request):
     record_type = str(data.get("record_type") or "").strip().lower()
     record_id = _uuid(data.get("record_id"))
     record = _record(alias, record_type, record_id)
-    if not record or not record["contract_id"]:
+    if not record:
         return JsonResponse({"error": "Finance 대상을 찾을 수 없습니다."}, status=404)
     object_key = str(data.get("object_key") or "").strip()
     filename = str(data.get("filename") or "").strip()
-    expected_prefix = f"tenants/{alias}/contracts/{record['contract_id']}/{record['purpose']}/"
+    folder = "contracts" if record["entity_type"] == "contract" else "orgunits"
+    expected_prefix = f"tenants/{alias}/{folder}/{record['entity_id']}/{record['purpose']}/"
     if not object_key.startswith(expected_prefix):
         return JsonResponse({"error": "잘못된 업로드 경로입니다."}, status=400)
     try:
@@ -119,8 +136,8 @@ def finance_attachment_commit(request):
 
     with transaction.atomic(using=alias):
         attachment = Attachment.objects.using(alias).create(
-            entity_type="contract",
-            entity_id=UUID(record["contract_id"]),
+            entity_type=record["entity_type"],
+            entity_id=UUID(record["entity_id"]),
             purpose=record["purpose"],
             object_key=object_key,
             original_name=filename or "finance-document",

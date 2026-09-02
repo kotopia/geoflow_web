@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
-from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views, finance_import_views_v3, finance_attachment_views, finance_documents_views
+from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views, finance_import_views_v4, finance_attachment_views, finance_documents_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -25,7 +25,13 @@ urlpatterns = [
     path('partners/options/', security_views.partner_options, name='partner_options'),
 
     path("finance/", finance_security_views.finance_page, name="finance_page"),
-    path("finance/import/", finance_import_views_v3.finance_import, name="finance_import"),
+    path("finance/claims/", finance_security_views.finance_claims, name="finance_claims"),
+    path("finance/invoices/", finance_security_views.finance_invoices, name="finance_invoices"),
+    path("finance/payments/", finance_security_views.finance_payments, name="finance_payments"),
+    path("finance/ledger/", finance_security_views.finance_ledger, name="finance_ledger"),
+    path("finance/balance/", finance_security_views.finance_balance, name="finance_balance"),
+    path("finance/settings/", finance_security_views.finance_settings, name="finance_settings"),
+    path("finance/import/", finance_import_views_v4.finance_import, name="finance_import"),
     path("finance/documents/", finance_documents_views.finance_documents, name="finance_documents"),
     path("finance/attachments/presign/", finance_attachment_views.finance_attachment_presign, name="finance_attachment_presign"),
     path("finance/attachments/commit/", finance_attachment_views.finance_attachment_commit, name="finance_attachment_commit"),
@@ -35,6 +41,7 @@ urlpatterns = [
     path("finance/payment-requests/save/", finance_security_views.payment_request_save, name="finance_payment_request_save"),
     path("finance/transactions/save/", finance_security_views.transaction_save, name="finance_transaction_save"),
     path("finance/accounts/save/", finance_security_views.account_save, name="finance_account_save"),
+    path("finance/cards/save/", finance_security_views.card_save, name="finance_card_save"),
     path("finance/<str:kind>/<uuid:record_id>/delete/", finance_security_views.record_soft_delete, name="finance_record_delete"),
     path("finance/<str:kind>/<uuid:record_id>/restore/", finance_security_views.record_restore, name="finance_record_restore"),
     path("finance/<str:kind>/<uuid:record_id>/purge/", finance_security_views.record_hard_delete, name="finance_record_purge"),
