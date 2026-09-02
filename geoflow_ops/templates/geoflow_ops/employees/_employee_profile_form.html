@@ -1,20 +1,20 @@
 {% load static %}
 <div class="row g-3">
-  <div class="col-md-4">
-    <label class="form-label">이메일</label>
-    <input type="email" name="email" value="{{ profile.email }}" class="form-control" {% if not create_mode %}readonly{% endif %} required>
-  </div>
-  <div class="col-md-4">
-    <label class="form-label">이름</label>
+  <div class="col-md-12">
+    <label class="form-label small text-muted">이름</label>
     <input type="text" name="name" value="{{ profile.name }}" class="form-control" required>
   </div>
-  <div class="col-md-4">
-    <label class="form-label">전화</label>
+  <div class="col-md-12">
+    <label class="form-label small text-muted">이메일</label>
+    <input type="email" name="email" value="{{ profile.email }}" class="form-control" {% if not create_mode %}readonly{% endif %} required>
+  </div>
+  <div class="col-md-12">
+    <label class="form-label small text-muted">전화</label>
     <input type="text" name="phone" value="{{ profile.phone }}" class="form-control">
   </div>
 
-  <div class="col-md-12">
-    <label class="form-label">주소</label>
+  <div class="col-md-12 mb-3">
+    <label class="form-label small text-muted">주소</label>
     <div class="row g-2">
       <div class="col-md-3"><input type="text" name="addr_zip" value="{{ profile.addr_zip }}" class="form-control" placeholder="우편번호" aria-label="우편번호"></div>
       <div class="col-md-9"><input type="text" name="addr_road" value="{{ profile.addr_road }}" class="form-control" placeholder="도로명 주소" aria-label="도로명 주소"></div>
@@ -23,54 +23,54 @@
   </div>
 
   {% if can_edit_admin_fields %}
-    <div class="col-12 mt-3"><h6 class="mb-0">조직·인사정보</h6></div>
-    <div class="col-md-4">
-      <label class="form-label">직위/직책</label>
+    <div class="col-12 mt-3"><h6 class="mb-0 fw-semibold text-muted">조직·인사정보</h6></div>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">직위/직책</label>
       <select name="title" id="position_title_select" class="form-select"><option value="">- 선택 -</option></select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">직급</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">직급</label>
       <select name="position_grade" id="position_grade_select" class="form-select"><option value="">- 선택 -</option></select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">사번</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">사번</label>
       <input type="text" name="emp_no" value="{{ profile.emp_no }}" class="form-control">
     </div>
-    <div class="col-md-4">
-      <label class="form-label">본사/지점</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">본사/지점</label>
       <select name="org_unit_id" class="form-select">
         <option value="">- 선택 -</option>
         {% for ou in org_units %}<option value="{{ ou.id }}" {% if ou.id == profile.org_unit_id %}selected{% endif %}>{{ ou.name }}</option>{% endfor %}
       </select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">부서</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">부서</label>
       <select name="department_id" class="form-select">
         <option value="">- 선택 -</option>
         {% for d in departments %}<option value="{{ d.id }}" {% if d.id == profile.department_id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
       </select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">직속 관리자</label>
+    <!-- <div class="col-md-12">
+      <label class="form-label small text-muted">직속 관리자</label>
       <select name="manager_id" class="form-select">
         <option value="">- 선택 -</option>
         {% for m in managers %}<option value="{{ m.id }}" {% if m.id == profile.manager_id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
       </select>
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">고용형태</label>
+    </div> -->
+    <div class="col-md-12">
+      <label class="form-label small text-muted">고용형태</label>
       <select name="emp_type" id="employment_type_select" class="form-select"><option value="">- 선택 -</option></select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">재직상태</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">재직상태</label>
       <select name="status" id="employment_status_select" class="form-select"><option value="">- 선택 -</option></select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">입사일</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">입사일</label>
       <input type="date" name="hire_date" value="{{ profile.hire_date|date:'Y-m-d' }}" class="form-control">
     </div>
-    <div class="col-md-4">
-      <label class="form-label">퇴사일</label>
+    <div class="col-md-12">
+      <label class="form-label small text-muted">퇴사일</label>
       <input type="date" name="term_date" value="{{ profile.term_date|date:'Y-m-d' }}" class="form-control">
     </div>
   {% else %}
