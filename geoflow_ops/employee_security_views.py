@@ -8,7 +8,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from control.gf_authz.permissions import gf_has_perm
 
-from . import views_employee_history, views_employee_profile, views_employee_role_request
+from . import employee_history_extension_views, views_employee_history, views_employee_profile, views_employee_role_request
 from .services.employee_access import employee_access_policy
 from .services.entity_access import require_tenant_context
 from .services.hr_masters import list_master_options, master_table_exists
@@ -99,12 +99,14 @@ def employee_restore(request, emp_id):
 
 @never_cache
 @login_required
-@require_POST
+@require_http_methods(["GET", "POST"])
 def employee_history_save(request, emp_id):
     _, policy = _policy(request)
     if not policy.can_edit(emp_id):
         raise PermissionDenied("Permission denied")
-    return views_employee_history.history_save(request, emp_id)
+    if request.method == "GET":
+        return employee_history_extension_views.history_detail(request, emp_id)
+    return employee_history_extension_views.history_save(request, emp_id)
 
 
 @never_cache
