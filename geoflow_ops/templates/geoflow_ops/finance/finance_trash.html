@@ -3,12 +3,12 @@
 {% block title %}삭제함 | Finance{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div><h1 class="h3 mb-1">Finance 삭제함</h1><div class="text-muted">삭제한 청구·세금계산서·지급·입출금 내역을 복원할 수 있습니다.</div></div>
+  <div><h1 class="h3 mb-1">Finance 삭제함</h1><div class="text-muted">청구·세금계산서·지급·입출금·계좌·카드의 삭제 항목을 복원하거나 완전삭제할 수 있습니다.</div></div>
   <a href="{% url 'tenant:finance_page' %}" class="btn btn-outline-secondary btn-sm">대장·현황</a>
 </div>
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
 <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>종류</th><th>일자</th><th>내용</th><th class="text-end">금액</th><th>삭제시각</th><th></th></tr></thead><tbody>
-{% for r in trash %}<tr><td>{{ r.kind_label }}</td><td>{{ r.date|date:'Y-m-d' }}</td><td>{{ r.title }}</td><td class="text-end">{{ r.amount|intcomma }}</td><td>{{ r.deleted_at|date:'Y-m-d H:i' }}</td><td class="text-end text-nowrap">{% if can_write %}<form method="post" action="{% url 'tenant:finance_record_restore' r.kind r.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{% url 'tenant:finance_trash' %}"><button class="btn btn-sm btn-outline-primary">복원</button></form>{% endif %}{% if can_hard_delete %} <form method="post" action="{% url 'tenant:finance_record_purge' r.kind r.id %}" class="d-inline" onsubmit="return confirm('완전 삭제하면 복원할 수 없습니다. 계속하시겠습니까?');">{% csrf_token %}<input type="hidden" name="next" value="{% url 'tenant:finance_trash' %}"><button class="btn btn-sm btn-danger">완전삭제</button></form>{% endif %}</td></tr>
+{% for r in trash %}<tr><td>{{ r.kind_label }}</td><td>{{ r.date|date:'Y-m-d'|default:'-' }}</td><td>{{ r.title }}</td><td class="text-end">{{ r.amount|intcomma }}</td><td>{{ r.deleted_at|date:'Y-m-d H:i' }}</td><td class="text-end text-nowrap">{% if can_write %}<form method="post" action="{% url 'tenant:finance_record_restore' r.kind r.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{% url 'tenant:finance_trash' %}"><button class="btn btn-sm btn-outline-primary">복원</button></form>{% endif %}{% if can_hard_delete %} <form method="post" action="{% url 'tenant:finance_record_purge' r.kind r.id %}" class="d-inline" onsubmit="return confirm('완전 삭제하면 복원할 수 없습니다. 계속하시겠습니까?');">{% csrf_token %}<input type="hidden" name="next" value="{% url 'tenant:finance_trash' %}"><button class="btn btn-sm btn-danger">완전삭제</button></form>{% endif %}</td></tr>
 {% empty %}<tr><td colspan="6" class="text-center text-muted py-5">삭제된 Finance 항목이 없습니다.</td></tr>{% endfor %}
 </tbody></table></div></div>
 {% endblock %}

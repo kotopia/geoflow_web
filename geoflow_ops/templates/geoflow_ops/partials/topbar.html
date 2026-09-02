@@ -19,7 +19,11 @@
         <ul class="navbar-nav navbar-align">
             <li class="nav-item dropdown">
                 <a class="nav-icon dropdown-toggle" href="#" id="userDropdown" data-bs-toggle="dropdown">
-                    <img id="gfTopbarAvatar" src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded me-1" alt="User" {% if avatar_attachment_id %}data-avatar-id="{{ avatar_attachment_id }}"{% endif %} />
+                    {% if avatar_attachment_id %}
+                    <img id="gfTopbarAvatar" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" class="avatar img-fluid rounded me-1" alt="User" data-avatar-id="{{ avatar_attachment_id }}" data-default-avatar="{% static 'control/img/avatars/avatar.jpg' %}" style="visibility:hidden" />
+                    {% else %}
+                    <img id="gfTopbarAvatar" src="{% static 'control/img/avatars/avatar.jpg' %}" class="avatar img-fluid rounded me-1" alt="User" />
+                    {% endif %}
                     <span class="text-dark">{{ request.session.user_id }}</span>
                 </a>
                 <div class="dropdown-menu dropdown-menu-end">
@@ -42,21 +46,29 @@
   var attachmentId = avatar.getAttribute("data-avatar-id");
   if (!attachmentId) return;
 
+  var defaultAvatar = avatar.getAttribute("data-default-avatar") || "";
+  function reveal(url) {
+    if (url) avatar.src = url;
+    avatar.style.visibility = "visible";
+  }
+
   fetch("/api/uploads/presign-get/" + encodeURIComponent(attachmentId) + "/?mode=inline", {
     method: "GET",
     credentials: "same-origin"
   })
     .then(function (res) {
-      if (!res.ok) return null;
+      if (!res.ok) throw new Error("avatar presign failed");
       return res.json();
     })
     .then(function (data) {
-      if (data && data.presigned_url) {
-        avatar.src = data.presigned_url;
-      }
+      if (!data || !data.presigned_url) throw new Error("avatar url missing");
+      var img = new Image();
+      img.onload = function () { reveal(data.presigned_url); };
+      img.onerror = function () { reveal(defaultAvatar); };
+      img.src = data.presigned_url;
     })
     .catch(function () {
-      // Keep the default avatar.
+      reveal(defaultAvatar);
     });
 })();
 </script>
