@@ -10,6 +10,11 @@
     return Math.round(num(v));
   }
 
+  function formatWon(v) {
+    var n = roundWon(v);
+    return n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+  }
+
   function stripCorp(s) {
     return String(s || "")
       .replace(/^\s*(?:\(\s*[주유합]\s*\)|㈜|주식회사|유한회사|합자회사|합명회사)\s*/g, "")
@@ -29,9 +34,22 @@
     options.forEach(function (o) { select.appendChild(o); });
   }
 
+  function destroyChoice(select) {
+    if (!select || !select._financeChoices) return;
+    try { select._financeChoices.destroy(); } catch (e) {}
+    select._financeChoices = null;
+    delete select.dataset.choicesInited;
+  }
+
+  function destroyChoices(form) {
+    if (!form) return;
+    form.querySelectorAll(".js-fin-contract,.js-fin-partner").forEach(destroyChoice);
+  }
+
   function initChoices(select, kind) {
     if (!select || select.dataset.choicesInited === "1" || !window.Choices) return;
     if (kind === "partner") sortPartnerOptions(select);
+
     select.dataset.choicesInited = "1";
     select._financeChoices = new Choices(select, {
       searchEnabled: true,
@@ -40,17 +58,27 @@
       removeItemButton: false,
       placeholder: true,
       placeholderValue: select.getAttribute("data-placeholder") || "검색 또는 선택",
-      searchPlaceholderValue: kind === "contract" ? "계약번호 또는 계약명 검색" : "회사명 검색"
+      searchPlaceholderValue: kind === "contract" ? "계약번호 또는 계약명 검색" : "회사명 검색",
+      noChoicesText: "선택 가능한 항목이 없습니다",
+      noResultsText: "검색 결과가 없습니다"
     });
+  }
+
+  function initModalChoices(modal) {
+    if (!modal) return;
+    modal.querySelectorAll(".js-fin-contract").forEach(function (s) { initChoices(s, "contract"); });
+    modal.querySelectorAll(".js-fin-partner").forEach(function (s) { initChoices(s, "partner"); });
   }
 
   function setSelectValue(select, value) {
     if (!select) return;
     var v = value == null ? "" : String(value);
     if (select._financeChoices) {
-      select._financeChoices.removeActiveItems();
-      if (v) select._financeChoices.setChoiceByValue(v);
-      else select._financeChoices.setChoiceByValue("");
+      try {
+        select._financeChoices.setChoiceByValue(v);
+      } catch (e) {
+        select.value = v;
+      }
     } else {
       select.value = v;
     }
@@ -61,16 +89,55 @@
     var el = form.elements[name];
     if (!el) return;
     if (el.tagName === "SELECT") setSelectValue(el, value || "");
+    else if (isMoneyInput(el)) setMoneyValue(el, value == null || value === "" ? 0 : value);
     else el.value = value == null ? "" : value;
   }
 
+  function isMoneyInput(el) {
+    if (!el || el.tagName !== "INPUT") return false;
+    return el.hasAttribute("data-fin-supply") ||
+      el.hasAttribute("data-fin-vat") ||
+      el.hasAttribute("data-fin-total") ||
+      el.name === "amount";
+  }
+
+  function setMoneyValue(el, value) {
+    if (!el) return;
+    el.value = formatWon(value);
+  }
+
+  function formatMoneyTyping(el) {
+    if (!el) return;
+    var raw = String(el.value || "").replace(/[^0-9-]/g, "");
+    if (!raw || raw === "-") {
+      el.value = raw;
+      return;
+    }
+    var negative = raw.charAt(0) === "-";
+    raw = raw.replace(/-/g, "");
+    raw = raw.replace(/^0+(?=\d)/, "");
+    var n = Number(raw || "0");
+    el.value = (negative ? "-" : "") + n.toLocaleString("ko-KR", { maximumFractionDigits: 0 });
+  }
+
+  function prepareMoneyInput(el) {
+    if (!el || el.dataset.finMoneyPrepared === "1") return;
+    el.dataset.finMoneyPrepared = "1";
+    try { el.type = "text"; } catch (e) {}
+    el.inputMode = "numeric";
+    el.autocomplete = "off";
+    setMoneyValue(el, el.value || 0);
+    el.addEventListener("input", function () { formatMoneyTyping(el); });
+  }
+
   function resetForm(form) {
+    destroyChoices(form);
     form.reset();
-    Array.from(form.querySelectorAll("select")).forEach(function (sel) {
-      setSelectValue(sel, "");
-    });
+    Array.from(form.querySelectorAll("select")).forEach(function (sel) { sel.value = ""; });
     if (form.elements.record_id) form.elements.record_id.value = "";
-    Array.from(form.querySelectorAll("[data-fin-total]")).forEach(function (el) { el.value = "0"; });
+    form.querySelectorAll("input").forEach(function (el) {
+      if (isMoneyInput(el)) setMoneyValue(el, 0);
+    });
   }
 
   function applyContractDefault(form, force) {
@@ -102,19 +169,19 @@
     supply.addEventListener("input", function () {
       var s = roundWon(supply.value);
       var v = roundWon(s * 0.1);
-      vat.value = String(v);
-      total.value = String(s + v);
+      setMoneyValue(vat, v);
+      setMoneyValue(total, s + v);
     });
 
     vat.addEventListener("input", function () {
-      total.value = String(roundWon(supply.value) + roundWon(vat.value));
+      setMoneyValue(total, roundWon(supply.value) + roundWon(vat.value));
     });
 
     total.addEventListener("input", function () {
       var t = roundWon(total.value);
       var s = Math.round(t / 1.1);
-      supply.value = String(s);
-      vat.value = String(t - s);
+      setMoneyValue(supply, s);
+      setMoneyValue(vat, t - s);
     });
   }
 
@@ -193,9 +260,44 @@
     });
   }
 
+  function selectMap(modalSelector, fieldName) {
+    var select = document.querySelector(modalSelector + " select[name='" + fieldName + "']");
+    var map = {};
+    if (!select) return map;
+    Array.from(select.options).forEach(function (o) {
+      if (o.value) map[String(o.value)] = String(o.textContent || "").trim();
+    });
+    return map;
+  }
+
+  function translateColumn(containerSelector, index, map) {
+    var root = document.querySelector(containerSelector);
+    if (!root) return;
+    root.querySelectorAll("tbody tr").forEach(function (row) {
+      if (!row.children || row.children.length <= index) return;
+      var cell = row.children[index];
+      var raw = String(cell.textContent || "").trim();
+      if (raw && map[raw]) cell.textContent = map[raw];
+    });
+  }
+
+  function applyReferenceLabels() {
+    translateColumn("#fin-claims", 7, selectMap("#claimModal", "status"));
+    translateColumn("#fin-invoices", 2, selectMap("#invoiceModal", "invoice_type"));
+    translateColumn("#fin-invoices", 8, selectMap("#invoiceModal", "status"));
+    translateColumn("#fin-payments", 7, selectMap("#paymentModal", "status"));
+    translateColumn("#fin-ledger", 1, selectMap("#transactionModal", "transaction_type"));
+    translateColumn("#fin-ledger", 6, selectMap("#transactionModal", "category_code"));
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
-    document.querySelectorAll(".js-fin-contract").forEach(function (s) { initChoices(s, "contract"); });
-    document.querySelectorAll(".js-fin-partner").forEach(function (s) { initChoices(s, "partner"); });
+    document.querySelectorAll("input").forEach(function (el) {
+      if (isMoneyInput(el)) prepareMoneyInput(el);
+    });
+
+    document.querySelectorAll(".modal").forEach(function (modal) {
+      modal.addEventListener("shown.bs.modal", function () { initModalChoices(modal); });
+    });
 
     bindContractDefaults(document);
     document.querySelectorAll("form[data-fin-money-form]").forEach(bindMoney);
@@ -208,5 +310,6 @@
     });
 
     bindDeleteConfirm(document);
+    applyReferenceLabels();
   });
 })();
