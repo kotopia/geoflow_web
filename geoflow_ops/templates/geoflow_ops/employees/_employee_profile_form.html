@@ -50,13 +50,8 @@
         {% for d in departments %}<option value="{{ d.id }}" {% if d.id == profile.department_id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
       </select>
     </div>
-    <!-- <div class="col-md-12">
-      <label class="form-label small text-muted">직속 관리자</label>
-      <select name="manager_id" class="form-select">
-        <option value="">- 선택 -</option>
-        {% for m in managers %}<option value="{{ m.id }}" {% if m.id == profile.manager_id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
-      </select>
-    </div> -->
+    <input type="hidden" name="manager_id" value="{{ profile.manager_id }}">
+    <!-- 직속 관리자 선택 UI는 현재 숨김. 기존 값은 hidden field로 보존합니다. -->
     <div class="col-md-12">
       <label class="form-label small text-muted">고용형태</label>
       <select name="emp_type" id="employment_type_select" class="form-select"><option value="">- 선택 -</option></select>
