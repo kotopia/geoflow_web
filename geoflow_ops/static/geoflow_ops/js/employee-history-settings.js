@@ -57,6 +57,17 @@
     var degreePromise = loadOptions(config.dataset.degreeOptionsUrl || "", degreeSelect);
     var statusPromise = loadOptions(config.dataset.statusOptionsUrl || "", statusSelect);
 
+    // The current employee-detail layout intentionally hides school type.
+    // Keep a hidden field so editing an existing education row does not erase
+    // a previously stored school_type value.
+    var schoolTypeInput = education && education.querySelector('[name="school_type"]');
+    if (education && !schoolTypeInput) {
+      schoolTypeInput = document.createElement("input");
+      schoolTypeInput.type = "hidden";
+      schoolTypeInput.name = "school_type";
+      education.appendChild(schoolTypeInput);
+    }
+
     if (career && !career.querySelector('[name="certificate_no"]')) {
       var row = career.querySelector(".row");
       var duties = career.querySelector('[name="duties"]');
@@ -75,6 +86,7 @@
         Promise.all([degreePromise, statusPromise]).then(function(){
           if (degreeSelect) degreeSelect.value = "";
           if (statusSelect) statusSelect.value = "";
+          if (schoolTypeInput) schoolTypeInput.value = "";
         });
       });
     });
@@ -84,6 +96,7 @@
         Promise.all([degreePromise, statusPromise]).then(function(){
           if (degreeSelect) degreeSelect.value = button.dataset.degree || "";
           if (statusSelect) statusSelect.value = button.dataset.educationStatus || "";
+          if (schoolTypeInput) schoolTypeInput.value = button.dataset.schoolType || "";
         });
       });
     });
