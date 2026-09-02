@@ -10,7 +10,8 @@ from control.gf_authz.permissions import gf_has_perm, gf_has_role
 from . import views_finance
 from . import finance_pages_v2
 from . import finance_pages_v3
-from . import finance_import_views_v4
+from . import finance_pages_v4
+from . import finance_import_views_v5
 from .services.entity_access import require_tenant_context
 
 
@@ -110,42 +111,42 @@ def _validate_contract_account_org(alias, request):
 @require_GET
 def finance_page(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "dashboard")
+    return finance_pages_v4.finance_section(request, "dashboard")
 
 
 @login_required
 @require_GET
 def finance_claims(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "claims")
+    return finance_pages_v4.finance_section(request, "claims")
 
 
 @login_required
 @require_GET
 def finance_invoices(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "invoices")
+    return finance_pages_v4.finance_section(request, "invoices")
 
 
 @login_required
 @require_GET
 def finance_payments(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "payments")
+    return finance_pages_v4.finance_section(request, "payments")
 
 
 @login_required
 @require_GET
 def finance_ledger(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "ledger")
+    return finance_pages_v4.finance_section(request, "ledger")
 
 
 @login_required
 @require_GET
 def finance_balance(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "balance")
+    return finance_pages_v4.finance_section(request, "balance")
 
 
 @login_required
@@ -164,6 +165,13 @@ def finance_trash(request):
 
 @login_required
 @require_GET
+def finance_org_options(request):
+    _require_view(request)
+    return finance_pages_v4.org_options(request)
+
+
+@login_required
+@require_GET
 def finance_contract_defaults(request, contract_id):
     _require_view(request)
     return finance_pages_v3.contract_defaults(request, contract_id)
@@ -172,7 +180,7 @@ def finance_contract_defaults(request, contract_id):
 @xframe_options_sameorigin
 @require_http_methods(["GET", "POST"])
 def finance_import_frame(request):
-    return finance_import_views_v4.finance_import(request)
+    return finance_import_views_v5.finance_import(request)
 
 
 @login_required
