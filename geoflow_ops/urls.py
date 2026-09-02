@@ -35,6 +35,9 @@ urlpatterns = [
     path("finance/payment-requests/save/", finance_security_views.payment_request_save, name="finance_payment_request_save"),
     path("finance/transactions/save/", finance_security_views.transaction_save, name="finance_transaction_save"),
     path("finance/accounts/save/", finance_security_views.account_save, name="finance_account_save"),
+    path("finance/<str:kind>/<uuid:record_id>/delete/", finance_security_views.record_soft_delete, name="finance_record_delete"),
+    path("finance/<str:kind>/<uuid:record_id>/restore/", finance_security_views.record_restore, name="finance_record_restore"),
+    path("finance/<str:kind>/<uuid:record_id>/purge/", finance_security_views.record_hard_delete, name="finance_record_purge"),
 
     path("catalog/board/", security_views.catalog_board, name="catalog_board"),
 

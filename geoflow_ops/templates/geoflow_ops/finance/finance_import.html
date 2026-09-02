@@ -1,34 +1,71 @@
 {% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
 {% block title %}Finance Excel 가져오기 | GeoFlow{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <div><h1 class="h3 mb-1">Finance Excel 가져오기</h1><div class="text-muted">기존 세금계산서 및 입출금대장 XLSX를 GeoFlow Finance로 이관합니다.</div></div>
+  <div><h1 class="h3 mb-1">Finance Excel 가져오기</h1><div class="text-muted">파일을 바로 저장하지 않고 먼저 헤더·매칭·중복을 검토한 뒤 선택한 행만 확정합니다.</div></div>
   <a href="{% url 'tenant:finance_page' %}" class="btn btn-outline-secondary btn-sm">Finance로 돌아가기</a>
 </div>
+
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
-<div class="row g-3">
-  <div class="col-lg-5">
-    <div class="card"><div class="card-header"><h5 class="card-title mb-0">XLSX 업로드</h5></div><div class="card-body">
-      <form method="post" enctype="multipart/form-data">{% csrf_token %}
-        <div class="mb-3"><label class="form-label">가져오기 유형 *</label><select name="import_type" class="form-select" required><option value="invoice">세금계산서</option><option value="transaction">입출금대장</option></select></div>
-        <div class="mb-3"><label class="form-label">Excel 파일 *</label><input type="file" name="file" class="form-control" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></div>
-        <button class="btn btn-primary" type="submit">가져오기</button>
-      </form>
-    </div></div>
-  </div>
-  <div class="col-lg-7">
-    <div class="card mb-3"><div class="card-header"><h5 class="card-title mb-0">세금계산서 인식 헤더</h5></div><div class="card-body small">
-      <p class="mb-2">필수: <strong>구분, 거래처, 공급가액</strong></p>
-      <div class="text-muted">작성일, 발행일, 구분(매출/매입), 거래처, 계약명/계약번호, 프로젝트명/코드, 공급가액, 부가세, 합계, 계산서번호/승인번호, 상태, 비고를 자동 인식합니다.</div>
-    </div></div>
-    <div class="card"><div class="card-header"><h5 class="card-title mb-0">입출금대장 인식 헤더</h5></div><div class="card-body small">
-      <p class="mb-2">필수: <strong>거래일자, 구분, 금액</strong></p>
-      <div class="text-muted">거래일자, 구분(입금/출금), 금액, 거래처, 계좌명/계좌번호, 적요, 계약명/계약번호, 프로젝트명/코드, 분류, 증빙유형, 비고를 자동 인식합니다.</div>
-      <hr><div class="text-muted">구분·상태·분류·증빙유형은 Excel 텍스트를 하드코딩하지 않고 현재 <code>ops.settings_nodes</code>의 코드 또는 표시명과 대조합니다. 계약·거래처·프로젝트·계좌가 일치하지 않는 행은 저장하지 않고 오류로 분리합니다.</div>
-    </div></div>
+
+<div class="card mb-3">
+  <div class="card-header"><h5 class="card-title mb-0">1. XLSX 미리보기</h5></div>
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-3">{% csrf_token %}<input type="hidden" name="action" value="preview">
+      <div class="col-md-3"><label class="form-label">가져오기 유형 *</label><select name="import_type" id="import-type" class="form-select" required><option value="invoice" {% if import_type == 'invoice' %}selected{% endif %}>세금계산서</option><option value="transaction" {% if import_type == 'transaction' %}selected{% endif %}>입출금대장</option></select></div>
+      <div class="col-md-3" id="invoice-direction-wrap"><label class="form-label">세금계산서 방향</label><select name="invoice_direction" class="form-select"><option value="auto" {% if invoice_direction == 'auto' %}selected{% endif %}>자동 판정</option><option value="sales" {% if invoice_direction == 'sales' %}selected{% endif %}>매출로 보기</option><option value="purchase" {% if invoice_direction == 'purchase' %}selected{% endif %}>매입으로 보기</option></select><div class="form-text">우리 회사 사업자번호와 공급자/공급받는자를 비교해 우선 자동 판정합니다.</div></div>
+      <div class="col-md-2"><label class="form-label">헤더 행</label><input type="number" min="1" name="header_row" class="form-control" value="{{ header_row }}" placeholder="자동"><div class="form-text">비우면 상단 20행을 자동 탐색</div></div>
+      <div class="col-md-4"><label class="form-label">Excel 파일 *</label><input type="file" name="file" class="form-control" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></div>
+      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">미리보기</button></div>
+    </form>
   </div>
 </div>
-{% if import_errors %}
-<div class="card mt-3"><div class="card-header"><h5 class="card-title mb-0">최근 가져오기 오류</h5></div><div class="card-body"><ol class="mb-0 small">{% for e in import_errors %}<li>{{ e }}</li>{% endfor %}</ol></div></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">HomeTax 세금계산서 대응</h5></div><div class="card-body small"><div class="mb-2">1행 고정이 아니라 <strong>상단 20행에서 실제 헤더를 자동 탐색</strong>합니다.</div><div class="text-muted">작성일/발급일, 공급자·공급받는자 상호와 사업자번호, 공급가액/공급가액합계, 세액/세액합계, 합계금액, 승인번호 등을 인식합니다. 승인번호는 없어도 됩니다. 거래처가 GeoFlow에 없으면 미연결 경고만 표시하고 가져올 수 있습니다.</div></div></div></div>
+  <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">중복 판정 원칙</h5></div><div class="card-body small"><div class="mb-2">중복 의심은 자동 삭제하지 않고 <strong>기존 데이터와 나란히 비교</strong>합니다.</div><div class="text-muted">세금계산서는 승인번호가 있으면 우선 사용하고, 없으면 작성/발행일 + 거래처 + 공급가액 + 세액 + 합계를 조합합니다. 입출금은 거래일 + 입출금구분 + 금액 + 적요를 중심으로 비교합니다. 중복 의심 행도 사용자가 체크하면 저장할 수 있습니다.</div></div></div></div>
+</div>
+
+{% if preview %}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div><h5 class="card-title mb-1">2. 검토 후 선택 저장</h5><div class="small text-muted">{{ preview.file_name }} · 헤더 {{ preview.header_row }}행 · 인식 필드 {{ preview.matched_fields|join:', ' }}</div></div>
+    <div class="d-flex gap-2"><form method="post">{% csrf_token %}<input type="hidden" name="action" value="clear"><button class="btn btn-outline-secondary btn-sm">미리보기 닫기</button></form></div>
+  </div>
+  <div class="card-body p-0">
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="commit">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead><tr><th style="width:42px" class="text-center"><input type="checkbox" id="preview-check-all" class="form-check-input"></th><th>행</th><th>판정</th><th>일자</th><th>거래처</th><th>계약</th>{% if preview.import_type == 'invoice' %}<th class="text-end">공급가액</th><th class="text-end">세액</th><th class="text-end">합계</th><th>승인번호</th>{% else %}<th>적요</th><th class="text-end">금액</th>{% endif %}<th>기존 데이터 비교 / 확인사항</th></tr></thead>
+          <tbody>
+          {% for r in preview.rows %}
+            <tr class="{% if r.status == 'duplicate' %}table-warning{% elif r.status == 'error' %}table-danger{% elif r.status == 'warning' %}table-info{% endif %}">
+              <td class="text-center">{% if r.selectable %}<input type="checkbox" class="form-check-input preview-row-check" name="selected" value="{{ r.index }}" {% if r.default_selected %}checked{% endif %}>{% else %}<input type="checkbox" class="form-check-input" disabled>{% endif %}</td>
+              <td>{{ r.row_no }}</td>
+              <td>{% if r.status == 'new' %}<span class="badge bg-success">신규</span>{% elif r.status == 'duplicate' %}<span class="badge bg-warning text-dark">중복 의심</span>{% elif r.status == 'warning' %}<span class="badge bg-info">확인</span>{% else %}<span class="badge bg-danger">저장 불가</span>{% endif %}</td>
+              <td>{{ r.display.date|default:'-' }}</td><td>{{ r.display.partner|default:'-' }}</td><td>{{ r.display.contract|default:'-' }}</td>
+              {% if preview.import_type == 'invoice' %}<td class="text-end">{{ r.display.supply|intcomma }}</td><td class="text-end">{{ r.display.vat|intcomma }}</td><td class="text-end fw-semibold">{{ r.display.total|intcomma }}</td><td>{{ r.display.approval_no|default:'-' }}</td>{% else %}<td>{{ r.display.description|default:'-' }}</td><td class="text-end fw-semibold">{{ r.display.amount|intcomma }}</td>{% endif %}
+              <td class="small">{% if r.duplicate %}<div class="fw-semibold text-warning-emphasis">기존: {{ r.duplicate.date|default:'-' }} / {{ r.duplicate.partner|default:'-' }} / {{ r.duplicate.contract|default:'-' }} / {{ r.duplicate.amount|intcomma }}</div>{% endif %}{% if r.message %}<div class="text-muted">{{ r.message }}</div>{% elif not r.duplicate %}<span class="text-muted">이상 없음</span>{% endif %}</td>
+            </tr>
+          {% empty %}<tr><td colspan="12" class="text-center text-muted py-5">가져올 데이터 행이 없습니다.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 border-top d-flex justify-content-between align-items-center flex-wrap gap-2"><div class="small text-muted">기본값: 신규/확인 행은 선택, 중복 의심은 선택 해제, 저장 불가 행은 비활성화됩니다.</div><button class="btn btn-primary" type="submit">선택한 행 저장</button></div>
+    </form>
+  </div>
+</div>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var type=document.getElementById('import-type'), wrap=document.getElementById('invoice-direction-wrap');
+  function toggle(){ if(wrap) wrap.classList.toggle('d-none', type && type.value !== 'invoice'); }
+  if(type){type.addEventListener('change',toggle);toggle();}
+  var all=document.getElementById('preview-check-all');
+  if(all){ all.addEventListener('change',function(){ document.querySelectorAll('.preview-row-check').forEach(function(cb){cb.checked=all.checked;}); }); }
+})();
+</script>
 {% endblock %}
