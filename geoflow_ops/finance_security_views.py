@@ -2,12 +2,15 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import connections
 from django.http import HttpResponseBadRequest
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from control.gf_authz.permissions import gf_has_perm, gf_has_role
 
 from . import views_finance
 from . import finance_pages_v2
+from . import finance_pages_v3
+from . import finance_import_views_v4
 from .services.entity_access import require_tenant_context
 
 
@@ -132,7 +135,27 @@ def finance_balance(request):
 @require_GET
 def finance_settings(request):
     _require_view(request)
-    return finance_pages_v2.finance_section(request, "settings")
+    return finance_pages_v3.settings_page(request)
+
+
+@login_required
+@require_GET
+def finance_trash(request):
+    _require_view(request)
+    return finance_pages_v3.trash_page(request)
+
+
+@login_required
+@require_GET
+def finance_contract_defaults(request, contract_id):
+    _require_view(request)
+    return finance_pages_v3.contract_defaults(request, contract_id)
+
+
+@xframe_options_sameorigin
+@require_http_methods(["GET", "POST"])
+def finance_import_frame(request):
+    return finance_import_views_v4.finance_import(request)
 
 
 @login_required
@@ -208,35 +231,49 @@ def transaction_save(request):
 @require_POST
 def account_save(request):
     _require_write(request)
-    return finance_pages_v2.account_save(request)
+    return finance_pages_v3.account_save(request)
 
 
 @login_required
 @require_POST
 def card_save(request):
     _require_write(request)
-    return finance_pages_v2.card_save(request)
+    return finance_pages_v3.card_save(request)
+
+
+@login_required
+@require_POST
+def account_delete(request, record_id):
+    _require_write(request)
+    return finance_pages_v3.account_delete(request, record_id)
+
+
+@login_required
+@require_POST
+def card_delete(request, record_id):
+    _require_write(request)
+    return finance_pages_v3.card_delete(request, record_id)
 
 
 @login_required
 @require_POST
 def record_soft_delete(request, kind, record_id):
     _require_write(request)
-    return views_finance.record_soft_delete(request, kind, record_id)
+    return finance_pages_v3.record_soft_delete(request, kind, record_id)
 
 
 @login_required
 @require_POST
 def record_restore(request, kind, record_id):
     _require_write(request)
-    return views_finance.record_restore(request, kind, record_id)
+    return finance_pages_v3.record_restore(request, kind, record_id)
 
 
 @login_required
 @require_POST
 def record_hard_delete(request, kind, record_id):
     _require_tenant_admin(request)
-    return views_finance.record_hard_delete(request, kind, record_id)
+    return finance_pages_v3.record_hard_delete(request, kind, record_id)
 
 
 @login_required
