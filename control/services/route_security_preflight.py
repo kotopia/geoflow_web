@@ -30,6 +30,7 @@ ROUTE_SECURITY_BOUNDARIES = (
     ("/finance/balance/", "tenant:finance_balance", "geoflow_ops.finance_security_views", "finance_balance"),
     ("/finance/settings/", "tenant:finance_settings", "geoflow_ops.finance_security_views", "finance_settings"),
     ("/finance/trash/", "tenant:finance_trash", "geoflow_ops.finance_security_views", "finance_trash"),
+    ("/finance/org-options/", "tenant:finance_org_options", "geoflow_ops.finance_security_views", "finance_org_options"),
     (f"/finance/contracts/{_UUID}/defaults/", "tenant:finance_contract_defaults", "geoflow_ops.finance_security_views", "finance_contract_defaults"),
     ("/finance/import/", "tenant:finance_import", "geoflow_ops.finance_security_views", "finance_import_frame"),
     ("/finance/documents/", "tenant:finance_documents", "geoflow_ops.finance_documents_views", "finance_documents"),
