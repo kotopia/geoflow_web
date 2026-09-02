@@ -1,0 +1,60 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
+{% block title %}계좌·카드 | Finance{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div><h1 class="h3 mb-1">계좌·카드</h1><div class="text-muted">계좌와 법인카드를 나의 기업정보의 귀속회사에 연결합니다.</div></div>
+  <a href="{% url 'tenant:finance_page' %}" class="btn btn-outline-secondary btn-sm">대장·현황</a>
+</div>
+{% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
+
+{% if can_write %}
+<div class="row g-3 mb-3">
+  <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0" id="account-form-title">계좌 등록</h5></div><div class="card-body">
+    <form method="post" action="{% url 'tenant:finance_account_save' %}" id="account-form" class="row g-2">{% csrf_token %}<input type="hidden" name="record_id">
+      <div class="col-12"><label class="form-label">귀속회사 *</label><select name="my_org_unit_id" class="form-select" required><option value="">선택</option>{% for o in org_units %}<option value="{{ o.id }}">{{ o.name }}{% if o.biz_no %} · {{ o.biz_no }}{% endif %}</option>{% endfor %}</select></div>
+      <div class="col-md-6"><label class="form-label">은행 *</label><input name="bank_name" class="form-control" required></div>
+      <div class="col-md-6"><label class="form-label">계좌명 *</label><input name="account_name" class="form-control" required></div>
+      <div class="col-md-8"><label class="form-label">계좌번호</label><input name="account_number" class="form-control"></div>
+      <div class="col-md-4"><label class="form-label">통화</label><input name="currency" class="form-control" value="KRW"></div>
+      <div class="col-12"><label class="form-label">비고</label><textarea name="memo" class="form-control" rows="2"></textarea></div>
+      <div class="col-12 d-flex gap-2"><button class="btn btn-primary" id="account-submit">계좌 등록</button><button type="button" class="btn btn-outline-secondary d-none" id="account-cancel">수정 취소</button></div>
+    </form>
+  </div></div></div>
+  <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0" id="card-form-title">법인카드 등록</h5></div><div class="card-body">
+    <form method="post" action="{% url 'tenant:finance_card_save' %}" id="card-form" class="row g-2">{% csrf_token %}<input type="hidden" name="record_id">
+      <div class="col-12"><label class="form-label">귀속회사 *</label><select name="my_org_unit_id" class="form-select" required><option value="">선택</option>{% for o in org_units %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-6"><label class="form-label">카드사 *</label><input name="issuer" class="form-control" required></div>
+      <div class="col-md-6"><label class="form-label">카드명 *</label><input name="card_name" class="form-control" required></div>
+      <div class="col-12"><label class="form-label">마스킹 카드번호</label><input name="masked_number" class="form-control" placeholder="1234-****-****-5678"></div>
+      <div class="col-12"><label class="form-label">비고</label><textarea name="memo" class="form-control" rows="2"></textarea></div>
+      <div class="col-12 d-flex gap-2"><button class="btn btn-primary" id="card-submit">카드 등록</button><button type="button" class="btn btn-outline-secondary d-none" id="card-cancel">수정 취소</button></div>
+    </form>
+  </div></div></div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-xl-6"><div class="card"><div class="card-header"><h5 class="card-title mb-0">계좌 목록</h5></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>귀속회사</th><th>은행</th><th>계좌명</th><th>계좌번호</th><th>상태</th><th></th></tr></thead><tbody>
+  {% for a in accounts %}<tr class="{% if not a.active %}text-muted{% endif %}"><td>{{ a.org_unit_name|default:'-' }}</td><td>{{ a.bank_name }}</td><td>{{ a.account_name }}</td><td>{{ a.account_number|default:'-' }}</td><td>{% if a.active %}<span class="badge bg-success">사용</span>{% else %}<span class="badge bg-secondary">삭제됨</span>{% endif %}</td><td class="text-end text-nowrap">{% if can_write %}<button type="button" class="btn btn-sm btn-outline-secondary js-account-edit" data-id="{{ a.id }}" data-org="{{ a.org_unit_id }}" data-bank="{{ a.bank_name|escape }}" data-name="{{ a.account_name|escape }}" data-number="{{ a.account_number|escape }}" data-currency="{{ a.currency|escape }}" data-memo="{{ a.memo|default:''|escape }}">수정</button> {% if a.active %}<form method="post" action="{% url 'tenant:finance_account_delete' a.id %}" class="d-inline" onsubmit="return confirm('이 계좌를 삭제하시겠습니까? 과거 거래 연결은 유지됩니다.');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">삭제</button></form>{% endif %}{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="text-center text-muted py-4">등록된 계좌가 없습니다.</td></tr>{% endfor %}
+  </tbody></table></div></div></div>
+  <div class="col-xl-6"><div class="card"><div class="card-header"><h5 class="card-title mb-0">법인카드 목록</h5></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>귀속회사</th><th>카드사</th><th>카드명</th><th>번호</th><th>상태</th><th></th></tr></thead><tbody>
+  {% for c in cards %}<tr class="{% if not c.active %}text-muted{% endif %}"><td>{{ c.org_unit_name|default:'-' }}</td><td>{{ c.issuer }}</td><td>{{ c.card_name }}</td><td>{{ c.masked_number|default:'-' }}</td><td>{% if c.active %}<span class="badge bg-success">사용</span>{% else %}<span class="badge bg-secondary">삭제됨</span>{% endif %}</td><td class="text-end text-nowrap">{% if can_write %}<button type="button" class="btn btn-sm btn-outline-secondary js-card-edit" data-id="{{ c.id }}" data-org="{{ c.org_unit_id }}" data-issuer="{{ c.issuer|escape }}" data-name="{{ c.card_name|escape }}" data-number="{{ c.masked_number|escape }}" data-memo="{{ c.memo|escape }}">수정</button> {% if c.active %}<form method="post" action="{% url 'tenant:finance_card_delete' c.id %}" class="d-inline" onsubmit="return confirm('이 카드를 삭제하시겠습니까? 과거 사용 이력 연결은 유지됩니다.');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">삭제</button></form>{% endif %}{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="text-center text-muted py-4">등록된 카드가 없습니다.</td></tr>{% endfor %}
+  </tbody></table></div></div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  function bind(formId, editSelector, cancelId, titleId, submitId, fields, createLabel, editLabel){
+    var form=document.getElementById(formId), cancel=document.getElementById(cancelId), title=document.getElementById(titleId), submit=document.getElementById(submitId);
+    if(!form)return;
+    function reset(){form.reset();form.elements.record_id.value='';if(title)title.textContent=createLabel;if(submit)submit.textContent=createLabel;if(cancel)cancel.classList.add('d-none');}
+    document.querySelectorAll(editSelector).forEach(function(btn){btn.addEventListener('click',function(){form.elements.record_id.value=btn.dataset.id||'';fields.forEach(function(pair){var el=form.elements[pair[0]];if(el)el.value=btn.dataset[pair[1]]||'';});if(title)title.textContent=editLabel;if(submit)submit.textContent='수정 저장';if(cancel)cancel.classList.remove('d-none');form.scrollIntoView({behavior:'smooth',block:'center'});});});
+    if(cancel)cancel.addEventListener('click',reset);
+  }
+  bind('account-form','.js-account-edit','account-cancel','account-form-title','account-submit', [['my_org_unit_id','org'],['bank_name','bank'],['account_name','name'],['account_number','number'],['currency','currency'],['memo','memo']], '계좌 등록','계좌 수정');
+  bind('card-form','.js-card-edit','card-cancel','card-form-title','card-submit', [['my_org_unit_id','org'],['issuer','issuer'],['card_name','name'],['masked_number','number'],['memo','memo']], '법인카드 등록','법인카드 수정');
+})();
+</script>
+{% endblock %}
