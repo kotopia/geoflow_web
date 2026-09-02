@@ -32,6 +32,7 @@ urlpatterns = [
     path("finance/balance/", finance_security_views.finance_balance, name="finance_balance"),
     path("finance/settings/", finance_security_views.finance_settings, name="finance_settings"),
     path("finance/trash/", finance_security_views.finance_trash, name="finance_trash"),
+    path("finance/org-options/", finance_security_views.finance_org_options, name="finance_org_options"),
     path("finance/contracts/<uuid:contract_id>/defaults/", finance_security_views.finance_contract_defaults, name="finance_contract_defaults"),
     path("finance/import/", finance_security_views.finance_import_frame, name="finance_import"),
     path("finance/documents/", finance_documents_views.finance_documents, name="finance_documents"),
