@@ -3,7 +3,9 @@ from django.db import migrations
 
 FORWARD_SQL = r"""
 -- Finance v2: editable records, reversible user deletion, import provenance.
--- Existing Finance rows were explicitly approved as disposable test data for this rollout.
+-- Data cleanup is intentionally not embedded in the schema migration because
+-- this migration runs for every tenant database. Test rows can be removed from
+-- the Finance UI or by an explicitly scoped deployment cleanup.
 
 ALTER TABLE fin.claims
     ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false,
@@ -41,16 +43,6 @@ CREATE INDEX IF NOT EXISTS idx_fin_invoice_deleted ON fin.tax_invoices(is_delete
 CREATE INDEX IF NOT EXISTS idx_fin_invoice_fingerprint ON fin.tax_invoices(import_fingerprint) WHERE import_fingerprint IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_fin_tx_deleted ON fin.transactions(is_deleted, transaction_date DESC);
 CREATE INDEX IF NOT EXISTS idx_fin_tx_fingerprint ON fin.transactions(import_fingerprint) WHERE import_fingerprint IS NOT NULL;
-
--- Clear only the transactional Finance rows created during the initial test period.
--- Account master data is intentionally preserved.
-TRUNCATE TABLE
-    fin.transaction_invoice_map,
-    fin.transactions,
-    fin.tax_invoices,
-    fin.payment_requests,
-    fin.claims
-CASCADE;
 """
 
 
