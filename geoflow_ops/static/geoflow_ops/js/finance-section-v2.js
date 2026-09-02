@@ -14,19 +14,30 @@
   function setSelect(sel,value){if(!sel)return;var v=value?String(value):"";if(sel._finChoice){try{sel._finChoice.removeActiveItems();if(v)sel._finChoice.setChoiceByValue(v);}catch(e){sel.value=v;}}else sel.value=v;sel.dispatchEvent(new Event("change",{bubbles:true}));}
 
   function selectedOption(sel){return sel&&sel.selectedIndex>=0?sel.options[sel.selectedIndex]:null;}
-  function systemKey(sel){var o=selectedOption(sel);return o?String(o.dataset.systemKey||""):"";}
-  function applyContract(form){
-    var c=form.querySelector(".js-fin-contract"),org=form.querySelector(".js-fin-org"),partner=form.querySelector(".js-fin-partner"),hint=form.querySelector(".js-fin-client-hint");
-    if(!c||!c.value)return;
-    var o=selectedOption(c),client=o?o.dataset.clientId||"":"",orgId=o?o.dataset.orgUnitId||"":"";
+  function applyContractMeta(form,meta){
+    var org=form.querySelector(".js-fin-org"),partner=form.querySelector(".js-fin-partner"),hint=form.querySelector(".js-fin-client-hint");
+    var orgId=String((meta&&meta.org_unit_id)||""),clientId=String((meta&&meta.client_id)||"");
     if(orgId)setSelect(org,orgId);
-    if(hint)hint.textContent=client?"계약 발주처가 확인되었습니다. 업무구분에 따라 자동선택하거나 직접 변경할 수 있습니다.":"이 계약에 등록된 발주처가 없습니다.";
-    var policy=form.dataset.finPartnerPolicy||"none",direction=form.querySelector(".js-fin-direction"),auto=false;
-    if(policy==="always")auto=true;
-    else if(policy==="invoice")auto=systemKey(direction)==="finance.value.invoice_type.sales";
-    else if(policy==="transaction")auto=systemKey(direction)==="finance.value.transaction_type.in";
-    if(auto&&client){setSelect(partner,client);if(partner)partner.dataset.autoPartner=client;}
-    else if(partner&&partner.dataset.autoPartner&&String(partner.value)===String(partner.dataset.autoPartner)){setSelect(partner,"");delete partner.dataset.autoPartner;}
+    if(clientId)setSelect(partner,clientId);
+    if(hint){
+      if(clientId)hint.textContent="계약 발주처: "+String((meta&&meta.client_name)||"선택됨")+" · 필요하면 다른 거래처로 변경할 수 있습니다.";
+      else hint.textContent="이 계약에 등록된 발주처가 없습니다.";
+    }
+  }
+  async function applyContract(form){
+    if(form.dataset.finHydrating==="1")return;
+    var c=form.querySelector(".js-fin-contract");
+    if(!c||!c.value)return;
+    var o=selectedOption(c);
+    var fallback={client_id:o?o.dataset.clientId||"":"",org_unit_id:o?o.dataset.orgUnitId||"":"",client_name:""};
+    applyContractMeta(form,fallback);
+    try{
+      var r=await fetch("/finance/contracts/"+encodeURIComponent(c.value)+"/defaults/",{credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"}});
+      if(!r.ok)return;
+      var data=await r.json();
+      if(String(c.value)!==String(data.contract_id||""))return;
+      applyContractMeta(form,data);
+    }catch(e){}
   }
   function applyAccount(form){var a=form.querySelector(".js-fin-account"),org=form.querySelector(".js-fin-org");if(!a||!a.value)return;var o=selectedOption(a),orgId=o?o.dataset.orgUnitId||"":"";if(orgId)setSelect(org,orgId);}
 
@@ -37,8 +48,8 @@
     transaction:{record_id:"id",transaction_date:"date",transaction_type:"type",amount:"amount",contract_id:"contractId",partner_id:"partnerId",my_org_unit_id:"orgUnitId",account_id:"accountId",description:"description",claim_id:"claimId",payment_request_id:"paymentId",category_code:"category",evidence_type:"evidence",memo:"memo"}
   };
   function setField(form,name,val){var el=form.elements[name];if(!el)return;if(el.tagName==="SELECT")setSelect(el,val);else if(moneyInput(el))el.value=fmt(val||0);else el.value=val==null?"":val;}
-  function resetForm(form){form.querySelectorAll(".js-fin-contract,.js-fin-partner").forEach(destroyChoice);form.reset();if(form.elements.record_id)form.elements.record_id.value="";form.querySelectorAll("input").forEach(function(el){if(moneyInput(el))el.value=fmt(0);});var p=form.querySelector(".js-fin-partner");if(p)delete p.dataset.autoPartner;form.querySelectorAll("[data-fin-attachment-panel]").forEach(function(panel){panel.classList.add("d-none");panel.dataset.recordId="";});}
-  function prepareModal(modal,button,edit){var form=modal.querySelector("form");resetForm(form);if(edit){var kind=button.dataset.kind,map=maps[kind]||{};Object.keys(map).forEach(function(name){setField(form,name,button.dataset[map[name]]||"");});var panel=form.querySelector("[data-fin-attachment-panel]");if(panel&&button.dataset.id){panel.classList.remove("d-none");panel.dataset.recordId=button.dataset.id;panel.dataset.hasAttachment=button.dataset.attachmentId?"1":"0";var st=panel.querySelector("[data-fin-attachment-status]");if(st)st.textContent=button.dataset.attachmentId?"증빙이 첨부되어 있습니다.":"첨부된 증빙이 없습니다.";}}modal.addEventListener("shown.bs.modal",function once(){modal.querySelectorAll(".js-fin-contract").forEach(function(s){initChoice(s,"contract");});modal.querySelectorAll(".js-fin-partner").forEach(function(s){initChoice(s,"partner");});},{once:true});bootstrap.Modal.getOrCreateInstance(modal).show();}
+  function resetForm(form){form.querySelectorAll(".js-fin-contract,.js-fin-partner").forEach(destroyChoice);form.reset();if(form.elements.record_id)form.elements.record_id.value="";form.querySelectorAll("input").forEach(function(el){if(moneyInput(el))el.value=fmt(0);});form.querySelectorAll("[data-fin-attachment-panel]").forEach(function(panel){panel.classList.add("d-none");panel.dataset.recordId="";});}
+  function prepareModal(modal,button,edit){var form=modal.querySelector("form");resetForm(form);if(edit){form.dataset.finHydrating="1";var kind=button.dataset.kind,map=maps[kind]||{};Object.keys(map).forEach(function(name){setField(form,name,button.dataset[map[name]]||"");});delete form.dataset.finHydrating;var panel=form.querySelector("[data-fin-attachment-panel]");if(panel&&button.dataset.id){panel.classList.remove("d-none");panel.dataset.recordId=button.dataset.id;panel.dataset.hasAttachment=button.dataset.attachmentId?"1":"0";var st=panel.querySelector("[data-fin-attachment-status]");if(st)st.textContent=button.dataset.attachmentId?"증빙이 첨부되어 있습니다.":"첨부된 증빙이 없습니다.";}}modal.addEventListener("shown.bs.modal",function once(){modal.querySelectorAll(".js-fin-contract").forEach(function(s){initChoice(s,"contract");});modal.querySelectorAll(".js-fin-partner").forEach(function(s){initChoice(s,"partner");});},{once:true});bootstrap.Modal.getOrCreateInstance(modal).show();}
 
   function csrf(form){var el=form&&form.querySelector("input[name='csrfmiddlewaretoken']");return el?el.value:"";}
   async function uploadAttachment(panel){
@@ -60,13 +71,13 @@
   document.addEventListener("DOMContentLoaded",function(){
     document.querySelectorAll("input").forEach(function(el){if(moneyInput(el))prepMoney(el);});
     document.querySelectorAll("form[data-fin-money-form]").forEach(bindMoney);
-    document.querySelectorAll("form").forEach(function(form){var c=form.querySelector(".js-fin-contract"),d=form.querySelector(".js-fin-direction"),a=form.querySelector(".js-fin-account");if(c)c.addEventListener("change",function(){applyContract(form);});if(d)d.addEventListener("change",function(){applyContract(form);});if(a)a.addEventListener("change",function(){applyAccount(form);});});
+    document.querySelectorAll("form").forEach(function(form){var c=form.querySelector(".js-fin-contract"),a=form.querySelector(".js-fin-account");if(c)c.addEventListener("change",function(){applyContract(form);});if(a)a.addEventListener("change",function(){applyAccount(form);});});
     document.querySelectorAll("[data-fin-create]").forEach(function(b){b.addEventListener("click",function(){var m=document.querySelector(b.dataset.target);if(m)prepareModal(m,b,false);});});
     document.querySelectorAll("[data-fin-edit]").forEach(function(b){b.addEventListener("click",function(){var m=document.querySelector(b.dataset.target);if(m)prepareModal(m,b,true);});});
     document.querySelectorAll("[data-fin-attachment-upload]").forEach(function(b){b.addEventListener("click",function(){var p=b.closest("[data-fin-attachment-panel]");uploadAttachment(p).catch(function(e){var s=p.querySelector("[data-fin-attachment-status]");if(s)s.textContent=e.message||"업로드 실패";});});});
     document.querySelectorAll("[data-fin-attachment-download]").forEach(function(b){b.addEventListener("click",function(){downloadAttachment(b.closest("[data-fin-attachment-panel]"));});});
-    document.querySelectorAll("[data-fin-import-open]").forEach(function(b){b.addEventListener("click",function(){var f=document.querySelector("[data-fin-import-frame]");if(f)f.src="/finance/import/?modal=1&import_type="+encodeURIComponent(b.dataset.importType||"transaction");});});
-    window.addEventListener("message",function(event){if(event&&event.data&&event.data.type==="finance-import-complete")window.location.reload();});
+    document.querySelectorAll("[data-fin-import-open]").forEach(function(b){b.addEventListener("click",function(){var f=document.querySelector("[data-fin-import-frame]");if(f)f.src=window.location.origin+"/finance/import/?modal=1&import_type="+encodeURIComponent(b.dataset.importType||"transaction");});});
+    window.addEventListener("message",function(event){if(event&&event.origin===window.location.origin&&event.data&&event.data.type==="finance-import-complete")window.location.reload();});
     applyRefLabels();
   });
 })();
