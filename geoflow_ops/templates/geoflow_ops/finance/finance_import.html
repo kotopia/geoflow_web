@@ -10,21 +10,22 @@
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
 
 <div class="card mb-3">
-  <div class="card-header"><h5 class="card-title mb-0">1. XLSX 미리보기</h5></div>
+  <div class="card-header"><h5 class="card-title mb-0">1. Excel 미리보기</h5></div>
   <div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row g-3">{% csrf_token %}<input type="hidden" name="action" value="preview">
       <div class="col-md-3"><label class="form-label">가져오기 유형 *</label><select name="import_type" id="import-type" class="form-select" required><option value="invoice" {% if import_type == 'invoice' %}selected{% endif %}>세금계산서</option><option value="transaction" {% if import_type == 'transaction' %}selected{% endif %}>입출금대장</option></select></div>
       <div class="col-md-3" id="invoice-direction-wrap"><label class="form-label">세금계산서 방향</label><select name="invoice_direction" class="form-select"><option value="auto" {% if invoice_direction == 'auto' %}selected{% endif %}>자동 판정</option><option value="sales" {% if invoice_direction == 'sales' %}selected{% endif %}>매출로 보기</option><option value="purchase" {% if invoice_direction == 'purchase' %}selected{% endif %}>매입으로 보기</option></select><div class="form-text">우리 회사 사업자번호와 공급자/공급받는자를 비교해 우선 자동 판정합니다.</div></div>
-      <div class="col-md-2"><label class="form-label">헤더 행</label><input type="number" min="1" name="header_row" class="form-control" value="{{ header_row }}" placeholder="자동"><div class="form-text">비우면 상단 20행을 자동 탐색</div></div>
-      <div class="col-md-4"><label class="form-label">Excel 파일 *</label><input type="file" name="file" class="form-control" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></div>
+      <div class="col-md-2"><label class="form-label">헤더 행</label><input type="number" min="1" name="header_row" class="form-control" value="{{ header_row }}" placeholder="자동"><div class="form-text">비우면 상단 30행을 자동 탐색</div></div>
+      <div class="col-md-4"><label class="form-label">Excel 파일 *</label><input type="file" name="file" class="form-control" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" required><div class="form-text">XLSX와 기존 XLS 형식을 모두 지원합니다.</div></div>
       <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary" type="submit">미리보기</button></div>
     </form>
   </div>
 </div>
 
 <div class="row g-3 mb-3">
-  <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">HomeTax 세금계산서 대응</h5></div><div class="card-body small"><div class="mb-2">1행 고정이 아니라 <strong>상단 20행에서 실제 헤더를 자동 탐색</strong>합니다.</div><div class="text-muted">작성일/발급일, 공급자·공급받는자 상호와 사업자번호, 공급가액/공급가액합계, 세액/세액합계, 합계금액, 승인번호 등을 인식합니다. 승인번호는 없어도 됩니다. 거래처가 GeoFlow에 없으면 미연결 경고만 표시하고 가져올 수 있습니다.</div></div></div></div>
-  <div class="col-lg-6"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">중복 판정 원칙</h5></div><div class="card-body small"><div class="mb-2">중복 의심은 자동 삭제하지 않고 <strong>기존 데이터와 나란히 비교</strong>합니다.</div><div class="text-muted">세금계산서는 승인번호가 있으면 우선 사용하고, 없으면 작성/발행일 + 거래처 + 공급가액 + 세액 + 합계를 조합합니다. 입출금은 거래일 + 입출금구분 + 금액 + 적요를 중심으로 비교합니다. 중복 의심 행도 사용자가 체크하면 저장할 수 있습니다.</div></div></div></div>
+  <div class="col-lg-4"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">HomeTax 세금계산서 대응</h5></div><div class="card-body small"><div class="mb-2">1행 고정이 아니라 <strong>상단 30행에서 실제 헤더를 자동 탐색</strong>합니다.</div><div class="text-muted">작성일/발급일, 공급자·공급받는자 상호와 사업자번호, 공급가액/공급가액합계, 세액/세액합계, 합계금액, 승인번호 등을 인식합니다. 승인번호는 없어도 됩니다.</div></div></div></div>
+  <div class="col-lg-4"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">은행 거래내역 대응</h5></div><div class="card-body small"><div class="mb-2"><strong>출금금액과 입금금액이 별도 열인 은행 파일</strong>도 자동 판정합니다.</div><div class="text-muted">기업은행의 출금/입금 열, 농협의 출금금액(원)/입금금액(원)을 읽어 입금·출금 구분과 금액을 자동 생성합니다. 상대계좌 예금주명이나 거래기록사항은 가능한 경우 거래처/적요에 활용합니다.</div></div></div></div>
+  <div class="col-lg-4"><div class="card h-100"><div class="card-header"><h5 class="card-title mb-0">중복 판정 원칙</h5></div><div class="card-body small"><div class="mb-2">중복 의심은 자동 삭제하지 않고 <strong>기존 데이터와 나란히 비교</strong>합니다.</div><div class="text-muted">세금계산서는 승인번호 또는 일자+거래처+금액 조합, 입출금은 거래일+입출금구분+금액+적요를 중심으로 비교합니다. 중복 의심 행도 사용자가 체크하면 저장할 수 있습니다.</div></div></div></div>
 </div>
 
 {% if preview %}
