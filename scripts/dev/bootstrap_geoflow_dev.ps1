@@ -15,13 +15,40 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Resolve-PgTool([string]$Name) {
+    # 1) Explicit override for this shell/session.
     if ($env:PG_BIN) {
         $candidate = Join-Path $env:PG_BIN "$Name.exe"
         if (Test-Path $candidate) { return $candidate }
     }
+
+    # 2) Normal PATH lookup.
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    throw "$Name was not found. Put PostgreSQL bin on PATH or set PG_BIN to its bin directory."
+
+    # 3) Common Windows PostgreSQL/pgAdmin locations. Prefer the newest
+    # PostgreSQL installation when multiple versions are installed.
+    $candidateDirs = @()
+    $postgresRoot = Join-Path $env:ProgramFiles "PostgreSQL"
+    if (Test-Path $postgresRoot) {
+        $candidateDirs += Get-ChildItem $postgresRoot -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "bin" }
+    }
+
+    $candidateDirs += @(
+        (Join-Path $env:ProgramFiles "pgAdmin 4\runtime"),
+        (Join-Path ${env:ProgramFiles(x86)} "pgAdmin 4\runtime"),
+        (Join-Path $env:LOCALAPPDATA "Programs\pgAdmin 4\runtime")
+    ) | Where-Object { $_ }
+
+    foreach ($dir in $candidateDirs) {
+        $candidate = Join-Path $dir "$Name.exe"
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "$Name was not found. Install PostgreSQL command-line tools, put PostgreSQL bin on PATH, or set PG_BIN to the directory that contains psql.exe/pg_dump.exe/pg_restore.exe."
 }
 
 if ($SourceDb -eq $TargetDb) {
@@ -34,6 +61,10 @@ if ($TargetDb -notmatch '(?i)(dev|test)') {
 $psql = Resolve-PgTool "psql"
 $pgDump = Resolve-PgTool "pg_dump"
 $pgRestore = Resolve-PgTool "pg_restore"
+Write-Host "PostgreSQL client tools:" -ForegroundColor DarkCyan
+Write-Host "  psql:       $psql"
+Write-Host "  pg_dump:    $pgDump"
+Write-Host "  pg_restore: $pgRestore"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $foundationSql = Join-Path $repoRoot "docs\architecture\gis-schema-foundation.sql"
