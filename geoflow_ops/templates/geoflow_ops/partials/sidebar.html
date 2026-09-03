@@ -29,6 +29,14 @@
         </ul>
       </li>
 
+      <li class="sidebar-header">GIS</li>
+      <li class="sidebar-item">
+        <a data-bs-target="#gis-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="map"></i><span class="align-middle">GIS</span></a>
+        <ul id="gis-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'gis:dashboard' %}">GIS 홈</a></li>
+        </ul>
+      </li>
+
       <li class="sidebar-header">직원</li>
       <li class="sidebar-item">
         <a data-bs-target="#employee-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="users"></i><span class="align-middle">직원</span></a>
