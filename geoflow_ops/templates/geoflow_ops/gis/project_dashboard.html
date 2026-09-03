@@ -1,0 +1,75 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+  <div>
+    <div class="text-muted small mb-1"><a href="{% url 'gis:dashboard' %}">GIS</a> / 프로젝트</div>
+    <h1 class="h3 mb-1">{{ project.name|default:project.code|default:"프로젝트 GIS" }}</h1>
+    <div class="text-muted">{{ project.code|default:"코드 없음" }} · {{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-primary" type="button" disabled>WebGIS 열기</button>
+    <button class="btn btn-outline-secondary" type="button" disabled>QGIS 프로젝트</button>
+    <button class="btn btn-outline-secondary" type="button" disabled>QField 패키지</button>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  이 화면은 GIS Foundation 단계의 프로젝트 허브입니다. 실제 물리 테이블과 Profile 적용 전까지 레이어는 Registry 상태로 표시됩니다.
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-8">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="card-title mb-0">지도 작업영역</h5></div>
+      <div class="card-body d-flex align-items-center justify-content-center" style="min-height:360px; background:#f7f9fb;">
+        <div class="text-center text-muted">
+          <i data-feather="map" class="mb-2"></i>
+          <div>기존 WebGIS 편집 기능 연결 예정</div>
+          <small>프로젝트 scope + GIS Profile 기준으로 활성 레이어만 로드</small>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="card-title mb-0">공통 현장데이터</h5></div>
+      <div class="card-body">
+        <div class="border rounded p-3 mb-3">
+          <div class="text-muted small">gis.survey</div>
+          <strong>공통 측량</strong>
+          <p class="text-muted small mb-0 mt-1">상수·하수·향후 전기/통신/가스/열배관 공통. 시설물 매칭은 survey_link로 확정.</p>
+        </div>
+        <div class="border rounded p-3">
+          <div class="text-muted small">gis.doro</div>
+          <strong>도로 기준</strong>
+          <p class="text-muted small mb-0 mt-1">지하시설물의 도로상 위치를 판단하기 위한 공통 기준 공간데이터.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="card-title mb-0">초기 레이어</h5>
+    <span class="text-muted small">{{ feature_count }}개 Registry</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>구분</th><th>시설물</th><th>표준명</th><th>물리명</th><th>Geometry</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for feature in features %}
+        <tr>
+          <td>{{ feature.domain_label }}</td>
+          <td>{{ feature.label }}</td>
+          <td><code>{{ feature.standard_name }}</code></td>
+          <td><code>{{ feature.db_name }}</code></td>
+          <td>{{ feature.geometry_kind }}</td>
+          <td><span class="badge bg-light text-dark">Registry</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
