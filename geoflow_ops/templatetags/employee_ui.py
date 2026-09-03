@@ -7,6 +7,7 @@ from django.db import connections
 
 from control.middleware import current_db_alias
 from geoflow_ops.models import Attachment
+from geoflow_ops.services.tenant_settings import settings_options
 
 register = template.Library()
 
@@ -123,6 +124,14 @@ def _find_name(items, target_id) -> str:
     return ""
 
 
+def _settings_label_map(alias: str, field_ref: str) -> dict[str, str]:
+    return {
+        str(code or "").strip(): str(label or code or "").strip()
+        for code, label in settings_options(alias, field_ref, include_inactive=True)
+        if str(code or "").strip()
+    }
+
+
 @register.simple_tag(takes_context=True)
 def employee_summary(context, profile, employee_roles, org_units, departments, qualifications, technical_grades):
     alias = current_db_alias()
@@ -151,11 +160,13 @@ def employee_summary(context, profile, employee_roles, org_units, departments, q
         for row in qualifications or []
         if str(row.get("qualification_name") or "").strip()
     ]
+    technical_grade_labels = _settings_label_map(alias, "employee.technical_grade")
     technical_labels = []
     for row in technical_grades or []:
         field_name = str(row.get("field_name") or "").strip()
         grade_code = str(row.get("grade_code") or "").strip()
-        label = " · ".join(part for part in (field_name, grade_code) if part)
+        grade_label = technical_grade_labels.get(grade_code, grade_code)
+        label = " · ".join(part for part in (field_name, grade_label) if part)
         if label:
             technical_labels.append(label)
 
