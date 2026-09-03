@@ -18,6 +18,7 @@
 - QGIS Plugin은 로그인·프로젝트 선택·UI 중심의 thin client로 설계한다.
 - WebGIS는 일반 편집/정위치 편집/구조화 편집을 분리한다.
 - 구조화 편집은 PostGIS 서버 연산으로 실행하고 프로젝트 단위 과금을 우선 검토한다.
+- GIS의 상세 데이터 모델, schema, survey/doro, metadata/profile 원칙은 `docs/architecture/gis-data-model.md`를 따른다.
 
 ## 2. 현재 코드 출발점
 
@@ -29,7 +30,10 @@
 - Django/GeoFlow Server: tenant/project 권한, 업무 규칙, 이벤트, API, 감사로그, QGIS 세션
 - Web Frontend: UI/필터/편집도구
 - QGIS Plugin: 로그인, 프로젝트 선택, 전문 편집 연결
+- QField: 현장 GNSS/조사/오프라인 입력, GeoFlow project/profile 문맥 사용
 - 외부 도구: API를 통한 read 중심 소비
+
+GIS 세부 설계는 tenant DB의 단일 `gis` schema를 기준으로 하고, WebGIS/QGIS/QField가 동일 metadata/profile을 공유한다. QGIS/QField는 metadata/profile에서 생성(materialize)된 프로젝트 구성을 사용하며 별도 독립 데이터 모델을 만들지 않는다.
 
 ## 4. 계약 관리
 
@@ -68,6 +72,7 @@ GeoFlow를 데이터 원본으로 두고 tenant별 API로 계약/프로젝트/�
 4. 대용량 공간데이터는 project-scoped PostGIS 접근을 사용
 5. 권한/업무규칙/비밀키는 서버에 둠
 6. 수정 이력은 감사로그로 남김
+7. GIS metadata/profile은 프로젝트별 QGIS 구성의 Source of Truth로 사용하고, 레이어/Form/Value Relation/Style은 필요 시 `.qgs/.qgz`로 materialize한다.
 
 QGIS Plugin에는 tenant 전체 DB의 장기 계정/비밀번호를 저장하지 않는다.
 
@@ -76,6 +81,7 @@ QGIS Plugin에는 tenant 전체 DB의 장기 계정/비밀번호를 저장하지
 - 일반 편집: 생성/이동/삭제/vertex/snapping/split/merge
 - 정위치 편집: 반복 기하 보정
 - 구조화 편집: 위상관계, 중첩, 면→선, 선→점 등 PostGIS 기반 서버 연산
+- GIS 프로젝트 허브/레이어 현황은 `gis` feature registry/profile과 연결한다.
 
 브라우저는 편집 UX를 담당하고 최종 geometry validity, 권한, project scope는 서버/PostGIS가 검증한다.
 
@@ -96,8 +102,8 @@ GIS layer와 project catalog item을 매핑하고, line length/area/count를 Pos
 - 4A 업무 뼈대: 계약/프로젝트 식별자, 이벤트, project catalog 실행 레코드
 - 4B 목록/대시보드: 상태 중심 목록 + 기간/연도/담당자 필터
 - 4C 직원/외부연동: 자격·등급·경력 + tenant API
-- 4D WebGIS 편집: 일반/정위치 + 실제물량
-- 4E QGIS: 로그인/프로젝트 스코프/감사로그
+- 4D GIS foundation/WebGIS 편집: `gis` data model/profile, 일반/정위치 + 실제물량
+- 4E QGIS/QField: 로그인/프로젝트 스코프/프로젝트 materialization/오프라인 PoC/감사로그
 - 4F 구조화 편집: PostGIS job 서비스화 + 과금 정책
 
 ## 14. 후속 고도화
@@ -116,7 +122,9 @@ GIS layer와 project catalog item을 매핑하고, line length/area/count를 Pos
 - QGIS project-scoped PostGIS 방식(RLS/view/단기 role/프록시)
 - 직원 자격/기술등급 상세 데이터 모델
 - 구조화 편집 이용권/재실행 범위
+- GIS physical facility field mapping(DB테이블-- + 지자체 표준/코드) 및 geometry subtype/SRID rehearsal
+- QField에서 입력해야 하는 확장필드의 physical column/EAV/JSONB 사용 범위
 
 ## 최종 설계 문장
 
-GeoFlow는 계약을 시작점으로 프로젝트, 카탈로그 업무, 이벤트, 직원 투입, 공간데이터 실적을 하나의 계보로 연결한다. WebGIS와 QGIS는 역할이 다른 클라이언트이며, 핵심 권한·업무규칙·공간 연산은 GeoFlow Server/PostGIS에 집중한다. 외부 시스템은 API로 연동해 단계적으로 GeoFlow 중심 구조로 전환한다.
+GeoFlow는 계약을 시작점으로 프로젝트, 카탈로그 업무, 이벤트, 직원 투입, 공간데이터 실적을 하나의 계보로 연결한다. WebGIS와 QGIS/QField는 역할이 다른 클라이언트이며, 핵심 권한·업무규칙·공간 연산은 GeoFlow Server/PostGIS에 집중한다. GIS는 tenant DB의 단일 `gis` schema와 공통 metadata/profile을 사용하며, QGIS/QField는 그 구성을 프로젝트 단위로 materialize하여 사용한다. 외부 시스템은 API로 연동해 단계적으로 GeoFlow 중심 구조로 전환한다.
