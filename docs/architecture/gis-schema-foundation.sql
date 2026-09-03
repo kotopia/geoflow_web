@@ -1,10 +1,21 @@
 -- GeoFlow GIS schema foundation draft v0.2
--- REPOSITORY DESIGN ONLY.
+-- DEVELOPMENT / REPOSITORY FOUNDATION.
 -- Do not run against a production tenant DB without separate explicit approval.
--- Geometry subtype/SRID for physical WTL/SWL tables is intentionally deferred
--- until the existing DB + municipal profile mapping is rehearsed in disposable PostGIS.
+-- PostgreSQL physical identifiers are lowercase; public/municipal standard names remain metadata/UI/export names.
+-- WTL/SWL geometry subtype/SRID and their full field DDL are intentionally deferred until
+-- DB테이블-- + municipal profile/code mapping is finalized and rehearsed in geoflow_dev.
 
 BEGIN;
+
+-- This foundation is intended for a GeoFlow tenant-shaped development database.
+-- Fail before making changes when the existing project schema is not present.
+DO $$
+BEGIN
+    IF to_regclass('prj.projects') IS NULL THEN
+        RAISE EXCEPTION 'GeoFlow tenant base schema is missing: prj.projects not found. Run schema-only tenant bootstrap first.';
+    END IF;
+END
+$$;
 
 CREATE SCHEMA IF NOT EXISTS gis;
 
