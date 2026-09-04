@@ -5,7 +5,6 @@ import json
 import os
 import re
 import sqlite3
-import struct
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -22,14 +21,8 @@ from .layer_plan import allowed_standard_names
 
 
 _SAFE_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
-_IMMUTABLE_FIELDS = {
-    "id",
-    "project_id",
-    "created_at",
-    "updated_at",
-    "created_by",
-    "updated_by",
-}
+_AUDIT_FIELDS = {"created_at", "updated_at", "created_by", "updated_by"}
+_IMMUTABLE_FIELDS = {"id", "project_id", *_AUDIT_FIELDS}
 
 
 class SyncRejected(RuntimeError):
@@ -85,7 +78,7 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, memoryview):
         return bytes(value)
     if isinstance(value, (dict, list, tuple)):
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return value
 
 
@@ -139,21 +132,24 @@ def _read_package_project_id(conn: sqlite3.Connection) -> str:
         raise SyncRejected("GeoFlow package project_id is invalid") from exc
 
 
-def _baseline_for_layer(conn: sqlite3.Connection, physical_name: str) -> dict[str, str | None]:
+def _baseline_for_layer(conn: sqlite3.Connection, physical_name: str) -> dict[str, dict[str, Any]]:
     try:
         rows = conn.execute(
-            "SELECT object_id, source_updated_at FROM _geoflow_baseline WHERE layer_name=?",
+            "SELECT object_id, local_fid, source_updated_at FROM _geoflow_baseline WHERE layer_name=?",
             (physical_name,),
         ).fetchall()
     except sqlite3.Error as exc:
-        raise SyncRejected("GeoFlow package baseline is missing") from exc
-    result: dict[str, str | None] = {}
-    for object_id, updated_at in rows:
+        raise SyncRejected("GeoFlow package baseline is missing or too old; reopen the project") from exc
+    result: dict[str, dict[str, Any]] = {}
+    for object_id, local_fid, updated_at in rows:
         try:
             normalized_id = str(uuid.UUID(str(object_id)))
         except (ValueError, TypeError, AttributeError) as exc:
             raise SyncRejected(f"invalid baseline UUID in {physical_name}") from exc
-        result[normalized_id] = str(updated_at) if updated_at else None
+        result[normalized_id] = {
+            "local_fid": int(local_fid),
+            "updated_at": str(updated_at) if updated_at else None,
+        }
     return result
 
 
@@ -166,14 +162,15 @@ def _current_package_rows(
     names = [field.name for field in fields]
     select_list = ", ".join(_quote_ident(name) for name in names)
     try:
-        cursor = conn.execute(f"SELECT {select_list}, \"geom\" FROM {table}")
+        cursor = conn.execute(f"SELECT fid, {select_list}, \"geom\" FROM {table}")
         rows = cursor.fetchall()
     except sqlite3.Error as exc:
         raise SyncRejected(f"GeoPackage layer is unreadable: {physical_name}") from exc
 
     result: dict[str, dict[str, Any]] = {}
     for row in rows:
-        attrs = dict(zip(names, row[:-1]))
+        local_fid = int(row[0])
+        attrs = dict(zip(names, row[1:-1]))
         raw_id = attrs.get("id")
         raw_project_id = attrs.get("project_id")
         if not raw_id:
@@ -191,6 +188,7 @@ def _current_package_rows(
         if object_id in result:
             raise SyncRejected(f"{physical_name}: duplicate GeoFlow UUID {object_id}")
         result[object_id] = {
+            "fid": local_fid,
             "attrs": attrs,
             "geom": extract_gpkg_wkb(row[-1]),
         }
@@ -225,6 +223,17 @@ def _source_row(
         "geom": bytes(row[len(field_names)]) if row[len(field_names)] is not None else None,
         "updated_at": _normalize(row[len(field_names) + 1]),
     }
+
+
+def _uuid_exists(alias: str, physical_name: str, object_id: str, *, lock: bool) -> bool:
+    table = _quote_ident(physical_name)
+    suffix = " FOR UPDATE" if lock else ""
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            f"SELECT 1 FROM \"gis\".{table} WHERE id=%s{suffix}",
+            [object_id],
+        )
+        return cursor.fetchone() is not None
 
 
 def _geometry_valid(alias: str, wkb: bytes, expected_kind: str) -> bool:
@@ -273,12 +282,20 @@ def _collect_operations(
             raise SyncRejected(f"layer outside Layer Plan: {spec.standard_name}")
         baseline = _baseline_for_layer(package, spec.physical_name)
         current = _current_package_rows(package, spec.physical_name, spec.fields)
+        current_by_fid = {int(row["fid"]): object_id for object_id, row in current.items()}
         field_by_name = {field.name: field for field in spec.fields}
         editable_names = {
             field.name
             for field in spec.fields
             if field.editable and field.name not in _IMMUTABLE_FIELDS
         }
+
+        for baseline_id, meta in baseline.items():
+            current_id = current_by_fid.get(int(meta["local_fid"]))
+            if current_id is not None and current_id != baseline_id:
+                raise SyncRejected(
+                    f"{spec.standard_name}: existing object UUID was changed locally ({baseline_id})"
+                )
 
         for object_id in sorted(set(baseline) | set(current)):
             in_baseline = object_id in baseline
@@ -298,7 +315,7 @@ def _collect_operations(
                         {"layer": spec.standard_name, "id": object_id, "reason": "server_object_missing"}
                     )
                     continue
-                if str(source.get("updated_at") or "") != str(baseline.get(object_id) or ""):
+                if str(source.get("updated_at") or "") != str(baseline[object_id].get("updated_at") or ""):
                     conflicts.append(
                         {"layer": spec.standard_name, "id": object_id, "reason": "server_object_changed"}
                     )
@@ -316,13 +333,13 @@ def _collect_operations(
 
                 changed_attrs: dict[str, Any] = {}
                 for name, package_value in package_attrs.items():
-                    if name not in field_by_name:
+                    if name not in field_by_name or name in _AUDIT_FIELDS:
                         continue
                     package_norm = _normalize(package_value)
                     source_norm = source["attrs"].get(name)
                     if package_norm == source_norm:
                         continue
-                    if name not in editable_names:
+                    if name in {"id", "project_id"} or name not in editable_names:
                         raise SyncRejected(
                             f"{spec.standard_name} {object_id}: protected field changed: {name}"
                         )
@@ -349,20 +366,11 @@ def _collect_operations(
                     )
                 continue
 
-            # New local object.
             assert package_row is not None
             package_attrs = package_row["attrs"]
             if package_attrs.get("project_id") != project_id:
                 raise SyncRejected(f"{spec.standard_name} {object_id}: project_id mismatch")
-            source = _source_row(
-                alias,
-                physical_name=spec.physical_name,
-                fields=spec.fields,
-                project_id=project_id,
-                object_id=object_id,
-                lock=True,
-            )
-            if source is not None:
+            if _uuid_exists(alias, spec.physical_name, object_id, lock=True):
                 conflicts.append(
                     {"layer": spec.standard_name, "id": object_id, "reason": "uuid_already_exists"}
                 )
@@ -457,6 +465,7 @@ def sync_project_geopackage(
 
     temp = tempfile.NamedTemporaryFile(prefix="geoflow-sync-", suffix=".gpkg", delete=False)
     path = Path(temp.name)
+    operations: list[SyncOperation] = []
     try:
         temp.write(package_bytes)
         temp.close()
