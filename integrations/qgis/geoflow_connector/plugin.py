@@ -4,7 +4,8 @@ import json
 import os
 import re
 
-from qgis.PyQt.QtCore import QAction, QStandardPaths, QVariant
+from qgis.PyQt.QtCore import QStandardPaths, QVariant
+from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsField, QgsProject, QgsRectangle, QgsVectorLayer, Qgis
 
 from .dialog import GeoFlowConnectorDialog
