@@ -68,24 +68,24 @@ def main() -> int:
             if current_db != tenant_name or scope_binding is None or capability is None:
                 raise SystemExit("tenant GIS scope/capability metadata is unavailable")
 
-        resolved: list[tuple[str, str, str, int]] = []
+        resolved: list[tuple[str, str, str, str, int]] = []
         with central.cursor() as central_cur:
             for catalog_code, capability_code, level_no in MAPPINGS:
                 row = one_row(
                     central_cur,
                     """
-                    select id::text, code
+                    select id::text, code, name
                       from catalog.category_node
                      where code=%s and level=%s and active=true
                     """,
                     (catalog_code, level_no),
                     f"active catalog node code={catalog_code} level={level_no}",
                 )
-                resolved.append((row[0], row[1], capability_code, level_no))
+                resolved.append((row[0], row[1], row[2], capability_code, level_no))
 
         with tenant:
             with tenant.cursor() as tenant_cur:
-                for catalog_id, catalog_code, capability_code, level_no in resolved:
+                for catalog_id, catalog_code, catalog_name, capability_code, level_no in resolved:
                     capability_row = one_row(
                         tenant_cur,
                         "select id::text from gis.capability where code=%s and active=true",
@@ -99,19 +99,20 @@ def main() -> int:
                             catalog_name_cache, capability_id, active, priority, note
                         )
                         values (
-                            gen_random_uuid(), %s, %s::uuid, %s, NULL,
+                            gen_random_uuid(), %s, %s::uuid, %s, %s,
                             %s::uuid, true, 100,
                             'Synced from canonical central catalog code in development runtime.'
                         )
                         on conflict (catalog_level, catalog_item_id, capability_id)
                         do update set
                             catalog_code_cache=excluded.catalog_code_cache,
+                            catalog_name_cache=excluded.catalog_name_cache,
                             active=true,
                             priority=excluded.priority,
                             note=excluded.note,
                             updated_at=now()
                         """,
-                        (level_no, catalog_id, catalog_code, capability_row[0]),
+                        (level_no, catalog_id, catalog_code, catalog_name, capability_row[0]),
                     )
 
                 # Synthetic matrix bindings remain available until its scope rows
@@ -119,7 +120,7 @@ def main() -> int:
                 # them here or the current development matrix would disappear.
 
         print(f"central_db={central_name} tenant_db={tenant_name}")
-        for catalog_id, catalog_code, capability_code, level_no in resolved:
+        for catalog_id, catalog_code, _catalog_name, capability_code, level_no in resolved:
             print(
                 f"binding level={level_no} catalog_code={catalog_code} "
                 f"catalog_id={catalog_id} capability={capability_code} status=OK"
