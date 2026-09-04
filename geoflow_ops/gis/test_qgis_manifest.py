@@ -4,6 +4,22 @@ from .qgis_manifest import build_qgis_manifest
 
 
 class QgisManifestTests(SimpleTestCase):
+    def _package_layers(self):
+        return [
+            {
+                "standard_name": "WTL_PIPE_LM",
+                "physical_name": "wtl_pipe_lm",
+                "label": "WTL_PIPE_LM",
+                "domain": "WTL",
+                "geometry_kind": "LINE",
+                "fields": [
+                    {"name": "id", "data_type": "uuid", "editable": False, "visible": True, "sort_order": 1},
+                    {"name": "project_id", "data_type": "uuid", "editable": False, "visible": True, "sort_order": 2},
+                    {"name": "description", "data_type": "text", "editable": True, "visible": True, "sort_order": 3},
+                ],
+            }
+        ]
+
     def test_manifest_never_exposes_direct_postgis_credentials(self):
         manifest = build_qgis_manifest(
             project={
@@ -15,85 +31,70 @@ class QgisManifestTests(SimpleTestCase):
             plan={
                 "profile": {"code": "GEOFLOW_DEV_BASE"},
                 "capabilities": [{"code": "WATER"}],
-                "layers": [
-                    {
-                        "standard_name": "WTL_PIPE_LM",
-                        "physical_name": "wtl_pipe_lm",
-                        "label": "WTL_PIPE_LM",
-                        "domain": "WTL",
-                        "geometry_kind": "LINE",
-                        "required": False,
-                    }
-                ],
             },
             can_write=True,
-            layer_geojson_path="/gis/projects/x/api/geojson/",
+            package_url="/gis/projects/x/api/qgis-package/",
+            package_layers=self._package_layers(),
             layer_counts={"WTL_PIPE_LM": 2},
         )
 
-        self.assertEqual(manifest["transport"]["mode"], "server_geojson_snapshot")
+        self.assertEqual(manifest["transport"]["mode"], "server_gpkg_editable_snapshot")
         self.assertFalse(manifest["transport"]["direct_postgis_credentials_exposed"])
-        self.assertFalse(manifest["transport"]["editing_supported"])
+        self.assertTrue(manifest["transport"]["local_editing_supported"])
+        self.assertFalse(manifest["transport"]["sync_supported"])
         self.assertTrue(manifest["transport"]["write_authorized"])
-        self.assertTrue(manifest["transport"]["empty_layer_fetch_skip_supported"])
+        self.assertEqual(manifest["transport"]["package_downloads_per_open"], 1)
+        self.assertEqual(manifest["transport"]["package_url"], "/gis/projects/x/api/qgis-package/")
         self.assertEqual(manifest["layer_count"], 1)
         layer = manifest["layers"][0]
-        self.assertIn("layer=WTL_PIPE_LM", layer["snapshot_url"])
-        self.assertIn("limit=5000", layer["snapshot_url"])
         self.assertEqual(layer["row_count"], 2)
-        self.assertTrue(layer["snapshot_required"])
-        self.assertFalse(layer["snapshot_editable"])
+        self.assertEqual(layer["primary_key"], "id")
+        self.assertEqual(layer["local_fid"], "fid")
+        self.assertEqual(layer["fields"][2]["name"], "description")
         serialized = repr(manifest).lower()
         self.assertNotIn("password", serialized)
         self.assertNotIn("db_host", serialized)
         self.assertNotIn("db_user", serialized)
 
-    def test_manifest_marks_known_empty_layer_without_snapshot_requirement(self):
+    def test_manifest_disables_local_editing_for_read_only_user(self):
+        layers = [
+            {
+                "standard_name": "DORO",
+                "physical_name": "doro",
+                "label": "도로 기준",
+                "domain": "COMMON",
+                "geometry_kind": "LINE",
+                "fields": [],
+            }
+        ]
         manifest = build_qgis_manifest(
             project={"id": "p", "code": "P", "name": "P", "status": ""},
-            plan={
-                "profile": None,
-                "capabilities": [{"code": "ROAD"}],
-                "layers": [
-                    {
-                        "standard_name": "DORO",
-                        "physical_name": "doro",
-                        "label": "도로 기준",
-                        "domain": "COMMON",
-                        "geometry_kind": "LINE",
-                        "required": False,
-                    }
-                ],
-            },
+            plan={"profile": None, "capabilities": [{"code": "ROAD"}]},
             can_write=False,
-            layer_geojson_path="/g/",
+            package_url="/g/pkg/",
+            package_layers=layers,
             layer_counts={"DORO": 0},
         )
-        layer = manifest["layers"][0]
-        self.assertEqual(layer["row_count"], 0)
-        self.assertFalse(layer["snapshot_required"])
+        self.assertFalse(manifest["transport"]["local_editing_supported"])
+        self.assertFalse(manifest["transport"]["write_authorized"])
+        self.assertEqual(manifest["layers"][0]["row_count"], 0)
 
     def test_manifest_keeps_layer_plan_scope(self):
         manifest = build_qgis_manifest(
             project={"id": "p", "code": "P", "name": "P", "status": ""},
-            plan={
-                "profile": None,
-                "capabilities": [{"code": "ROAD"}],
-                "layers": [
-                    {
-                        "standard_name": "DORO",
-                        "physical_name": "doro",
-                        "label": "도로 기준",
-                        "domain": "COMMON",
-                        "geometry_kind": "LINE",
-                        "required": False,
-                    }
-                ],
-            },
+            plan={"profile": None, "capabilities": [{"code": "ROAD"}]},
             can_write=False,
-            layer_geojson_path="/g/",
+            package_url="/g/pkg/",
+            package_layers=[
+                {
+                    "standard_name": "DORO",
+                    "physical_name": "doro",
+                    "label": "도로 기준",
+                    "domain": "COMMON",
+                    "geometry_kind": "LINE",
+                    "fields": [],
+                }
+            ],
         )
         self.assertEqual([row["standard_name"] for row in manifest["layers"]], ["DORO"])
-        self.assertFalse(manifest["transport"]["write_authorized"])
         self.assertIsNone(manifest["layers"][0]["row_count"])
-        self.assertTrue(manifest["layers"][0]["snapshot_required"])
