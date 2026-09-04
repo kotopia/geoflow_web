@@ -40,11 +40,16 @@ class QgisManifestTests(SimpleTestCase):
             sync_supported=True,
         )
 
-        self.assertEqual(manifest["manifest_version"], "0.4")
+        self.assertEqual(manifest["manifest_version"], "0.5")
         self.assertEqual(manifest["transport"]["mode"], "server_gpkg_editable_snapshot")
         self.assertFalse(manifest["transport"]["direct_postgis_credentials_exposed"])
         self.assertTrue(manifest["transport"]["local_editing_supported"])
         self.assertTrue(manifest["transport"]["sync_supported"])
+        self.assertTrue(manifest["transport"]["auto_sync_on_qgis_save"])
+        self.assertEqual(
+            manifest["transport"]["sync_strategy"],
+            "last_successful_server_write_wins",
+        )
         self.assertEqual(manifest["transport"]["sync_url"], "/gis/projects/x/api/qgis-sync/")
         self.assertTrue(manifest["transport"]["write_authorized"])
         self.assertEqual(manifest["transport"]["package_downloads_per_open"], 1)
@@ -83,6 +88,7 @@ class QgisManifestTests(SimpleTestCase):
         )
         self.assertFalse(manifest["transport"]["local_editing_supported"])
         self.assertFalse(manifest["transport"]["sync_supported"])
+        self.assertFalse(manifest["transport"]["auto_sync_on_qgis_save"])
         self.assertEqual(manifest["transport"]["sync_url"], "")
         self.assertFalse(manifest["transport"]["write_authorized"])
         self.assertEqual(manifest["layers"][0]["row_count"], 0)
@@ -99,6 +105,7 @@ class QgisManifestTests(SimpleTestCase):
         )
         self.assertTrue(manifest["transport"]["local_editing_supported"])
         self.assertFalse(manifest["transport"]["sync_supported"])
+        self.assertFalse(manifest["transport"]["auto_sync_on_qgis_save"])
         self.assertEqual(manifest["transport"]["sync_url"], "")
 
     def test_manifest_keeps_layer_plan_scope(self):
