@@ -16,10 +16,12 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
-from .gpkg import build_project_geopackage, project_geopackage_layer_manifest
+from .gpkg import project_geopackage_layer_manifest
+from .gpkg_syncable import build_syncable_project_geopackage
 from .layer_plan import gis_enabled_project_ids, project_layer_plan
 from .qgis_manifest import build_qgis_manifest
-from .qgis_sync import SyncConflict, SyncRejected, sync_project_geopackage, sync_runtime_enabled
+from .qgis_sync import SyncConflict, SyncRejected, sync_runtime_enabled
+from .qgis_sync_v2 import sync_project_geopackage_v2
 
 
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
@@ -162,7 +164,7 @@ def qgis_project_package_api(request, project_id):
     alias = _require_qgis_context(request)
     project, _policy, plan = _require_project(request, alias, project_id)
     try:
-        payload, layer_meta = build_project_geopackage(
+        payload, layer_meta = build_syncable_project_geopackage(
             alias,
             project_id=str(project.id),
             plan=plan,
@@ -175,6 +177,7 @@ def qgis_project_package_api(request, project_id):
     response["Content-Length"] = str(len(payload))
     response["X-GeoFlow-Project"] = str(project.id)
     response["X-GeoFlow-Layer-Count"] = str(len(layer_meta))
+    response["X-GeoFlow-Package-Version"] = "0.4"
     response["Cache-Control"] = "private, no-store"
     return response
 
@@ -200,7 +203,7 @@ def qgis_project_sync_api(request, project_id):
 
     payload = upload.read()
     try:
-        result = sync_project_geopackage(
+        result = sync_project_geopackage_v2(
             alias,
             project_id=str(project.id),
             plan=plan,
@@ -211,7 +214,7 @@ def qgis_project_sync_api(request, project_id):
             {
                 "ok": False,
                 "error": "sync_conflict",
-                "message": "서버 원본이 패키지 생성 이후 변경되어 동기화를 중단했습니다.",
+                "message": "동일 UUID 충돌 또는 서버 삭제 상태 때문에 동기화를 중단했습니다.",
                 "conflicts": exc.conflicts,
             },
             status=409,
@@ -234,4 +237,4 @@ def qgis_project_sync_api(request, project_id):
             status=503,
         )
 
-    return JsonResponse(result, json_dumps_params={"ensure_ascii": False})
+    return JsonResponse({"ok": True, **result}, json_dumps_params={"ensure_ascii": False})
