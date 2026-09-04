@@ -48,22 +48,33 @@ if ($LASTEXITCODE -ne 0) {
     throw "Pinned Python dependencies are incomplete. Run .\scripts\windows\setup_workstation.ps1 -Bootstrap."
 }
 
-Write-Host "[1/4] Verify GeoDjango native libraries..." -ForegroundColor Cyan
+Write-Host "[1/5] Verify GeoDjango native libraries..." -ForegroundColor Cyan
 & $PythonExe -c "from django.contrib.gis import gdal, geos; print('geodjango_native_libraries=ready')"
 if ($LASTEXITCODE -ne 0) {
     throw "GeoDjango native libraries are not loadable. Run .\scripts\windows\set_geodjango_from_qgis.ps1 in this PowerShell session."
 }
 
-Write-Host "[2/4] Django configuration check..." -ForegroundColor Cyan
+Write-Host "[2/5] Django configuration check..." -ForegroundColor Cyan
 & $PythonExe manage.py check
 if ($LASTEXITCODE -ne 0) { throw "python manage.py check failed." }
+
+$catalogVerifier = Join-Path $repoRoot "scripts\dev\check_geoflow_control_dev_catalog.py"
+if (-not (Test-Path $catalogVerifier)) {
+    throw "Central catalog verifier not found: $catalogVerifier"
+}
+
+Write-Host "[3/5] Verify central catalog reference data..." -ForegroundColor Cyan
+& $PythonExe $catalogVerifier
+if ($LASTEXITCODE -ne 0) {
+    throw "Central catalog runtime verification failed. Run .\scripts\dev\sync_geoflow_control_dev_catalog.ps1 first."
+}
 
 $verifier = Join-Path $repoRoot "scripts\dev\check_geoflow_dev_runtime.py"
 if (-not (Test-Path $verifier)) {
     throw "Runtime verifier not found: $verifier"
 }
 
-Write-Host "[3/4] Verify physical DB routing and central login path..." -ForegroundColor Cyan
+Write-Host "[4/5] Verify physical DB routing and central login path..." -ForegroundColor Cyan
 & $PythonExe $verifier `
     --tenant-alias $TenantAlias `
     --expected-central-db $ExpectedCentralDb `
@@ -71,7 +82,7 @@ Write-Host "[3/4] Verify physical DB routing and central login path..." -Foregro
     --mode routing
 if ($LASTEXITCODE -ne 0) { throw "Runtime database/login routing verification failed." }
 
-Write-Host "[4/4] Verify GIS metadata, UUID identity, and object counts..." -ForegroundColor Green
+Write-Host "[5/5] Verify GIS metadata, UUID identity, and object counts..." -ForegroundColor Green
 & $PythonExe $verifier `
     --tenant-alias $TenantAlias `
     --expected-central-db $ExpectedCentralDb `
