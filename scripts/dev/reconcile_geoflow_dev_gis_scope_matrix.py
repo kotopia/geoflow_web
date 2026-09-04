@@ -264,7 +264,7 @@ def print_verification(tenant) -> None:
         cur.execute(
             """
             with caps as (
-                select distinct s.project_id, c.code
+                select distinct s.project_id, c.id as capability_id, c.code
                   from prj.scope_item s
                   join gis.scope_binding b
                     on b.active
@@ -276,27 +276,45 @@ def print_verification(tenant) -> None:
                   from prj.scope_item s
                  where s.remark like %s
                  group by s.project_id
+            ), layers as (
+                select distinct caps.project_id, cf.feature_type_id
+                  from caps
+                  join gis.capability_feature cf
+                    on cf.capability_id=caps.capability_id and cf.enabled
+                  join gis.project_profile pp
+                    on pp.project_id=caps.project_id and pp.status='active'
+                  join gis.profile_feature pf
+                    on pf.profile_id=pp.profile_id
+                   and pf.feature_type_id=cf.feature_type_id
+                   and pf.enabled
+            ), layer_counts as (
+                select project_id, count(*) as layer_count
+                  from layers
+                 group by project_id
             )
             select p.code,
                    coalesce(string_agg(distinct caps.code, ',' order by caps.code), 'NO_GIS') as capabilities,
-                   coalesce(procs.process_count, 0) as process_count
+                   coalesce(procs.process_count, 0) as process_count,
+                   coalesce(layer_counts.layer_count, 0) as layer_count
               from prj.projects p
               left join caps on caps.project_id=p.id
               left join procs on procs.project_id=p.id
+              left join layer_counts on layer_counts.project_id=p.id
              where p.code in ('GIS-DEV-001','GIS-DEV-002','GIS-DEV-003','GIS-DEV-004','GIS-DEV-005','GIS-DEV-006')
-             group by p.code, procs.process_count
+             group by p.code, procs.process_count, layer_counts.layer_count
              order by p.code
             """,
             (f"{MARKER}%",),
         )
         rows = cur.fetchall()
-    for project_code, capabilities, process_count in rows:
+
+    for project_code, capabilities, process_count, layer_count in rows:
         print(
             f"project={project_code} capabilities={capabilities} "
-            f"real_catalog_process_scopes={process_count}"
+            f"real_catalog_process_scopes={process_count} layers={layer_count}"
         )
 
-    expected = {
+    expected_capabilities = {
         "GIS-DEV-001": "SEWER,WATER",
         "GIS-DEV-002": "WATER",
         "GIS-DEV-003": "SEWER",
@@ -304,9 +322,20 @@ def print_verification(tenant) -> None:
         "GIS-DEV-005": "ROAD",
         "GIS-DEV-006": "WATER",
     }
-    actual = {row[0]: row[1] for row in rows}
-    if actual != expected:
-        raise SystemExit(f"unexpected GIS capability matrix: {actual}")
+    expected_layers = {
+        "GIS-DEV-001": 19,
+        "GIS-DEV-002": 11,
+        "GIS-DEV-003": 10,
+        "GIS-DEV-004": 0,
+        "GIS-DEV-005": 1,
+        "GIS-DEV-006": 11,
+    }
+    actual_capabilities = {row[0]: row[1] for row in rows}
+    actual_layers = {row[0]: int(row[3]) for row in rows}
+    if actual_capabilities != expected_capabilities:
+        raise SystemExit(f"unexpected GIS capability matrix: {actual_capabilities}")
+    if actual_layers != expected_layers:
+        raise SystemExit(f"unexpected GIS layer-plan counts: {actual_layers}")
     if dict((row[0], row[2]) for row in rows).get("GIS-DEV-006") != 3:
         raise SystemExit("GIS-DEV-006 must contain three WATER process scopes")
     print("RESULT real_catalog_scope_matrix=OK")
