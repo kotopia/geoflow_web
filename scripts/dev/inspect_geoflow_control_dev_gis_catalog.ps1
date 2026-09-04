@@ -29,10 +29,14 @@ if ($TargetDb -notmatch '(?i)(dev|test)') {
 $psql = Resolve-Psql
 $previousClientEncoding = $env:PGCLIENTENCODING
 $env:PGCLIENTENCODING = "UTF8"
+$tempSql = Join-Path $env:TEMP ("geoflow-gis-catalog-inspect-{0}.sql" -f ([guid]::NewGuid().ToString('N')))
 
 try {
-    Write-Host "GeoFlow central catalog GIS candidate inspection (read-only)" -ForegroundColor Cyan
-    & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c @"
+    # Windows PowerShell may encode a multiline -c argument using the active
+    # ANSI/OEM codepage. The inspection predicates contain Korean text, so write
+    # a real UTF-8 SQL file and let psql read it with client_encoding=UTF8.
+    $sql = @'
+\encoding UTF8
 SELECT 'CATEGORY_NODE' AS kind, n.level, n.id, n.code, n.name, n.geom_hint
   FROM catalog.category_node n
  WHERE n.active
@@ -62,10 +66,18 @@ SELECT p.parent_id, pn.code AS parent_code, pn.name AS parent_name,
     OR pn.code ~* '(UNDER|WATER|SEWER|ROAD|SURVEY|GIS)'
     OR cn.code ~* '(UNDER|WATER|SEWER|ROAD|SURVEY|GIS)'
  ORDER BY pn.level, pn.ord, cn.ord;
-"@
+'@
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($tempSql, $sql, $utf8NoBom)
+
+    Write-Host "GeoFlow central catalog GIS candidate inspection (read-only)" -ForegroundColor Cyan
+    Write-Host "PostgreSQL client encoding: UTF8" -ForegroundColor DarkCyan
+    & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -f $tempSql
     if ($LASTEXITCODE -ne 0) { throw "Central catalog GIS candidate inspection failed." }
 }
 finally {
+    if (Test-Path $tempSql) { Remove-Item $tempSql -Force }
     if ($null -eq $previousClientEncoding) {
         Remove-Item Env:PGCLIENTENCODING -ErrorAction SilentlyContinue
     } else {
