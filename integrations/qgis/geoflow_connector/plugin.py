@@ -71,6 +71,20 @@ class GeoFlowConnectorPlugin:
         layer.updateFields()
         return layer
 
+    @staticmethod
+    def _write_project_metadata(qgs_project: QgsProject, manifest: dict, project_id: str, project_code: str):
+        """Persist lightweight GeoFlow project metadata using QgsProject's supported API."""
+        profile = manifest.get("profile") or {}
+        qgs_project.writeEntry("GeoFlow", "managed", "1")
+        qgs_project.writeEntry("GeoFlow", "project_id", project_id)
+        qgs_project.writeEntry("GeoFlow", "project_code", project_code)
+        qgs_project.writeEntry("GeoFlow", "profile_code", str(profile.get("code") or ""))
+        qgs_project.writeEntry(
+            "GeoFlow",
+            "manifest_version",
+            str(manifest.get("manifest_version") or ""),
+        )
+
     def _materialize_project(self, manifest: dict, client) -> int:
         transport = manifest.get("transport") or {}
         if transport.get("mode") != "server_geojson_snapshot":
@@ -100,6 +114,8 @@ class GeoFlowConnectorPlugin:
         os.makedirs(project_dir, exist_ok=True)
 
         loaded = 0
+        fetched = 0
+        skipped_empty = 0
         combined_extent = None
         for layer_def in manifest.get("layers") or []:
             standard_name = str(layer_def.get("standard_name") or "")
@@ -107,34 +123,41 @@ class GeoFlowConnectorPlugin:
             if not standard_name or not snapshot_url:
                 continue
 
-            raw = client.get_bytes(snapshot_url)
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                raise RuntimeError(f"{standard_name}: GeoJSON 응답을 해석할 수 없습니다.") from None
-
-            meta = payload.get("meta") if isinstance(payload, dict) else None
-            if isinstance(meta, dict) and meta.get("truncated"):
-                raise RuntimeError(
-                    f"{standard_name}: 서버 snapshot 한도({meta.get('limit')})를 초과했습니다. "
-                    "불완전한 QGIS 프로젝트를 만들지 않습니다."
-                )
-            features = payload.get("features") if isinstance(payload, dict) else None
-            if not isinstance(features, list):
-                raise RuntimeError(f"{standard_name}: FeatureCollection이 아닙니다.")
-
-            if features:
-                file_name = self._safe_name(standard_name.lower()) + ".geojson"
-                file_path = os.path.join(project_dir, file_name)
-                with open(file_path, "wb") as handle:
-                    handle.write(raw)
-                layer = QgsVectorLayer(
-                    file_path,
-                    layer_def.get("label") or standard_name,
-                    "ogr",
-                )
-            else:
+            row_count = layer_def.get("row_count")
+            if row_count == 0 and not layer_def.get("snapshot_required", False):
+                features = []
                 layer = self._memory_layer(layer_def)
+                skipped_empty += 1
+            else:
+                raw = client.get_bytes(snapshot_url)
+                fetched += 1
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    raise RuntimeError(f"{standard_name}: GeoJSON 응답을 해석할 수 없습니다.") from None
+
+                meta = payload.get("meta") if isinstance(payload, dict) else None
+                if isinstance(meta, dict) and meta.get("truncated"):
+                    raise RuntimeError(
+                        f"{standard_name}: 서버 snapshot 한도({meta.get('limit')})를 초과했습니다. "
+                        "불완전한 QGIS 프로젝트를 만들지 않습니다."
+                    )
+                features = payload.get("features") if isinstance(payload, dict) else None
+                if not isinstance(features, list):
+                    raise RuntimeError(f"{standard_name}: FeatureCollection이 아닙니다.")
+
+                if features:
+                    file_name = self._safe_name(standard_name.lower()) + ".geojson"
+                    file_path = os.path.join(project_dir, file_name)
+                    with open(file_path, "wb") as handle:
+                        handle.write(raw)
+                    layer = QgsVectorLayer(
+                        file_path,
+                        layer_def.get("label") or standard_name,
+                        "ogr",
+                    )
+                else:
+                    layer = self._memory_layer(layer_def)
 
             if not layer.isValid():
                 raise RuntimeError(f"{standard_name}: QGIS 레이어 생성에 실패했습니다.")
@@ -146,6 +169,7 @@ class GeoFlowConnectorPlugin:
             layer.setCustomProperty("geoflow/standard_name", standard_name)
             layer.setCustomProperty("geoflow/snapshot_url", snapshot_url)
             layer.setCustomProperty("geoflow/snapshot_editable", False)
+            layer.setCustomProperty("geoflow/server_row_count", row_count if row_count is not None else -1)
 
             qgs_project.addMapLayer(layer, False)
             group.addLayer(layer)
@@ -159,12 +183,7 @@ class GeoFlowConnectorPlugin:
                     else:
                         combined_extent.combineExtentWith(extent)
 
-        qgs_project.setCustomProperty("geoflow/managed", True)
-        qgs_project.setCustomProperty("geoflow/project_id", project_id)
-        qgs_project.setCustomProperty("geoflow/project_code", project_code)
-        profile = manifest.get("profile") or {}
-        qgs_project.setCustomProperty("geoflow/profile_code", profile.get("code") or "")
-        qgs_project.setCustomProperty("geoflow/manifest_version", manifest.get("manifest_version") or "")
+        self._write_project_metadata(qgs_project, manifest, project_id, project_code)
 
         if combined_extent is not None and not combined_extent.isEmpty():
             self.iface.mapCanvas().setExtent(combined_extent)
@@ -172,8 +191,11 @@ class GeoFlowConnectorPlugin:
 
         self.iface.messageBar().pushMessage(
             "GeoFlow",
-            f"{project_code}: 서버 권한 범위의 QGIS snapshot 레이어 {loaded}개를 구성했습니다.",
+            (
+                f"{project_code}: QGIS snapshot 레이어 {loaded}개 구성 · "
+                f"다운로드 {fetched}개 · 빈 레이어 요청 생략 {skipped_empty}개"
+            ),
             level=Qgis.Success,
-            duration=6,
+            duration=7,
         )
         return loaded
