@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -80,8 +81,6 @@ def _package_filename(project) -> str:
 @login_required
 @require_GET
 def qgis_projects_api(request):
-    """Return only GIS-enabled projects visible to the authenticated QGIS user."""
-
     alias = _require_qgis_context(request)
     policy = project_access_policy(request, alias)
     queryset = _project_queryset(alias)
@@ -119,11 +118,7 @@ def qgis_projects_api(request):
         )
 
     return JsonResponse(
-        {
-            "results": results,
-            "count": len(results),
-            "scope": policy.mode,
-        },
+        {"results": results, "count": len(results), "scope": policy.mode},
         json_dumps_params={"ensure_ascii": False},
     )
 
@@ -131,8 +126,6 @@ def qgis_projects_api(request):
 @login_required
 @require_GET
 def qgis_project_manifest_api(request, project_id):
-    """Materialization manifest consumed by the GeoFlow QGIS Connector."""
-
     alias = _require_qgis_context(request)
     project, policy, plan = _require_project(request, alias, project_id)
     layer_counts = _project_layer_counts(alias, project.id, plan)
@@ -166,8 +159,6 @@ def qgis_project_manifest_api(request, project_id):
 @login_required
 @require_GET
 def qgis_project_package_api(request, project_id):
-    """Return one project-scoped GeoPackage materialized by GeoFlow Server."""
-
     alias = _require_qgis_context(request)
     project, _policy, plan = _require_project(request, alias, project_id)
     try:
@@ -191,8 +182,6 @@ def qgis_project_package_api(request, project_id):
 @login_required
 @require_POST
 def qgis_project_sync_api(request, project_id):
-    """Apply one edited GeoPackage back to the dev/test tenant under server authority."""
-
     alias = _require_qgis_context(request)
     project, policy, plan = _require_project(request, alias, project_id)
     if not policy.can_webgis_write(project.id):
