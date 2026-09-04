@@ -43,9 +43,10 @@ if ($TargetDb -notmatch '(?i)(dev|test)') {
 
 $psql = Resolve-Psql
 $schemaLiteralList = "'ctr','hr','prj','ops','fin'"
+$tempSql = Join-Path $env:TEMP ("geoflow-public-trigger-functions-{0}.sql" -f ([guid]::NewGuid().ToString('N')))
 
 $query = @"
-SELECT pg_get_functiondef(p.oid) || E'\n'
+SELECT pg_get_functiondef(p.oid) || E';\n'
 FROM pg_proc p
 JOIN pg_namespace pn ON pn.oid = p.pronamespace
 WHERE pn.nspname = 'public'
@@ -61,22 +62,26 @@ WHERE pn.nspname = 'public'
 ORDER BY p.oid;
 "@
 
-Write-Host "Reading public trigger helper function definitions from $SourceDb..." -ForegroundColor Cyan
-$functionDefLines = @(& $psql -X -At -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $SourceDb -c $query)
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not read public trigger helper functions from source DB."
-}
-
-$joined = ($functionDefLines -join [Environment]::NewLine).Trim()
-if (-not $joined) {
-    Write-Host "No public trigger helper functions are referenced by ctr/hr/prj/ops/fin." -ForegroundColor DarkCyan
-    exit 0
-}
-
-$tempSql = Join-Path $env:TEMP ("geoflow-public-trigger-functions-{0}.sql" -f ([guid]::NewGuid().ToString('N')))
 try {
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($tempSql, $joined + [Environment]::NewLine, $utf8NoBom)
+    Write-Host "Reading public trigger helper function definitions from $SourceDb..." -ForegroundColor Cyan
+
+    # Write psql output directly to a UTF-8 SQL file. Avoid round-tripping
+    # multiline function bodies through PowerShell arrays, which can damage SQL boundaries.
+    & $psql -X -At -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $SourceDb -o $tempSql -c $query
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not read public trigger helper functions from source DB."
+    }
+
+    if (-not (Test-Path $tempSql) -or (Get-Item $tempSql).Length -eq 0) {
+        Write-Host "No public trigger helper functions are referenced by ctr/hr/prj/ops/fin." -ForegroundColor DarkCyan
+        exit 0
+    }
+
+    $preview = Get-Content $tempSql -Raw
+    if (-not $preview.Trim()) {
+        Write-Host "No public trigger helper functions are referenced by ctr/hr/prj/ops/fin." -ForegroundColor DarkCyan
+        exit 0
+    }
 
     Write-Host "Applying public trigger helper functions to $TargetDb..." -ForegroundColor Cyan
     & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -f $tempSql
