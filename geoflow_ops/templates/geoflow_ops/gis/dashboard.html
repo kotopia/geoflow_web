@@ -3,10 +3,16 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div>
     <h1 class="h3 mb-1">GIS</h1>
-    <div class="text-muted">GeoFlow WebGIS · QGIS · QField 공통 데이터 모델</div>
+    <div class="text-muted">프로젝트 업무범위 기반 GeoFlow GIS · QGIS · QField 공통 Layer Plan</div>
   </div>
-  <span class="badge bg-primary">Foundation v0.2</span>
+  <span class="badge bg-primary">Scope-driven GIS</span>
 </div>
+
+{% if scope_capability_active %}
+<div class="alert alert-info">
+  아래 프로젝트는 현재 로그인 사용자가 조회할 수 있고, 프로젝트 업무범위에 활성 GIS Capability가 연결된 프로젝트만 표시됩니다.
+</div>
+{% endif %}
 
 <div class="row g-3 mb-4">
   {% for item in domain_counts %}
@@ -15,7 +21,7 @@
       <div class="text-muted small">{{ item.label }}</div>
       <div class="d-flex align-items-end gap-2 mt-1">
         <div class="display-6 fw-semibold">{{ item.count }}</div>
-        <div class="text-muted mb-2">초기 레이어</div>
+        <div class="text-muted mb-2">등록 Feature</div>
       </div>
     </div></div>
   </div>
@@ -38,7 +44,10 @@
 </div>
 
 <div class="card mb-4">
-  <div class="card-header"><h5 class="card-title mb-0">프로젝트 선택</h5></div>
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="card-title mb-0">내 GIS 프로젝트</h5>
+    <span class="text-muted small">업무범위 + 접근권한 적용</span>
+  </div>
   <div class="card-body">
     {% if projects %}
     <div class="row g-2">
@@ -58,15 +67,15 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="text-muted">조회 가능한 프로젝트가 없습니다.</div>
+    <div class="text-muted">현재 사용자에게 허용된 GIS 업무범위 프로젝트가 없습니다.</div>
     {% endif %}
   </div>
 </div>
 
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">GIS 레이어</h5>
-    <span class="text-muted small">{{ feature_count }}개 Registry</span>
+    <h5 class="card-title mb-0">GIS Feature Registry</h5>
+    <span class="text-muted small">전체 {{ feature_count }}개</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
