@@ -3,14 +3,20 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
 from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
+from geoflow_ops.services.project_access import project_access_policy
 
+from .layer_plan import (
+    allowed_standard_names,
+    gis_enabled_project_ids,
+    project_layer_plan,
+)
 from .registry import FEATURE_TYPES, domain_counts, feature_rows
 
 
@@ -38,6 +44,17 @@ def _require_gis_view(request):
 
 def _project_queryset(alias):
     return Project.objects.using(alias).order_by("-start_date", "name")
+
+
+def _require_project_gis_access(request, alias, project_id):
+    project = get_object_or_404(_project_queryset(alias), id=project_id)
+    policy = project_access_policy(request, alias)
+    if not policy.can_webgis_read(project.id):
+        raise PermissionDenied("Permission denied")
+    plan = project_layer_plan(alias, project.id)
+    if plan.get("ready") and not plan.get("gis_enabled"):
+        raise Http404("GIS is not enabled by this project's business scope.")
+    return project, plan
 
 
 def _registry_feature(value):
@@ -77,17 +94,14 @@ def _parse_limit(value):
     return min(limit, 5000)
 
 
-def _physical_feature_rows(alias, *, project_id=None):
-    """Attach physical-table status/counts without making GIS rollout mandatory.
-
-    Table names come only from the reviewed code registry. A tenant that has not
-    received the GIS schema yet remains readable: its rows are returned with
-    physical_status='NOT_APPLIED' rather than raising a database error.
-    """
+def _physical_feature_rows(alias, *, project_id=None, allowed_names=None):
     rows = feature_rows()
+    if allowed_names is not None:
+        allowed = {str(name).upper() for name in allowed_names}
+        rows = [row for row in rows if row["standard_name"].upper() in allowed]
+
     connection = connections[alias]
     schema_name = connection.ops.quote_name("gis")
-
     try:
         with connection.cursor() as cursor:
             for row in rows:
@@ -108,11 +122,9 @@ def _physical_feature_rows(alias, *, project_id=None):
                 cursor.execute(sql, params)
                 row["row_count"] = cursor.fetchone()[0]
     except DatabaseError:
-        # Keep the registry page available during staged tenant rollout.
         for row in rows:
             row.setdefault("physical_status", "NOT_APPLIED")
             row.setdefault("row_count", None)
-
     return rows
 
 
@@ -133,7 +145,16 @@ def _geojson_property_columns(cursor, table_name):
 @require_GET
 def dashboard(request):
     alias = _require_gis_view(request)
-    projects = list(_project_queryset(alias)[:200])
+    policy = project_access_policy(request, alias)
+    queryset = _project_queryset(alias)
+    visible_ids = policy.visible_project_ids()
+    if visible_ids is not None:
+        queryset = queryset.filter(pk__in=visible_ids)
+    enabled_ids = gis_enabled_project_ids(alias)
+    if enabled_ids is not None:
+        queryset = queryset.filter(pk__in=enabled_ids)
+
+    projects = list(queryset[:200])
     rows = _physical_feature_rows(alias)
     return render(
         request,
@@ -145,6 +166,7 @@ def dashboard(request):
             "feature_count": len(rows),
             "physical_ready_count": sum(1 for row in rows if row["physical_status"] == "READY"),
             "physical_object_count": sum((row["row_count"] or 0) for row in rows),
+            "scope_capability_active": enabled_ids is not None,
         },
     )
 
@@ -153,8 +175,9 @@ def dashboard(request):
 @require_GET
 def project_dashboard(request, project_id):
     alias = _require_gis_view(request)
-    project = get_object_or_404(_project_queryset(alias), id=project_id)
-    rows = _physical_feature_rows(alias, project_id=project.id)
+    project, plan = _require_project_gis_access(request, alias, project_id)
+    allowed = allowed_standard_names(plan) if plan.get("ready") else None
+    rows = _physical_feature_rows(alias, project_id=project.id, allowed_names=allowed)
     map_layers = [
         {
             "standard_name": row["standard_name"],
@@ -175,6 +198,7 @@ def project_dashboard(request, project_id):
             "project": project,
             "features": rows,
             "map_layers": map_layers,
+            "layer_plan": plan,
             "domain_counts": domain_counts(),
             "feature_count": len(rows),
             "physical_ready_count": sum(1 for row in rows if row["physical_status"] == "READY"),
@@ -192,18 +216,34 @@ def layer_registry_api(request):
 
 @login_required
 @require_GET
-def project_layer_geojson_api(request, project_id):
-    """Return one allow-listed project GIS layer as EPSG:4326 GeoJSON.
-
-    The physical table is resolved only through FEATURE_TYPES. project_id is
-    always applied server-side. bbox is optional but supported from the first
-    WebGIS increment so clients can load only the current map extent.
-    """
+def project_layer_plan_api(request, project_id):
     alias = _require_gis_view(request)
-    project = get_object_or_404(_project_queryset(alias), id=project_id)
+    project, plan = _require_project_gis_access(request, alias, project_id)
+    return JsonResponse(
+        {
+            "project": {
+                "id": str(project.id),
+                "code": project.code or "",
+                "name": project.name or "",
+                "status": project.status or "",
+            },
+            **plan,
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
+
+
+@login_required
+@require_GET
+def project_layer_geojson_api(request, project_id):
+    alias = _require_gis_view(request)
+    project, plan = _require_project_gis_access(request, alias, project_id)
     feature_type = _registry_feature(request.GET.get("layer"))
     if feature_type is None:
         return JsonResponse({"error": "Unknown or missing GIS layer."}, status=400)
+
+    if plan.get("ready") and feature_type.standard_name.upper() not in allowed_standard_names(plan):
+        raise Http404("GIS layer is not enabled by this project's business scope/profile.")
 
     try:
         bbox = _parse_bbox(request.GET.get("bbox"))
