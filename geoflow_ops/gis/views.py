@@ -1,3 +1,5 @@
+import json
+
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
@@ -9,7 +11,22 @@ from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 
-from .registry import domain_counts, feature_rows
+from .registry import FEATURE_TYPES, domain_counts, feature_rows
+
+
+_GEOJSON_PROPERTY_CANDIDATES = (
+    "id",
+    "ftr_cde",
+    "ftr_idn",
+    "source_key",
+    "description",
+    "name",
+    "code",
+    "survey_code",
+    "survey_date",
+    "source_type",
+    "etctxt",
+)
 
 
 def _require_gis_view(request):
@@ -21,6 +38,43 @@ def _require_gis_view(request):
 
 def _project_queryset(alias):
     return Project.objects.using(alias).order_by("-start_date", "name")
+
+
+def _registry_feature(value):
+    key = (value or "").strip().lower()
+    if not key:
+        return None
+    for item in FEATURE_TYPES:
+        if key in (item.standard_name.lower(), item.physical_name.lower()):
+            return item
+    return None
+
+
+def _parse_bbox(value):
+    if not value:
+        return None
+    try:
+        parts = [float(part.strip()) for part in value.split(",")]
+    except (TypeError, ValueError):
+        raise ValueError("bbox must be minx,miny,maxx,maxy")
+    if len(parts) != 4:
+        raise ValueError("bbox must contain four numbers")
+    minx, miny, maxx, maxy = parts
+    if not (-180 <= minx < maxx <= 180 and -90 <= miny < maxy <= 90):
+        raise ValueError("bbox is outside EPSG:4326 bounds or has invalid extent")
+    return minx, miny, maxx, maxy
+
+
+def _parse_limit(value):
+    if value in (None, ""):
+        return 2000
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("limit must be an integer")
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    return min(limit, 5000)
 
 
 def _physical_feature_rows(alias, *, project_id=None):
@@ -62,6 +116,19 @@ def _physical_feature_rows(alias, *, project_id=None):
     return rows
 
 
+def _geojson_property_columns(cursor, table_name):
+    cursor.execute(
+        """
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema='gis' AND table_name=%s
+        """,
+        [table_name],
+    )
+    actual = {row[0] for row in cursor.fetchall()}
+    return [name for name in _GEOJSON_PROPERTY_CANDIDATES if name in actual]
+
+
 @login_required
 @require_GET
 def dashboard(request):
@@ -88,12 +155,26 @@ def project_dashboard(request, project_id):
     alias = _require_gis_view(request)
     project = get_object_or_404(_project_queryset(alias), id=project_id)
     rows = _physical_feature_rows(alias, project_id=project.id)
+    map_layers = [
+        {
+            "standard_name": row["standard_name"],
+            "physical_name": row["physical_name"],
+            "label": row["label"],
+            "domain": row["domain"],
+            "domain_label": row["domain_label"],
+            "geometry_kind": row["geometry_kind"],
+            "row_count": row["row_count"] or 0,
+        }
+        for row in rows
+        if row["physical_status"] == "READY" and (row["row_count"] or 0) > 0
+    ]
     return render(
         request,
         "geoflow_ops/gis/project_dashboard.html",
         {
             "project": project,
             "features": rows,
+            "map_layers": map_layers,
             "domain_counts": domain_counts(),
             "feature_count": len(rows),
             "physical_ready_count": sum(1 for row in rows if row["physical_status"] == "READY"),
@@ -107,3 +188,101 @@ def project_dashboard(request, project_id):
 def layer_registry_api(request):
     alias = _require_gis_view(request)
     return JsonResponse({"features": _physical_feature_rows(alias)})
+
+
+@login_required
+@require_GET
+def project_layer_geojson_api(request, project_id):
+    """Return one allow-listed project GIS layer as EPSG:4326 GeoJSON.
+
+    The physical table is resolved only through FEATURE_TYPES. project_id is
+    always applied server-side. bbox is optional but supported from the first
+    WebGIS increment so clients can load only the current map extent.
+    """
+    alias = _require_gis_view(request)
+    project = get_object_or_404(_project_queryset(alias), id=project_id)
+    feature_type = _registry_feature(request.GET.get("layer"))
+    if feature_type is None:
+        return JsonResponse({"error": "Unknown or missing GIS layer."}, status=400)
+
+    try:
+        bbox = _parse_bbox(request.GET.get("bbox"))
+        limit = _parse_limit(request.GET.get("limit"))
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    connection = connections[alias]
+    schema_name = connection.ops.quote_name("gis")
+    table_name = connection.ops.quote_name(feature_type.physical_name)
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass(%s)", [f"gis.{feature_type.physical_name}"])
+            if cursor.fetchone()[0] is None:
+                return JsonResponse({"error": "GIS physical layer is not applied."}, status=404)
+
+            property_columns = _geojson_property_columns(cursor, feature_type.physical_name)
+            select_parts = ["ST_AsGeoJSON(geom, 8) AS geometry_json"]
+            for column in property_columns:
+                quoted = connection.ops.quote_name(column)
+                if column == "id":
+                    select_parts.append(f"{quoted}::text AS {quoted}")
+                else:
+                    select_parts.append(quoted)
+
+            sql = (
+                f"SELECT {', '.join(select_parts)} "
+                f"FROM {schema_name}.{table_name} "
+                "WHERE project_id=%s AND geom IS NOT NULL"
+            )
+            params = [project.id]
+            if bbox is not None:
+                sql += " AND ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s,4326))"
+                params.extend(bbox)
+            sql += " ORDER BY id LIMIT %s"
+            params.append(limit + 1)
+
+            cursor.execute(sql, params)
+            columns = [item[0] for item in cursor.description]
+            records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    except DatabaseError:
+        return JsonResponse({"error": "GIS layer query failed."}, status=503)
+
+    truncated = len(records) > limit
+    records = records[:limit]
+    features = []
+    for record in records:
+        geometry_json = record.pop("geometry_json", None)
+        if not geometry_json:
+            continue
+        features.append(
+            {
+                "type": "Feature",
+                "id": record.get("id"),
+                "geometry": json.loads(geometry_json),
+                "properties": {
+                    **record,
+                    "layer": feature_type.standard_name,
+                    "layer_label": feature_type.label,
+                    "domain": feature_type.domain,
+                },
+            }
+        )
+
+    return JsonResponse(
+        {
+            "type": "FeatureCollection",
+            "features": features,
+            "meta": {
+                "project_id": str(project.id),
+                "layer": feature_type.standard_name,
+                "physical_name": feature_type.physical_name,
+                "geometry_kind": feature_type.geometry_kind,
+                "bbox": bbox,
+                "limit": limit,
+                "truncated": truncated,
+                "returned": len(features),
+            },
+        },
+        json_dumps_params={"ensure_ascii": False},
+    )
