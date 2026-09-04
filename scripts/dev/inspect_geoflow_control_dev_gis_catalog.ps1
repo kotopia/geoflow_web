@@ -32,17 +32,20 @@ $env:PGCLIENTENCODING = "UTF8"
 $tempSql = Join-Path $env:TEMP ("geoflow-gis-catalog-inspect-{0}.sql" -f ([guid]::NewGuid().ToString('N')))
 
 try {
-    # Windows PowerShell may encode a multiline -c argument using the active
-    # ANSI/OEM codepage. The inspection predicates contain Korean text, so write
-    # a real UTF-8 SQL file and let psql read it with client_encoding=UTF8.
+    # Windows PowerShell may encode a multiline native-process argument using
+    # the active ANSI/OEM codepage. Write a real UTF-8 SQL file instead.
+    #
+    # Do not use PostgreSQL regular expressions for this discovery query. The
+    # inspection needs only substring matching, and ILIKE/LIKE ANY is simpler,
+    # locale-independent, and avoids regex parser differences around Korean text.
     $sql = @'
 \encoding UTF8
 SELECT 'CATEGORY_NODE' AS kind, n.level, n.id, n.code, n.name, n.geom_hint
   FROM catalog.category_node n
  WHERE n.active
    AND (
-        n.name ~* '(지하|상수|하수|도로|측량)'
-        OR n.code ~* '(UNDER|WATER|SEWER|ROAD|SURVEY|GIS)'
+        n.name ILIKE ANY (ARRAY['%지하%','%상수%','%하수%','%도로%','%측량%'])
+        OR upper(n.code) LIKE ANY (ARRAY['%UNDER%','%WATER%','%SEWER%','%ROAD%','%SURVEY%','%GIS%'])
    )
  ORDER BY n.level, n.ord, n.name;
 
@@ -51,8 +54,8 @@ SELECT 'FACET_OPTION' AS kind, o.id, o.code, o.name, o.default_unit, o.geom_hint
   JOIN catalog.category_facet f ON f.id=o.facet_id
  WHERE o.active AND f.active
    AND (
-        o.name ~* '(지하|상수|하수|도로|측량)'
-        OR o.code ~* '(UNDER|WATER|SEWER|ROAD|SURVEY|GIS)'
+        o.name ILIKE ANY (ARRAY['%지하%','%상수%','%하수%','%도로%','%측량%'])
+        OR upper(o.code) LIKE ANY (ARRAY['%UNDER%','%WATER%','%SEWER%','%ROAD%','%SURVEY%','%GIS%'])
    )
  ORDER BY f.ord, o.ord, o.name;
 
@@ -61,10 +64,10 @@ SELECT p.parent_id, pn.code AS parent_code, pn.name AS parent_name,
   FROM catalog.category_parent p
   JOIN catalog.category_node pn ON pn.id=p.parent_id
   JOIN catalog.category_node cn ON cn.id=p.child_id
- WHERE pn.name ~* '(지하|상수|하수|도로|측량)'
-    OR cn.name ~* '(지하|상수|하수|도로|측량)'
-    OR pn.code ~* '(UNDER|WATER|SEWER|ROAD|SURVEY|GIS)'
-    OR cn.code ~* '(UNDER|WATER|SEWER|ROAD|SURVEY|GIS)'
+ WHERE pn.name ILIKE ANY (ARRAY['%지하%','%상수%','%하수%','%도로%','%측량%'])
+    OR cn.name ILIKE ANY (ARRAY['%지하%','%상수%','%하수%','%도로%','%측량%'])
+    OR upper(pn.code) LIKE ANY (ARRAY['%UNDER%','%WATER%','%SEWER%','%ROAD%','%SURVEY%','%GIS%'])
+    OR upper(cn.code) LIKE ANY (ARRAY['%UNDER%','%WATER%','%SEWER%','%ROAD%','%SURVEY%','%GIS%'])
  ORDER BY pn.level, pn.ord, cn.ord;
 '@
 
