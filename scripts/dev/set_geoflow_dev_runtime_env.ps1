@@ -23,6 +23,10 @@ try {
     $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     if (-not $plainPassword) { throw "DB password cannot be empty." }
 
+    $env:GEOFLOW_DEV_RUNTIME_STRICT = "1"
+    $env:GEOFLOW_EXPECTED_CENTRAL_DB = $CentralDb
+    $env:GEOFLOW_EXPECTED_TENANT_DB = $TenantDb
+
     $env:CENTRAL_DB_NAME = $CentralDb
     $env:CENTRAL_DB_USER = $DbUser
     $env:CENTRAL_DB_PASSWORD = $plainPassword
@@ -56,6 +60,7 @@ try {
     $env:DJANGO_SECRET_KEY = [Convert]::ToBase64String($secretBytes)
 
     Write-Host "GeoFlow development runtime environment is set for this PowerShell process." -ForegroundColor Green
+    Write-Host "STRICT DEV DB GUARD: enabled" -ForegroundColor Green
     Write-Host "Central: $CentralDb" -ForegroundColor Green
     Write-Host "Tenant alias cheonan_db -> physical DB: $TenantDb" -ForegroundColor Green
     Write-Host "Provisioning disabled; static tenant connection enabled." -ForegroundColor Green
