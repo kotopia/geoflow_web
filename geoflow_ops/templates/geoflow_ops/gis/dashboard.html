@@ -22,6 +22,21 @@
   {% endfor %}
 </div>
 
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">물리 테이블 준비</div>
+      <div class="display-6 fw-semibold mt-1">{{ physical_ready_count }} / {{ feature_count }}</div>
+    </div></div>
+  </div>
+  <div class="col-12 col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">전체 GIS 객체</div>
+      <div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div>
+    </div></div>
+  </div>
+</div>
+
 <div class="card mb-4">
   <div class="card-header"><h5 class="card-title mb-0">프로젝트 선택</h5></div>
   <div class="card-body">
@@ -50,12 +65,12 @@
 
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">초기 Feature Registry</h5>
-    <span class="text-muted small">{{ feature_count }}개</span>
+    <h5 class="card-title mb-0">GIS 레이어</h5>
+    <span class="text-muted small">{{ feature_count }}개 Registry</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>구분</th><th>표준명</th><th>DB 물리명</th><th>Geometry</th><th>역할</th><th>Scope</th></tr></thead>
+      <thead><tr><th>구분</th><th>표준명</th><th>DB 물리명</th><th>Geometry</th><th>객체수</th><th>상태</th></tr></thead>
       <tbody>
         {% for feature in features %}
         <tr>
@@ -63,8 +78,14 @@
           <td><code>{{ feature.standard_name }}</code></td>
           <td><code>{{ feature.db_name }}</code></td>
           <td>{{ feature.geometry_kind }}</td>
-          <td>{{ feature.role }}</td>
-          <td>{{ feature.scope_type }}</td>
+          <td>{% if feature.row_count != None %}{{ feature.row_count }}{% else %}-{% endif %}</td>
+          <td>
+            {% if feature.physical_status == 'READY' %}
+              <span class="badge bg-success">Ready</span>
+            {% else %}
+              <span class="badge bg-light text-dark">미적용</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
