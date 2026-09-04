@@ -139,8 +139,10 @@ def _init_gpkg(conn: sqlite3.Connection) -> None:
         CREATE TABLE _geoflow_baseline (
             layer_name TEXT NOT NULL,
             object_id TEXT NOT NULL,
+            local_fid INTEGER NOT NULL,
             source_updated_at TEXT,
-            PRIMARY KEY(layer_name, object_id)
+            PRIMARY KEY(layer_name, object_id),
+            UNIQUE(layer_name, local_fid)
         );
         """
     )
@@ -292,24 +294,23 @@ def _copy_layer_rows(alias: str, sqlite_conn: sqlite3.Connection, layer: Package
     placeholders = ", ".join("?" for _ in insert_columns)
     insert_sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({placeholders})"
     payload = []
-    baseline = []
+    source_updated_by_id: dict[str, Any] = {}
     id_index = field_names.index("id")
     for row in rows:
+        object_id = str(uuid.UUID(str(row[id_index])))
         attrs = [_normalize_value(value) for value in row[: len(field_names)]]
         attrs.append(gpkg_geometry_blob(row[len(field_names)], srs_id=4326))
         payload.append(tuple(attrs))
-        baseline.append(
-            (
-                layer.physical_name,
-                str(uuid.UUID(str(row[id_index]))),
-                _normalize_value(row[len(field_names) + 1]),
-            )
-        )
+        source_updated_by_id[object_id] = _normalize_value(row[len(field_names) + 1])
     if payload:
         sqlite_conn.executemany(insert_sql, payload)
-    if baseline:
+        local_rows = sqlite_conn.execute(f"SELECT id, fid FROM {table}").fetchall()
+        baseline = [
+            (layer.physical_name, str(uuid.UUID(str(object_id))), int(fid), source_updated_by_id[str(uuid.UUID(str(object_id)))])
+            for object_id, fid in local_rows
+        ]
         sqlite_conn.executemany(
-            "INSERT INTO _geoflow_baseline(layer_name,object_id,source_updated_at) VALUES (?,?,?)",
+            "INSERT INTO _geoflow_baseline(layer_name,object_id,local_fid,source_updated_at) VALUES (?,?,?,?)",
             baseline,
         )
     return row_count
@@ -332,7 +333,7 @@ def build_project_geopackage(alias: str, *, project_id: str, plan: dict[str, Any
             sqlite_conn.executemany(
                 "INSERT INTO _geoflow_package(key,value) VALUES (?,?)",
                 [
-                    ("package_version", "0.2"),
+                    ("package_version", "0.3"),
                     ("package_id", str(uuid.uuid4())),
                     ("project_id", str(uuid.UUID(str(project_id)))),
                     ("profile_id", str(profile.get("id") or "")),
