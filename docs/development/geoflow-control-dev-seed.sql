@@ -1,8 +1,9 @@
 \encoding UTF8
-\getenv dev_login_password GEOFLOW_DEV_LOGIN_PASSWORD
+\getenv dev_login_hash GEOFLOW_DEV_LOGIN_HASH
 
 -- GeoFlow non-production central/auth synthetic seed.
--- No real customer/user data. Password arrives only through a transient process environment variable.
+-- No real customer/user data. The password itself is never passed to SQL;
+-- the PowerShell runner supplies only a transient Django-generated password hash.
 
 BEGIN;
 
@@ -31,15 +32,15 @@ BEGIN
 END
 $$;
 
--- Synthetic verified user. bcrypt is accepted by the current login verifier and
--- the first successful login may rehash it to the current Django PBKDF2 format.
+-- Synthetic verified user. The runner generates this with Django make_password(),
+-- so the stored hash uses exactly the same verifier path as the live login flow.
 INSERT INTO users(
     id, email, password_hash, is_active, is_staff, email_verified, created_at, updated_at
 )
 VALUES (
     '90000000-0000-4000-8000-000000000101'::uuid,
     :'test_email',
-    crypt(:'dev_login_password', gen_salt('bf', 12)),
+    :'dev_login_hash',
     TRUE,
     TRUE,
     TRUE,
