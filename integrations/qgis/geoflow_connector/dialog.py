@@ -126,7 +126,7 @@ class GeoFlowConnectorDialog(QDialog):
             return
 
         self._set_busy(True)
-        self.status_label.setText("프로젝트 Layer Plan을 불러오는 중입니다…")
+        self.status_label.setText("Layer Plan 확인 후 프로젝트 GeoPackage를 생성·다운로드하는 중입니다…")
         try:
             manifest = self.client.get_json(manifest_url)
             if self.on_open_project is None:
@@ -138,5 +138,5 @@ class GeoFlowConnectorDialog(QDialog):
             self._set_busy(False)
             return
 
-        self.status_label.setText(f"QGIS 프로젝트 구성 완료 · 레이어 {loaded}개")
+        self.status_label.setText(f"QGIS GeoPackage 구성 완료 · 레이어 {loaded}개")
         self._set_busy(False)
