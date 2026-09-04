@@ -1,11 +1,11 @@
 [general]
 name=GeoFlow Connector
 qgisMinimumVersion=3.28
-description=GeoFlow project login, editable GeoPackage materialization, and guarded development sync.
-version=0.3.0
+description=GeoFlow project login, editable GeoPackage materialization, and save-time automatic synchronization.
+version=0.4.0
 author=GeoFlow
 email=
-about=Thin QGIS client for GeoFlow Server. Authenticates against GeoFlow, lists only authorized GIS projects, receives the server Layer Plan, downloads one project-scoped GeoPackage, enables local QGIS editing for authorized users, and can synchronize create/update/delete changes back to the strict development GeoFlow runtime without exposing tenant database credentials. Production synchronization remains disabled pending separate review.
+about=Thin QGIS client for GeoFlow Server. Authenticates against GeoFlow, lists only authorized GIS projects, receives the server Layer Plan, downloads one project-scoped GeoPackage, enables local QGIS editing for authorized users, and automatically synchronizes committed QGIS saves back to the strict development GeoFlow runtime. Local change detection uses package content hashes, SQLite WAL is checkpointed before upload, and the latest successful server sync wins for objects changed by multiple clients. Production synchronization remains disabled pending separate review.
 category=Database
 experimental=True
 deprecated=False
