@@ -1,15 +1,15 @@
 [general]
 name=GeoFlow Connector
 qgisMinimumVersion=3.28
-description=GeoFlow project login, scope selection, and QGIS snapshot materialization.
-version=0.1.0
+description=GeoFlow project login, scope selection, and editable project GeoPackage materialization.
+version=0.2.0
 author=GeoFlow
 email=
-about=Thin QGIS client for GeoFlow Server. The MVP authenticates against GeoFlow, lists only authorized GIS projects, receives the server layer plan, and materializes project-scoped read-only GeoJSON snapshots without exposing tenant database credentials.
+about=Thin QGIS client for GeoFlow Server. Authenticates against GeoFlow, lists only authorized GIS projects, receives the server Layer Plan, downloads one project-scoped GeoPackage, and enables local QGIS editing for authorized users without exposing tenant database credentials. Server synchronization is intentionally not enabled yet.
 category=Database
 experimental=True
 deprecated=False
 tracker=
 repository=
 homepage=
-tags=geoflow,gis,qgis,qfield,postgis
+tags=geoflow,gis,qgis,qfield,postgis,geopackage
