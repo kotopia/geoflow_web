@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 
-QGIS_MANIFEST_VERSION = "0.1"
+QGIS_MANIFEST_VERSION = "0.2"
 QGIS_TRANSPORT_MODE = "server_geojson_snapshot"
 QGIS_SNAPSHOT_LIMIT = 5000
 
@@ -15,6 +15,7 @@ def build_qgis_manifest(
     plan: dict[str, Any],
     can_write: bool,
     layer_geojson_path: str,
+    layer_counts: dict[str, int | None] | None = None,
 ) -> dict[str, Any]:
     """Build the server-authoritative QGIS Connector manifest.
 
@@ -22,13 +23,19 @@ def build_qgis_manifest(
     GeoJSON snapshots instead of exposing tenant PostGIS credentials. The
     server remains authoritative for tenant/project authorization and layer
     scope. Direct PostGIS transport is a later, separately reviewed concern.
+
+    layer_counts is optional. When a project's layer is known to contain zero
+    rows, the connector can create an empty schema placeholder without issuing
+    a separate GeoJSON HTTP request. Unknown counts remain fetchable.
     """
 
     project_id = str(project["id"])
+    counts = layer_counts or {}
     layers = []
     for row in plan.get("layers") or []:
         standard_name = str(row["standard_name"])
         query = urlencode({"layer": standard_name, "limit": QGIS_SNAPSHOT_LIMIT})
+        row_count = counts.get(standard_name)
         layers.append(
             {
                 "standard_name": standard_name,
@@ -40,6 +47,8 @@ def build_qgis_manifest(
                 "primary_key": "id",
                 "geometry_column": "geom",
                 "source_srid": "EPSG:4326",
+                "row_count": row_count,
+                "snapshot_required": row_count is None or row_count > 0,
                 "snapshot_url": f"{layer_geojson_path}?{query}",
                 "snapshot_limit": QGIS_SNAPSHOT_LIMIT,
                 "snapshot_editable": False,
@@ -54,6 +63,7 @@ def build_qgis_manifest(
             "direct_postgis_credentials_exposed": False,
             "editing_supported": False,
             "write_authorized": bool(can_write),
+            "empty_layer_fetch_skip_supported": True,
             "note": (
                 "MVP materializes server-authorized project snapshots. "
                 "Editing/sync transport is a later reviewed increment."
