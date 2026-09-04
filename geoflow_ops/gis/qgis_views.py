@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import connections
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -36,6 +37,33 @@ def _require_project(request, alias, project_id):
     if plan.get("ready") and not plan.get("gis_enabled"):
         raise Http404("GIS is not enabled by this project's business scope.")
     return project, policy, plan
+
+
+def _project_layer_counts(alias: str, project_id, plan: dict) -> dict[str, int | None]:
+    """Count enabled project layers so QGIS can skip known-empty snapshot calls."""
+
+    connection = connections[alias]
+    schema_name = connection.ops.quote_name("gis")
+    counts: dict[str, int | None] = {}
+    with connection.cursor() as cursor:
+        for row in plan.get("layers") or []:
+            standard_name = str(row.get("standard_name") or "")
+            physical_name = str(row.get("physical_name") or "")
+            if not standard_name or not physical_name:
+                continue
+
+            cursor.execute("SELECT to_regclass(%s)", [f"gis.{physical_name}"])
+            if cursor.fetchone()[0] is None:
+                counts[standard_name] = None
+                continue
+
+            quoted_table = connection.ops.quote_name(physical_name)
+            cursor.execute(
+                f"SELECT count(*) FROM {schema_name}.{quoted_table} WHERE project_id=%s",
+                [project_id],
+            )
+            counts[standard_name] = int(cursor.fetchone()[0])
+    return counts
 
 
 @login_required
@@ -100,6 +128,7 @@ def qgis_project_manifest_api(request, project_id):
         "gis:project_layer_geojson_api",
         kwargs={"project_id": project.id},
     )
+    layer_counts = _project_layer_counts(alias, project.id, plan)
     manifest = build_qgis_manifest(
         project={
             "id": project.id,
@@ -110,5 +139,6 @@ def qgis_project_manifest_api(request, project_id):
         plan=plan,
         can_write=policy.can_webgis_write(project.id),
         layer_geojson_path=geojson_path,
+        layer_counts=layer_counts,
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
