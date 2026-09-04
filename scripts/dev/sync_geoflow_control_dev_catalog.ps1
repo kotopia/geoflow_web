@@ -41,6 +41,17 @@ $env:PGCLIENTENCODING = "UTF8"
 $tempSchemaDump = Join-Path $env:TEMP ("geoflow-control-catalog-schema-{0}.dump" -f ([guid]::NewGuid().ToString('N')))
 $tempDataDump = Join-Path $env:TEMP ("geoflow-control-catalog-data-{0}.dump" -f ([guid]::NewGuid().ToString('N')))
 
+$referenceTables = @(
+    "catalog.category_node",
+    "catalog.category_parent",
+    "catalog.category_closure",
+    "catalog.category_facet",
+    "catalog.category_facet_option",
+    "catalog.category_option_set",
+    "catalog.category_option_rule",
+    "catalog.category_option_pick"
+)
+
 try {
     Write-Host "[1/5] Verify source central catalog..." -ForegroundColor Cyan
     $sourceTable = (& $psql -X -At -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $SourceDb -c "SELECT to_regclass('catalog.category_node');" | Out-String).Trim()
@@ -71,18 +82,32 @@ try {
     & $pgRestore -h $HostName -p $Port -U $DbUser -d $TargetDb --no-owner --no-privileges --exit-on-error $tempSchemaDump
     if ($LASTEXITCODE -ne 0) { throw "Central catalog schema pg_restore failed." }
 
-    Write-Host "[4/5] Copy non-personal catalog reference data..." -ForegroundColor Cyan
-    & $pgDump -h $HostName -p $Port -U $DbUser -d $SourceDb --format=custom --data-only --schema=catalog --no-owner --no-privileges --file $tempDataDump
-    if ($LASTEXITCODE -ne 0) { throw "Central catalog data pg_dump failed." }
+    Write-Host "[4/5] Copy project-scope catalog reference data only..." -ForegroundColor Cyan
+    $dumpArgs = @(
+        '-h', $HostName,
+        '-p', $Port,
+        '-U', $DbUser,
+        '-d', $SourceDb,
+        '--format=custom',
+        '--data-only',
+        '--no-owner',
+        '--no-privileges'
+    )
+    foreach ($table in $referenceTables) {
+        $dumpArgs += "--table=$table"
+    }
+    $dumpArgs += @('--file', $tempDataDump)
+    & $pgDump @dumpArgs
+    if ($LASTEXITCODE -ne 0) { throw "Central catalog reference-data pg_dump failed." }
     & $pgRestore -h $HostName -p $Port -U $DbUser -d $TargetDb --no-owner --no-privileges --exit-on-error $tempDataDump
-    if ($LASTEXITCODE -ne 0) { throw "Central catalog data pg_restore failed." }
+    if ($LASTEXITCODE -ne 0) { throw "Central catalog reference-data pg_restore failed." }
 
     Write-Host "[5/5] Verify target catalog reference state..." -ForegroundColor Green
     & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c "SELECT current_database(); SELECT count(*) AS category_nodes FROM catalog.category_node; SELECT count(*) AS category_parents FROM catalog.category_parent; SELECT count(*) AS facet_options FROM catalog.category_facet_option; SELECT count(*) AS option_sets FROM catalog.category_option_set;"
     if ($LASTEXITCODE -ne 0) { throw "Target central catalog verification failed." }
 
     Write-Host "GeoFlow central development catalog sync completed successfully." -ForegroundColor Green
-    Write-Host "Copied only catalog schema/reference taxonomy. No users, memberships, sessions, or tenant DB secrets were copied." -ForegroundColor Green
+    Write-Host "Copied only project-scope catalog reference taxonomy. No users, memberships, sessions, or tenant DB secrets were copied." -ForegroundColor Green
 }
 finally {
     if (Test-Path $tempSchemaDump) { Remove-Item $tempSchemaDump -Force }
