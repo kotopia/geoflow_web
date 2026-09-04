@@ -24,7 +24,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class GeoFlowHttpClient:
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(self, base_url: str, timeout: int = 60):
         normalized = (base_url or "").strip().rstrip("/")
         if not normalized.startswith(("http://", "https://")):
             raise GeoFlowClientError("GeoFlow server URL must start with http:// or https://")
@@ -99,8 +99,6 @@ class GeoFlowHttpClient:
         except urllib.error.URLError as exc:
             raise GeoFlowClientError(f"GeoFlow login failed: {exc.reason}") from None
 
-        # A successful central login is not enough: prove the session reached the
-        # tenant GIS API before reporting success to the plugin UI.
         response = self.get_json("/gis/api/qgis/projects/")
         results = response.get("results")
         if not isinstance(results, list):
@@ -126,6 +124,8 @@ class GeoFlowHttpClient:
         return self._request(
             urllib.request.Request(
                 self._url(path),
-                headers={"Accept": "application/geo+json,application/json"},
+                headers={
+                    "Accept": "application/geopackage+sqlite3,application/octet-stream,application/geo+json,application/json"
+                },
             )
         )
