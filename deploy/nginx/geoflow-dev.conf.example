@@ -1,0 +1,42 @@
+# GeoFlow development Nginx proxy example.
+# Review hostname/TLS topology before installation. Do not expose this host publicly
+# until the non-production central/auth DB and access policy are ready.
+
+map $request_uri $geoflow_dev_access_loggable {
+    default 1;
+    ~^/control/set-password/ 0;
+    ~^/control/account/set-password/legacy-token/ 0;
+}
+
+upstream geoflow_dev_app {
+    server unix:/run/geoflow-dev/gunicorn.sock;
+}
+
+server {
+    listen 80;
+    server_name dev.geoflow.example;
+
+    client_max_body_size 25m;
+
+    access_log /var/log/nginx/geoflow-dev.access.log combined if=$geoflow_dev_access_loggable;
+    error_log /var/log/nginx/geoflow-dev.error.log warn;
+
+    location /static/ {
+        alias /srv/geoflow-dev/current/staticfiles/;
+        access_log off;
+        expires 5m;
+    }
+
+    location / {
+        proxy_pass http://geoflow_dev_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_redirect off;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 65s;
+    }
+}
