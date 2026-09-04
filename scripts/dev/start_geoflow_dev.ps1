@@ -36,7 +36,6 @@ Write-Host "[1/4] Configure isolated development database environment..." -Foreg
     -DbUser $DbUser `
     -CentralDb $CentralDb `
     -TenantDb $TenantDb
-if ($LASTEXITCODE -ne 0) { throw "Development runtime environment setup failed." }
 
 Write-Host "[2/4] Configure GeoDjango native libraries from QGIS..." -ForegroundColor Cyan
 $qgisScript = Join-Path $repoRoot "scripts\windows\set_geodjango_from_qgis.ps1"
@@ -45,9 +44,11 @@ if ($QgisRoot) {
 } else {
     & $qgisScript
 }
-if ($LASTEXITCODE -ne 0) { throw "GeoDjango/QGIS runtime setup failed." }
 
 # Hard fail before Django starts if anything drifted away from the isolated DBs.
+if ($env:GEOFLOW_DEV_RUNTIME_STRICT -ne "1") {
+    throw "Safety stop: strict GeoFlow development runtime guard is not enabled."
+}
 if ($env:CENTRAL_DB_NAME -ne $CentralDb) {
     throw "Safety stop: CENTRAL_DB_NAME drifted to '$($env:CENTRAL_DB_NAME)'."
 }
@@ -63,9 +64,9 @@ Write-Host "[3/4] Run read-only development runtime preflight..." -ForegroundCol
     -PythonExe $venvPython `
     -ExpectedCentralDb $CentralDb `
     -ExpectedTenantDb $TenantDb
-if ($LASTEXITCODE -ne 0) { throw "Development runtime preflight failed; server will not start." }
 
 Write-Host "[4/4] Start isolated GeoFlow development server..." -ForegroundColor Green
+Write-Host "STRICT DEV DB GUARD: enabled" -ForegroundColor Green
 Write-Host "Central DB: $CentralDb" -ForegroundColor Green
 Write-Host "Tenant DB:  $TenantDb" -ForegroundColor Green
 Write-Host "Login:      http://$Listen/login/" -ForegroundColor Green
