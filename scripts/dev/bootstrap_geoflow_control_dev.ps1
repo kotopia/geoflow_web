@@ -92,12 +92,31 @@ foreach ($ext in ($sourceExtensions | Where-Object { $_ -and $_.Trim() })) {
 if ($LASTEXITCODE -ne 0) { throw "Could not ensure pgcrypto in target." }
 
 $tempSchemaDump = Join-Path $env:TEMP ("geoflow-control-schema-{0}.dump" -f ([guid]::NewGuid().ToString('N')))
+$tempSchemaList = Join-Path $env:TEMP ("geoflow-control-schema-{0}.list" -f ([guid]::NewGuid().ToString('N')))
 $tempCatalogDump = Join-Path $env:TEMP ("geoflow-control-authz-catalog-{0}.dump" -f ([guid]::NewGuid().ToString('N')))
 try {
     Write-Host "[5/7] Copy central public schema definitions only..." -ForegroundColor Cyan
     & $pgDump -h $HostName -p $Port -U $DbUser -d $SourceDb --format=custom --schema-only --schema=public --no-owner --no-privileges --file $tempSchemaDump
     if ($LASTEXITCODE -ne 0) { throw "Central schema-only pg_dump failed." }
-    & $pgRestore -h $HostName -p $Port -U $DbUser -d $TargetDb --no-owner --no-privileges --exit-on-error $tempSchemaDump
+
+    # Every new PostgreSQL database already owns a public schema. The source
+    # schema-only archive also contains CREATE SCHEMA public, which would fail
+    # immediately on restore. citext/pgcrypto were deliberately created above
+    # as reviewed shared dependencies, so suppress their duplicate CREATE
+    # EXTENSION archive entries as well. Keep all other public objects.
+    $restoreList = @(& $pgRestore --list $tempSchemaDump)
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect central schema archive." }
+    $filteredRestoreList = @(
+        $restoreList | Where-Object {
+            $_ -notmatch '\sSCHEMA\s+-\s+public(\s|$)' -and
+            $_ -notmatch '\sEXTENSION\s+-\s+(citext|pgcrypto)(\s|$)'
+        }
+    )
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($tempSchemaList, $filteredRestoreList, $utf8NoBom)
+
+    Write-Host "Restoring public objects into the existing target public schema..." -ForegroundColor DarkCyan
+    & $pgRestore -h $HostName -p $Port -U $DbUser -d $TargetDb --no-owner --no-privileges --exit-on-error --use-list $tempSchemaList $tempSchemaDump
     if ($LASTEXITCODE -ne 0) { throw "Central schema-only pg_restore failed." }
 
     Write-Host "[6/7] Copy non-personal authorization catalog only..." -ForegroundColor Cyan
@@ -115,5 +134,6 @@ try {
 }
 finally {
     if (Test-Path $tempSchemaDump) { Remove-Item $tempSchemaDump -Force }
+    if (Test-Path $tempSchemaList) { Remove-Item $tempSchemaList -Force }
     if (Test-Path $tempCatalogDump) { Remove-Item $tempCatalogDump -Force }
 }
