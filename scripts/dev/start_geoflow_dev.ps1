@@ -45,7 +45,6 @@ if ($QgisRoot) {
     & $qgisScript
 }
 
-# Hard fail before Django starts if anything drifted away from the isolated DBs.
 if ($env:GEOFLOW_DEV_RUNTIME_STRICT -ne "1") {
     throw "Safety stop: strict GeoFlow development runtime guard is not enabled."
 }
@@ -59,6 +58,9 @@ if ($env:ENABLE_TENANT_PROVISIONING -ne "0") {
     throw "Safety stop: tenant provisioning must remain disabled in GIS development runtime."
 }
 
+# Safe development-only login tracing. No password/hash values are logged.
+$env:GEOFLOW_DEV_AUTH_DIAGNOSTICS = "1"
+
 Write-Host "[3/4] Run read-only development runtime preflight..." -ForegroundColor Cyan
 & (Join-Path $repoRoot "scripts\dev\check_geoflow_dev_runtime.ps1") `
     -PythonExe $venvPython `
@@ -67,6 +69,7 @@ Write-Host "[3/4] Run read-only development runtime preflight..." -ForegroundCol
 
 Write-Host "[4/4] Start isolated GeoFlow development server..." -ForegroundColor Green
 Write-Host "STRICT DEV DB GUARD: enabled" -ForegroundColor Green
+Write-Host "DEV AUTH DIAGNOSTICS: enabled (stage/length only; no secrets)" -ForegroundColor Green
 Write-Host "Central DB: $CentralDb" -ForegroundColor Green
 Write-Host "Tenant DB:  $TenantDb" -ForegroundColor Green
 Write-Host "Login:      http://$Listen/login/" -ForegroundColor Green
