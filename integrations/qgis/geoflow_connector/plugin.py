@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import os
 import re
+import sqlite3
 
-from qgis.PyQt.QtCore import QStandardPaths
+from qgis.PyQt.QtCore import QStandardPaths, QTimer
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsDefaultValue, QgsProject, QgsRectangle, QgsVectorLayer, Qgis
 
@@ -18,6 +21,14 @@ _DOMAIN_LABELS = {
     "SWL": "하수",
     "ROAD": "도로",
 }
+_SYSTEM_FIELDS = {
+    "id",
+    "project_id",
+    "created_at",
+    "updated_at",
+    "created_by",
+    "updated_by",
+}
 
 
 class GeoFlowConnectorPlugin:
@@ -26,6 +37,13 @@ class GeoFlowConnectorPlugin:
         self.action = None
         self.dialog = None
         self.active_context = None
+        self.active_client = None
+        self._sync_in_progress = False
+        self._suppress_auto_sync = False
+        self._auto_sync_timer = QTimer()
+        self._auto_sync_timer.setSingleShot(True)
+        self._auto_sync_timer.setInterval(700)
+        self._auto_sync_timer.timeout.connect(self._run_auto_sync)
 
     def initGui(self):
         self.action = QAction("GeoFlow Connector", self.iface.mainWindow())
@@ -34,6 +52,7 @@ class GeoFlowConnectorPlugin:
         self.iface.addToolBarIcon(self.action)
 
     def unload(self):
+        self._auto_sync_timer.stop()
         if self.action is not None:
             self.iface.removePluginMenu("GeoFlow", self.action)
             self.iface.removeToolBarIcon(self.action)
@@ -73,6 +92,7 @@ class GeoFlowConnectorPlugin:
         qgs_project.writeEntry("GeoFlow", "manifest_version", str(manifest.get("manifest_version") or ""))
         qgs_project.writeEntry("GeoFlow", "package_path", package_path)
         qgs_project.writeEntry("GeoFlow", "sync_supported", "1" if sync_supported else "0")
+        qgs_project.writeEntry("GeoFlow", "sync_strategy", "last_successful_server_write_wins")
 
     @staticmethod
     def _field_index(layer: QgsVectorLayer, name: str) -> int:
@@ -100,9 +120,6 @@ class GeoFlowConnectorPlugin:
             escaped = project_id.replace("'", "''")
             layer.setDefaultValueDefinition(project_idx, QgsDefaultValue(f"'{escaped}'"))
 
-        # created_at/updated_at stay server-authoritative. The local package may
-        # display baseline values, but GeoFlow Server sets audit timestamps when
-        # synchronized rather than trusting desktop clock/default expressions.
         try:
             config = layer.editFormConfig()
             if hasattr(config, "setReadOnly"):
@@ -122,6 +139,156 @@ class GeoFlowConnectorPlugin:
         if key not in groups:
             groups[key] = parent_group.addGroup(_DOMAIN_LABELS.get(key, key or "기타"))
         return groups[key]
+
+    @staticmethod
+    def _extract_gpkg_wkb(blob):
+        if blob is None:
+            return None
+        raw = bytes(blob)
+        if len(raw) < 8 or raw[:2] != b"GP":
+            raise RuntimeError("GeoPackage geometry blob이 올바르지 않습니다.")
+        flags = raw[3]
+        envelope_code = (flags >> 1) & 0x07
+        envelope_sizes = {0: 0, 1: 32, 2: 48, 3: 48, 4: 64}
+        if envelope_code not in envelope_sizes:
+            raise RuntimeError("지원하지 않는 GeoPackage geometry envelope입니다.")
+        offset = 8 + envelope_sizes[envelope_code]
+        return raw[offset:] if len(raw) > offset else None
+
+    @staticmethod
+    def _json_safe(value):
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            return {"__bytes__": bytes(value).hex()}
+        if isinstance(value, dict):
+            return {
+                str(key): GeoFlowConnectorPlugin._json_safe(item)
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            }
+        if isinstance(value, (list, tuple)):
+            return [GeoFlowConnectorPlugin._json_safe(item) for item in value]
+        return str(value)
+
+    @staticmethod
+    def _content_hash(attributes: dict, geometry_wkb, editable_names) -> str:
+        names = sorted({str(name) for name in editable_names})
+        payload = {
+            "attributes": {
+                name: GeoFlowConnectorPlugin._json_safe(attributes.get(name))
+                for name in names
+            },
+            "geometry_wkb": bytes(geometry_wkb).hex() if geometry_wkb is not None else None,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _refresh_local_baseline(package_path: str, manifest: dict) -> None:
+        conn = sqlite3.connect(package_path, timeout=30)
+        try:
+            conn.execute("PRAGMA busy_timeout=30000")
+            columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info('_geoflow_baseline')").fetchall()
+            }
+            if "content_hash" not in columns:
+                raise RuntimeError("GeoFlow package baseline hash가 없습니다. 프로젝트를 다시 여세요.")
+
+            for layer_def in manifest.get("layers") or []:
+                physical_name = str(layer_def.get("physical_name") or "")
+                if not physical_name:
+                    continue
+                fields = layer_def.get("fields") or []
+                field_names = [str(row.get("name") or "") for row in fields if row.get("name")]
+                editable_names = [
+                    str(row.get("name"))
+                    for row in fields
+                    if row.get("name")
+                    and bool(row.get("editable", True))
+                    and str(row.get("name")) not in _SYSTEM_FIELDS
+                ]
+                quoted_fields = ", ".join(f'"{name}"' for name in field_names)
+                rows = conn.execute(
+                    f'SELECT fid, {quoted_fields}, "geom" FROM "{physical_name}"'
+                ).fetchall()
+                conn.execute(
+                    "DELETE FROM _geoflow_baseline WHERE layer_name=?",
+                    (physical_name,),
+                )
+                baseline_rows = []
+                for row in rows:
+                    fid = int(row[0])
+                    attrs = dict(zip(field_names, row[1:-1]))
+                    object_id = str(attrs.get("id") or "")
+                    if not object_id:
+                        continue
+                    wkb = GeoFlowConnectorPlugin._extract_gpkg_wkb(row[-1])
+                    digest = GeoFlowConnectorPlugin._content_hash(
+                        attrs,
+                        wkb,
+                        editable_names,
+                    )
+                    baseline_rows.append(
+                        (physical_name, object_id, fid, None, digest)
+                    )
+                if baseline_rows:
+                    conn.executemany(
+                        """
+                        INSERT INTO _geoflow_baseline(
+                            layer_name, object_id, local_fid, source_updated_at, content_hash
+                        ) VALUES (?,?,?,?,?)
+                        """,
+                        baseline_rows,
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _managed_layers(self):
+        context = self.active_context or {}
+        project = QgsProject.instance()
+        result = []
+        for layer_id in context.get("layer_ids") or []:
+            layer = project.mapLayer(layer_id)
+            if layer is not None:
+                result.append(layer)
+        return result
+
+    def _schedule_auto_sync(self, *args):
+        if self._sync_in_progress or self._suppress_auto_sync:
+            return
+        context = self.active_context or {}
+        if not context.get("sync_supported") or self.active_client is None:
+            return
+        self._auto_sync_timer.start()
+
+    def _run_auto_sync(self):
+        if self._sync_in_progress or self.active_client is None:
+            return
+        for layer in self._managed_layers():
+            try:
+                if layer.isModified():
+                    # Another managed layer still has unsaved edits. Wait for its
+                    # save event so one consistent package is sent.
+                    self._auto_sync_timer.start()
+                    return
+            except Exception:
+                pass
+        try:
+            self._sync_active_project(self.active_client, automatic=True)
+        except Exception as exc:
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 자동 동기화 실패",
+                str(exc),
+                level=Qgis.Warning,
+                duration=10,
+            )
 
     def _materialize_project(self, manifest: dict, client) -> dict:
         transport = manifest.get("transport") or {}
@@ -199,6 +366,12 @@ class GeoFlowConnectorPlugin:
             managed_layer_ids.append(layer.id())
             loaded += 1
 
+            if sync_supported and hasattr(layer, "afterCommitChanges"):
+                try:
+                    layer.afterCommitChanges.connect(self._schedule_auto_sync)
+                except Exception:
+                    pass
+
             if layer.featureCount() > 0:
                 extent = layer.extent()
                 if not extent.isEmpty():
@@ -222,14 +395,16 @@ class GeoFlowConnectorPlugin:
             "sync_url": str(transport.get("sync_url") or ""),
             "sync_supported": sync_supported,
             "layer_ids": managed_layer_ids,
+            "manifest": manifest,
         }
+        self.active_client = client
 
         if combined_extent is not None and not combined_extent.isEmpty():
             self.iface.mapCanvas().setExtent(combined_extent)
             self.iface.mapCanvas().refresh()
 
         mode_label = "로컬 편집 가능" if can_write else "읽기 전용"
-        sync_label = "서버 동기화 가능" if sync_supported else "서버 동기화 비활성"
+        sync_label = "저장 시 자동 동기화" if sync_supported else "서버 동기화 비활성"
         size_mb = len(raw) / (1024 * 1024)
         self.iface.messageBar().pushMessage(
             "GeoFlow",
@@ -248,11 +423,7 @@ class GeoFlowConnectorPlugin:
         if not package_path:
             raise RuntimeError("동기화할 GeoFlow 프로젝트가 열려 있지 않습니다.")
 
-        qgs_project = QgsProject.instance()
-        for layer_id in context.get("layer_ids") or []:
-            layer = qgs_project.mapLayer(layer_id)
-            if layer is None:
-                continue
+        for layer in self._managed_layers():
             if layer.isEditable():
                 if not layer.commitChanges():
                     errors = "; ".join(layer.commitErrors()) if hasattr(layer, "commitErrors") else ""
@@ -260,29 +431,37 @@ class GeoFlowConnectorPlugin:
                         f"{layer.name()}: 로컬 편집 저장에 실패했습니다.{(' ' + errors) if errors else ''}"
                     )
 
-    def _sync_active_project(self, client) -> dict:
+    def _sync_active_project(self, client, automatic: bool = False) -> dict:
         context = self.active_context or {}
         if not context.get("sync_supported"):
             raise RuntimeError("현재 프로젝트는 GeoFlow 서버 동기화가 활성화되어 있지 않습니다.")
         package_path = str(context.get("package_path") or "")
         sync_url = str(context.get("sync_url") or "")
-        project_id = str(context.get("project_id") or "")
-        if not package_path or not sync_url or not project_id:
+        if not package_path or not sync_url:
             raise RuntimeError("GeoFlow 동기화 컨텍스트가 불완전합니다.")
+        if self._sync_in_progress:
+            return {"ok": True, "created": 0, "updated": 0, "deleted": 0, "total": 0}
 
-        self._commit_active_edits()
-        result = client.post_file_json(sync_url, package_path, field_name="package")
+        self._sync_in_progress = True
+        self._suppress_auto_sync = True
+        try:
+            if not automatic:
+                self._commit_active_edits()
+            result = client.post_file_json(sync_url, package_path, field_name="package")
+            self._refresh_local_baseline(package_path, context.get("manifest") or {})
+        finally:
+            self._suppress_auto_sync = False
+            self._sync_in_progress = False
 
-        fresh_manifest = client.get_json(f"/gis/projects/{project_id}/api/qgis-manifest/")
-        self._materialize_project(fresh_manifest, client)
-
-        self.iface.messageBar().pushMessage(
-            "GeoFlow",
-            (
-                f"동기화 완료 · 신규 {int(result.get('created') or 0)} · "
-                f"수정 {int(result.get('updated') or 0)} · 삭제 {int(result.get('deleted') or 0)}"
-            ),
-            level=Qgis.Success,
-            duration=8,
-        )
+        created = int(result.get("created") or 0)
+        updated = int(result.get("updated") or 0)
+        deleted = int(result.get("deleted") or 0)
+        if created or updated or deleted:
+            prefix = "자동 동기화 완료" if automatic else "동기화 완료"
+            self.iface.messageBar().pushMessage(
+                "GeoFlow",
+                f"{prefix} · 신규 {created} · 수정 {updated} · 삭제 {deleted}",
+                level=Qgis.Success,
+                duration=6,
+            )
         return result
