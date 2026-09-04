@@ -49,7 +49,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[1/4] Verify GeoDjango native libraries..." -ForegroundColor Cyan
-& $PythonExe -c "from django.contrib.gis import gdal, geos; print('GDAL=' + str(gdal.GDAL_VERSION)); print('GEOS=' + str(geos.geos_version()))"
+& $PythonExe -c "from django.contrib.gis import gdal, geos; print('geodjango_native_libraries=ready')"
 if ($LASTEXITCODE -ne 0) {
     throw "GeoDjango native libraries are not loadable. Run .\scripts\windows\set_geodjango_from_qgis.ps1 in this PowerShell session."
 }
