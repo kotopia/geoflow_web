@@ -7,10 +7,14 @@
 
 BEGIN;
 
--- This foundation is intended for a GeoFlow tenant-shaped development database.
--- Fail before making changes when the existing project schema is not present.
+-- This foundation is intended for the tenant-shaped geoflow_dev development database.
+-- ctr/hr/prj/ops are cloned from a stable tenant schema definition before this file runs.
+-- Fail before making changes when the target is not clearly a dev/test DB or prj.projects is missing.
 DO $$
 BEGIN
+    IF current_database() NOT ILIKE '%dev%' AND current_database() NOT ILIKE '%test%' THEN
+        RAISE EXCEPTION 'Safety stop: GIS foundation may run only in a dev/test database. Current DB: %', current_database();
+    END IF;
     IF to_regclass('prj.projects') IS NULL THEN
         RAISE EXCEPTION 'GeoFlow tenant base schema is missing: prj.projects not found. Run schema-only tenant bootstrap first.';
     END IF;
