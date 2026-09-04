@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-import json
+import datetime as dt
 import os
 import re
 
-from qgis.PyQt.QtCore import QStandardPaths, QVariant
+from qgis.PyQt.QtCore import QStandardPaths
 from qgis.PyQt.QtWidgets import QAction
-from qgis.core import QgsField, QgsProject, QgsRectangle, QgsVectorLayer, Qgis
+from qgis.core import QgsDefaultValue, QgsProject, QgsRectangle, QgsVectorLayer, Qgis
 
 from .dialog import GeoFlowConnectorDialog
 
 
 _SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_DOMAIN_LABELS = {
+    "COMMON": "공통",
+    "WTL": "상수",
+    "SWL": "하수",
+    "ROAD": "도로",
+}
 
 
 class GeoFlowConnectorPlugin:
@@ -49,54 +55,106 @@ class GeoFlowConnectorPlugin:
         return cleaned.strip("._") or "layer"
 
     @staticmethod
-    def _memory_layer(layer_def: dict) -> QgsVectorLayer:
-        geometry = str(layer_def.get("geometry_kind") or "").upper()
-        uri_geometry = {
-            "POINT": "Point",
-            "LINE": "LineString",
-            "POLYGON": "Polygon",
-        }.get(geometry, "GeometryCollection")
-        layer = QgsVectorLayer(
-            f"{uri_geometry}?crs=EPSG:4326",
-            layer_def.get("label") or layer_def.get("standard_name") or "GeoFlow",
-            "memory",
-        )
-        provider = layer.dataProvider()
-        provider.addAttributes(
-            [
-                QgsField("id", QVariant.String),
-                QgsField("layer", QVariant.String),
-            ]
-        )
-        layer.updateFields()
-        return layer
-
-    @staticmethod
-    def _write_project_metadata(qgs_project: QgsProject, manifest: dict, project_id: str, project_code: str):
-        """Persist lightweight GeoFlow project metadata using QgsProject's supported API."""
+    def _write_project_metadata(qgs_project: QgsProject, manifest: dict, project_id: str, project_code: str, package_path: str):
         profile = manifest.get("profile") or {}
         qgs_project.writeEntry("GeoFlow", "managed", "1")
         qgs_project.writeEntry("GeoFlow", "project_id", project_id)
         qgs_project.writeEntry("GeoFlow", "project_code", project_code)
         qgs_project.writeEntry("GeoFlow", "profile_code", str(profile.get("code") or ""))
-        qgs_project.writeEntry(
-            "GeoFlow",
-            "manifest_version",
-            str(manifest.get("manifest_version") or ""),
-        )
+        qgs_project.writeEntry("GeoFlow", "manifest_version", str(manifest.get("manifest_version") or ""))
+        qgs_project.writeEntry("GeoFlow", "package_path", package_path)
+        qgs_project.writeEntry("GeoFlow", "sync_supported", "0")
+
+    @staticmethod
+    def _field_index(layer: QgsVectorLayer, name: str) -> int:
+        try:
+            return int(layer.fields().indexOf(name))
+        except Exception:
+            return -1
+
+    @staticmethod
+    def _configure_layer_fields(layer: QgsVectorLayer, layer_def: dict, project_id: str, can_write: bool) -> None:
+        field_defs = {str(row.get("name") or ""): row for row in (layer_def.get("fields") or [])}
+
+        if hasattr(layer, "setReadOnly"):
+            layer.setReadOnly(not can_write)
+
+        if not can_write:
+            return
+
+        # New local features receive collision-safe GeoFlow UUIDs and are locked
+        # to the selected project. The later sync API still revalidates both.
+        id_idx = GeoFlowConnectorPlugin._field_index(layer, "id")
+        if id_idx >= 0 and hasattr(layer, "setDefaultValueDefinition"):
+            layer.setDefaultValueDefinition(id_idx, QgsDefaultValue("uuid()"))
+
+        project_idx = GeoFlowConnectorPlugin._field_index(layer, "project_id")
+        if project_idx >= 0 and hasattr(layer, "setDefaultValueDefinition"):
+            escaped = project_id.replace("'", "''")
+            layer.setDefaultValueDefinition(project_idx, QgsDefaultValue(f"'{escaped}'"))
+
+        created_idx = GeoFlowConnectorPlugin._field_index(layer, "created_at")
+        if created_idx >= 0 and hasattr(layer, "setDefaultValueDefinition"):
+            layer.setDefaultValueDefinition(created_idx, QgsDefaultValue("now()"))
+
+        updated_idx = GeoFlowConnectorPlugin._field_index(layer, "updated_at")
+        if updated_idx >= 0 and hasattr(layer, "setDefaultValueDefinition"):
+            layer.setDefaultValueDefinition(updated_idx, QgsDefaultValue("now()", True))
+
+        # QGIS 3.x exposes per-field read-only form configuration. Keep this
+        # defensive so a minor API variation never blocks package loading.
+        try:
+            config = layer.editFormConfig()
+            if hasattr(config, "setReadOnly"):
+                for name, meta in field_defs.items():
+                    idx = GeoFlowConnectorPlugin._field_index(layer, name)
+                    if idx < 0:
+                        continue
+                    if name in {"id", "project_id", "created_at", "updated_at"} or not bool(meta.get("editable", True)):
+                        config.setReadOnly(idx, True)
+                layer.setEditFormConfig(config)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _domain_group(parent_group, domain: str, groups: dict):
+        key = str(domain or "OTHER").upper()
+        if key not in groups:
+            groups[key] = parent_group.addGroup(_DOMAIN_LABELS.get(key, key or "기타"))
+        return groups[key]
 
     def _materialize_project(self, manifest: dict, client) -> int:
         transport = manifest.get("transport") or {}
-        if transport.get("mode") != "server_geojson_snapshot":
+        if transport.get("mode") != "server_gpkg_editable_snapshot":
             raise RuntimeError("지원하지 않는 GeoFlow QGIS transport입니다.")
         if transport.get("direct_postgis_credentials_exposed"):
             raise RuntimeError("안전하지 않은 DB credential manifest를 거부했습니다.")
+
+        package_url = str(transport.get("package_url") or "")
+        if not package_url:
+            raise RuntimeError("GeoFlow GeoPackage URL이 없습니다.")
 
         project_def = manifest.get("project") or {}
         project_id = str(project_def.get("id") or "")
         project_code = str(project_def.get("code") or project_id[:8] or "PROJECT")
         if not project_id:
             raise RuntimeError("GeoFlow project id가 없습니다.")
+
+        can_write = bool(transport.get("local_editing_supported") and transport.get("write_authorized"))
+
+        # Never overwrite an earlier locally edited package before sync exists.
+        app_root = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        project_dir = os.path.join(app_root, "GeoFlowConnector", "projects", self._safe_name(project_id))
+        os.makedirs(project_dir, exist_ok=True)
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        package_name = f"geoflow-{self._safe_name(project_code)}-{stamp}.gpkg"
+        package_path = os.path.join(project_dir, package_name)
+
+        raw = client.get_bytes(package_url)
+        if not raw.startswith(b"SQLite format 3\x00"):
+            raise RuntimeError("GeoFlow Server가 유효한 GeoPackage를 반환하지 않았습니다.")
+        with open(package_path, "wb") as handle:
+            handle.write(raw)
 
         qgs_project = QgsProject.instance()
         root = qgs_project.layerTreeRoot()
@@ -108,74 +166,38 @@ class GeoFlowConnectorPlugin:
                 qgs_project.removeMapLayers(old_layer_ids)
             root.removeChildNode(old_group)
         group = root.addGroup(group_name)
-
-        temp_root = QStandardPaths.writableLocation(QStandardPaths.TempLocation)
-        project_dir = os.path.join(temp_root, "GeoFlow", self._safe_name(project_id))
-        os.makedirs(project_dir, exist_ok=True)
+        domain_groups = {}
 
         loaded = 0
-        fetched = 0
-        skipped_empty = 0
         combined_extent = None
         for layer_def in manifest.get("layers") or []:
-            standard_name = str(layer_def.get("standard_name") or "")
-            snapshot_url = layer_def.get("snapshot_url")
-            if not standard_name or not snapshot_url:
+            physical_name = str(layer_def.get("physical_name") or "")
+            standard_name = str(layer_def.get("standard_name") or physical_name.upper())
+            if not physical_name:
                 continue
 
-            row_count = layer_def.get("row_count")
-            if row_count == 0 and not layer_def.get("snapshot_required", False):
-                features = []
-                layer = self._memory_layer(layer_def)
-                skipped_empty += 1
-            else:
-                raw = client.get_bytes(snapshot_url)
-                fetched += 1
-                try:
-                    payload = json.loads(raw.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    raise RuntimeError(f"{standard_name}: GeoJSON 응답을 해석할 수 없습니다.") from None
-
-                meta = payload.get("meta") if isinstance(payload, dict) else None
-                if isinstance(meta, dict) and meta.get("truncated"):
-                    raise RuntimeError(
-                        f"{standard_name}: 서버 snapshot 한도({meta.get('limit')})를 초과했습니다. "
-                        "불완전한 QGIS 프로젝트를 만들지 않습니다."
-                    )
-                features = payload.get("features") if isinstance(payload, dict) else None
-                if not isinstance(features, list):
-                    raise RuntimeError(f"{standard_name}: FeatureCollection이 아닙니다.")
-
-                if features:
-                    file_name = self._safe_name(standard_name.lower()) + ".geojson"
-                    file_path = os.path.join(project_dir, file_name)
-                    with open(file_path, "wb") as handle:
-                        handle.write(raw)
-                    layer = QgsVectorLayer(
-                        file_path,
-                        layer_def.get("label") or standard_name,
-                        "ogr",
-                    )
-                else:
-                    layer = self._memory_layer(layer_def)
-
+            layer = QgsVectorLayer(
+                f"{package_path}|layername={physical_name}",
+                layer_def.get("label") or standard_name,
+                "ogr",
+            )
             if not layer.isValid():
-                raise RuntimeError(f"{standard_name}: QGIS 레이어 생성에 실패했습니다.")
+                raise RuntimeError(f"{standard_name}: GeoPackage 레이어 생성에 실패했습니다.")
 
-            if hasattr(layer, "setReadOnly"):
-                layer.setReadOnly(True)
+            self._configure_layer_fields(layer, layer_def, project_id, can_write)
             layer.setCustomProperty("geoflow/managed", True)
             layer.setCustomProperty("geoflow/project_id", project_id)
             layer.setCustomProperty("geoflow/standard_name", standard_name)
-            layer.setCustomProperty("geoflow/snapshot_url", snapshot_url)
-            layer.setCustomProperty("geoflow/snapshot_editable", False)
-            layer.setCustomProperty("geoflow/server_row_count", row_count if row_count is not None else -1)
+            layer.setCustomProperty("geoflow/package_path", package_path)
+            layer.setCustomProperty("geoflow/local_editing", can_write)
+            layer.setCustomProperty("geoflow/sync_supported", False)
+            layer.setCustomProperty("geoflow/server_row_count", layer_def.get("row_count", -1))
 
             qgs_project.addMapLayer(layer, False)
-            group.addLayer(layer)
+            self._domain_group(group, layer_def.get("domain"), domain_groups).addLayer(layer)
             loaded += 1
 
-            if features:
+            if layer.featureCount() > 0:
                 extent = layer.extent()
                 if not extent.isEmpty():
                     if combined_extent is None:
@@ -183,19 +205,18 @@ class GeoFlowConnectorPlugin:
                     else:
                         combined_extent.combineExtentWith(extent)
 
-        self._write_project_metadata(qgs_project, manifest, project_id, project_code)
+        self._write_project_metadata(qgs_project, manifest, project_id, project_code, package_path)
 
         if combined_extent is not None and not combined_extent.isEmpty():
             self.iface.mapCanvas().setExtent(combined_extent)
             self.iface.mapCanvas().refresh()
 
+        mode_label = "로컬 편집 가능" if can_write else "읽기 전용"
+        size_mb = len(raw) / (1024 * 1024)
         self.iface.messageBar().pushMessage(
             "GeoFlow",
-            (
-                f"{project_code}: QGIS snapshot 레이어 {loaded}개 구성 · "
-                f"다운로드 {fetched}개 · 빈 레이어 요청 생략 {skipped_empty}개"
-            ),
+            f"{project_code}: GeoPackage 1회 다운로드 · 레이어 {loaded}개 · {mode_label} · {size_mb:.2f} MB",
             level=Qgis.Success,
-            duration=7,
+            duration=8,
         )
         return loaded
