@@ -6,7 +6,7 @@
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin="">
-<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260904-1">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260904-2">
 {% endblock %}
 
 {% block content %}
@@ -18,31 +18,51 @@
   </div>
   <div class="d-flex gap-2">
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
-    <button class="btn btn-outline-secondary" type="button" disabled>QGIS 프로젝트</button>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:project_layer_plan_api' project.id %}" target="_blank" rel="noopener">QGIS Layer Plan</a>
     <button class="btn btn-outline-secondary" type="button" disabled>QField 패키지</button>
   </div>
 </div>
 
 <div class="alert alert-info">
-  실제 <code>gis.*</code> 물리 테이블의 프로젝트 공간데이터를 읽기 전용으로 표시합니다. 지도 이동 시 현재 화면 영역(BBOX)의 객체만 다시 조회합니다.
+  프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
+  같은 Layer Plan을 이후 QGIS Connector와 QField 패키지 생성에서 그대로 사용합니다.
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-12 col-md-4">
+  <div class="col-12 col-md-3">
     <div class="card h-100"><div class="card-body">
-      <div class="text-muted small">사용 가능 레이어</div>
-      <div class="display-6 fw-semibold mt-1">{{ physical_ready_count }} / {{ feature_count }}</div>
+      <div class="text-muted small">GIS Profile</div>
+      <div class="fw-semibold mt-1">{{ layer_plan.profile.name|default:"미지정" }}</div>
+      <div class="text-muted small">{{ layer_plan.profile.code|default:"-" }}</div>
     </div></div>
   </div>
-  <div class="col-12 col-md-4">
+  <div class="col-12 col-md-3">
     <div class="card h-100"><div class="card-body">
-      <div class="text-muted small">이 프로젝트 GIS 객체</div>
+      <div class="text-muted small">활성 Capability</div>
+      <div class="mt-2 d-flex flex-wrap gap-1">
+        {% for capability in layer_plan.capabilities %}
+          <span class="badge bg-primary">{{ capability.name }}</span>
+        {% empty %}
+          <span class="text-muted">없음</span>
+        {% endfor %}
+      </div>
+    </div></div>
+  </div>
+  <div class="col-12 col-md-2">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">Layer Plan</div>
+      <div class="display-6 fw-semibold mt-1">{{ feature_count }}</div>
+    </div></div>
+  </div>
+  <div class="col-12 col-md-2">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">GIS 객체</div>
       <div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div>
     </div></div>
   </div>
-  <div class="col-12 col-md-4">
+  <div class="col-12 col-md-2">
     <div class="card h-100"><div class="card-body">
-      <div class="text-muted small">현재 지도 표시 객체</div>
+      <div class="text-muted small">현재 표시</div>
       <div class="display-6 fw-semibold mt-1" id="gisMapVisibleCount">0</div>
     </div></div>
   </div>
@@ -65,20 +85,20 @@
   </div>
   <div class="col-12 col-xl-3">
     <div class="card h-100">
-      <div class="card-header"><h5 class="card-title mb-0">공통 현장데이터</h5></div>
+      <div class="card-header"><h5 class="card-title mb-0">프로젝트 GIS 구성</h5></div>
       <div class="card-body">
-        <div class="border rounded p-3 mb-3">
-          <div class="text-muted small">gis.survey</div>
-          <strong>공통 측량</strong>
-          <p class="text-muted small mb-0 mt-1">상수·하수·향후 전기/통신/가스/열배관 공통. 시설물 매칭은 survey_link의 시설물 UUID로 확정.</p>
-        </div>
-        <div class="border rounded p-3 mb-3">
-          <div class="text-muted small">gis.doro</div>
-          <strong>도로 기준</strong>
-          <p class="text-muted small mb-0 mt-1">지하시설물의 도로상 위치를 판단하기 위한 공통 기준 공간데이터.</p>
-        </div>
+        <div class="text-muted small mb-2">업무범위에서 계산된 Capability</div>
+        {% for capability in layer_plan.capabilities %}
+          <div class="border rounded p-2 mb-2">
+            <strong>{{ capability.name }}</strong>
+            <div class="text-muted small">{{ capability.code }}</div>
+          </div>
+        {% empty %}
+          <div class="text-muted">GIS 업무범위가 없습니다.</div>
+        {% endfor %}
+        <hr>
         <div class="text-muted small">
-          지도 레이어 목록에서 각 레이어를 켜고 끌 수 있습니다. 객체를 클릭하면 GeoFlow UUID와 주요 속성을 확인할 수 있습니다.
+          <code>QGIS Layer Plan</code>은 WebGIS와 동일한 서버 계산 결과입니다. QGIS/QField가 별도의 레이어 규칙을 가지지 않습니다.
         </div>
       </div>
     </div>
@@ -87,8 +107,8 @@
 
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">프로젝트 레이어</h5>
-    <span class="text-muted small">{{ feature_count }}개 Registry</span>
+    <h5 class="card-title mb-0">프로젝트 Layer Plan</h5>
+    <span class="text-muted small">업무범위/Profile 적용 {{ feature_count }}개</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
@@ -123,5 +143,5 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""></script>
-<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260904-1"></script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260904-2"></script>
 {% endblock %}
