@@ -58,59 +58,25 @@ Write-Host "[2/4] Django configuration check..." -ForegroundColor Cyan
 & $PythonExe manage.py check
 if ($LASTEXITCODE -ne 0) { throw "python manage.py check failed." }
 
-Write-Host "[3/4] Verify physical database routing..." -ForegroundColor Cyan
-$routeCode = @"
-from django.db import connections
-central = connections['default']
-tenant = connections['$TenantAlias']
-with central.cursor() as c:
-    c.execute('select current_database()')
-    central_db = c.fetchone()[0]
-with tenant.cursor() as c:
-    c.execute('select current_database(), PostGIS_Version()')
-    tenant_db, postgis = c.fetchone()
-print(f'central_db={central_db}')
-print(f'tenant_alias=$TenantAlias tenant_db={tenant_db}')
-print(f'postgis={postgis}')
-if central_db != '$ExpectedCentralDb':
-    raise SystemExit(f'central DB mismatch: {central_db}')
-if tenant_db != '$ExpectedTenantDb':
-    raise SystemExit(f'tenant DB mismatch: {tenant_db}')
-"@
-& $PythonExe manage.py shell -c $routeCode
-if ($LASTEXITCODE -ne 0) { throw "Runtime database routing verification failed." }
+$verifier = Join-Path $repoRoot "scripts\dev\check_geoflow_dev_runtime.py"
+if (-not (Test-Path $verifier)) {
+    throw "Runtime verifier not found: $verifier"
+}
 
-Write-Host "[4/4] Verify GIS metadata, synthetic project, and object counts..." -ForegroundColor Green
-$gisCode = @"
-from django.db import connections
-conn = connections['$TenantAlias']
-with conn.cursor() as c:
-    c.execute("select count(*) from gis.meta_feature_type where active")
-    feature_types = c.fetchone()[0]
-    c.execute("select count(*) from gis.meta_field_def")
-    field_defs = c.fetchone()[0]
-    c.execute("select id::text, code, name from prj.projects where code='GIS-DEV-001' order by updated_at desc nulls last limit 1")
-    project = c.fetchone()
-    if not project:
-        raise SystemExit('synthetic GIS project not found')
-    project_id = project[0]
-    c.execute("select count(*) from gis.wtl_pipe_lm where project_id=%s", [project_id])
-    wtl_pipe = c.fetchone()[0]
-    c.execute("select count(*) from gis.wtl_valv_ps where project_id=%s", [project_id])
-    wtl_valv = c.fetchone()[0]
-    c.execute("select count(*) from gis.swl_pipe_lm where project_id=%s", [project_id])
-    swl_pipe = c.fetchone()[0]
-    c.execute("select count(*) from gis.survey where project_id=%s", [project_id])
-    survey = c.fetchone()[0]
-print(f'feature_types={feature_types} field_defs={field_defs}')
-print(f'project_id={project_id} code={project[1]} name={project[2]}')
-print(f'counts survey={survey} wtl_pipe_lm={wtl_pipe} wtl_valv_ps={wtl_valv} swl_pipe_lm={swl_pipe}')
-if feature_types != 19:
-    raise SystemExit(f'expected 19 feature types, got {feature_types}')
-if field_defs <= 0:
-    raise SystemExit('field metadata is empty')
-"@
-& $PythonExe manage.py shell -c $gisCode
+Write-Host "[3/4] Verify physical DB routing and central login path..." -ForegroundColor Cyan
+& $PythonExe $verifier `
+    --tenant-alias $TenantAlias `
+    --expected-central-db $ExpectedCentralDb `
+    --expected-tenant-db $ExpectedTenantDb `
+    --mode routing
+if ($LASTEXITCODE -ne 0) { throw "Runtime database/login routing verification failed." }
+
+Write-Host "[4/4] Verify GIS metadata, UUID identity, and object counts..." -ForegroundColor Green
+& $PythonExe $verifier `
+    --tenant-alias $TenantAlias `
+    --expected-central-db $ExpectedCentralDb `
+    --expected-tenant-db $ExpectedTenantDb `
+    --mode gis
 if ($LASTEXITCODE -ne 0) { throw "GIS runtime verification failed." }
 
 Write-Host "GeoFlow development runtime preflight completed successfully." -ForegroundColor Green
