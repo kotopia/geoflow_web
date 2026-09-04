@@ -16,6 +16,7 @@ from django.db import connections
 
 
 MAX_ROWS_PER_LAYER = 100_000
+GPKG_APPLICATION_ID = 0x47504B47
 _SAFE_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
@@ -94,7 +95,7 @@ def _geometry_type_name(kind: str) -> str:
 
 def _init_gpkg(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA application_id=1196437808")
+    conn.execute(f"PRAGMA application_id={GPKG_APPLICATION_ID}")
     conn.execute("PRAGMA user_version=10300")
     conn.executescript(
         """
