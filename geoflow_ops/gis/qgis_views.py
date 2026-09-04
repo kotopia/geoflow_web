@@ -4,11 +4,11 @@ import re
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import connections
+from django.db import DatabaseError, connections
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.models import Project
@@ -18,9 +18,11 @@ from geoflow_ops.services.project_access import project_access_policy
 from .gpkg import build_project_geopackage, project_geopackage_layer_manifest
 from .layer_plan import gis_enabled_project_ids, project_layer_plan
 from .qgis_manifest import build_qgis_manifest
+from .qgis_sync import SyncConflict, SyncRejected, sync_project_geopackage, sync_runtime_enabled
 
 
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_MAX_SYNC_PACKAGE_BYTES = 250 * 1024 * 1024
 
 
 def _require_qgis_context(request):
@@ -139,6 +141,10 @@ def qgis_project_manifest_api(request, project_id):
         "gis:qgis_project_package_api",
         kwargs={"project_id": project.id},
     )
+    sync_url = reverse(
+        "gis:qgis_project_sync_api",
+        kwargs={"project_id": project.id},
+    )
     manifest = build_qgis_manifest(
         project={
             "id": project.id,
@@ -151,6 +157,8 @@ def qgis_project_manifest_api(request, project_id):
         package_url=package_url,
         package_layers=package_layers,
         layer_counts=layer_counts,
+        sync_url=sync_url,
+        sync_supported=sync_runtime_enabled(alias),
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
 
@@ -178,3 +186,63 @@ def qgis_project_package_api(request, project_id):
     response["X-GeoFlow-Layer-Count"] = str(len(layer_meta))
     response["Cache-Control"] = "private, no-store"
     return response
+
+
+@login_required
+@require_POST
+def qgis_project_sync_api(request, project_id):
+    """Apply one edited GeoPackage back to the dev/test tenant under server authority."""
+
+    alias = _require_qgis_context(request)
+    project, policy, plan = _require_project(request, alias, project_id)
+    if not policy.can_webgis_write(project.id):
+        raise PermissionDenied("Permission denied")
+    if not sync_runtime_enabled(alias):
+        return JsonResponse(
+            {"ok": False, "error": "sync_not_enabled", "message": "QGIS sync is development-gated."},
+            status=403,
+        )
+
+    upload = request.FILES.get("package")
+    if upload is None:
+        return JsonResponse({"ok": False, "error": "package_missing"}, status=400)
+    if int(getattr(upload, "size", 0) or 0) > _MAX_SYNC_PACKAGE_BYTES:
+        return JsonResponse({"ok": False, "error": "package_too_large"}, status=413)
+
+    payload = upload.read()
+    try:
+        result = sync_project_geopackage(
+            alias,
+            project_id=str(project.id),
+            plan=plan,
+            package_bytes=payload,
+        )
+    except SyncConflict as exc:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "sync_conflict",
+                "message": "서버 원본이 패키지 생성 이후 변경되어 동기화를 중단했습니다.",
+                "conflicts": exc.conflicts,
+            },
+            status=409,
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except SyncRejected as exc:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "sync_rejected",
+                "message": str(exc),
+                "details": exc.details,
+            },
+            status=400,
+            json_dumps_params={"ensure_ascii": False},
+        )
+    except (DatabaseError, sqlite3.Error):
+        return JsonResponse(
+            {"ok": False, "error": "sync_failed", "message": "GeoFlow sync processing failed."},
+            status=503,
+        )
+
+    return JsonResponse(result, json_dumps_params={"ensure_ascii": False})
