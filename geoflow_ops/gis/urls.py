@@ -22,6 +22,11 @@ urlpatterns = [
         qgis_views.qgis_project_manifest_api,
         name="qgis_project_manifest_api",
     ),
+    path(
+        "projects/<uuid:project_id>/api/qgis-package/",
+        qgis_views.qgis_project_package_api,
+        name="qgis_project_package_api",
+    ),
     path("api/qgis/projects/", qgis_views.qgis_projects_api, name="qgis_projects_api"),
     path("api/layers/", views.layer_registry_api, name="layer_registry_api"),
 ]
