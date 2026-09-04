@@ -43,8 +43,16 @@ try {
     $env:DJANGO_CSRF_COOKIE_SECURE = "False"
     $env:DJANGO_SESSION_COOKIE_SECURE = "False"
 
+    # Compatible with Windows PowerShell / older .NET Framework where the
+    # static RandomNumberGenerator.Fill(byte[]) API is unavailable.
     $secretBytes = New-Object byte[] 48
-    [Security.Cryptography.RandomNumberGenerator]::Fill($secretBytes)
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($secretBytes)
+    }
+    finally {
+        if ($null -ne $rng) { $rng.Dispose() }
+    }
     $env:DJANGO_SECRET_KEY = [Convert]::ToBase64String($secretBytes)
 
     Write-Host "GeoFlow development runtime environment is set for this PowerShell process." -ForegroundColor Green
