@@ -2,26 +2,44 @@
 
 ## Purpose
 
-Create a safe development tenant database inside the existing GeoFlow RDS instance without copying production business rows.
+Create a safe tenant-shaped development database inside the existing GeoFlow RDS instance.
 
-Target example: `geoflow_dev`.
+Target: `geoflow_dev`.
 
 The bootstrap process:
 
 1. verifies the target DB and PostGIS,
 2. copies **schema definitions only** from an existing stable tenant DB (`ctr`, `hr`, `prj`, `ops`, and `fin` when present),
-3. restores those definitions into the fresh development DB,
+3. restores those definitions into `geoflow_dev`,
 4. applies `docs/architecture/gis-schema-foundation.sql`,
 5. verifies the resulting schemas/tables.
 
-It does **not** copy tenant business rows.
+The initial bootstrap intentionally does **not** copy production business rows. This keeps `geoflow_dev` structurally compatible with the existing tenant DB while avoiding unnecessary production personal/business data. Synthetic development rows are seeded after the schema is stable.
+
+## Development decision
+
+`geoflow_dev` is the canonical tenant-shaped development DB for the first GIS implementation and the parallel GeoFlow test server.
+
+Expected database shape:
+
+```text
+geoflow_dev
+  ctr   <- existing tenant schema definition
+  hr    <- existing tenant schema definition
+  prj   <- existing tenant schema definition
+  ops   <- existing tenant schema definition
+  fin   <- copied when present in the selected source tenant
+  gis   <- new GeoFlow GIS schema
+```
+
+The existing business schemas are copied rather than recreated by hand so that GIS project/employee references are tested against the real GeoFlow tenant structure.
 
 ## Preconditions
 
-- A fresh PostgreSQL database such as `geoflow_dev` already exists on the GeoFlow RDS instance.
+- `geoflow_dev` already exists on the GeoFlow RDS instance.
 - PostGIS is enabled in that target DB and `SELECT PostGIS_Version();` succeeds.
 - PostgreSQL client tools `psql`, `pg_dump`, and `pg_restore` are installed on the workstation running the script.
-- The DB account can read schema definitions from the source tenant DB and create schemas/tables in the target development DB.
+- The DB account can read schema definitions from the source tenant DB and create schemas/tables in `geoflow_dev`.
 - Run from the repository branch containing `scripts/dev/bootstrap_geoflow_dev.ps1` and the GIS foundation SQL.
 
 ## Recommended execution
@@ -32,7 +50,7 @@ From PowerShell at the repository root:
 .\scripts\dev\bootstrap_geoflow_dev.ps1 `
   -HostName "<RDS_ENDPOINT>" `
   -DbUser "<DB_USER>" `
-  -SourceDb "cheonan_db" `
+  -SourceDb "<STABLE_TENANT_DB>" `
   -TargetDb "geoflow_dev"
 ```
 
@@ -87,19 +105,37 @@ doro
 import_batch
 ```
 
-The WTL/SWL physical facility tables are added in the next reviewed increment after the `DB테이블--.xlsx`, municipal table definition, and code mapping are converted into the final field DDL.
+The WTL/SWL physical facility tables are added in the next reviewed increment after `DB테이블--.xlsx`, municipal table definitions, and code mapping are converted into final field DDL.
 
-## Why schema-only cloning is used
+## Why schema-only cloning is the first step
 
-The GIS model references the existing GeoFlow project and employee domains. Building substitute `ctr/hr/prj/ops` tables by hand would allow the test DB to drift away from the real tenant architecture. Schema-only cloning keeps the development DB structurally compatible while avoiding production business data.
+The GIS model references the existing GeoFlow project and employee domains. Building substitute `ctr/hr/prj/ops` tables by hand would allow the test DB to drift away from the real tenant architecture.
+
+Schema-only cloning gives us the correct relations, constraints, table names, and data types without immediately duplicating production business data. After the structure is validated, synthetic rows can represent contracts/projects/employees/settings needed for the GIS/WebGIS/QGIS/QField test workflow.
+
+If a later test specifically requires a realistic production-shaped dataset, that data-copy step must be reviewed separately and should prefer sanitized/minimized data rather than an automatic full production clone.
+
+## Test server connection
+
+The parallel test-server plan is documented in `docs/deployment/geoflow-dev-test-server.md`.
+
+For the tenant connection, the physical DB name is:
+
+```text
+TENANT_DB_NAME=geoflow_dev
+```
+
+The Django connection alias does not have to be renamed from its current default alias; alias name and PostgreSQL database name are separate concepts.
 
 ## Next increment
 
 After this bootstrap succeeds:
 
-1. seed synthetic development organization/project/employee rows,
+1. seed synthetic development organization/project/employee/settings rows,
 2. create the first WTL/SWL physical facility tables,
 3. load `meta_feature_type` / field metadata / code groups,
 4. test legacy PostGIS -> GeoFlow mapping (`project_code` -> project UUID, worker name -> employee UUID),
-5. connect the read-only GIS dashboard to the physical tables,
-6. rehearse QGIS/QField project materialization and project-scoped loading.
+5. connect the GIS dashboard to the physical tables,
+6. rehearse WebGIS editing,
+7. materialize QGIS/QField project/profile configuration,
+8. run QField offline tests.
