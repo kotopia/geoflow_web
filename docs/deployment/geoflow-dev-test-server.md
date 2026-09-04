@@ -40,7 +40,11 @@ No production business rows were copied.
 
 ## Non-production central/auth DB
 
-Use `scripts/dev/bootstrap_geoflow_control_dev.ps1`.
+Use:
+
+- `scripts/dev/bootstrap_geoflow_control_dev.ps1`
+- `docs/development/geoflow-control-dev-seed.sql`
+- `scripts/dev/seed_geoflow_control_dev.ps1`
 
 The bootstrap:
 
@@ -54,7 +58,7 @@ The bootstrap:
    - `role_permissions`
 6. does **not** copy users, memberships, groups, sessions, join requests, or tenant DB secrets.
 
-Then use `scripts/dev/seed_geoflow_control_dev.ps1` to create one synthetic verified login user, one synthetic group, active tenant-admin membership, and a static tenant route.
+The synthetic central seed creates one verified test user, one active test group, `tenant_admin` membership, and a static tenant route. It requires the copied authz catalog to already include `tenant_admin -> maps.view`.
 
 The test-login password is prompted securely at runtime and is not stored in Git. `group_db_config` stores only static-environment placeholders because the actual tenant DB credentials come from the test-server environment.
 
