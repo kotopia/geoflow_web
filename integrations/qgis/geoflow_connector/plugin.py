@@ -100,14 +100,9 @@ class GeoFlowConnectorPlugin:
             escaped = project_id.replace("'", "''")
             layer.setDefaultValueDefinition(project_idx, QgsDefaultValue(f"'{escaped}'"))
 
-        created_idx = GeoFlowConnectorPlugin._field_index(layer, "created_at")
-        if created_idx >= 0 and hasattr(layer, "setDefaultValueDefinition"):
-            layer.setDefaultValueDefinition(created_idx, QgsDefaultValue("now()"))
-
-        updated_idx = GeoFlowConnectorPlugin._field_index(layer, "updated_at")
-        if updated_idx >= 0 and hasattr(layer, "setDefaultValueDefinition"):
-            layer.setDefaultValueDefinition(updated_idx, QgsDefaultValue("now()", True))
-
+        # created_at/updated_at stay server-authoritative. The local package may
+        # display baseline values, but GeoFlow Server sets audit timestamps when
+        # synchronized rather than trusting desktop clock/default expressions.
         try:
             config = layer.editFormConfig()
             if hasattr(config, "setReadOnly"):
@@ -278,8 +273,6 @@ class GeoFlowConnectorPlugin:
         self._commit_active_edits()
         result = client.post_file_json(sync_url, package_path, field_name="package")
 
-        # Re-materialize immediately so the local baseline matches the new
-        # authoritative server updated_at values for the next edit/sync cycle.
         fresh_manifest = client.get_json(f"/gis/projects/{project_id}/api/qgis-manifest/")
         self._materialize_project(fresh_manifest, client)
 
