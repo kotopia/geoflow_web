@@ -132,6 +132,16 @@ def _init_gpkg(conn: sqlite3.Connection) -> None:
             CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name),
             CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id)
         );
+        CREATE TABLE _geoflow_package (
+            key TEXT NOT NULL PRIMARY KEY,
+            value TEXT
+        );
+        CREATE TABLE _geoflow_baseline (
+            layer_name TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            source_updated_at TEXT,
+            PRIMARY KEY(layer_name, object_id)
+        );
         """
     )
     conn.executemany(
@@ -272,7 +282,7 @@ def _copy_layer_rows(alias: str, sqlite_conn: sqlite3.Connection, layer: Package
                 f"{layer.standard_name} has {row_count} rows; GeoPackage MVP limit is {MAX_ROWS_PER_LAYER}"
             )
         cursor.execute(
-            f"SELECT {select_fields}, ST_AsBinary(geom) FROM {source_table} WHERE project_id=%s ORDER BY id",
+            f"SELECT {select_fields}, ST_AsBinary(geom), updated_at FROM {source_table} WHERE project_id=%s ORDER BY id",
             [project_id],
         )
         rows = cursor.fetchall()
@@ -282,12 +292,26 @@ def _copy_layer_rows(alias: str, sqlite_conn: sqlite3.Connection, layer: Package
     placeholders = ", ".join("?" for _ in insert_columns)
     insert_sql = f"INSERT INTO {table} ({quoted_columns}) VALUES ({placeholders})"
     payload = []
+    baseline = []
+    id_index = field_names.index("id")
     for row in rows:
-        attrs = [_normalize_value(value) for value in row[:-1]]
-        attrs.append(gpkg_geometry_blob(row[-1], srs_id=4326))
+        attrs = [_normalize_value(value) for value in row[: len(field_names)]]
+        attrs.append(gpkg_geometry_blob(row[len(field_names)], srs_id=4326))
         payload.append(tuple(attrs))
+        baseline.append(
+            (
+                layer.physical_name,
+                str(uuid.UUID(str(row[id_index]))),
+                _normalize_value(row[len(field_names) + 1]),
+            )
+        )
     if payload:
         sqlite_conn.executemany(insert_sql, payload)
+    if baseline:
+        sqlite_conn.executemany(
+            "INSERT INTO _geoflow_baseline(layer_name,object_id,source_updated_at) VALUES (?,?,?)",
+            baseline,
+        )
     return row_count
 
 
@@ -304,6 +328,18 @@ def build_project_geopackage(alias: str, *, project_id: str, plan: dict[str, Any
         sqlite_conn = sqlite3.connect(str(temp_path))
         try:
             _init_gpkg(sqlite_conn)
+            profile = plan.get("profile") or {}
+            sqlite_conn.executemany(
+                "INSERT INTO _geoflow_package(key,value) VALUES (?,?)",
+                [
+                    ("package_version", "0.2"),
+                    ("package_id", str(uuid.uuid4())),
+                    ("project_id", str(uuid.UUID(str(project_id)))),
+                    ("profile_id", str(profile.get("id") or "")),
+                    ("profile_code", str(profile.get("code") or "")),
+                    ("generated_at", dt.datetime.now(dt.timezone.utc).isoformat()),
+                ],
+            )
             for layer in specs:
                 _create_feature_table(sqlite_conn, layer)
                 count = _copy_layer_rows(alias, sqlite_conn, layer, str(project_id))
