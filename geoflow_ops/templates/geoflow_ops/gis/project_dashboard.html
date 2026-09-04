@@ -1,4 +1,14 @@
 {% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
+
+{% block extra_head %}
+<link rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260904-1">
+{% endblock %}
+
 {% block content %}
 <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
   <div>
@@ -7,57 +17,68 @@
     <div class="text-muted">{{ project.code|default:"코드 없음" }} · {{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
   </div>
   <div class="d-flex gap-2">
-    <button class="btn btn-outline-primary" type="button" disabled>WebGIS 열기</button>
+    <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
     <button class="btn btn-outline-secondary" type="button" disabled>QGIS 프로젝트</button>
     <button class="btn btn-outline-secondary" type="button" disabled>QField 패키지</button>
   </div>
 </div>
 
 <div class="alert alert-info">
-  현재 단계에서는 프로젝트별 GIS 물리 테이블 존재 여부와 객체 수를 실제 tenant DB에서 조회합니다. 지도 편집 연결은 다음 단계에서 활성화합니다.
+  실제 <code>gis.*</code> 물리 테이블의 프로젝트 공간데이터를 읽기 전용으로 표시합니다. 지도 이동 시 현재 화면 영역(BBOX)의 객체만 다시 조회합니다.
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-12 col-md-6">
+  <div class="col-12 col-md-4">
     <div class="card h-100"><div class="card-body">
       <div class="text-muted small">사용 가능 레이어</div>
       <div class="display-6 fw-semibold mt-1">{{ physical_ready_count }} / {{ feature_count }}</div>
     </div></div>
   </div>
-  <div class="col-12 col-md-6">
+  <div class="col-12 col-md-4">
     <div class="card h-100"><div class="card-body">
       <div class="text-muted small">이 프로젝트 GIS 객체</div>
       <div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div>
     </div></div>
   </div>
+  <div class="col-12 col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">현재 지도 표시 객체</div>
+      <div class="display-6 fw-semibold mt-1" id="gisMapVisibleCount">0</div>
+    </div></div>
+  </div>
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-12 col-xl-8">
-    <div class="card h-100">
-      <div class="card-header"><h5 class="card-title mb-0">지도 작업영역</h5></div>
-      <div class="card-body d-flex align-items-center justify-content-center" style="min-height:360px; background:#f7f9fb;">
-        <div class="text-center text-muted">
-          <i data-feather="map" class="mb-2"></i>
-          <div>WebGIS 편집 연결 준비</div>
-          <small>프로젝트 scope + GIS Profile 기준으로 활성 레이어 로드 예정</small>
-        </div>
+  <div class="col-12 col-xl-9">
+    <div class="card h-100 gf-gis-map-card">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="card-title mb-0">지도 작업영역</h5>
+        <div class="text-muted small gf-gis-map-status" id="gisMapStatus">지도 준비 중…</div>
+      </div>
+      <div class="card-body">
+        <div id="gisProjectMap"
+             role="region"
+             aria-label="프로젝트 GIS 지도"
+             data-geojson-url="{% url 'gis:project_layer_geojson_api' project.id %}"></div>
       </div>
     </div>
   </div>
-  <div class="col-12 col-xl-4">
+  <div class="col-12 col-xl-3">
     <div class="card h-100">
       <div class="card-header"><h5 class="card-title mb-0">공통 현장데이터</h5></div>
       <div class="card-body">
         <div class="border rounded p-3 mb-3">
           <div class="text-muted small">gis.survey</div>
           <strong>공통 측량</strong>
-          <p class="text-muted small mb-0 mt-1">상수·하수·향후 전기/통신/가스/열배관 공통. 시설물 매칭은 survey_link로 확정.</p>
+          <p class="text-muted small mb-0 mt-1">상수·하수·향후 전기/통신/가스/열배관 공통. 시설물 매칭은 survey_link의 시설물 UUID로 확정.</p>
         </div>
-        <div class="border rounded p-3">
+        <div class="border rounded p-3 mb-3">
           <div class="text-muted small">gis.doro</div>
           <strong>도로 기준</strong>
           <p class="text-muted small mb-0 mt-1">지하시설물의 도로상 위치를 판단하기 위한 공통 기준 공간데이터.</p>
+        </div>
+        <div class="text-muted small">
+          지도 레이어 목록에서 각 레이어를 켜고 끌 수 있습니다. 객체를 클릭하면 GeoFlow UUID와 주요 속성을 확인할 수 있습니다.
         </div>
       </div>
     </div>
@@ -94,4 +115,13 @@
     </table>
   </div>
 </div>
+
+{{ map_layers|json_script:"gis-map-layers" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260904-1"></script>
 {% endblock %}
