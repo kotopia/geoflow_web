@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import io
 import json
 import re
 import sqlite3
@@ -82,8 +81,6 @@ def gpkg_geometry_blob(wkb: bytes | memoryview | None, *, srs_id: int = 4326) ->
     raw = bytes(wkb)
     if not raw:
         return None
-    # GeoPackage binary header: magic GP, version 0, little-endian header,
-    # no envelope, standard geometry, followed by ordinary WKB.
     return b"GP" + b"\x00" + b"\x01" + struct.pack("<i", int(srs_id)) + raw
 
 
@@ -185,7 +182,6 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
             )
         )
     by_name = {field.name: field for field in fields}
-    # These two fields are GeoFlow invariants for an editable project package.
     for required_name in ("id", "project_id"):
         if required_name not in by_name:
             fields.insert(0, PackageField(required_name, "uuid", False, True, -100))
@@ -213,6 +209,29 @@ def _layer_specs(alias: str, plan: dict[str, Any]) -> tuple[PackageLayer, ...]:
             )
         )
     return tuple(specs)
+
+
+def project_geopackage_layer_manifest(alias: str, plan: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "standard_name": layer.standard_name,
+            "physical_name": layer.physical_name,
+            "label": layer.label,
+            "domain": layer.domain,
+            "geometry_kind": layer.geometry_kind,
+            "fields": [
+                {
+                    "name": field.name,
+                    "data_type": field.data_type,
+                    "editable": field.editable,
+                    "visible": field.visible,
+                    "sort_order": field.sort_order,
+                }
+                for field in layer.fields
+            ],
+        }
+        for layer in _layer_specs(alias, plan)
+    ]
 
 
 def _create_feature_table(sqlite_conn: sqlite3.Connection, layer: PackageLayer) -> None:
