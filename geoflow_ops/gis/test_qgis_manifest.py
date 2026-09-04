@@ -36,12 +36,16 @@ class QgisManifestTests(SimpleTestCase):
             package_url="/gis/projects/x/api/qgis-package/",
             package_layers=self._package_layers(),
             layer_counts={"WTL_PIPE_LM": 2},
+            sync_url="/gis/projects/x/api/qgis-sync/",
+            sync_supported=True,
         )
 
+        self.assertEqual(manifest["manifest_version"], "0.4")
         self.assertEqual(manifest["transport"]["mode"], "server_gpkg_editable_snapshot")
         self.assertFalse(manifest["transport"]["direct_postgis_credentials_exposed"])
         self.assertTrue(manifest["transport"]["local_editing_supported"])
-        self.assertFalse(manifest["transport"]["sync_supported"])
+        self.assertTrue(manifest["transport"]["sync_supported"])
+        self.assertEqual(manifest["transport"]["sync_url"], "/gis/projects/x/api/qgis-sync/")
         self.assertTrue(manifest["transport"]["write_authorized"])
         self.assertEqual(manifest["transport"]["package_downloads_per_open"], 1)
         self.assertEqual(manifest["transport"]["package_url"], "/gis/projects/x/api/qgis-package/")
@@ -56,7 +60,7 @@ class QgisManifestTests(SimpleTestCase):
         self.assertNotIn("db_host", serialized)
         self.assertNotIn("db_user", serialized)
 
-    def test_manifest_disables_local_editing_for_read_only_user(self):
+    def test_manifest_disables_sync_for_read_only_user(self):
         layers = [
             {
                 "standard_name": "DORO",
@@ -74,10 +78,28 @@ class QgisManifestTests(SimpleTestCase):
             package_url="/g/pkg/",
             package_layers=layers,
             layer_counts={"DORO": 0},
+            sync_url="/g/sync/",
+            sync_supported=True,
         )
         self.assertFalse(manifest["transport"]["local_editing_supported"])
+        self.assertFalse(manifest["transport"]["sync_supported"])
+        self.assertEqual(manifest["transport"]["sync_url"], "")
         self.assertFalse(manifest["transport"]["write_authorized"])
         self.assertEqual(manifest["layers"][0]["row_count"], 0)
+
+    def test_manifest_disables_sync_when_runtime_gate_is_off(self):
+        manifest = build_qgis_manifest(
+            project={"id": "p", "code": "P", "name": "P", "status": ""},
+            plan={"profile": None, "capabilities": [{"code": "WATER"}]},
+            can_write=True,
+            package_url="/g/pkg/",
+            package_layers=self._package_layers(),
+            sync_url="/g/sync/",
+            sync_supported=False,
+        )
+        self.assertTrue(manifest["transport"]["local_editing_supported"])
+        self.assertFalse(manifest["transport"]["sync_supported"])
+        self.assertEqual(manifest["transport"]["sync_url"], "")
 
     def test_manifest_keeps_layer_plan_scope(self):
         manifest = build_qgis_manifest(
