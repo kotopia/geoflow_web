@@ -8,11 +8,14 @@ Target: `geoflow_dev`.
 
 The bootstrap process:
 
-1. verifies the target DB and PostGIS,
-2. copies **schema definitions only** from an existing stable tenant DB (`ctr`, `hr`, `prj`, `ops`, and `fin` when present),
-3. restores those definitions into `geoflow_dev`,
-4. applies `docs/architecture/gis-schema-foundation.sql`,
-5. verifies the resulting schemas/tables.
+1. verifies the target DB, PostGIS, and PostgreSQL client/server versions,
+2. checks/reset-handles only the known GeoFlow schemas in a dev/test target,
+3. detects source tenant schemas (`ctr`, `hr`, `prj`, `ops`, and `fin` when present),
+4. mirrors required shared PostgreSQL extensions used by those schemas (`citext`, `pgcrypto`, `uuid-ossp`, `hstore`, `pg_trgm`, `btree_gist` when present),
+5. copies **schema definitions only** from the stable tenant DB,
+6. restores those definitions into `geoflow_dev`,
+7. applies `docs/architecture/gis-schema-foundation.sql`,
+8. verifies the resulting schemas/tables/extensions.
 
 The initial bootstrap intentionally does **not** copy production business rows. This keeps `geoflow_dev` structurally compatible with the existing tenant DB while avoiding unnecessary production personal/business data. Synthetic development rows are seeded after the schema is stable.
 
@@ -38,8 +41,8 @@ The existing business schemas are copied rather than recreated by hand so that G
 
 - `geoflow_dev` already exists on the GeoFlow RDS instance.
 - PostGIS is enabled in that target DB and `SELECT PostGIS_Version();` succeeds.
-- PostgreSQL client tools `psql`, `pg_dump`, and `pg_restore` are installed on the workstation running the script.
-- The DB account can read schema definitions from the source tenant DB and create schemas/tables in `geoflow_dev`.
+- PostgreSQL client tools `psql`, `pg_dump`, and `pg_restore` matching the RDS PostgreSQL major version are installed on the workstation running the script.
+- The DB account can read schema definitions/extensions from the source tenant DB and create schemas/tables/extensions in `geoflow_dev`.
 - Run from the repository branch containing `scripts/dev/bootstrap_geoflow_dev.ps1` and the GIS foundation SQL.
 
 ## Recommended execution
@@ -64,17 +67,64 @@ $env:PG_BIN = "C:\Program Files\PostgreSQL\16\bin"
 
 Then run the bootstrap command again.
 
+## Recovering from a known partial restore
+
+The default behavior remains fail-closed: if `geoflow_dev` already contains any GeoFlow schema, the script stops.
+
+If a previous bootstrap attempt failed midway and the target is the known disposable `geoflow_dev`/test DB, rerun with the explicit reset switch:
+
+```powershell
+.\scripts\dev\bootstrap_geoflow_dev.ps1 `
+  -HostName "<RDS_ENDPOINT>" `
+  -DbUser "<DB_USER>" `
+  -SourceDb "<STABLE_TENANT_DB>" `
+  -TargetDb "geoflow_dev" `
+  -ResetPartialTarget
+```
+
+`-ResetPartialTarget` drops only these schemas in the dev/test target when they already exist:
+
+```text
+gis
+fin
+ops
+prj
+hr
+ctr
+```
+
+It does not drop the database itself and it does not touch the source tenant DB. The switch is rejected indirectly by the target-name safety gate if the target DB name does not contain `dev` or `test`.
+
+## Extension dependency handling
+
+A schema-only dump restricted to `ctr/hr/prj/ops/fin` does not automatically include extensions installed in `public`. This matters for columns such as `public.citext`.
+
+The bootstrap therefore detects and mirrors a reviewed allow-list of shared extensions before restore:
+
+```text
+citext
+pgcrypto
+uuid-ossp
+hstore
+pg_trgm
+btree_gist
+```
+
+PostGIS must already exist in `geoflow_dev` and is verified separately at step 1.
+
 ## Safety behavior
 
 The script stops when:
 
 - source and target DB names are identical,
 - the target DB name does not contain `dev` or `test`,
-- the target already contains any of `ctr`, `hr`, `prj`, `ops`, `fin`, `gis`,
+- the target already contains any of `ctr`, `hr`, `prj`, `ops`, `fin`, `gis` and `-ResetPartialTarget` was not explicitly supplied,
 - required source schemas (`ctr`, `hr`, `prj`, `ops`) are missing,
+- PostgreSQL dump/restore tools are newer than the server major version and a matching toolset cannot be found,
+- required extension creation fails,
 - any PostgreSQL command fails.
 
-The target must therefore be a fresh development DB. The script intentionally does not drop or clean schemas automatically.
+The script never drops or mutates source tenant schemas/data.
 
 ## Expected result
 
