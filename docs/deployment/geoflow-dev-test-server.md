@@ -4,12 +4,10 @@ Status date: 2026-09-04
 
 ## Purpose
 
-Build an isolated GeoFlow test server in parallel with the `geoflow_dev` tenant-shaped development database.
-
-The target development shape is:
+Build an isolated GeoFlow test server using separate non-production central/auth and tenant databases.
 
 ```text
-non-production central/auth DB
+geoflow_control_dev
         |
         v
 GeoFlow test server
@@ -20,31 +18,70 @@ geoflow_dev
   hr
   prj
   ops
-  fin   (when present in the selected source tenant)
-  gis   (new GIS foundation)
+  fin
+  gis
 ```
 
-`geoflow_dev` is the development tenant database. It receives the existing tenant schema definitions and the new `gis` schema. Production tenant databases are not used for GIS schema experiments.
+`geoflow_dev` is the tenant-shaped GIS development DB. `geoflow_control_dev` is the isolated central/auth DB used for login, session, tenant membership, role/permission, and tenant-selection tests.
 
-## Database bootstrap
+## Completed tenant GIS foundation
 
-Use `docs/development/gis-dev-db-bootstrap.md` and `scripts/dev/bootstrap_geoflow_dev.ps1`.
+The current development tenant contains:
 
-The current bootstrap is deliberately schema-only:
+- cloned schema definitions for `ctr/hr/prj/ops/fin`,
+- `gis` foundation tables,
+- 17 WTL/SWL physical facility tables,
+- 19 active GIS feature types including `DORO` and `SURVEY`,
+- metadata/profile seed derived from actual physical columns,
+- synthetic contract/project/GIS objects using UUID identity,
+- `ftr_idn` retained only as an optional external/legacy identifier.
 
-- reads an existing stable tenant DB,
-- copies `ctr`, `hr`, `prj`, `ops`, and `fin` when present,
-- does not copy production business rows,
-- applies `docs/architecture/gis-schema-foundation.sql`,
-- verifies PostGIS and the resulting schemas.
+No production business rows were copied.
 
-After bootstrap, seed synthetic test organization/project/employee rows rather than copying production personal/business data by default.
+## Non-production central/auth DB
+
+Use `scripts/dev/bootstrap_geoflow_control_dev.ps1`.
+
+The bootstrap:
+
+1. verifies PostgreSQL client/server compatibility,
+2. optionally creates `geoflow_control_dev` only with explicit `-CreateTarget`,
+3. requires a fresh dev/test target,
+4. copies the source central `public` schema definitions only,
+5. copies only non-personal authorization catalog rows from:
+   - `roles`
+   - `permissions`
+   - `role_permissions`
+6. does **not** copy users, memberships, groups, sessions, join requests, or tenant DB secrets.
+
+Then use `scripts/dev/seed_geoflow_control_dev.ps1` to create one synthetic verified login user, one synthetic group, active tenant-admin membership, and a static tenant route.
+
+The test-login password is prompted securely at runtime and is not stored in Git. `group_db_config` stores only static-environment placeholders because the actual tenant DB credentials come from the test-server environment.
+
+## Runtime DB routing
+
+The current application keeps the static Django tenant alias `cheonan_db`. For test runtime:
+
+```text
+default     -> physical geoflow_control_dev
+cheonan_db  -> physical geoflow_dev
+```
+
+Therefore the runtime environment uses:
+
+```text
+CENTRAL_DB_NAME=geoflow_control_dev
+TENANT_DB_NAME=geoflow_dev
+TENANT_DB_REQUIRE_SECRET_REFERENCES=False
+```
+
+The alias and physical DB name are intentionally separate concepts.
 
 ## Test server isolation
 
 Use a separate application checkout, virtual environment, service, socket, environment file, and Nginx upstream from production.
 
-Recommended layout:
+Recommended Linux layout:
 
 ```text
 /srv/geoflow-dev/current
@@ -53,77 +90,75 @@ Recommended layout:
 /etc/geoflow/geoflow-dev.env
 ```
 
-Do not reuse the production `/srv/geoflow/current`, `/srv/geoflow/venv`, `/run/geoflow/gunicorn.sock`, or production environment file.
-
-## Central DB boundary
-
-GeoFlow login/auth and tenant selection depend on the central control DB. A fully isolated shared test server must therefore use a **non-production central/auth database** as well.
-
-Do not point the test server at the production central DB for normal interactive testing, because login/session/account flows can write central records even when the tenant DB is `geoflow_dev`.
-
-Until the non-production central/auth path is ready, `geoflow_dev` can still be used for:
-
-- PostGIS/schema rehearsal,
-- Django database-level tests that explicitly select the development tenant connection,
-- GIS DDL/model tests,
-- QGIS direct development tests using approved development credentials,
-- import/export and spatial performance tests.
+Do not reuse production `/srv/geoflow/current`, `/srv/geoflow/venv`, `/run/geoflow/gunicorn.sock`, or the production runtime environment file.
 
 ## Runtime environment
 
-Use `deploy/env/geoflow-dev.env.example` only as a key-name template. Store the actual environment outside Git and restrict permissions.
+Use `deploy/env/geoflow-dev.env.example` only as a key-name template. Store real secrets only in the host-owned runtime environment and restrict file permissions.
 
-Important test tenant settings:
+The test runtime must use non-production central and tenant database names.
 
-```text
-TENANT_DB_NAME=geoflow_dev
-TENANT_DB_HOST=<RDS endpoint>
-TENANT_DB_PORT=5432
+## Runtime preflight
+
+After environment variables are loaded, run:
+
+```powershell
+.\scripts\dev\check_geoflow_dev_runtime.ps1
 ```
 
-The Django alias may remain `cheonan_db`; the alias name and physical database name do not need to be identical. `TENANT_DB_NAME=geoflow_dev` is sufficient for the static development connection path.
+or the same Django checks from the Linux test-server shell.
+
+The preflight verifies:
+
+- `python manage.py check`,
+- `default` physically connects to `geoflow_control_dev`,
+- static tenant alias `cheonan_db` physically connects to `geoflow_dev`,
+- PostGIS is available,
+- 19 active feature types exist,
+- field metadata exists,
+- synthetic project `GIS-DEV-001` exists,
+- representative GIS object counts are readable.
 
 ## Service and proxy templates
 
 - `deploy/systemd/geoflow-dev.service.example`
 - `deploy/nginx/geoflow-dev.conf.example`
+- `deploy/env/geoflow-dev.env.example`
 
-These are examples only. Review host paths, hostname/TLS topology, permissions, and environment ownership before installation.
+These are templates only. Review host paths, hostname/TLS topology, permissions, and environment ownership before installation.
 
 ## Deployment sequence
 
-1. Bootstrap `geoflow_dev` and verify `ctr/hr/prj/ops/(fin)/gis`.
-2. Create a dedicated test-server host or isolated service environment.
-3. Install the reviewed Python runtime, GeoDjango native libraries, Nginx, and systemd service requirements.
-4. Check out the reviewed GIS topic/release commit into `/srv/geoflow-dev/current`.
-5. Create `/srv/geoflow-dev/venv` and install `requirements.txt`.
-6. Create the host-owned `/etc/geoflow/geoflow-dev.env`; never commit it.
-7. Run `python -m pip check` and `python manage.py check` with the development environment.
-8. Run focused GIS/tests without applying production migrations.
-9. Collect static assets into the isolated development checkout.
-10. Validate and install the development systemd/Nginx configuration.
-11. Start only the development service and verify the development socket.
-12. Run test-server smoke checks.
-13. Only after the non-production central/auth DB is configured, enable shared login/tenant-selection testing.
+1. Bootstrap and verify `geoflow_dev`.
+2. Apply WTL/SWL physical feature tables.
+3. Apply GIS metadata/profile seed.
+4. Seed synthetic tenant/GIS development data.
+5. Bootstrap `geoflow_control_dev` schema + authz catalog only.
+6. Seed synthetic central login/group/membership.
+7. Configure the development runtime environment.
+8. Run `python -m pip check` and `python manage.py check`.
+9. Run `scripts/dev/check_geoflow_dev_runtime.ps1` or equivalent Linux preflight.
+10. Open `/gis/` with the synthetic login and verify physical readiness/object counts.
+11. Collect static assets into the isolated development checkout.
+12. Validate/install the development systemd/Nginx configuration.
+13. Start only the development service and verify its socket/HTTP endpoint.
+14. Continue to WebGIS edit flows, then QGIS/QField materialization.
 
 ## Safety rules
 
-- Never run the dev bootstrap against a target DB whose name does not contain `dev` or `test`.
-- Never use the bootstrap script to drop production schemas.
-- Do not copy production business rows by default.
-- Do not reuse production secrets in the test-server environment unless separately reviewed and explicitly required.
-- Do not make `geoflow_dev` a production tenant target.
-- Database schema changes are rehearsed in `geoflow_dev` before any production-tenant migration is proposed.
+- Never point the shared test server at the production central DB.
+- Never run dev/test bootstrap scripts against DB names lacking `dev` or `test`.
+- Never copy production users or business rows by default.
+- Never store real tenant DB passwords in Git or synthetic central metadata.
+- Never make `geoflow_dev` a production tenant target.
+- Keep production provisioning disabled in the test runtime.
+- Rehearse all schema changes in `geoflow_dev` before any production migration proposal.
 
-## Next GIS increment
+## Next GIS increment after runtime verification
 
-After the development DB and test server base are working:
-
-1. create the approved initial WTL/SWL physical tables from `DB테이블--.xlsx`,
-2. load GIS code/reference metadata,
-3. seed synthetic project/employee data,
-4. connect the GIS dashboard to physical tables,
-5. test WebGIS edit flows,
-6. generate/materialize QGIS project/profile configuration,
-7. test QField offline workflow,
-8. only then prepare a production-tenant migration plan.
+1. activate the existing WebGIS map area for the selected synthetic project,
+2. load project-scoped WTL/SWL layers from `gis.*`,
+3. add create/update API paths using UUID `id`,
+4. materialize metadata/profile into QGIS project configuration,
+5. test QField offline sync and photo workflows,
+6. only then prepare production-tenant migration planning.
