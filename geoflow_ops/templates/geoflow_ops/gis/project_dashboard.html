@@ -14,7 +14,22 @@
 </div>
 
 <div class="alert alert-info">
-  이 화면은 GIS Foundation 단계의 프로젝트 허브입니다. 실제 물리 테이블과 Profile 적용 전까지 레이어는 Registry 상태로 표시됩니다.
+  현재 단계에서는 프로젝트별 GIS 물리 테이블 존재 여부와 객체 수를 실제 tenant DB에서 조회합니다. 지도 편집 연결은 다음 단계에서 활성화합니다.
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">사용 가능 레이어</div>
+      <div class="display-6 fw-semibold mt-1">{{ physical_ready_count }} / {{ feature_count }}</div>
+    </div></div>
+  </div>
+  <div class="col-12 col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">이 프로젝트 GIS 객체</div>
+      <div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div>
+    </div></div>
+  </div>
 </div>
 
 <div class="row g-3 mb-4">
@@ -24,8 +39,8 @@
       <div class="card-body d-flex align-items-center justify-content-center" style="min-height:360px; background:#f7f9fb;">
         <div class="text-center text-muted">
           <i data-feather="map" class="mb-2"></i>
-          <div>기존 WebGIS 편집 기능 연결 예정</div>
-          <small>프로젝트 scope + GIS Profile 기준으로 활성 레이어만 로드</small>
+          <div>WebGIS 편집 연결 준비</div>
+          <small>프로젝트 scope + GIS Profile 기준으로 활성 레이어 로드 예정</small>
         </div>
       </div>
     </div>
@@ -51,12 +66,12 @@
 
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">초기 레이어</h5>
+    <h5 class="card-title mb-0">프로젝트 레이어</h5>
     <span class="text-muted small">{{ feature_count }}개 Registry</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0">
-      <thead><tr><th>구분</th><th>시설물</th><th>표준명</th><th>물리명</th><th>Geometry</th><th>상태</th></tr></thead>
+      <thead><tr><th>구분</th><th>시설물</th><th>표준명</th><th>물리명</th><th>Geometry</th><th>객체수</th><th>상태</th></tr></thead>
       <tbody>
         {% for feature in features %}
         <tr>
@@ -65,7 +80,14 @@
           <td><code>{{ feature.standard_name }}</code></td>
           <td><code>{{ feature.db_name }}</code></td>
           <td>{{ feature.geometry_kind }}</td>
-          <td><span class="badge bg-light text-dark">Registry</span></td>
+          <td>{% if feature.row_count != None %}{{ feature.row_count }}{% else %}-{% endif %}</td>
+          <td>
+            {% if feature.physical_status == 'READY' %}
+              <span class="badge bg-success">Ready</span>
+            {% else %}
+              <span class="badge bg-light text-dark">미적용</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
