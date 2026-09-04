@@ -28,11 +28,6 @@ def _ensure_hash_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE _geoflow_baseline ADD COLUMN content_hash TEXT")
 
 
-def _populate_hashes(conn: sqlite3.Connection, plan: dict[str, Any]) -> None:
-    for spec in _layer_specs.__wrapped__(None, None) if False else ():
-        pass
-
-
 def build_syncable_project_geopackage(
     alias: str,
     *,
@@ -61,8 +56,7 @@ def build_syncable_project_geopackage(
                 "UPDATE _geoflow_package SET value='0.4' WHERE key='package_version'"
             )
 
-            specs = _layer_specs(alias, plan)
-            for spec in specs:
+            for spec in _layer_specs(alias, plan):
                 field_names = [field.name for field in spec.fields]
                 editable_names = [
                     field.name
@@ -73,7 +67,6 @@ def build_syncable_project_geopackage(
                 rows = conn.execute(
                     f'SELECT fid, {quoted_fields}, "geom" FROM "{spec.physical_name}"'
                 ).fetchall()
-                id_index = field_names.index("id")
                 for row in rows:
                     fid = int(row[0])
                     attrs = dict(zip(field_names, row[1:-1]))
