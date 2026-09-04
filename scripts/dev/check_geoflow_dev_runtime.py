@@ -8,7 +8,17 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 import sys
+
+
+# When this file is executed directly, Python puts scripts/dev at sys.path[0]
+# rather than the repository root. Resolve and pin the repository root so
+# geoflow_project and sibling Django packages are importable on Windows/Linux.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+os.chdir(REPO_ROOT)
 
 
 def parse_args() -> argparse.Namespace:
