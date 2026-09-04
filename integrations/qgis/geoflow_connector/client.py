@@ -5,6 +5,8 @@ import json
 import mimetypes
 import os
 import re
+import sqlite3
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -139,6 +141,43 @@ class GeoFlowHttpClient:
             )
         )
 
+    @staticmethod
+    def _checkpoint_sqlite_bytes(file_path: str) -> bytes:
+        """Return one consistent SQLite image including committed WAL contents."""
+        temp = tempfile.NamedTemporaryFile(
+            prefix="geoflow-qgis-sync-",
+            suffix=".gpkg",
+            delete=False,
+        )
+        temp_path = temp.name
+        temp.close()
+        source = None
+        target = None
+        try:
+            source = sqlite3.connect(file_path, timeout=30)
+            target = sqlite3.connect(temp_path, timeout=30)
+            source.backup(target)
+            target.commit()
+            target.close()
+            target = None
+            source.close()
+            source = None
+            with open(temp_path, "rb") as handle:
+                return handle.read()
+        except sqlite3.Error as exc:
+            raise GeoFlowClientError(
+                f"GeoPackage 저장 상태를 확정할 수 없습니다: {exc}"
+            ) from None
+        finally:
+            if target is not None:
+                target.close()
+            if source is not None:
+                source.close()
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
     def post_file_json(self, path: str, file_path: str, *, field_name: str = "package") -> dict:
         csrf = self._cookie_value("csrftoken")
         if not csrf:
@@ -149,8 +188,7 @@ class GeoFlowHttpClient:
         boundary = "----GeoFlowSync" + uuid.uuid4().hex
         file_name = os.path.basename(file_path)
         content_type = mimetypes.guess_type(file_name)[0] or "application/geopackage+sqlite3"
-        with open(file_path, "rb") as handle:
-            file_bytes = handle.read()
+        file_bytes = self._checkpoint_sqlite_bytes(file_path)
 
         body = b"".join(
             [
