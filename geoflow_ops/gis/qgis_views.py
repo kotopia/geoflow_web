@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
+
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import connections
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -13,8 +15,12 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
+from .gpkg import build_project_geopackage, project_geopackage_layer_manifest
 from .layer_plan import gis_enabled_project_ids, project_layer_plan
 from .qgis_manifest import build_qgis_manifest
+
+
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def _require_qgis_context(request):
@@ -40,8 +46,6 @@ def _require_project(request, alias, project_id):
 
 
 def _project_layer_counts(alias: str, project_id, plan: dict) -> dict[str, int | None]:
-    """Count enabled project layers so QGIS can skip known-empty snapshot calls."""
-
     connection = connections[alias]
     schema_name = connection.ops.quote_name("gis")
     counts: dict[str, int | None] = {}
@@ -64,6 +68,11 @@ def _project_layer_counts(alias: str, project_id, plan: dict) -> dict[str, int |
             )
             counts[standard_name] = int(cursor.fetchone()[0])
     return counts
+
+
+def _package_filename(project) -> str:
+    code = _SAFE_FILENAME_RE.sub("_", str(project.code or project.id)).strip("._")
+    return f"geoflow-{code or project.id}.gpkg"
 
 
 @login_required
@@ -120,15 +129,16 @@ def qgis_projects_api(request):
 @login_required
 @require_GET
 def qgis_project_manifest_api(request, project_id):
-    """Materialization manifest consumed by the GeoFlow QGIS Connector MVP."""
+    """Materialization manifest consumed by the GeoFlow QGIS Connector."""
 
     alias = _require_qgis_context(request)
     project, policy, plan = _require_project(request, alias, project_id)
-    geojson_path = reverse(
-        "gis:project_layer_geojson_api",
+    layer_counts = _project_layer_counts(alias, project.id, plan)
+    package_layers = project_geopackage_layer_manifest(alias, plan)
+    package_url = reverse(
+        "gis:qgis_project_package_api",
         kwargs={"project_id": project.id},
     )
-    layer_counts = _project_layer_counts(alias, project.id, plan)
     manifest = build_qgis_manifest(
         project={
             "id": project.id,
@@ -138,7 +148,33 @@ def qgis_project_manifest_api(request, project_id):
         },
         plan=plan,
         can_write=policy.can_webgis_write(project.id),
-        layer_geojson_path=geojson_path,
+        package_url=package_url,
+        package_layers=package_layers,
         layer_counts=layer_counts,
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
+
+
+@login_required
+@require_GET
+def qgis_project_package_api(request, project_id):
+    """Return one project-scoped GeoPackage materialized by GeoFlow Server."""
+
+    alias = _require_qgis_context(request)
+    project, _policy, plan = _require_project(request, alias, project_id)
+    try:
+        payload, layer_meta = build_project_geopackage(
+            alias,
+            project_id=str(project.id),
+            plan=plan,
+        )
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=422)
+
+    response = HttpResponse(payload, content_type="application/geopackage+sqlite3")
+    response["Content-Disposition"] = f'attachment; filename="{_package_filename(project)}"'
+    response["Content-Length"] = str(len(payload))
+    response["X-GeoFlow-Project"] = str(project.id)
+    response["X-GeoFlow-Layer-Count"] = str(len(layer_meta))
+    response["Cache-Control"] = "private, no-store"
+    return response
