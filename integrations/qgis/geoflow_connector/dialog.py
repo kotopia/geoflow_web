@@ -17,13 +17,15 @@ from .client import GeoFlowClientError, GeoFlowHttpClient
 
 
 class GeoFlowConnectorDialog(QDialog):
-    def __init__(self, parent=None, *, on_open_project=None):
+    def __init__(self, parent=None, *, on_open_project=None, on_sync=None):
         super().__init__(parent)
         self.setWindowTitle("GeoFlow Connector")
-        self.resize(560, 270)
+        self.resize(620, 290)
         self.on_open_project = on_open_project
+        self.on_sync = on_sync
         self.client = None
         self.projects = []
+        self.sync_ready = False
 
         settings = QSettings()
         self.server_edit = QLineEdit(
@@ -42,6 +44,8 @@ class GeoFlowConnectorDialog(QDialog):
         self.login_button = QPushButton("로그인 / 프로젝트 불러오기")
         self.open_button = QPushButton("선택 프로젝트 QGIS에 열기")
         self.open_button.setEnabled(False)
+        self.sync_button = QPushButton("GeoFlow에 동기화")
+        self.sync_button.setEnabled(False)
         self.close_button = QPushButton("닫기")
 
         self.status_label = QLabel(
@@ -59,6 +63,7 @@ class GeoFlowConnectorDialog(QDialog):
         buttons.addWidget(self.login_button)
         buttons.addStretch(1)
         buttons.addWidget(self.open_button)
+        buttons.addWidget(self.sync_button)
         buttons.addWidget(self.close_button)
 
         layout = QVBoxLayout(self)
@@ -69,14 +74,17 @@ class GeoFlowConnectorDialog(QDialog):
 
         self.login_button.clicked.connect(self._login)
         self.open_button.clicked.connect(self._open_project)
+        self.sync_button.clicked.connect(self._sync_project)
         self.close_button.clicked.connect(self.close)
 
     def _set_busy(self, busy: bool):
         self.login_button.setEnabled(not busy)
         self.open_button.setEnabled(not busy and bool(self.projects))
         self.project_combo.setEnabled(not busy and bool(self.projects))
+        self.sync_button.setEnabled(not busy and self.sync_ready)
 
     def _login(self):
+        self.sync_ready = False
         self._set_busy(True)
         self.status_label.setText("GeoFlow 로그인 및 프로젝트 권한을 확인하는 중입니다…")
         try:
@@ -125,18 +133,53 @@ class GeoFlowConnectorDialog(QDialog):
             QMessageBox.warning(self, "GeoFlow", "QGIS manifest URL이 없습니다.")
             return
 
+        self.sync_ready = False
         self._set_busy(True)
         self.status_label.setText("Layer Plan 확인 후 프로젝트 GeoPackage를 생성·다운로드하는 중입니다…")
         try:
             manifest = self.client.get_json(manifest_url)
             if self.on_open_project is None:
                 raise GeoFlowClientError("QGIS project materializer is unavailable.")
-            loaded = self.on_open_project(manifest, self.client)
+            result = self.on_open_project(manifest, self.client)
+            if isinstance(result, dict):
+                loaded = int(result.get("loaded") or 0)
+                self.sync_ready = bool(result.get("sync_supported"))
+            else:
+                loaded = int(result or 0)
+                self.sync_ready = False
         except Exception as exc:
             self.status_label.setText(str(exc))
             QMessageBox.critical(self, "GeoFlow 프로젝트 열기 실패", str(exc))
             self._set_busy(False)
             return
 
-        self.status_label.setText(f"QGIS GeoPackage 구성 완료 · 레이어 {loaded}개")
+        suffix = " · 서버 동기화 가능" if self.sync_ready else " · 로컬 저장만 가능"
+        self.status_label.setText(f"QGIS GeoPackage 구성 완료 · 레이어 {loaded}개{suffix}")
+        self._set_busy(False)
+
+    def _sync_project(self):
+        if self.client is None or not self.sync_ready or self.on_sync is None:
+            return
+        self._set_busy(True)
+        self.status_label.setText("QGIS 변경사항을 GeoFlow Server와 비교·동기화하는 중입니다…")
+        try:
+            result = self.on_sync(self.client)
+        except Exception as exc:
+            self.status_label.setText(str(exc))
+            QMessageBox.critical(self, "GeoFlow 동기화 실패", str(exc))
+            self._set_busy(False)
+            return
+
+        created = int(result.get("created") or 0)
+        updated = int(result.get("updated") or 0)
+        deleted = int(result.get("deleted") or 0)
+        self.status_label.setText(
+            f"GeoFlow 동기화 완료 · 신규 {created} · 수정 {updated} · 삭제 {deleted} · 기준선 새로고침 완료"
+        )
+        QMessageBox.information(
+            self,
+            "GeoFlow 동기화 완료",
+            f"신규 {created}건\n수정 {updated}건\n삭제 {deleted}건\n\n서버 반영 후 새 GeoPackage로 다시 열었습니다.",
+        )
+        self.sync_ready = True
         self._set_busy(False)
