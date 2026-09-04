@@ -18,14 +18,14 @@
   </div>
   <div class="d-flex gap-2">
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
-    <a class="btn btn-outline-secondary" href="{% url 'gis:project_layer_plan_api' project.id %}" target="_blank" rel="noopener">QGIS Layer Plan</a>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
     <button class="btn btn-outline-secondary" type="button" disabled>QField 패키지</button>
   </div>
 </div>
 
 <div class="alert alert-info">
   프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
-  같은 Layer Plan을 이후 QGIS Connector와 QField 패키지 생성에서 그대로 사용합니다.
+  QGIS Connector도 같은 서버 Manifest를 사용하며, 현재 MVP는 서버 권한 범위의 읽기 전용 snapshot을 QGIS에 구성합니다.
 </div>
 
 <div class="row g-3 mb-4">
@@ -98,7 +98,7 @@
         {% endfor %}
         <hr>
         <div class="text-muted small">
-          <code>QGIS Layer Plan</code>은 WebGIS와 동일한 서버 계산 결과입니다. QGIS/QField가 별도의 레이어 규칙을 가지지 않습니다.
+          <code>QGIS Manifest</code>는 WebGIS와 동일한 Layer Plan을 QGIS Connector가 소비할 수 있도록 materialize한 서버 계약입니다.
         </div>
       </div>
     </div>
@@ -141,7 +141,7 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        integrity="sha256-20nQCchB9coqIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""></script>
 <script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260904-2"></script>
 {% endblock %}
