@@ -33,17 +33,34 @@ if (-not (Test-Path $sqlFile)) {
     throw "GIS metadata seed SQL not found: $sqlFile"
 }
 
-Write-Host "[1/3] Verify GIS physical tables and metadata foundation..." -ForegroundColor Cyan
-& $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c "SELECT current_database(); SELECT count(*) AS initial_feature_tables FROM information_schema.tables WHERE table_schema='gis' AND table_name IN ('wtl_etc_ps','wtl_fire_ps','wtl_flow_ps','wtl_manh_ps','wtl_pipe_lm','wtl_pipe_ps','wtl_plan_lm','wtl_sply_ls','wtl_valv_ps','swl_conn_ls','swl_etc_ps','swl_manh_ps','swl_pipe_as','swl_pipe_lm','swl_pipe_ps','swl_side_ls','swl_spot_ps');"
-if ($LASTEXITCODE -ne 0) { throw "GIS preflight failed." }
+# Windows Korean locales commonly default libpq/psql to UHC (CP949).
+# The repository SQL files are UTF-8, so force client encoding for this script
+# and restore the caller's previous setting afterwards.
+$previousClientEncoding = $env:PGCLIENTENCODING
+$env:PGCLIENTENCODING = "UTF8"
 
-Write-Host "[2/3] Apply metadata/profile seed..." -ForegroundColor Cyan
-& $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -f $sqlFile
-if ($LASTEXITCODE -ne 0) { throw "GIS metadata seed failed." }
+try {
+    Write-Host "PostgreSQL client encoding: UTF8" -ForegroundColor DarkCyan
 
-Write-Host "[3/3] Verify metadata/profile state..." -ForegroundColor Green
-& $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c "SELECT domain_code, count(*) AS feature_types FROM gis.meta_feature_type WHERE active GROUP BY domain_code ORDER BY domain_code; SELECT count(*) AS field_def_count FROM gis.meta_field_def; SELECT code, name, version, active FROM gis.profile WHERE code='GEOFLOW_DEV_BASE'; SELECT standard_name, physical_name, core_field, description FROM gis.meta_field_def WHERE physical_name IN ('id','ftr_idn','project_id','geom') ORDER BY standard_name, physical_name LIMIT 40;"
-if ($LASTEXITCODE -ne 0) { throw "GIS metadata verification failed." }
+    Write-Host "[1/3] Verify GIS physical tables and metadata foundation..." -ForegroundColor Cyan
+    & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c "SELECT current_database(); SELECT count(*) AS initial_feature_tables FROM information_schema.tables WHERE table_schema='gis' AND table_name IN ('wtl_etc_ps','wtl_fire_ps','wtl_flow_ps','wtl_manh_ps','wtl_pipe_lm','wtl_pipe_ps','wtl_plan_lm','wtl_sply_ls','wtl_valv_ps','swl_conn_ls','swl_etc_ps','swl_manh_ps','swl_pipe_as','swl_pipe_lm','swl_pipe_ps','swl_side_ls','swl_spot_ps');"
+    if ($LASTEXITCODE -ne 0) { throw "GIS preflight failed." }
 
-Write-Host "GeoFlow GIS metadata/profile seed completed successfully." -ForegroundColor Green
-Write-Host "UUID id is authoritative; ftr_idn remains an optional external/legacy identifier." -ForegroundColor Green
+    Write-Host "[2/3] Apply metadata/profile seed..." -ForegroundColor Cyan
+    & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -f $sqlFile
+    if ($LASTEXITCODE -ne 0) { throw "GIS metadata seed failed." }
+
+    Write-Host "[3/3] Verify metadata/profile state..." -ForegroundColor Green
+    & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c "SELECT domain_code, count(*) AS feature_types FROM gis.meta_feature_type WHERE active GROUP BY domain_code ORDER BY domain_code; SELECT count(*) AS field_def_count FROM gis.meta_field_def; SELECT code, name, version, active FROM gis.profile WHERE code='GEOFLOW_DEV_BASE'; SELECT standard_name, physical_name, core_field, description FROM gis.meta_field_def WHERE physical_name IN ('id','ftr_idn','project_id','geom') ORDER BY standard_name, physical_name LIMIT 40;"
+    if ($LASTEXITCODE -ne 0) { throw "GIS metadata verification failed." }
+
+    Write-Host "GeoFlow GIS metadata/profile seed completed successfully." -ForegroundColor Green
+    Write-Host "UUID id is authoritative; ftr_idn remains an optional external/legacy identifier." -ForegroundColor Green
+}
+finally {
+    if ($null -eq $previousClientEncoding) {
+        Remove-Item Env:PGCLIENTENCODING -ErrorAction SilentlyContinue
+    } else {
+        $env:PGCLIENTENCODING = $previousClientEncoding
+    }
+}
