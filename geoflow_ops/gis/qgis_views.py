@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
+import os
 import re
 import sqlite3
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
@@ -24,8 +27,23 @@ from .qgis_sync import SyncConflict, SyncRejected, sync_runtime_enabled
 from .qgis_sync_v2 import sync_project_geopackage_v2
 
 
+logger = logging.getLogger(__name__)
 _SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _MAX_SYNC_PACKAGE_BYTES = 250 * 1024 * 1024
+
+
+def _dev_sync_diag_enabled() -> bool:
+    return (
+        settings.DEBUG
+        and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1"
+    )
+
+
+def _dev_sync_diag(stage: str, **fields) -> None:
+    if not _dev_sync_diag_enabled():
+        return
+    suffix = " ".join(f"{key}={value}" for key, value in fields.items())
+    logger.warning("DEV-QGIS-SYNC %s%s", stage, f" {suffix}" if suffix else "")
 
 
 def _require_qgis_context(request):
@@ -188,8 +206,10 @@ def qgis_project_sync_api(request, project_id):
     alias = _require_qgis_context(request)
     project, policy, plan = _require_project(request, alias, project_id)
     if not policy.can_webgis_write(project.id):
+        _dev_sync_diag("PERMISSION_DENIED", project_id=project.id, alias=alias)
         raise PermissionDenied("Permission denied")
     if not sync_runtime_enabled(alias):
+        _dev_sync_diag("RUNTIME_DISABLED", project_id=project.id, alias=alias)
         return JsonResponse(
             {"ok": False, "error": "sync_not_enabled", "message": "QGIS sync is development-gated."},
             status=403,
@@ -197,12 +217,24 @@ def qgis_project_sync_api(request, project_id):
 
     upload = request.FILES.get("package")
     if upload is None:
+        _dev_sync_diag("PACKAGE_MISSING", project_id=project.id, alias=alias)
         return JsonResponse({"ok": False, "error": "package_missing"}, status=400)
-    if int(getattr(upload, "size", 0) or 0) > _MAX_SYNC_PACKAGE_BYTES:
+
+    upload_size = int(getattr(upload, "size", 0) or 0)
+    _dev_sync_diag(
+        "REQUEST",
+        project_id=project.id,
+        alias=alias,
+        bytes=upload_size,
+        layers=len(plan.get("layers") or []),
+    )
+    if upload_size > _MAX_SYNC_PACKAGE_BYTES:
+        _dev_sync_diag("PACKAGE_TOO_LARGE", project_id=project.id, bytes=upload_size)
         return JsonResponse({"ok": False, "error": "package_too_large"}, status=413)
 
     payload = upload.read()
     try:
+        _dev_sync_diag("DIFF_START", project_id=project.id, bytes=len(payload))
         result = sync_project_geopackage_v2(
             alias,
             project_id=str(project.id),
@@ -210,6 +242,11 @@ def qgis_project_sync_api(request, project_id):
             package_bytes=payload,
         )
     except SyncConflict as exc:
+        _dev_sync_diag(
+            "CONFLICT",
+            project_id=project.id,
+            conflicts=len(exc.conflicts),
+        )
         return JsonResponse(
             {
                 "ok": False,
@@ -221,6 +258,12 @@ def qgis_project_sync_api(request, project_id):
             json_dumps_params={"ensure_ascii": False},
         )
     except SyncRejected as exc:
+        _dev_sync_diag(
+            "REJECTED",
+            project_id=project.id,
+            error_type=type(exc).__name__,
+            details=len(exc.details),
+        )
         return JsonResponse(
             {
                 "ok": False,
@@ -231,10 +274,42 @@ def qgis_project_sync_api(request, project_id):
             status=400,
             json_dumps_params={"ensure_ascii": False},
         )
-    except (DatabaseError, sqlite3.Error):
+    except (DatabaseError, sqlite3.Error) as exc:
+        _dev_sync_diag(
+            "PROCESSING_FAIL",
+            project_id=project.id,
+            error_type=type(exc).__name__,
+        )
+        if _dev_sync_diag_enabled():
+            logger.exception(
+                "DEV-QGIS-SYNC PROCESSING_FAIL project_id=%s error_type=%s",
+                project.id,
+                type(exc).__name__,
+            )
         return JsonResponse(
             {"ok": False, "error": "sync_failed", "message": "GeoFlow sync processing failed."},
             status=503,
         )
+    except Exception as exc:
+        _dev_sync_diag(
+            "UNEXPECTED_FAIL",
+            project_id=project.id,
+            error_type=type(exc).__name__,
+        )
+        if _dev_sync_diag_enabled():
+            logger.exception(
+                "DEV-QGIS-SYNC UNEXPECTED_FAIL project_id=%s error_type=%s",
+                project.id,
+                type(exc).__name__,
+            )
+        raise
 
+    _dev_sync_diag(
+        "SUCCESS",
+        project_id=project.id,
+        created=int(result.get("created") or 0),
+        updated=int(result.get("updated") or 0),
+        deleted=int(result.get("deleted") or 0),
+        total=int(result.get("total") or 0),
+    )
     return JsonResponse({"ok": True, **result}, json_dumps_params={"ensure_ascii": False})
