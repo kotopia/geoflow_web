@@ -1,11 +1,26 @@
 param(
-    [string]$PythonExe = "python",
+    [string]$PythonExe = "",
     [string]$TenantAlias = "cheonan_db",
     [string]$ExpectedCentralDb = "geoflow_control_dev",
     [string]$ExpectedTenantDb = "geoflow_dev"
 )
 
 $ErrorActionPreference = "Stop"
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+Set-Location $repoRoot
+
+if (-not $PythonExe) {
+    $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        throw "GeoFlow .venv is missing. Run .\scripts\windows\setup_workstation.ps1 -Bootstrap first."
+    }
+    $PythonExe = $venvPython
+}
+
+if (-not (Test-Path $PythonExe) -and -not (Get-Command $PythonExe -ErrorAction SilentlyContinue)) {
+    throw "Python executable not found: $PythonExe"
+}
 
 $requiredEnv = @(
     'DJANGO_SECRET_KEY',
@@ -27,11 +42,23 @@ if ($ExpectedCentralDb -notmatch '(?i)(dev|test)' -or $ExpectedTenantDb -notmatc
     throw "Safety stop: expected central/tenant DB names must be dev/test databases."
 }
 
-Write-Host "[1/3] Django configuration check..." -ForegroundColor Cyan
+Write-Host "Python runtime: $PythonExe" -ForegroundColor DarkCyan
+& $PythonExe -c "import sys; print('python=' + sys.version.split()[0]); import django, openpyxl, psycopg2; print('django=' + django.get_version()); print('openpyxl=' + openpyxl.__version__)"
+if ($LASTEXITCODE -ne 0) {
+    throw "Pinned Python dependencies are incomplete. Run .\scripts\windows\setup_workstation.ps1 -Bootstrap."
+}
+
+Write-Host "[1/4] Verify GeoDjango native libraries..." -ForegroundColor Cyan
+& $PythonExe -c "from django.contrib.gis import gdal, geos; print('GDAL=' + str(gdal.GDAL_VERSION)); print('GEOS=' + str(geos.geos_version()))"
+if ($LASTEXITCODE -ne 0) {
+    throw "GeoDjango native libraries are not loadable. Run .\scripts\windows\set_geodjango_from_qgis.ps1 in this PowerShell session."
+}
+
+Write-Host "[2/4] Django configuration check..." -ForegroundColor Cyan
 & $PythonExe manage.py check
 if ($LASTEXITCODE -ne 0) { throw "python manage.py check failed." }
 
-Write-Host "[2/3] Verify physical database routing..." -ForegroundColor Cyan
+Write-Host "[3/4] Verify physical database routing..." -ForegroundColor Cyan
 $routeCode = @"
 from django.db import connections
 central = connections['default']
@@ -53,7 +80,7 @@ if tenant_db != '$ExpectedTenantDb':
 & $PythonExe manage.py shell -c $routeCode
 if ($LASTEXITCODE -ne 0) { throw "Runtime database routing verification failed." }
 
-Write-Host "[3/3] Verify GIS metadata, synthetic project, and object counts..." -ForegroundColor Green
+Write-Host "[4/4] Verify GIS metadata, synthetic project, and object counts..." -ForegroundColor Green
 $gisCode = @"
 from django.db import connections
 conn = connections['$TenantAlias']
