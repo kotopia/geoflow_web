@@ -1,3 +1,4 @@
+\encoding UTF8
 -- GeoFlow GIS metadata/profile seed v0.1
 -- DEVELOPMENT / PILOT ONLY.
 -- Run only after gis-schema-foundation.sql and gis-initial-feature-tables-v0.1.sql.
