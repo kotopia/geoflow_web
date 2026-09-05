@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from .events import realtime_runtime_enabled
 
-QGIS_MANIFEST_VERSION = "0.6"
+
+QGIS_MANIFEST_VERSION = "0.7"
 QGIS_TRANSPORT_MODE = "server_gpkg_editable_snapshot"
 
 
@@ -21,6 +23,7 @@ def build_qgis_manifest(
     delta_url: str = "",
     changeset_supported: bool = False,
     current_revision: int = 0,
+    realtime_supported: bool | None = None,
 ) -> dict[str, Any]:
     """Build the server-authoritative QGIS GeoPackage manifest."""
 
@@ -44,6 +47,15 @@ def build_qgis_manifest(
     effective_changeset = bool(
         changeset_supported and can_write and changeset_url and delta_url
     )
+    if realtime_supported is None:
+        realtime_supported = realtime_runtime_enabled()
+    effective_realtime = bool(realtime_supported and effective_changeset)
+    realtime_url = (
+        f"/ws/gis/projects/{project_id}/"
+        if effective_realtime
+        else ""
+    )
+
     return {
         "manifest_version": QGIS_MANIFEST_VERSION,
         "transport": {
@@ -62,13 +74,20 @@ def build_qgis_manifest(
             "changeset_url": changeset_url if effective_changeset else "",
             "delta_url": delta_url if effective_changeset else "",
             "current_revision": int(current_revision or 0),
+            "realtime_supported": effective_realtime,
+            "realtime_url": realtime_url,
+            "realtime_protocol": (
+                "websocket_delta_hint_v1" if effective_realtime else ""
+            ),
             "preferred_sync_protocol": (
                 "changeset_v1" if effective_changeset else "gpkg_diff_fallback"
             ),
             "write_authorized": bool(can_write),
             "note": (
                 "The v1 operating model is field-level Changeset write + revision Delta read. "
-                "Whole-GeoPackage diff sync remains a gated fallback while the QGIS client transition is completed."
+                "When development realtime is enabled, WebSocket messages are hints only and QGIS "
+                "pulls authoritative changes through the Delta API. Whole-GeoPackage diff sync "
+                "remains a gated fallback while the client transition is completed."
             ),
         },
         "project": {

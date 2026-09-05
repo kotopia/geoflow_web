@@ -1,8 +1,13 @@
 def classFactory(iface):
     from .delta_apply_v3 import DeltaApplyV3Mixin
     from .plugin import GeoFlowConnectorPlugin
+    from .realtime_delta import RealtimeDeltaMixin
 
-    class GeoFlowConnectorPluginV052(DeltaApplyV3Mixin, GeoFlowConnectorPlugin):
+    class GeoFlowConnectorPluginV060(
+        RealtimeDeltaMixin,
+        DeltaApplyV3Mixin,
+        GeoFlowConnectorPlugin,
+    ):
         pass
 
-    return GeoFlowConnectorPluginV052(iface)
+    return GeoFlowConnectorPluginV060(iface)

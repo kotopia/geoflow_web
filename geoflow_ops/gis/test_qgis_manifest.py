@@ -42,9 +42,10 @@ class QgisManifestTests(SimpleTestCase):
             delta_url="/gis/projects/x/api/delta/",
             changeset_supported=True,
             current_revision=42,
+            realtime_supported=True,
         )
 
-        self.assertEqual(manifest["manifest_version"], "0.6")
+        self.assertEqual(manifest["manifest_version"], "0.7")
         self.assertEqual(manifest["transport"]["mode"], "server_gpkg_editable_snapshot")
         self.assertFalse(manifest["transport"]["direct_postgis_credentials_exposed"])
         self.assertTrue(manifest["transport"]["local_editing_supported"])
@@ -68,6 +69,15 @@ class QgisManifestTests(SimpleTestCase):
         self.assertEqual(
             manifest["transport"]["delta_url"],
             "/gis/projects/x/api/delta/",
+        )
+        self.assertTrue(manifest["transport"]["realtime_supported"])
+        self.assertEqual(
+            manifest["transport"]["realtime_url"],
+            "/ws/gis/projects/11111111-1111-4111-8111-111111111402/",
+        )
+        self.assertEqual(
+            manifest["transport"]["realtime_protocol"],
+            "websocket_delta_hint_v1",
         )
         self.assertTrue(manifest["transport"]["write_authorized"])
         self.assertEqual(manifest["transport"]["package_downloads_per_open"], 1)
@@ -107,6 +117,7 @@ class QgisManifestTests(SimpleTestCase):
             delta_url="/g/delta/",
             changeset_supported=True,
             current_revision=9,
+            realtime_supported=True,
         )
         self.assertFalse(manifest["transport"]["local_editing_supported"])
         self.assertFalse(manifest["transport"]["sync_supported"])
@@ -114,6 +125,8 @@ class QgisManifestTests(SimpleTestCase):
         self.assertFalse(manifest["transport"]["auto_sync_on_qgis_save"])
         self.assertEqual(manifest["transport"]["sync_url"], "")
         self.assertEqual(manifest["transport"]["changeset_url"], "")
+        self.assertFalse(manifest["transport"]["realtime_supported"])
+        self.assertEqual(manifest["transport"]["realtime_url"], "")
         self.assertFalse(manifest["transport"]["write_authorized"])
         self.assertEqual(manifest["layers"][0]["row_count"], 0)
 
@@ -129,11 +142,13 @@ class QgisManifestTests(SimpleTestCase):
             changeset_url="/g/changesets/",
             delta_url="/g/delta/",
             changeset_supported=False,
+            realtime_supported=True,
         )
         self.assertTrue(manifest["transport"]["local_editing_supported"])
         self.assertTrue(manifest["transport"]["sync_supported"])
         self.assertFalse(manifest["transport"]["changeset_supported"])
         self.assertTrue(manifest["transport"]["auto_sync_on_qgis_save"])
+        self.assertFalse(manifest["transport"]["realtime_supported"])
         self.assertEqual(
             manifest["transport"]["preferred_sync_protocol"],
             "gpkg_diff_fallback",
@@ -151,11 +166,13 @@ class QgisManifestTests(SimpleTestCase):
             changeset_url="/g/changesets/",
             delta_url="/g/delta/",
             changeset_supported=False,
+            realtime_supported=True,
         )
         self.assertTrue(manifest["transport"]["local_editing_supported"])
         self.assertFalse(manifest["transport"]["sync_supported"])
         self.assertFalse(manifest["transport"]["changeset_supported"])
         self.assertFalse(manifest["transport"]["auto_sync_on_qgis_save"])
+        self.assertFalse(manifest["transport"]["realtime_supported"])
         self.assertEqual(manifest["transport"]["sync_url"], "")
 
     def test_manifest_keeps_layer_plan_scope(self):
@@ -174,6 +191,7 @@ class QgisManifestTests(SimpleTestCase):
                     "fields": [],
                 }
             ],
+            realtime_supported=False,
         )
         self.assertEqual([row["standard_name"] for row in manifest["layers"]], ["DORO"])
         self.assertIsNone(manifest["layers"][0]["row_count"])
