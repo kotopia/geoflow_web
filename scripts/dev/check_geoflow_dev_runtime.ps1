@@ -42,6 +42,10 @@ if ($ExpectedCentralDb -notmatch '(?i)(dev|test)' -or $ExpectedTenantDb -notmatc
     throw "Safety stop: expected central/tenant DB names must be dev/test databases."
 }
 
+if (-not $env:DJANGO_SETTINGS_MODULE) {
+    $env:DJANGO_SETTINGS_MODULE = "geoflow_project.settings"
+}
+
 Write-Host "Python runtime: $PythonExe" -ForegroundColor DarkCyan
 & $PythonExe -c "import sys; print('python=' + sys.version.split()[0]); import django, openpyxl, psycopg2; print('django=' + django.get_version()); print('openpyxl=' + openpyxl.__version__)"
 if ($LASTEXITCODE -ne 0) {
@@ -49,7 +53,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[1/5] Verify GeoDjango native libraries..." -ForegroundColor Cyan
-& $PythonExe -c "from django.contrib.gis import gdal, geos; print('geodjango_native_libraries=ready')"
+& $PythonExe -c "import django; django.setup(); from django.contrib.gis import gdal, geos; print('geodjango_native_libraries=ready'); print('gdal_version=' + '.'.join(map(str, gdal.GDAL_VERSION)))"
 if ($LASTEXITCODE -ne 0) {
     throw "GeoDjango native libraries are not loadable. Run .\scripts\windows\set_geodjango_from_qgis.ps1 in this PowerShell session."
 }
