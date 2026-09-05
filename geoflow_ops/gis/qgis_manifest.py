@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-QGIS_MANIFEST_VERSION = "0.5"
+QGIS_MANIFEST_VERSION = "0.6"
 QGIS_TRANSPORT_MODE = "server_gpkg_editable_snapshot"
 
 
@@ -17,6 +17,10 @@ def build_qgis_manifest(
     layer_counts: dict[str, int | None] | None = None,
     sync_url: str = "",
     sync_supported: bool = False,
+    changeset_url: str = "",
+    delta_url: str = "",
+    changeset_supported: bool = False,
+    current_revision: int = 0,
 ) -> dict[str, Any]:
     """Build the server-authoritative QGIS GeoPackage manifest."""
 
@@ -37,6 +41,9 @@ def build_qgis_manifest(
         )
 
     effective_sync = bool(sync_supported and can_write and sync_url)
+    effective_changeset = bool(
+        changeset_supported and can_write and changeset_url and delta_url
+    )
     return {
         "manifest_version": QGIS_MANIFEST_VERSION,
         "transport": {
@@ -48,14 +55,20 @@ def build_qgis_manifest(
             "package_downloads_per_open": 1,
             "local_editing_supported": bool(can_write),
             "sync_supported": effective_sync,
-            "auto_sync_on_qgis_save": effective_sync,
-            "sync_strategy": "last_successful_server_write_wins",
+            "auto_sync_on_qgis_save": bool(effective_sync or effective_changeset),
+            "sync_strategy": "field_patch_last_successful_server_write_wins",
             "sync_url": sync_url if effective_sync else "",
+            "changeset_supported": effective_changeset,
+            "changeset_url": changeset_url if effective_changeset else "",
+            "delta_url": delta_url if effective_changeset else "",
+            "current_revision": int(current_revision or 0),
+            "preferred_sync_protocol": (
+                "changeset_v1" if effective_changeset else "gpkg_diff_fallback"
+            ),
             "write_authorized": bool(can_write),
             "note": (
-                "QGIS save commits locally, then the connector automatically syncs "
-                "locally changed UUID objects to GeoFlow. When the same object is "
-                "changed by multiple clients, the latest successful server sync wins."
+                "The v1 operating model is field-level Changeset write + revision Delta read. "
+                "Whole-GeoPackage diff sync remains a gated fallback while the QGIS client transition is completed."
             ),
         },
         "project": {
@@ -70,6 +83,6 @@ def build_qgis_manifest(
         "layer_count": len(layers),
         "qfield": {
             "package_supported": False,
-            "reason": "qgis_auto_sync_before_qfield",
+            "reason": "roaming_cache_protocol_not_implemented_yet",
         },
     }
