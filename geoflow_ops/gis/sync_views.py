@@ -15,6 +15,7 @@ from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
 from .changeset import ChangesetUnavailable, apply_project_changeset, project_delta
+from .events import publish_project_change_event
 from .layer_plan import project_layer_plan
 from .qgis_sync import SyncConflict, SyncRejected
 
@@ -117,6 +118,8 @@ def project_changeset_api(request, project_id):
             status=503,
         )
 
+    if not result.get("replayed"):
+        publish_project_change_event(result)
     return JsonResponse(result, json_dumps_params={"ensure_ascii": False})
 
 
