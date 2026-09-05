@@ -16,6 +16,14 @@ from qgis.PyQt.QtWidgets import (
 from .client import GeoFlowClientError, GeoFlowHttpClient
 
 
+def _password_echo_mode():
+    """Return the password echo enum for both Qt5/QGIS 3 and Qt6/QGIS 4."""
+    echo_mode = getattr(QLineEdit, "EchoMode", None)
+    if echo_mode is not None and hasattr(echo_mode, "Password"):
+        return echo_mode.Password
+    return QLineEdit.Password
+
+
 class GeoFlowConnectorDialog(QDialog):
     def __init__(self, parent=None, *, on_open_project=None, on_sync=None):
         super().__init__(parent)
@@ -35,7 +43,7 @@ class GeoFlowConnectorDialog(QDialog):
             settings.value("GeoFlowConnector/email", "", type=str)
         )
         self.password_edit = QLineEdit()
-        self.password_edit.setEchoMode(QLineEdit.Password)
+        self.password_edit.setEchoMode(_password_echo_mode())
         self.password_edit.setPlaceholderText("저장하지 않습니다")
 
         self.project_combo = QComboBox()
@@ -174,12 +182,12 @@ class GeoFlowConnectorDialog(QDialog):
         updated = int(result.get("updated") or 0)
         deleted = int(result.get("deleted") or 0)
         self.status_label.setText(
-            f"GeoFlow 동기화 완료 · 신규 {created} · 수정 {updated} · 삭제 {deleted} · 기준선 새로고침 완료"
+            f"GeoFlow 동기화 완료 · 신규 {created} · 수정 {updated} · 삭제 {deleted} · 기준선 갱신 완료"
         )
         QMessageBox.information(
             self,
             "GeoFlow 동기화 완료",
-            f"신규 {created}건\n수정 {updated}건\n삭제 {deleted}건\n\n서버 반영 후 새 GeoPackage로 다시 열었습니다.",
+            f"신규 {created}건\n수정 {updated}건\n삭제 {deleted}건\n\n현재 GeoPackage 기준선이 갱신되었습니다.",
         )
         self.sync_ready = True
         self._set_busy(False)
