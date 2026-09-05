@@ -181,7 +181,7 @@ def qgis_project_manifest_api(request, project_id):
         package_layers=package_layers,
         layer_counts=layer_counts,
         sync_url=sync_url,
-        sync_supported=sync_runtime_enabled(alias),
+        sync_supported=sync_runtime_enabled(alias) and not changeset_supported,
         changeset_url=changeset_url,
         delta_url=delta_url,
         changeset_supported=changeset_supported,
@@ -209,7 +209,7 @@ def qgis_project_package_api(request, project_id):
     response["Content-Length"] = str(len(payload))
     response["X-GeoFlow-Project"] = str(project.id)
     response["X-GeoFlow-Layer-Count"] = str(len(layer_meta))
-    response["X-GeoFlow-Package-Version"] = "0.4"
+    response["X-GeoFlow-Package-Version"] = "0.5"
     if changeset_runtime_enabled(alias):
         response["X-GeoFlow-Snapshot-Revision"] = str(
             project_current_revision(alias, str(project.id))
@@ -226,6 +226,16 @@ def qgis_project_sync_api(request, project_id):
     if not policy.can_webgis_write(project.id):
         _dev_sync_diag("PERMISSION_DENIED", project_id=project.id, alias=alias)
         raise PermissionDenied("Permission denied")
+    if changeset_runtime_enabled(alias):
+        _dev_sync_diag("LEGACY_DISABLED", project_id=project.id, alias=alias)
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": "legacy_sync_disabled",
+                "message": "Whole-GeoPackage sync is disabled because Changeset v1 is active.",
+            },
+            status=409,
+        )
     if not sync_runtime_enabled(alias):
         _dev_sync_diag("RUNTIME_DISABLED", project_id=project.id, alias=alias)
         return JsonResponse(
