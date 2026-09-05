@@ -16,8 +16,18 @@ if (-not $QgisRoot) {
     $roots = @()
     $programFiles = ${env:ProgramFiles}
     if ($programFiles -and (Test-Path $programFiles)) {
-        $roots += Get-ChildItem $programFiles -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like 'QGIS*' } |
+        $qgisDirs = @(Get-ChildItem $programFiles -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'QGIS*' })
+
+        # GeoFlow's current tested desktop connector/runtime is QGIS 3.x.
+        # Prefer the newest installed 3.x build over a newer major QGIS 4.x
+        # installation until the 4.x runtime is separately validated.
+        $roots += $qgisDirs |
+            Where-Object { $_.Name -match '^QGIS\s+3\.' } |
+            Sort-Object Name -Descending |
+            Select-Object -ExpandProperty FullName
+        $roots += $qgisDirs |
+            Where-Object { $_.Name -notmatch '^QGIS\s+3\.' } |
             Sort-Object Name -Descending |
             Select-Object -ExpandProperty FullName
     }
@@ -65,9 +75,13 @@ foreach ($pathEntry in $pathCandidates) { Add-PathEntry $pathEntry }
 
 $env:GDAL_LIBRARY_PATH = $gdalDll
 $env:GEOS_LIBRARY_PATH = $geosDll
+if (-not $env:DJANGO_SETTINGS_MODULE) {
+    $env:DJANGO_SETTINGS_MODULE = 'geoflow_project.settings'
+}
 
 Write-Host "GeoDjango native library environment configured for this PowerShell session." -ForegroundColor Green
 Write-Host "QGIS root: $QgisRoot" -ForegroundColor Green
 Write-Host "GDAL_LIBRARY_PATH=$gdalDll" -ForegroundColor Green
 Write-Host "GEOS_LIBRARY_PATH=$geosDll" -ForegroundColor Green
+Write-Host "DJANGO_SETTINGS_MODULE=$env:DJANGO_SETTINGS_MODULE" -ForegroundColor Green
 Write-Host "QGIS runtime paths were prepended to PATH where present." -ForegroundColor Green
