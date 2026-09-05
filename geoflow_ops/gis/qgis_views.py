@@ -19,6 +19,7 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
+from .changeset import changeset_runtime_enabled, project_current_revision
 from .gpkg import project_geopackage_layer_manifest
 from .gpkg_syncable import build_syncable_project_geopackage
 from .layer_plan import gis_enabled_project_ids, project_layer_plan
@@ -158,6 +159,15 @@ def qgis_project_manifest_api(request, project_id):
         "gis:qgis_project_sync_api",
         kwargs={"project_id": project.id},
     )
+    changeset_url = reverse(
+        "gis:project_changeset_api",
+        kwargs={"project_id": project.id},
+    )
+    delta_url = reverse(
+        "gis:project_delta_api",
+        kwargs={"project_id": project.id},
+    )
+    changeset_supported = changeset_runtime_enabled(alias)
     manifest = build_qgis_manifest(
         project={
             "id": project.id,
@@ -172,6 +182,10 @@ def qgis_project_manifest_api(request, project_id):
         layer_counts=layer_counts,
         sync_url=sync_url,
         sync_supported=sync_runtime_enabled(alias),
+        changeset_url=changeset_url,
+        delta_url=delta_url,
+        changeset_supported=changeset_supported,
+        current_revision=project_current_revision(alias, str(project.id)) if changeset_supported else 0,
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
 
@@ -196,6 +210,10 @@ def qgis_project_package_api(request, project_id):
     response["X-GeoFlow-Project"] = str(project.id)
     response["X-GeoFlow-Layer-Count"] = str(len(layer_meta))
     response["X-GeoFlow-Package-Version"] = "0.4"
+    if changeset_runtime_enabled(alias):
+        response["X-GeoFlow-Snapshot-Revision"] = str(
+            project_current_revision(alias, str(project.id))
+        )
     response["Cache-Control"] = "private, no-store"
     return response
 
