@@ -373,10 +373,10 @@ def _copy_layer_rows(alias: str, sqlite_conn: sqlite3.Connection, layer: Package
                 SELECT {select_fields},
                        ST_AsBinary(geom),
                        updated_at,
-                       ST_XMin(ST_Box3D(geom)),
-                       ST_YMin(ST_Box3D(geom)),
-                       ST_XMax(ST_Box3D(geom)),
-                       ST_YMax(ST_Box3D(geom))
+                       ST_XMin(Box3D(geom)),
+                       ST_YMin(Box3D(geom)),
+                       ST_XMax(Box3D(geom)),
+                       ST_YMax(Box3D(geom))
                   FROM {source_table}
                  WHERE {where}
                  ORDER BY id
