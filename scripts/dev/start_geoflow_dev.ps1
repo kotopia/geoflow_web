@@ -67,14 +67,27 @@ Write-Host "[3/4] Run read-only development runtime preflight..." -ForegroundCol
     -ExpectedCentralDb $CentralDb `
     -ExpectedTenantDb $TenantDb
 
-Write-Host "[4/4] Start isolated GeoFlow development server..." -ForegroundColor Green
+$daphneExe = Join-Path $repoRoot ".venv\Scripts\daphne.exe"
+if (-not (Test-Path $daphneExe)) {
+    throw "Daphne is missing from the GeoFlow .venv. Run: .\.venv\Scripts\python.exe -m pip install -r requirements.txt"
+}
+
+$listenParts = $Listen -split ':', 2
+if ($listenParts.Count -ne 2 -or -not $listenParts[0] -or -not $listenParts[1]) {
+    throw "Listen must use host:port form, for example 127.0.0.1:8000."
+}
+$listenHost = $listenParts[0]
+$listenPort = $listenParts[1]
+
+Write-Host "[4/4] Start isolated GeoFlow ASGI development server..." -ForegroundColor Green
 Write-Host "STRICT DEV DB GUARD: enabled" -ForegroundColor Green
 Write-Host "DEV AUTH DIAGNOSTICS: enabled (stage/length only; no secrets)" -ForegroundColor Green
+Write-Host "GIS REALTIME: WebSocket enabled with one-process in-memory channel layer" -ForegroundColor Green
 Write-Host "Central DB: $CentralDb" -ForegroundColor Green
 Write-Host "Tenant DB:  $TenantDb" -ForegroundColor Green
 Write-Host "Login:      http://$Listen/login/" -ForegroundColor Green
 Write-Host "GIS:        http://$Listen/gis/" -ForegroundColor Green
 Write-Host "Press Ctrl+C to stop the development server." -ForegroundColor DarkCyan
 
-& $venvPython manage.py runserver $Listen --noreload
-if ($LASTEXITCODE -ne 0) { throw "GeoFlow development server exited with an error." }
+& $daphneExe -b $listenHost -p $listenPort geoflow_project.asgi:application
+if ($LASTEXITCODE -ne 0) { throw "GeoFlow ASGI development server exited with an error." }
