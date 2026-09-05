@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from django.db import connections, transaction
+
 from .gpkg import _layer_specs, build_project_geopackage
 from .qgis_sync_hash import content_hash, extract_gpkg_wkb
 
@@ -28,17 +30,38 @@ def _ensure_hash_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE _geoflow_baseline ADD COLUMN content_hash TEXT")
 
 
+def _snapshot_revision(alias: str, project_id: str) -> int:
+    with connections[alias].cursor() as cursor:
+        cursor.execute("SELECT to_regclass('gis.project_sync_state')")
+        if cursor.fetchone()[0] is None:
+            return 0
+        cursor.execute(
+            "SELECT current_revision FROM gis.project_sync_state WHERE project_id=%s",
+            [project_id],
+        )
+        row = cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
 def build_syncable_project_geopackage(
     alias: str,
     *,
     project_id: str,
     plan: dict[str, Any],
 ) -> tuple[bytes, list[dict[str, Any]]]:
-    payload, layer_meta = build_project_geopackage(
-        alias,
-        project_id=project_id,
-        plan=plan,
-    )
+    # A Delta cursor is valid only when every layer in the package was read from
+    # the same PostgreSQL snapshot. REPEATABLE READ keeps the server snapshot
+    # coherent even if another QGIS/QField client commits while materialization
+    # is in progress.
+    with transaction.atomic(using=alias):
+        with connections[alias].cursor() as cursor:
+            cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        snapshot_revision = _snapshot_revision(alias, project_id)
+        payload, layer_meta = build_project_geopackage(
+            alias,
+            project_id=project_id,
+            plan=plan,
+        )
 
     temp = tempfile.NamedTemporaryFile(
         prefix="geoflow-syncable-",
@@ -53,7 +76,15 @@ def build_syncable_project_geopackage(
         try:
             _ensure_hash_column(conn)
             conn.execute(
-                "UPDATE _geoflow_package SET value='0.4' WHERE key='package_version'"
+                "UPDATE _geoflow_package SET value='0.5' WHERE key='package_version'"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO _geoflow_package(key,value) VALUES ('snapshot_revision',?)",
+                (str(snapshot_revision),),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO _geoflow_package(key,value) VALUES ('last_applied_revision',?)",
+                (str(snapshot_revision),),
             )
 
             for spec in _layer_specs(alias, plan):
