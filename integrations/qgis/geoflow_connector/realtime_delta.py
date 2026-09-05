@@ -9,27 +9,36 @@ from qgis.core import Qgis
 
 try:
     from qgis.PyQt.QtWebSockets import QWebSocket
-except ImportError:  # pragma: no cover - depends on the bundled QGIS Qt build
-    QWebSocket = None
+except ImportError:  # QGIS builds do not always re-export QtWebSockets via qgis.PyQt.
+    try:
+        from PyQt6.QtWebSockets import QWebSocket
+    except ImportError:
+        try:
+            from PyQt5.QtWebSockets import QWebSocket
+        except ImportError:  # pragma: no cover - depends on the bundled QGIS Qt build
+            QWebSocket = None
 
 from .changeset_queue import read_last_applied_revision
 
 
 class RealtimeDeltaMixin:
-    """Use GeoFlow WebSocket events as hints to pull revision Delta into QGIS.
+    """Use realtime hints to pull revision Delta into QGIS.
 
-    The socket never carries feature payloads and never writes directly to the
-    database.  It only tells QGIS that a project revision changed.  QGIS then
-    uses the existing authenticated Delta API, so reconnects and missed socket
-    messages remain recoverable from ``last_applied_revision``.
+    WebSocket is the preferred transport.  Some QGIS/Qt builds do not expose
+    ``QtWebSockets`` through ``qgis.PyQt`` even though the rest of the plugin is
+    usable, so a low-frequency Delta poll is retained as a compatibility and
+    reconnect fallback.  Neither transport carries feature payloads; the
+    authoritative data always comes from the authenticated Delta API.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._realtime_socket = None
+        self._realtime_socket_connected = False
         self._realtime_pending_revision = 0
         self._realtime_force_pull = False
         self._realtime_delta_retry_count = 0
+        self._realtime_fallback_announced = False
 
         self._realtime_delta_timer = QTimer()
         self._realtime_delta_timer.setSingleShot(True)
@@ -41,19 +50,27 @@ class RealtimeDeltaMixin:
         self._realtime_reconnect_timer.setInterval(2500)
         self._realtime_reconnect_timer.timeout.connect(self._start_realtime_socket)
 
+        self._realtime_poll_timer = QTimer()
+        self._realtime_poll_timer.setSingleShot(True)
+        self._realtime_poll_timer.setInterval(1500)
+        self._realtime_poll_timer.timeout.connect(self._run_realtime_poll)
+
     def unload(self):
         self._realtime_delta_timer.stop()
         self._realtime_reconnect_timer.stop()
+        self._realtime_poll_timer.stop()
         self._stop_realtime_socket()
         super().unload()
 
     def _materialize_project(self, manifest: dict, client) -> dict:
         self._realtime_delta_timer.stop()
         self._realtime_reconnect_timer.stop()
+        self._realtime_poll_timer.stop()
         self._stop_realtime_socket()
         self._realtime_pending_revision = 0
         self._realtime_force_pull = False
         self._realtime_delta_retry_count = 0
+        self._realtime_fallback_announced = False
 
         result = super()._materialize_project(manifest, client)
         self._start_realtime_socket()
@@ -62,15 +79,21 @@ class RealtimeDeltaMixin:
     def _realtime_transport(self) -> dict:
         return ((self.active_context or {}).get("manifest") or {}).get("transport") or {}
 
-    def _realtime_available(self) -> bool:
+    def _realtime_transport_available(self) -> bool:
         transport = self._realtime_transport()
         return bool(
-            QWebSocket is not None
-            and self.active_client is not None
+            self.active_client is not None
             and (self.active_context or {}).get("changeset_supported")
             and transport.get("realtime_supported")
-            and transport.get("realtime_url")
             and transport.get("delta_url")
+        )
+
+    def _realtime_websocket_available(self) -> bool:
+        transport = self._realtime_transport()
+        return bool(
+            self._realtime_transport_available()
+            and QWebSocket is not None
+            and transport.get("realtime_url")
         )
 
     @staticmethod
@@ -103,6 +126,7 @@ class RealtimeDeltaMixin:
     def _stop_realtime_socket(self) -> None:
         socket = self._realtime_socket
         self._realtime_socket = None
+        self._realtime_socket_connected = False
         if socket is None:
             return
         try:
@@ -117,9 +141,27 @@ class RealtimeDeltaMixin:
         except Exception:
             pass
 
+    def _start_poll_fallback(self, *, announce: bool = False) -> None:
+        if not self._realtime_transport_available():
+            return
+        if announce and not self._realtime_fallback_announced:
+            self._realtime_fallback_announced = True
+            self.iface.messageBar().pushMessage(
+                "GeoFlow",
+                "QGIS WebSocket 호환 경로를 사용할 수 없어 Delta 폴링으로 실시간 수신을 유지합니다.",
+                level=Qgis.Warning,
+                duration=6,
+            )
+        if not self._realtime_poll_timer.isActive():
+            self._realtime_poll_timer.start()
+
     def _start_realtime_socket(self) -> None:
         self._realtime_reconnect_timer.stop()
-        if not self._realtime_available():
+        if not self._realtime_transport_available():
+            return
+
+        if not self._realtime_websocket_available():
+            self._start_poll_fallback(announce=True)
             return
 
         self._stop_realtime_socket()
@@ -152,6 +194,9 @@ class RealtimeDeltaMixin:
                 QByteArray(cookie_header.encode("utf-8")),
             )
             socket.open(request)
+            # If the Qt socket never reaches connected/disconnected, Delta
+            # polling still closes the gap instead of leaving a silent client.
+            self._realtime_poll_timer.start(2000)
         except Exception as exc:
             self._stop_realtime_socket()
             self.iface.messageBar().pushMessage(
@@ -160,11 +205,15 @@ class RealtimeDeltaMixin:
                 level=Qgis.Warning,
                 duration=6,
             )
+            self._start_poll_fallback(announce=True)
             self._realtime_reconnect_timer.start()
 
     def _on_realtime_connected(self, socket) -> None:
         if socket is not self._realtime_socket:
             return
+        self._realtime_socket_connected = True
+        self._realtime_poll_timer.stop()
+        self._realtime_fallback_announced = False
         self.iface.messageBar().pushMessage(
             "GeoFlow",
             "QGIS 실시간 Delta 연결됨",
@@ -176,11 +225,13 @@ class RealtimeDeltaMixin:
         if socket is not self._realtime_socket:
             return
         self._realtime_socket = None
+        self._realtime_socket_connected = False
         try:
             socket.deleteLater()
         except Exception:
             pass
-        if self._realtime_available():
+        if self._realtime_transport_available():
+            self._start_poll_fallback(announce=False)
             self._realtime_reconnect_timer.start()
 
     def _on_realtime_message(self, socket, text: str) -> None:
@@ -240,8 +291,19 @@ class RealtimeDeltaMixin:
                 continue
         return False
 
+    def _run_realtime_poll(self) -> None:
+        if not self._realtime_transport_available():
+            return
+        if self._realtime_socket_connected:
+            return
+
+        self._realtime_force_pull = True
+        self._run_realtime_delta_pull()
+        if self._realtime_transport_available() and not self._realtime_socket_connected:
+            self._realtime_poll_timer.start(1500)
+
     def _run_realtime_delta_pull(self) -> None:
-        if not self._realtime_available():
+        if not self._realtime_transport_available():
             return
         if self._sync_in_progress or self._managed_layer_has_unsaved_edits():
             self._realtime_delta_timer.start(800)
