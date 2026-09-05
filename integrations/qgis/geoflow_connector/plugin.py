@@ -76,6 +76,20 @@ class GeoFlowConnectorPlugin:
         return cleaned.strip("._") or "layer"
 
     @staticmethod
+    def _app_data_location() -> str:
+        """Return the per-user app-data directory across Qt5/Qt6.
+
+        Qt5 exposes QStandardPaths.AppDataLocation directly while Qt6 exposes
+        it under QStandardPaths.StandardLocation.AppDataLocation.
+        """
+        standard_location = getattr(QStandardPaths, "StandardLocation", None)
+        if standard_location is not None and hasattr(standard_location, "AppDataLocation"):
+            enum_value = standard_location.AppDataLocation
+        else:
+            enum_value = getattr(QStandardPaths, "AppDataLocation")
+        return QStandardPaths.writableLocation(enum_value)
+
+    @staticmethod
     def _write_project_metadata(
         qgs_project: QgsProject,
         manifest: dict,
@@ -274,8 +288,6 @@ class GeoFlowConnectorPlugin:
         for layer in self._managed_layers():
             try:
                 if layer.isModified():
-                    # Another managed layer still has unsaved edits. Wait for its
-                    # save event so one consistent package is sent.
                     self._auto_sync_timer.start()
                     return
             except Exception:
@@ -310,7 +322,7 @@ class GeoFlowConnectorPlugin:
         can_write = bool(transport.get("local_editing_supported") and transport.get("write_authorized"))
         sync_supported = bool(can_write and transport.get("sync_supported") and transport.get("sync_url"))
 
-        app_root = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+        app_root = self._app_data_location()
         project_dir = os.path.join(app_root, "GeoFlowConnector", "projects", self._safe_name(project_id))
         os.makedirs(project_dir, exist_ok=True)
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
