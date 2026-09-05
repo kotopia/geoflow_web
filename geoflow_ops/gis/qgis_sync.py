@@ -83,9 +83,17 @@ def _normalize(value: Any) -> Any:
 
 
 def _coerce_for_pg(value: Any, field: PackageField) -> Any:
-    if value is None:
-        return None
     kind = str(field.data_type or "").lower()
+    if value is None:
+        # GeoFlow GIS feature tables define ext_data as
+        # JSONB NOT NULL DEFAULT '{}'. QGIS/OGR represents an untouched JSON
+        # field on a newly created feature as NULL, so an explicit NULL insert
+        # would bypass the database default and violate the table contract.
+        # Keep the normalization narrowly scoped to ext_data; other nullable
+        # JSON fields must retain their own NULL semantics.
+        if field.name == "ext_data" and kind in {"json", "jsonb"}:
+            return Json({})
+        return None
     if kind == "boolean":
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "t", "yes", "y"}
