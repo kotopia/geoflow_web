@@ -141,6 +141,60 @@ class GeoFlowHttpClient:
             )
         )
 
+    def post_json(self, path: str, payload: dict) -> dict:
+        csrf = self._cookie_value("csrftoken")
+        if not csrf:
+            raise GeoFlowClientError("GeoFlow CSRF cookie is unavailable. Log in again.")
+        body = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self._url(path),
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Content-Length": str(len(body)),
+                "Accept": "application/json",
+                "X-CSRFToken": csrf,
+                "Referer": self._url("/gis/"),
+            },
+        )
+        try:
+            with self.opener.open(request, timeout=max(self.timeout, 120)) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            try:
+                response_payload = json.loads(raw.decode("utf-8"))
+                message = (
+                    response_payload.get("message")
+                    or response_payload.get("error")
+                    or f"HTTP {exc.code}"
+                )
+                conflicts = response_payload.get("conflicts") or []
+                if conflicts:
+                    message += f" (충돌 {len(conflicts)}건)"
+            except Exception:
+                message = raw.decode("utf-8", errors="replace")[:300]
+            raise GeoFlowClientError(f"GeoFlow Changeset failed: {message}") from None
+        except urllib.error.URLError as exc:
+            raise GeoFlowClientError(
+                f"GeoFlow Changeset connection failed: {exc.reason}"
+            ) from None
+
+        try:
+            response_payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise GeoFlowClientError(
+                "GeoFlow Changeset returned a non-JSON response."
+            ) from None
+        if not isinstance(response_payload, dict) or not response_payload.get("ok"):
+            raise GeoFlowClientError("GeoFlow Changeset returned an invalid response.")
+        return response_payload
+
     @staticmethod
     def _checkpoint_sqlite_bytes(file_path: str) -> bytes:
         """Return one consistent SQLite image including committed WAL contents."""
