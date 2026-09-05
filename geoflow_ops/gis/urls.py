@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import qgis_views, views
+from . import qgis_views, sync_views, views
 
 app_name = "gis"
 
@@ -16,6 +16,16 @@ urlpatterns = [
         "projects/<uuid:project_id>/api/geojson/",
         views.project_layer_geojson_api,
         name="project_layer_geojson_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/changesets/",
+        sync_views.project_changeset_api,
+        name="project_changeset_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/delta/",
+        sync_views.project_delta_api,
+        name="project_delta_api",
     ),
     path(
         "projects/<uuid:project_id>/api/qgis-manifest/",
