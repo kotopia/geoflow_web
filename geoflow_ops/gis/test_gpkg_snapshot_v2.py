@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sqlite3
 
 from django.test import SimpleTestCase
@@ -7,6 +8,7 @@ from django.test import SimpleTestCase
 from .gpkg_snapshot_v2 import (
     PackageField,
     PackageLayer,
+    _copy_layer_rows,
     _create_feature_table,
     _init_gpkg,
     _install_rtree_triggers,
@@ -78,3 +80,11 @@ class GeoPackageSnapshotV2Tests(SimpleTestCase):
             self.assertIn(prefix + "_delete", names)
         finally:
             conn.close()
+
+    def test_postgis_bbox_query_uses_box3d_constructor(self):
+        source = inspect.getsource(_copy_layer_rows)
+        self.assertIn("ST_XMin(Box3D(geom))", source)
+        self.assertIn("ST_YMin(Box3D(geom))", source)
+        self.assertIn("ST_XMax(Box3D(geom))", source)
+        self.assertIn("ST_YMax(Box3D(geom))", source)
+        self.assertNotIn("ST_Box3D", source)
