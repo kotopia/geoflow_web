@@ -2,11 +2,13 @@
 {% load static %}
 
 {% block extra_head %}
-<link rel="stylesheet"
+<link id="gfLeafletCss"
+      rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin="">
-<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260904-2">
+      integrity="sha256-p4NxAoJBhIINfQ3aOvS1RT/0Apk0E7VB4G1p4N1s4VY="
+      crossorigin=""
+      onerror="this.onerror=null;this.removeAttribute('integrity');this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260906-1">
 {% endblock %}
 
 {% block content %}
@@ -19,7 +21,7 @@
   <div class="d-flex gap-2">
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
-    <a class="btn btn-outline-secondary" href="{% url 'gis:qfield_package_api' project.id %}">QField 패키지 (PoC)</a>
+    <a class="btn btn-outline-success" href="{% url 'gis:qfield_package_api' project.id %}">QField 패키지 (PoC)</a>
   </div>
 </div>
 
@@ -63,7 +65,6 @@
         {% empty %}<div class="text-muted">GIS 업무범위가 없습니다.</div>{% endfor %}
         <hr>
         <div class="text-muted small"><code>QGIS Manifest</code>는 WebGIS와 동일한 Layer Plan을 QGIS Connector가 소비할 수 있도록 materialize한 서버 계약입니다.</div>
-        <div class="text-muted small mt-2"><code>QField 패키지 (PoC)</code>는 빈 로컬 GeoPackage와 GPS/화면 기반 Roaming Cache 플러그인을 묶어 내려받습니다. 현재는 strict development runtime에서만 활성화됩니다.</div>
       </div>
     </div>
   </div>
@@ -88,7 +89,13 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9coqIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-        crossorigin=""></script>
-<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260905-realtime-1"></script>
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+        onerror="this.onerror=null;this.removeAttribute('integrity');this.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';"></script>
+<script>
+  if (typeof window.L === "undefined") {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\\/script>');
+  }
+</script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260906-2"></script>
 {% endblock %}
