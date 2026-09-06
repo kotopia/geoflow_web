@@ -216,9 +216,7 @@ Item {
                 let incoming = features[j]
                 if (!incoming.id || featureExists(layer, incoming.id)) continue
                 let geometry = QfGeometryUtils.createGeometryFromWkt(incoming.geometry_wkt || "")
-                if (!geometry || geometry.isNull || geometry.isEmpty) {
-                    continue
-                }
+                if (!geometry || geometry.isNull() || geometry.isEmpty()) continue
                 let feature = QfFeatureUtils.createFeature(layer, geometry)
                 let attrs = incoming.properties || {}
                 for (let name in attrs) {
