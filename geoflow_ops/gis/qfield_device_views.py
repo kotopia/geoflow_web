@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from django.contrib.auth.decorators import login_required
+from django.contrib.gis.geos import GEOSGeometry
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
 from django.http import Http404, JsonResponse
@@ -24,7 +25,7 @@ from .changeset import (
     project_delta,
 )
 from .events import publish_project_change_event
-from .gpkg_snapshot_v2 import project_geopackage_layer_manifest
+from .gpkg_snapshot_v2 import _layer_specs, project_geopackage_layer_manifest
 from .layer_plan import project_layer_plan
 from .qfield_auth import (
     QFIELD_TICKET_MAX_AGE_SECONDS,
@@ -36,6 +37,14 @@ from .qgis_sync import SyncConflict, SyncRejected
 
 
 _MAX_CHANGESET_BODY_BYTES = 50 * 1024 * 1024
+_QFIELD_PROTECTED_FIELDS = {
+    "id",
+    "project_id",
+    "created_at",
+    "updated_at",
+    "created_by",
+    "updated_by",
+}
 
 
 def _project_and_plan(request, alias, project_id, *, require_write: bool = False):
@@ -94,6 +103,107 @@ def _actor_ref(request) -> str | None:
     user = getattr(request, "user", None)
     pk = getattr(user, "pk", None)
     return str(pk) if pk is not None else None
+
+
+def _geometry_wkt_to_wkb_hex(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("geometry_wkt must be a non-empty WKT string")
+    try:
+        geometry = GEOSGeometry(text)
+    except Exception as exc:
+        raise ValueError("geometry_wkt is invalid") from exc
+    if geometry.empty:
+        raise ValueError("geometry_wkt must not be empty")
+    if geometry.srid not in (None, 4326):
+        raise ValueError("geometry_wkt must use EPSG:4326")
+    geometry.srid = 4326
+    return bytes(geometry.wkb).hex()
+
+
+def _geometry_wkb_hex_to_wkt(value) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        geometry = GEOSGeometry(memoryview(bytes.fromhex(text)))
+    except Exception:
+        return None
+    geometry.srid = 4326
+    return geometry.wkt
+
+
+def _normalize_qfield_changeset_payload(alias: str, plan: dict, payload):
+    """Translate QField-friendly WKT and discard protected client fields.
+
+    The authoritative Changeset service still performs the final Layer Plan,
+    field, UUID, geometry and authorization validation.  This adapter only
+    normalizes the native QField payload into that existing contract.
+    """
+
+    if not isinstance(payload, dict):
+        return payload
+    raw_changes = payload.get("changes")
+    if not isinstance(raw_changes, list):
+        return payload
+
+    by_standard = {
+        spec.standard_name.upper(): spec
+        for spec in _layer_specs(alias, plan)
+    }
+    normalized_changes = []
+    for raw in raw_changes:
+        if not isinstance(raw, dict):
+            normalized_changes.append(raw)
+            continue
+        change = dict(raw)
+        standard_name = str(
+            change.get("layer") or change.get("standard_name") or ""
+        ).upper()
+        spec = by_standard.get(standard_name)
+        attributes = change.get("attributes")
+        if isinstance(attributes, dict) and spec is not None:
+            editable = {
+                field.name
+                for field in spec.fields
+                if field.editable and field.name not in _QFIELD_PROTECTED_FIELDS
+            }
+            change["attributes"] = {
+                str(name): value
+                for name, value in attributes.items()
+                if str(name) in editable
+            }
+
+        if "geometry_wkt" in change:
+            if str(change.get("action") or "").lower() == "delete":
+                change.pop("geometry_wkt", None)
+            elif "geometry_wkb" not in change:
+                change["geometry_wkb"] = _geometry_wkt_to_wkb_hex(
+                    change.get("geometry_wkt")
+                )
+                change.pop("geometry_wkt", None)
+            else:
+                change.pop("geometry_wkt", None)
+        normalized_changes.append(change)
+
+    return {**payload, "changes": normalized_changes}
+
+
+def _augment_qfield_delta_geometry(result: dict) -> dict:
+    changes = result.get("changes")
+    if not isinstance(changes, list):
+        return result
+    output = []
+    for raw in changes:
+        if not isinstance(raw, dict):
+            output.append(raw)
+            continue
+        row = dict(raw)
+        geometry_wkt = _geometry_wkb_hex_to_wkt(row.get("geometry_wkb"))
+        if geometry_wkt:
+            row["geometry_wkt"] = geometry_wkt
+        output.append(row)
+    return {**result, "changes": output}
 
 
 @login_required
@@ -221,7 +331,10 @@ def qfield_device_delta_api(request, project_id):
         return JsonResponse({"ok": False, "error": "delta_rejected", "message": str(exc)}, status=400)
     except DatabaseError:
         return JsonResponse({"ok": False, "error": "delta_failed"}, status=503)
-    return JsonResponse(result, json_dumps_params={"ensure_ascii": False})
+    return JsonResponse(
+        _augment_qfield_delta_geometry(result),
+        json_dumps_params={"ensure_ascii": False},
+    )
 
 
 @csrf_exempt
@@ -246,6 +359,14 @@ def qfield_device_changeset_api(request, project_id):
         payload = json.loads(request.body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
+
+    try:
+        payload = _normalize_qfield_changeset_payload(alias, plan, payload)
+    except ValueError as exc:
+        return JsonResponse(
+            {"ok": False, "error": "invalid_geometry_wkt", "message": str(exc)},
+            status=400,
+        )
 
     try:
         result = apply_project_changeset(
