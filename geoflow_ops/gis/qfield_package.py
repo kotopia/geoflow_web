@@ -20,7 +20,7 @@ from .gpkg_snapshot_v2 import (
 )
 
 
-QFIELD_PACKAGE_VERSION = "0.1"
+QFIELD_PACKAGE_VERSION = "0.2"
 PROJECT_BASENAME = "geoflow-field"
 
 
