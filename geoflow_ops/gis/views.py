@@ -1,10 +1,12 @@
 import json
+from urllib.parse import quote, urlencode
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.views.decorators.http import require_GET
 
 from control.gf_authz.permissions import gf_has_perm
@@ -12,10 +14,15 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
+from .changeset import changeset_runtime_enabled
 from .layer_plan import (
     allowed_standard_names,
     gis_enabled_project_ids,
     project_layer_plan,
+)
+from .qfield_auth import (
+    issue_qfield_package_import_token,
+    qfield_ticket_runtime_enabled,
 )
 from .registry import FEATURE_TYPES, domain_counts, feature_rows
 
@@ -141,6 +148,38 @@ def _geojson_property_columns(cursor, table_name):
     return [name for name in _GEOJSON_PROPERTY_CANDIDATES if name in actual]
 
 
+def _qfield_open_url(request, alias: str, project) -> str:
+    if not qfield_ticket_runtime_enabled() or not changeset_runtime_enabled(alias):
+        return ""
+    group_id = request.session.get("group_id") or request.session.get("group_uuid")
+    user = getattr(request, "user", None)
+    email = str(
+        getattr(user, "email", None)
+        or getattr(user, "username", None)
+        or ""
+    ).strip().lower()
+    user_id = getattr(user, "pk", None)
+    if not group_id or not email or user_id is None:
+        return ""
+    token = issue_qfield_package_import_token(
+        project_id=str(project.id),
+        alias=alias,
+        group_id=str(group_id),
+        user_id=str(user_id),
+        email=email,
+        roles=request.session.get("gf_roles") or [],
+        perms=request.session.get("gf_perms") or [],
+    )
+    import_path = reverse(
+        "gis:qfield_package_import_api",
+        kwargs={"project_id": project.id},
+    )
+    package_url = request.build_absolute_uri(
+        f"{import_path}?{urlencode({'token': token})}"
+    )
+    return "qfield://local?import=" + quote(package_url, safe="")
+
+
 @login_required
 @require_GET
 def dashboard(request):
@@ -203,6 +242,7 @@ def project_dashboard(request, project_id):
             "feature_count": len(rows),
             "physical_ready_count": sum(1 for row in rows if row["physical_status"] == "READY"),
             "physical_object_count": sum((row["row_count"] or 0) for row in rows),
+            "qfield_open_url": _qfield_open_url(request, alias, project),
         },
     )
 
