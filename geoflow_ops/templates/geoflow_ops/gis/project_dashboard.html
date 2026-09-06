@@ -18,16 +18,20 @@
     <h1 class="h3 mb-1">{{ project.name|default:project.code|default:"프로젝트 GIS" }}</h1>
     <div class="text-muted">{{ project.code|default:"코드 없음" }} · {{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
-    <a class="btn btn-outline-success" href="{% url 'gis:qfield_package_api' project.id %}">QField 패키지 (PoC)</a>
+    {% if qfield_open_url %}
+      <a class="btn btn-success" href="{{ qfield_open_url }}">QField에서 열기 (PoC)</a>
+    {% endif %}
+    <a class="btn btn-outline-success" href="{% url 'gis:qfield_package_api' project.id %}">QField ZIP 다운로드</a>
   </div>
 </div>
 
 <div class="alert alert-info">
   프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
   QGIS Connector는 같은 서버 Layer Plan과 Changeset/Delta 계약을 사용하며, WebGIS는 서버 변경 이벤트를 받아 화면의 해당 객체만 갱신합니다.
+  {% if qfield_open_url %}<br><strong>QField에서 열기</strong>는 QField 공식 URL import 흐름으로 패키지를 가져온 뒤 바로 프로젝트를 엽니다. 첫 실행 시 프로젝트 플러그인 권한을 허용해야 GeoFlow Roaming Cache가 활성화됩니다.{% endif %}
 </div>
 
 <div class="row g-3 mb-4">
