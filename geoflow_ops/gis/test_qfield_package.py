@@ -39,22 +39,31 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
 
-    def test_project_sidecar_exists_and_uses_qfield_roaming_interfaces(self):
+    def test_project_sidecar_exists_and_uses_supported_qfield_utilities(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = path.read_text(encoding="utf-8")
         self.assertIn("iface.positioning()", text)
         self.assertIn("mapSettings.visibleExtent", text)
         self.assertIn('Authorization", "Bearer " + bearerToken', text)
-        self.assertIn("LayerUtils.addFeature", text)
+        self.assertIn("QfLayerUtils.createFeatureIteratorFromExpression", text)
+        self.assertIn("QfGeometryUtils.createGeometryFromWkt", text)
+        self.assertIn("QfFeatureUtils.createFeature", text)
+        self.assertIn("QfLayerUtils.addFeature", text)
         self.assertIn("knownCellsCsv", text)
+        self.assertNotIn("GeometryUtils.createGeometryFromWkt", text.replace("QfGeometryUtils.createGeometryFromWkt", ""))
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
+        import_url = reverse("gis:qfield_package_import_api", kwargs={"project_id": self.project_id})
         delta_url = reverse("gis:qfield_device_delta_api", kwargs={"project_id": self.project_id})
         changeset_url = reverse("gis:qfield_device_changeset_api", kwargs={"project_id": self.project_id})
         self.assertEqual(
             package_url,
             f"/gis/projects/{self.project_id}/api/qfield/package/",
+        )
+        self.assertEqual(
+            import_url,
+            f"/gis/projects/{self.project_id}/api/qfield/package-import/",
         )
         self.assertEqual(
             delta_url,
