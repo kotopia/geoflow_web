@@ -4,6 +4,7 @@ from .realtime_auth import (
     bearer_token_from_headers,
     issue_realtime_ticket,
     parse_realtime_ticket,
+    ticket_token_from_query_string,
 )
 
 
@@ -48,3 +49,12 @@ class GisRealtimeAuthTests(SimpleTestCase):
             (b"authorization", b"Bearer signed-ticket"),
         ]
         self.assertEqual(bearer_token_from_headers(headers), "signed-ticket")
+
+    def test_query_ticket_is_url_decoded(self):
+        self.assertEqual(
+            ticket_token_from_query_string(b"ticket=signed%3Aticket%2Fvalue&x=1"),
+            "signed:ticket/value",
+        )
+
+    def test_query_ticket_missing_returns_empty(self):
+        self.assertEqual(ticket_token_from_query_string(b"x=1"), "")
