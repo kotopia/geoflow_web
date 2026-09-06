@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from qgis.PyQt.QtCore import QByteArray, QUrl
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import Qgis
@@ -12,9 +14,11 @@ class RealtimeDeltaV3Mixin(RealtimeDeltaV2Mixin):
     """Authenticate QGIS WebSocket with a short-lived server-signed ticket.
 
     QGIS' urllib HTTP client and Qt WebSocket client use different cookie
-    implementations.  Relying on a copied Django session cookie proved brittle
-    on QGIS 4/Qt6.  Obtain the ticket over the already-authenticated HTTP
-    session, then present it as a bearer header during the WebSocket handshake.
+    implementations.  A signed ticket is issued over the authenticated HTTP
+    session.  QGIS 4/Qt6 can also silently omit custom Authorization headers
+    during a WebSocket handshake, so the same short-lived signed ticket is sent
+    as a URL query parameter as a compatibility fallback.  Feature payloads
+    still travel only through the authoritative Delta API.
     """
 
     def _realtime_ticket_path(self) -> str:
@@ -40,6 +44,14 @@ class RealtimeDeltaV3Mixin(RealtimeDeltaV2Mixin):
                 raise RuntimeError("GeoFlow realtime ticket was not issued.")
 
             ws_url = self._websocket_url(client.base_url, transport.get("realtime_url"))
+            separator = "&" if "?" in ws_url else "?"
+            ws_url = (
+                ws_url
+                + separator
+                + "ticket="
+                + urllib.parse.quote(ticket, safe="")
+            )
+
             socket = QWebSocket()
             self._realtime_socket = socket
             if hasattr(socket, "setOrigin"):
@@ -56,13 +68,15 @@ class RealtimeDeltaV3Mixin(RealtimeDeltaV2Mixin):
             )
 
             request = QNetworkRequest(QUrl(ws_url))
+            # Keep the header for Qt builds that support it; the query ticket is
+            # the QGIS 4 compatibility path and uses the same signed payload.
             request.setRawHeader(
                 QByteArray(b"Authorization"),
                 QByteArray(("Bearer " + ticket).encode("utf-8")),
             )
             socket.open(request)
-            # A failed/unsupported handshake still falls back to a low-rate
-            # Delta poll while the reconnect path obtains a fresh ticket.
+            # If the handshake fails, low-rate polling keeps the client current
+            # without creating the old tight reconnect/poll loop.
             self._realtime_poll_timer.start(3_000)
         except Exception as exc:
             self._stop_realtime_socket()
