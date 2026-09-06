@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -26,6 +26,7 @@ from .layer_plan import gis_enabled_project_ids, project_layer_plan
 from .qgis_manifest import build_qgis_manifest
 from .qgis_sync import SyncConflict, SyncRejected, sync_runtime_enabled
 from .qgis_sync_v2 import sync_project_geopackage_v2
+from .server_snapshot_cache import get_or_build_server_snapshot
 
 
 logger = logging.getLogger(__name__)
@@ -34,10 +35,7 @@ _MAX_SYNC_PACKAGE_BYTES = 250 * 1024 * 1024
 
 
 def _dev_sync_diag_enabled() -> bool:
-    return (
-        settings.DEBUG
-        and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1"
-    )
+    return settings.DEBUG and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1"
 
 
 def _dev_sync_diag(stage: str, **fields) -> None:
@@ -45,6 +43,13 @@ def _dev_sync_diag(stage: str, **fields) -> None:
         return
     suffix = " ".join(f"{key}={value}" for key, value in fields.items())
     logger.warning("DEV-QGIS-SYNC %s%s", stage, f" {suffix}" if suffix else "")
+
+
+def _dev_snapshot_diag(stage: str, **fields) -> None:
+    if not _dev_sync_diag_enabled():
+        return
+    suffix = " ".join(f"{key}={value}" for key, value in fields.items())
+    logger.warning("DEV-QGIS-SNAPSHOT %s%s", stage, f" {suffix}" if suffix else "")
 
 
 def _require_qgis_context(request):
@@ -97,6 +102,26 @@ def _project_layer_counts(alias: str, project_id, plan: dict) -> dict[str, int |
 def _package_filename(project) -> str:
     code = _SAFE_FILENAME_RE.sub("_", str(project.code or project.id)).strip("._")
     return f"geoflow-{code or project.id}.gpkg"
+
+
+def _set_package_headers(
+    response,
+    *,
+    project,
+    layer_count: int,
+    content_length: int,
+    snapshot_revision: int | None,
+    cache_status: str,
+):
+    response["Content-Length"] = str(int(content_length))
+    response["X-GeoFlow-Project"] = str(project.id)
+    response["X-GeoFlow-Layer-Count"] = str(int(layer_count))
+    response["X-GeoFlow-Package-Version"] = "0.6"
+    if snapshot_revision is not None:
+        response["X-GeoFlow-Snapshot-Revision"] = str(int(snapshot_revision))
+    response["X-GeoFlow-Snapshot-Cache"] = str(cache_status)
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 @login_required
@@ -185,7 +210,11 @@ def qgis_project_manifest_api(request, project_id):
         changeset_url=changeset_url,
         delta_url=delta_url,
         changeset_supported=changeset_supported,
-        current_revision=project_current_revision(alias, str(project.id)) if changeset_supported else 0,
+        current_revision=(
+            project_current_revision(alias, str(project.id))
+            if changeset_supported
+            else 0
+        ),
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
 
@@ -195,6 +224,48 @@ def qgis_project_manifest_api(request, project_id):
 def qgis_project_package_api(request, project_id):
     alias = _require_qgis_context(request)
     project, _policy, plan = _require_project(request, alias, project_id)
+    changeset_supported = changeset_runtime_enabled(alias)
+
+    if changeset_supported:
+        requested_revision = project_current_revision(alias, str(project.id))
+        layer_manifest = project_geopackage_layer_manifest(alias, plan)
+        try:
+            artifact = get_or_build_server_snapshot(
+                alias=alias,
+                project_id=str(project.id),
+                plan=plan,
+                layer_manifest=layer_manifest,
+                requested_revision=requested_revision,
+            )
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=422)
+
+        cache_status = "HIT" if artifact.cache_hit else "MISS"
+        _dev_snapshot_diag(
+            cache_status,
+            project_id=project.id,
+            revision=artifact.snapshot_revision,
+            bytes=artifact.path.stat().st_size,
+            layers=len(artifact.layer_meta),
+        )
+        response = FileResponse(
+            artifact.path.open("rb"),
+            content_type="application/geopackage+sqlite3",
+            as_attachment=True,
+            filename=_package_filename(project),
+        )
+        return _set_package_headers(
+            response,
+            project=project,
+            layer_count=len(artifact.layer_meta),
+            content_length=artifact.path.stat().st_size,
+            snapshot_revision=artifact.snapshot_revision,
+            cache_status=cache_status,
+        )
+
+    # Legacy/fallback runtime keeps the compatibility bytes response. Normal
+    # Changeset operation above is file-backed and streamed, so large snapshots
+    # no longer require a second whole-file Python memory copy.
     try:
         payload, layer_meta = build_syncable_project_geopackage(
             alias,
@@ -205,17 +276,17 @@ def qgis_project_package_api(request, project_id):
         return JsonResponse({"error": str(exc)}, status=422)
 
     response = HttpResponse(payload, content_type="application/geopackage+sqlite3")
-    response["Content-Disposition"] = f'attachment; filename="{_package_filename(project)}"'
-    response["Content-Length"] = str(len(payload))
-    response["X-GeoFlow-Project"] = str(project.id)
-    response["X-GeoFlow-Layer-Count"] = str(len(layer_meta))
-    response["X-GeoFlow-Package-Version"] = "0.5"
-    if changeset_runtime_enabled(alias):
-        response["X-GeoFlow-Snapshot-Revision"] = str(
-            project_current_revision(alias, str(project.id))
-        )
-    response["Cache-Control"] = "private, no-store"
-    return response
+    response["Content-Disposition"] = (
+        f'attachment; filename="{_package_filename(project)}"'
+    )
+    return _set_package_headers(
+        response,
+        project=project,
+        layer_count=len(layer_meta),
+        content_length=len(payload),
+        snapshot_revision=None,
+        cache_status="BYPASS",
+    )
 
 
 @login_required
@@ -239,7 +310,11 @@ def qgis_project_sync_api(request, project_id):
     if not sync_runtime_enabled(alias):
         _dev_sync_diag("RUNTIME_DISABLED", project_id=project.id, alias=alias)
         return JsonResponse(
-            {"ok": False, "error": "sync_not_enabled", "message": "QGIS sync is development-gated."},
+            {
+                "ok": False,
+                "error": "sync_not_enabled",
+                "message": "QGIS sync is development-gated.",
+            },
             status=403,
         )
 
@@ -315,7 +390,11 @@ def qgis_project_sync_api(request, project_id):
                 type(exc).__name__,
             )
         return JsonResponse(
-            {"ok": False, "error": "sync_failed", "message": "GeoFlow sync processing failed."},
+            {
+                "ok": False,
+                "error": "sync_failed",
+                "message": "GeoFlow sync processing failed.",
+            },
             status=503,
         )
     except Exception as exc:
