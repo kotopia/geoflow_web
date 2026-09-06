@@ -18,7 +18,7 @@ from .qfield_auth import (
     qfield_ticket_runtime_enabled,
 )
 from .qfield_device_views import _project_and_plan, _project_center
-from .qfield_package import build_qfield_bootstrap_zip
+from .qfield_package import QFIELD_PACKAGE_VERSION, build_qfield_bootstrap_zip
 
 
 class _DeletingFile:
@@ -101,7 +101,7 @@ def _package_response(request, alias, project, policy, plan):
         filename=f"geoflow-qfield-{_safe_filename(project.code or project.id)}.zip",
     )
     response["X-GeoFlow-Project"] = str(project.id)
-    response["X-GeoFlow-QField-Package-Version"] = "0.2"
+    response["X-GeoFlow-QField-Package-Version"] = QFIELD_PACKAGE_VERSION
     response["X-GeoFlow-Layer-Count"] = str(layer_count)
     response["Cache-Control"] = "private, no-store"
     return response
@@ -125,7 +125,7 @@ def qfield_package_import_api(request, project_id):
 
     QField performs this HTTP GET outside the browser cookie jar, so a
     five-minute purpose-specific signed URL token hydrates the same tenant and
-    project authorization boundary.  It is development-PoC only; production
+    project authorization boundary. It is development-PoC only; production
     will use a separately reviewed revocable/one-time device handoff.
     """
 
