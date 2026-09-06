@@ -49,25 +49,29 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn('("bootstrap_mode", "project_snapshot_then_roaming")', source)
         self.assertNotIn("_install_rtree_triggers(conn, spec)", source)
 
-    def test_project_sidecar_exists_and_bootstraps_after_project_load(self):
+    def test_project_sidecar_exists_and_uses_current_qfield_plugin_api(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = path.read_text(encoding="utf-8")
+        self.assertIn("import org.qfield", text)
+        self.assertIn("import org.qgis", text)
+        self.assertIn("import Theme", text)
+        self.assertNotIn("import org.qfield.org", text)
+        self.assertNotIn("import org.qfield.core", text)
+        self.assertNotIn("import org.qfield.gui", text)
         self.assertIn("iface.positioning()", text)
         self.assertIn("mapSettings.visibleExtent", text)
-        self.assertIn('Authorization", "Bearer " + bearerToken', text)
-        self.assertIn("QfLayerUtils.createFeatureIteratorFromExpression", text)
-        self.assertIn("QfGeometryUtils.createGeometryFromWkt", text)
-        self.assertIn("QfFeatureUtils.createFeature", text)
-        self.assertIn("QfLayerUtils.addFeature", text)
+        self.assertIn('Authorization\", \"Bearer \" + bearerToken', text)
+        self.assertIn("LayerUtils.createFeatureIteratorFromExpression", text)
+        self.assertIn("GeometryUtils.createGeometryFromWkt", text)
+        self.assertIn("FeatureUtils.createFeature", text)
         self.assertIn("knownCellsCsv", text)
         self.assertIn("function reloadProjectConfig()", text)
         self.assertIn("function onLoadProjectEnded", text)
         self.assertIn('readProjectEntry("GeoFlow", "/" + key', text)
         self.assertIn("bootstrapTimer.restart()", text)
-        self.assertNotIn(
-            "GeometryUtils.createGeometryFromWkt",
-            text.replace("QfGeometryUtils.createGeometryFromWkt", ""),
-        )
+        self.assertNotIn("QfLayerUtils", text)
+        self.assertNotIn("QfGeometryUtils", text)
+        self.assertNotIn("QfFeatureUtils", text)
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
