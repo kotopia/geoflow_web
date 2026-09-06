@@ -3,10 +3,12 @@ def classFactory(iface):
     from .delta_apply_v3 import DeltaApplyV3Mixin
     from .plugin import GeoFlowConnectorPlugin
     from .realtime_delta_v3 import RealtimeDeltaV3Mixin
+    from .realtime_session_guard import RealtimeSessionGuardMixin
     from .snapshot_reuse import SnapshotReuseMixin
 
-    class GeoFlowConnectorPluginV072(
+    class GeoFlowConnectorPluginV073(
         CacheLifecycleMixin,
+        RealtimeSessionGuardMixin,
         RealtimeDeltaV3Mixin,
         SnapshotReuseMixin,
         DeltaApplyV3Mixin,
@@ -14,4 +16,4 @@ def classFactory(iface):
     ):
         pass
 
-    return GeoFlowConnectorPluginV072(iface)
+    return GeoFlowConnectorPluginV073(iface)
