@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import (
+    qfield_device_views,
     qfield_views,
     qgis_views,
     realtime_ticket_views,
@@ -40,6 +41,11 @@ urlpatterns = [
         name="project_delta_api",
     ),
     path(
+        "projects/<uuid:project_id>/api/qfield/bootstrap/",
+        qfield_device_views.qfield_bootstrap_api,
+        name="qfield_bootstrap_api",
+    ),
+    path(
         "projects/<uuid:project_id>/api/qfield/roaming-plan/",
         qfield_views.qfield_roaming_plan_api,
         name="qfield_roaming_plan_api",
@@ -48,6 +54,16 @@ urlpatterns = [
         "projects/<uuid:project_id>/api/qfield/roaming-cell/",
         qfield_views.qfield_roaming_cell_api,
         name="qfield_roaming_cell_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/qfield/delta/",
+        qfield_device_views.qfield_device_delta_api,
+        name="qfield_device_delta_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/qfield/changesets/",
+        qfield_device_views.qfield_device_changeset_api,
+        name="qfield_device_changeset_api",
     ),
     path(
         "projects/<uuid:project_id>/api/qgis-manifest/",
