@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import urllib.parse
 import uuid
 from typing import Any
 
@@ -63,3 +64,22 @@ def bearer_token_from_headers(headers) -> str:
         if header_value.lower().startswith(prefix):
             return header_value[len(prefix):].strip()
     return ""
+
+
+def ticket_token_from_query_string(query_string) -> str:
+    """Extract the short-lived QGIS realtime ticket from an ASGI query string.
+
+    QGIS 4/Qt6 can successfully issue a WebSocket request while silently
+    dropping a custom Authorization header.  The ticket is already short-lived
+    and signed, so accept it as an explicit compatibility fallback in the
+    WebSocket URL as well.  Browser WebGIS continues to use session cookies.
+    """
+    if not query_string:
+        return ""
+    try:
+        raw = bytes(query_string).decode("utf-8", errors="strict")
+        values = urllib.parse.parse_qs(raw, keep_blank_values=False)
+    except Exception:
+        return ""
+    tickets = values.get("ticket") or []
+    return str(tickets[0]).strip() if tickets else ""
