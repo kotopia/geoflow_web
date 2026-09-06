@@ -1,8 +1,8 @@
 import QtQuick
 import QtCore
-import org.qfield.org
-import org.qfield.core
-import org.qfield.gui
+import org.qfield
+import org.qgis
+import Theme
 
 Item {
     id: geoflowField
@@ -271,7 +271,7 @@ Item {
     function featureByFid(layer, fid) {
         let iterator = null
         try {
-            iterator = QfLayerUtils.createFeatureIteratorFromExpression(layer, "$id = " + Number(fid))
+            iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "$id = " + Number(fid))
             if (iterator.hasNext()) return iterator.next()
         } catch (err) {
             log("feature lookup failed: " + err)
@@ -350,7 +350,7 @@ Item {
         binding.versionMap = {}
         let iterator = null
         try {
-            iterator = QfLayerUtils.createFeatureIterator(binding.layer)
+            iterator = LayerUtils.createFeatureIterator(binding.layer)
             while (iterator.hasNext()) {
                 let feature = iterator.next()
                 let objectId = canonicalUuid(feature.attribute("id"))
@@ -840,7 +840,7 @@ Item {
 
     function featureExists(layer, objectId) {
         let escaped = String(objectId).replace(/'/g, "''")
-        let iterator = QfLayerUtils.createFeatureIteratorFromExpression(layer, "\"id\" = '" + escaped + "'")
+        let iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "\"id\" = '" + escaped + "'")
         let exists = iterator.hasNext()
         iterator.close()
         return exists
@@ -863,15 +863,15 @@ Item {
                 for (let j = 0; j < features.length; j++) {
                     let incoming = features[j]
                     if (!incoming.id || featureExists(layer, incoming.id)) continue
-                    let geometry = QfGeometryUtils.createGeometryFromWkt(incoming.geometry_wkt || "")
+                    let geometry = GeometryUtils.createGeometryFromWkt(incoming.geometry_wkt || "")
                     if (!geometry || geometry.isNull() || geometry.isEmpty()) continue
-                    let feature = QfFeatureUtils.createFeature(layer, geometry)
+                    let feature = FeatureUtils.createFeature(layer, geometry)
                     let attrs = incoming.properties || {}
                     for (let name in attrs) {
                         if (!Object.prototype.hasOwnProperty.call(attrs, name)) continue
                         try { feature.setAttribute(name, attrs[name]) } catch (err) {}
                     }
-                    if (QfLayerUtils.addFeature(layer, feature)) count += 1
+                    if (LayerUtils.addFeature(layer, feature)) count += 1
                 }
             }
         } finally {
@@ -892,7 +892,7 @@ Item {
         }
         let count = bindLayers()
         updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 0.6 연결됨 · 자동 동기화 준비 " + count + "개 레이어")
+        toast("GeoFlow Field 0.7 연결됨 · 자동 동기화 준비 " + count + "개 레이어")
         scheduleRoaming(true)
         syncNow(false)
     }
