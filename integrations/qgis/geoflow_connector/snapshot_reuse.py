@@ -83,7 +83,6 @@ class SnapshotReuseMixin:
         if cache_candidate is not None:
             package_path = cache_candidate.path
             package_size = cache_candidate.size_bytes
-            ensure_changeset_tables(package_path)
         else:
             stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
             package_name = (
@@ -111,6 +110,15 @@ class SnapshotReuseMixin:
             if old_layer_ids:
                 qgs_project.removeMapLayers(old_layer_ids)
             root.removeChildNode(old_group)
+
+        # Do not write cache metadata while an older QGIS layer instance still
+        # has this GeoPackage open. Once the previous group is removed, it is
+        # safe to ensure queue tables and mark the cache as recently opened.
+        if cache_reused:
+            if changeset_supported:
+                ensure_changeset_tables(package_path)
+            stamp_snapshot(package_path, manifest)
+
         group = root.addGroup(group_name)
         domain_groups = {}
 
@@ -263,8 +271,6 @@ class SnapshotReuseMixin:
                     level=Qgis.Warning,
                     duration=10,
                 )
-
-        stamp_snapshot(package_path, manifest)
 
         if combined_extent is not None and not combined_extent.isEmpty():
             self.iface.mapCanvas().setExtent(combined_extent)
