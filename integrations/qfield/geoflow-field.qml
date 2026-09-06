@@ -32,6 +32,7 @@ Item {
     property real lastLon: NaN
     property real lastLat: NaN
     property var layerBindings: []
+    property var managedLayerDescriptors: []
 
     Settings {
         id: localState
@@ -79,6 +80,21 @@ Item {
         onTriggered: geoflowField.syncNow(false)
     }
 
+    Timer {
+        id: bindRetryTimer
+        interval: 1500
+        repeat: true
+        running: false
+        onTriggered: {
+            if (!managedLayerDescriptors || managedLayerDescriptors.length === 0) return
+            let count = geoflowField.bindLayers()
+            if (count > 0) {
+                stop()
+                geoflowField.toast("GeoFlow Field 0.8 · 자동 동기화 준비 " + count + "개 레이어")
+            }
+        }
+    }
+
     Connections {
         target: iface
 
@@ -88,6 +104,7 @@ Item {
             geoflowField.lastLon = NaN
             geoflowField.lastLat = NaN
             geoflowField.authBlocked = false
+            geoflowField.managedLayerDescriptors = []
             bootstrapTimer.restart()
             roamingTimer.restart()
         }
@@ -236,26 +253,34 @@ Item {
     function managedLayers() {
         let result = []
         let seen = {}
-        try {
-            let byId = qgisProject.mapLayers()
-            for (let key in byId) {
-                if (!Object.prototype.hasOwnProperty.call(byId, key)) continue
-                let layer = byId[key]
-                if (!isManagedLayer(layer)) continue
-                let name = layerName(layer)
-                if (!name || seen[name]) continue
-                seen[name] = true
-                result.push(layer)
-            }
-        } catch (err) {
-            log("qgisProject.mapLayers unavailable: " + err)
-        }
-        if (result.length > 0) return result
 
+        // The signed roaming plan is the authoritative list of layers in this
+        // GeoFlow project. QField's QML API does not consistently expose
+        // qgisProject.mapLayers() as an enumerable JS object on all builds, so
+        // resolve the known names explicitly through mapLayersByName().
+        if (managedLayerDescriptors && managedLayerDescriptors.length > 0) {
+            for (let i = 0; i < managedLayerDescriptors.length; i++) {
+                let descriptor = managedLayerDescriptors[i] || {}
+                let physical = String(descriptor.physical_name || "")
+                if (!physical || seen[physical]) continue
+                try {
+                    let matches = qgisProject.mapLayersByName(physical)
+                    if (matches && matches.length > 0) {
+                        seen[physical] = true
+                        result.push(matches[0])
+                    }
+                } catch (err) {
+                    log("mapLayersByName failed for " + physical + ": " + err)
+                }
+            }
+            if (result.length > 0) return result
+        }
+
+        // Fallback for older packages before the first roaming-plan response.
         try {
             let rows = mapCanvas.mapSettings.layers
-            for (let i = 0; i < rows.length; i++) {
-                let layer = rows[i]
+            for (let j = 0; j < rows.length; j++) {
+                let layer = rows[j]
                 if (!isManagedLayer(layer)) continue
                 let name = layerName(layer)
                 if (!name || seen[name]) continue
@@ -505,15 +530,27 @@ Item {
         layerBindings = []
     }
 
+    function standardNameForPhysical(physical) {
+        let target = String(physical || "")
+        for (let i = 0; i < managedLayerDescriptors.length; i++) {
+            let row = managedLayerDescriptors[i] || {}
+            if (String(row.physical_name || "") === target) {
+                return String(row.standard_name || target).toUpperCase()
+            }
+        }
+        return target.toUpperCase()
+    }
+
     function bindLayers() {
         unbindLayers()
         let layers = managedLayers()
         let bindings = []
         for (let i = 0; i < layers.length; i++) {
             let layer = layers[i]
+            let physicalName = layerName(layer)
             let binding = {
                 layer: layer,
-                standard: layerName(layer).toUpperCase(),
+                standard: standardNameForPhysical(physicalName),
                 fidMap: {},
                 versionMap: {}
             }
@@ -658,10 +695,16 @@ Item {
             } catch (err) {}
             log("changeset failed: " + message)
 
-            if (xhr.status === 401 || xhr.status === 403) {
+            if (xhr.status === 401) {
                 authBlocked = true
                 syncStatus = "auth_required"
-                toast("GeoFlow QField 인증이 만료되었습니다 · 프로젝트를 다시 연결하세요")
+                toast("GeoFlow QField 인증 토큰이 만료되었거나 유효하지 않습니다 · 프로젝트를 다시 연결하세요")
+                return
+            }
+            if (xhr.status === 403) {
+                authBlocked = true
+                syncStatus = "permission_denied"
+                toast("GeoFlow QField 쓰기 권한을 확인할 수 없습니다 · GeoFlow 프로젝트 권한을 확인하세요")
                 return
             }
             if (xhr.status === 409) {
@@ -691,7 +734,7 @@ Item {
             if (manual) toast("GeoFlow 프로젝트 연결 정보가 없습니다")
             return
         }
-        if (layerBindings.length === 0) bindLayers()
+        if (layerBindings.length === 0 && managedLayerDescriptors.length > 0) bindLayers()
         if (hasUncommittedEdits()) {
             if (manual) toast("현재 편집을 저장한 뒤 동기화하세요")
             return
@@ -724,9 +767,16 @@ Item {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
             if (xhr.status < 200 || xhr.status >= 300) {
                 requestInFlight = false
-                log("HTTP " + xhr.status + " " + url)
-                if ((xhr.status === 401 || xhr.status === 403) && !quiet) {
-                    toast("GeoFlow QField 인증이 만료되었습니다 · 프로젝트를 다시 연결하세요")
+                let serverMessage = ""
+                try {
+                    let body = JSON.parse(xhr.responseText)
+                    serverMessage = String(body.message || body.error || "")
+                } catch (parseErr) {}
+                log("HTTP " + xhr.status + " " + url + (serverMessage ? " " + serverMessage : ""))
+                if (!quiet && xhr.status === 401) {
+                    toast("GeoFlow QField 인증 토큰이 만료되었거나 유효하지 않습니다")
+                } else if (!quiet && xhr.status === 403) {
+                    toast("GeoFlow QField 읽기 권한이 거부되었습니다" + (serverMessage ? " · " + serverMessage : ""))
                 } else if (!quiet && xhr.status !== 0) {
                     toast("GeoFlow 수신 실패: HTTP " + xhr.status)
                 }
@@ -809,6 +859,15 @@ Item {
                 requestInFlight = false
                 return
             }
+
+            managedLayerDescriptors = plan.layers || []
+            let bound = bindLayers()
+            if (bound === 0 && managedLayerDescriptors.length > 0) {
+                bindRetryTimer.restart()
+            } else if (force) {
+                toast("GeoFlow Field 0.8 · 자동 동기화 준비 " + bound + "개 레이어")
+            }
+
             let state = projectState()
             if (!state.outbox && Object.keys(state.pending || {}).length === 0 && Number(state.base_revision || 0) === 0) {
                 state.base_revision = Number(plan.current_revision || 0)
@@ -824,7 +883,8 @@ Item {
             if (cells.length > 0) {
                 if (manual) toast("GeoFlow 영역 갱신: " + cells.length + "셀 / " + featureTotal + "객체")
                 mapCanvas.refresh()
-                bindLayers()
+                let count = bindLayers()
+                if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()
             } else if (manual) {
                 toast("GeoFlow 영역 최신 상태")
             }
@@ -881,6 +941,7 @@ Item {
     }
 
     function manualSync() {
+        authBlocked = false
         syncNow(true)
         scheduleRoaming(true)
     }
@@ -890,9 +951,8 @@ Item {
             toast("GeoFlow Field 연결 정보를 읽지 못했습니다")
             return
         }
-        let count = bindLayers()
         updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 0.7 연결됨 · 자동 동기화 준비 " + count + "개 레이어")
+        toast("GeoFlow Field 0.8 연결됨 · 서버 레이어 확인 중")
         scheduleRoaming(true)
         syncNow(false)
     }
@@ -904,6 +964,7 @@ Item {
     }
 
     Component.onDestruction: {
+        bindRetryTimer.stop()
         unbindLayers()
         try { iface.removeItemFromPluginsToolbar(syncButton) } catch (err) {}
     }
