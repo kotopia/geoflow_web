@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from types import SimpleNamespace
 
@@ -13,17 +14,16 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.project_access import project_access_policy
 
 from .events import project_group_name, realtime_runtime_enabled
+from .realtime_auth import bearer_token_from_headers, parse_realtime_ticket
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectGISConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         if not realtime_runtime_enabled():
             await self.close(code=4403)
-            return
-
-        user = self.scope.get("user")
-        if not user or not getattr(user, "is_authenticated", False):
-            await self.close(code=4401)
             return
 
         raw_project_id = (self.scope.get("url_route") or {}).get("kwargs", {}).get("project_id")
@@ -33,9 +33,46 @@ class ProjectGISConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4400)
             return
 
+        # Desktop QGIS authenticates the WebSocket with a short-lived signed
+        # ticket issued over its already-authenticated HTTP session.  This
+        # avoids relying on QtWebSocket to reproduce Django's browser cookie
+        # semantics.  Browser WebGIS keeps the normal session-cookie path.
+        token = bearer_token_from_headers(self.scope.get("headers"))
+        ticket = parse_realtime_ticket(token, project_id=project_id) if token else None
+        if ticket is not None:
+            alias = str(ticket.get("alias") or "")
+            if (
+                not alias
+                or alias == getattr(settings, "CENTRAL_DB_ALIAS", "default")
+                or not await self._ticket_project_exists(alias=alias, project_id=project_id)
+            ):
+                logger.warning(
+                    "DEV-GIS-WS reject ticket project_id=%s alias=%s reason=invalid_scope",
+                    project_id,
+                    alias,
+                )
+                await self.close(code=4403)
+                return
+            await self._accept_project(project_id)
+            return
+
+        user = self.scope.get("user")
+        if not user or not getattr(user, "is_authenticated", False):
+            logger.warning(
+                "DEV-GIS-WS reject session project_id=%s reason=anonymous",
+                project_id,
+            )
+            await self.close(code=4401)
+            return
+
         session = self.scope.get("session")
         alias = str(session.get("tenant_db_alias") or "") if session is not None else ""
         if not alias or alias == getattr(settings, "CENTRAL_DB_ALIAS", "default"):
+            logger.warning(
+                "DEV-GIS-WS reject session project_id=%s reason=tenant_alias alias=%s",
+                project_id,
+                alias,
+            )
             await self.close(code=4403)
             return
 
@@ -47,9 +84,17 @@ class ProjectGISConsumer(AsyncJsonWebsocketConsumer):
             session_values=session_values,
         )
         if not authorized:
+            logger.warning(
+                "DEV-GIS-WS reject session project_id=%s alias=%s reason=project_policy",
+                project_id,
+                alias,
+            )
             await self.close(code=4403)
             return
 
+        await self._accept_project(project_id)
+
+    async def _accept_project(self, project_id: str) -> None:
         self.project_id = project_id
         self.group_name = project_group_name(project_id)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
@@ -71,6 +116,12 @@ class ProjectGISConsumer(AsyncJsonWebsocketConsumer):
         if str(payload.get("project_id") or "") != getattr(self, "project_id", ""):
             return
         await self.send_json(payload)
+
+    @database_sync_to_async
+    def _ticket_project_exists(self, *, alias: str, project_id: str) -> bool:
+        if alias not in connections.databases:
+            return False
+        return Project.objects.using(alias).filter(pk=project_id).exists()
 
     @database_sync_to_async
     def _authorized(self, *, alias: str, project_id: str, user, session_values: dict) -> bool:
