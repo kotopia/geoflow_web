@@ -6,7 +6,7 @@ from django.conf import settings
 from django.test import SimpleTestCase
 from django.urls import reverse
 
-from .qfield_package import _qgs_xml
+from .qfield_package import QFIELD_PACKAGE_VERSION, _qgs_xml
 
 
 class QFieldPackageContractTests(SimpleTestCase):
@@ -38,8 +38,9 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn(self.project_id, xml)
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
+        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.3")
 
-    def test_project_sidecar_exists_and_uses_supported_qfield_utilities(self):
+    def test_project_sidecar_exists_and_bootstraps_after_project_load(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = path.read_text(encoding="utf-8")
         self.assertIn("iface.positioning()", text)
@@ -50,7 +51,14 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn("QfFeatureUtils.createFeature", text)
         self.assertIn("QfLayerUtils.addFeature", text)
         self.assertIn("knownCellsCsv", text)
-        self.assertNotIn("GeometryUtils.createGeometryFromWkt", text.replace("QfGeometryUtils.createGeometryFromWkt", ""))
+        self.assertIn("function reloadProjectConfig()", text)
+        self.assertIn("function onLoadProjectEnded", text)
+        self.assertIn('readProjectEntry("GeoFlow", "/" + key', text)
+        self.assertIn("bootstrapTimer.restart()", text)
+        self.assertNotIn(
+            "GeometryUtils.createGeometryFromWkt",
+            text.replace("QfGeometryUtils.createGeometryFromWkt", ""),
+        )
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
