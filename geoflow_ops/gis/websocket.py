@@ -14,7 +14,11 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.project_access import project_access_policy
 
 from .events import project_group_name, realtime_runtime_enabled
-from .realtime_auth import bearer_token_from_headers, parse_realtime_ticket
+from .realtime_auth import (
+    bearer_token_from_headers,
+    parse_realtime_ticket,
+    ticket_token_from_query_string,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -33,12 +37,22 @@ class ProjectGISConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4400)
             return
 
-        # Desktop QGIS authenticates the WebSocket with a short-lived signed
-        # ticket issued over its already-authenticated HTTP session.  This
-        # avoids relying on QtWebSocket to reproduce Django's browser cookie
-        # semantics.  Browser WebGIS keeps the normal session-cookie path.
+        # Desktop QGIS authenticates with a short-lived signed ticket issued
+        # over its already-authenticated HTTP session.  Prefer Authorization,
+        # but QGIS 4/Qt6 may silently omit custom WebSocket headers, so also
+        # accept the same ticket in the query string.  Browser WebGIS keeps the
+        # normal session-cookie path.
         token = bearer_token_from_headers(self.scope.get("headers"))
+        if not token:
+            token = ticket_token_from_query_string(self.scope.get("query_string"))
         ticket = parse_realtime_ticket(token, project_id=project_id) if token else None
+        if token and ticket is None:
+            logger.warning(
+                "DEV-GIS-WS reject ticket project_id=%s reason=invalid_or_expired",
+                project_id,
+            )
+            await self.close(code=4401)
+            return
         if ticket is not None:
             alias = str(ticket.get("alias") or "")
             if (
