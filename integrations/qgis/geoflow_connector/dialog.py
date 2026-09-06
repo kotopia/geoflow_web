@@ -25,15 +25,26 @@ def _password_echo_mode():
 
 
 class GeoFlowConnectorDialog(QDialog):
-    def __init__(self, parent=None, *, on_open_project=None, on_sync=None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        on_open_project=None,
+        on_sync=None,
+        on_cache_pin_state=None,
+        on_toggle_cache_pin=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("GeoFlow Connector")
-        self.resize(620, 290)
+        self.resize(680, 320)
         self.on_open_project = on_open_project
         self.on_sync = on_sync
+        self.on_cache_pin_state = on_cache_pin_state
+        self.on_toggle_cache_pin = on_toggle_cache_pin
         self.client = None
         self.projects = []
         self.sync_ready = False
+        self.project_opened = False
 
         settings = QSettings()
         self.server_edit = QLineEdit(
@@ -54,6 +65,11 @@ class GeoFlowConnectorDialog(QDialog):
         self.open_button.setEnabled(False)
         self.sync_button = QPushButton("GeoFlow에 동기화")
         self.sync_button.setEnabled(False)
+        self.cache_pin_button = QPushButton("현재 프로젝트 로컬 Snapshot 고정")
+        self.cache_pin_button.setEnabled(False)
+        self.cache_pin_button.setToolTip(
+            "고정된 프로젝트의 로컬 GeoPackage Snapshot은 자동 캐시 정리에서 제외됩니다."
+        )
         self.close_button = QPushButton("닫기")
 
         self.status_label = QLabel(
@@ -74,15 +90,21 @@ class GeoFlowConnectorDialog(QDialog):
         buttons.addWidget(self.sync_button)
         buttons.addWidget(self.close_button)
 
+        cache_buttons = QHBoxLayout()
+        cache_buttons.addStretch(1)
+        cache_buttons.addWidget(self.cache_pin_button)
+
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(self.status_label)
+        layout.addLayout(cache_buttons)
         layout.addStretch(1)
         layout.addLayout(buttons)
 
         self.login_button.clicked.connect(self._login)
         self.open_button.clicked.connect(self._open_project)
         self.sync_button.clicked.connect(self._sync_project)
+        self.cache_pin_button.clicked.connect(self._toggle_cache_pin)
         self.close_button.clicked.connect(self.close)
 
     def _set_busy(self, busy: bool):
@@ -90,9 +112,40 @@ class GeoFlowConnectorDialog(QDialog):
         self.open_button.setEnabled(not busy and bool(self.projects))
         self.project_combo.setEnabled(not busy and bool(self.projects))
         self.sync_button.setEnabled(not busy and self.sync_ready)
+        self.cache_pin_button.setEnabled(
+            not busy
+            and self.project_opened
+            and callable(self.on_toggle_cache_pin)
+        )
+
+    def refresh_cache_pin_state(self):
+        if not self.project_opened or not callable(self.on_cache_pin_state):
+            self.cache_pin_button.setEnabled(False)
+            self.cache_pin_button.setText("현재 프로젝트 로컬 Snapshot 고정")
+            return
+        try:
+            pinned = bool(self.on_cache_pin_state())
+        except Exception:
+            pinned = False
+        self.cache_pin_button.setText(
+            "현재 프로젝트 로컬 Snapshot 고정 해제"
+            if pinned
+            else "현재 프로젝트 로컬 Snapshot 고정"
+        )
+        self.cache_pin_button.setEnabled(callable(self.on_toggle_cache_pin))
+
+    def _toggle_cache_pin(self):
+        if not self.project_opened or not callable(self.on_toggle_cache_pin):
+            return
+        try:
+            self.on_toggle_cache_pin()
+        finally:
+            self.refresh_cache_pin_state()
 
     def _login(self):
         self.sync_ready = False
+        self.project_opened = False
+        self.refresh_cache_pin_state()
         self._set_busy(True)
         self.status_label.setText("GeoFlow 로그인 및 프로젝트 권한을 확인하는 중입니다…")
         try:
@@ -142,8 +195,10 @@ class GeoFlowConnectorDialog(QDialog):
             return
 
         self.sync_ready = False
+        self.project_opened = False
+        self.refresh_cache_pin_state()
         self._set_busy(True)
-        self.status_label.setText("Layer Plan 확인 후 프로젝트 GeoPackage를 생성·다운로드하는 중입니다…")
+        self.status_label.setText("Layer Plan 확인 후 프로젝트 GeoPackage를 준비하는 중입니다…")
         try:
             manifest = self.client.get_json(manifest_url)
             if self.on_open_project is None:
@@ -161,9 +216,11 @@ class GeoFlowConnectorDialog(QDialog):
             self._set_busy(False)
             return
 
+        self.project_opened = True
         suffix = " · 서버 동기화 가능" if self.sync_ready else " · 로컬 저장만 가능"
         self.status_label.setText(f"QGIS GeoPackage 구성 완료 · 레이어 {loaded}개{suffix}")
         self._set_busy(False)
+        self.refresh_cache_pin_state()
 
     def _sync_project(self):
         if self.client is None or not self.sync_ready or self.on_sync is None:
