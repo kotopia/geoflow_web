@@ -12,7 +12,11 @@ from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.services.entity_access import require_tenant_context
 
 from .changeset import changeset_runtime_enabled
-from .qfield_auth import issue_qfield_ticket, qfield_ticket_runtime_enabled
+from .qfield_auth import (
+    hydrate_qfield_package_import_request,
+    issue_qfield_ticket,
+    qfield_ticket_runtime_enabled,
+)
 from .qfield_device_views import _project_and_plan, _project_center
 from .qfield_package import build_qfield_bootstrap_zip
 
@@ -42,19 +46,7 @@ def _safe_filename(value: str) -> str:
     return cleaned.strip("._") or "project"
 
 
-@login_required
-@require_GET
-def qfield_package_api(request, project_id):
-    """Download an empty roaming-cache QField project plus project plugin.
-
-    This is intentionally strict-development only. The archive embeds a
-    short-lived project-scoped ticket, not a reusable password or DB secret.
-    """
-
-    alias = require_tenant_context(request)
-    if not gf_has_perm(request, "maps.view"):
-        raise PermissionDenied("Permission denied")
-    project, policy, plan = _project_and_plan(request, alias, project_id)
+def _package_response(request, alias, project, policy, plan):
     if not qfield_ticket_runtime_enabled() or not changeset_runtime_enabled(alias):
         return JsonResponse({"ok": False, "error": "qfield_package_not_enabled"}, status=403)
 
@@ -109,7 +101,43 @@ def qfield_package_api(request, project_id):
         filename=f"geoflow-qfield-{_safe_filename(project.code or project.id)}.zip",
     )
     response["X-GeoFlow-Project"] = str(project.id)
-    response["X-GeoFlow-QField-Package-Version"] = "0.1"
+    response["X-GeoFlow-QField-Package-Version"] = "0.2"
     response["X-GeoFlow-Layer-Count"] = str(layer_count)
     response["Cache-Control"] = "private, no-store"
     return response
+
+
+@login_required
+@require_GET
+def qfield_package_api(request, project_id):
+    """Browser-session ZIP download retained as a manual fallback."""
+
+    alias = require_tenant_context(request)
+    if not gf_has_perm(request, "maps.view"):
+        raise PermissionDenied("Permission denied")
+    project, policy, plan = _project_and_plan(request, alias, project_id)
+    return _package_response(request, alias, project, policy, plan)
+
+
+@require_GET
+def qfield_package_import_api(request, project_id):
+    """Package endpoint consumed by qfield://local?import=... .
+
+    QField performs this HTTP GET outside the browser cookie jar, so a
+    five-minute purpose-specific signed URL token hydrates the same tenant and
+    project authorization boundary.  It is development-PoC only; production
+    will use a separately reviewed revocable/one-time device handoff.
+    """
+
+    payload = hydrate_qfield_package_import_request(
+        request,
+        project_id=str(project_id),
+    )
+    if payload is None:
+        return JsonResponse({"ok": False, "error": "invalid_qfield_package_import"}, status=401)
+
+    alias = require_tenant_context(request)
+    if not gf_has_perm(request, "maps.view"):
+        raise PermissionDenied("Permission denied")
+    project, policy, plan = _project_and_plan(request, alias, project_id)
+    return _package_response(request, alias, project, policy, plan)
