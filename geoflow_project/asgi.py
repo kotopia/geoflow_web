@@ -25,16 +25,19 @@ if _strict_gis_dev:
 
     from channels.auth import AuthMiddlewareStack  # noqa: E402
     from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
-    from channels.security.websocket import AllowedHostsOriginValidator  # noqa: E402
     from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler  # noqa: E402
 
     from geoflow_ops.gis.websocket_routing import websocket_urlpatterns  # noqa: E402
+    from geoflow_ops.gis.websocket_security import (  # noqa: E402
+        TicketAwareAllowedHostsOriginValidator,
+    )
 
+    websocket_application = AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
     application = ProtocolTypeRouter(
         {
             "http": ASGIStaticFilesHandler(django_application),
-            "websocket": AllowedHostsOriginValidator(
-                AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
+            "websocket": TicketAwareAllowedHostsOriginValidator(
+                websocket_application
             ),
         }
     )
