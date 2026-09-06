@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     qfield_device_views,
+    qfield_package_views,
     qfield_views,
     qgis_views,
     realtime_ticket_views,
@@ -44,6 +45,11 @@ urlpatterns = [
         "projects/<uuid:project_id>/api/qfield/bootstrap/",
         qfield_device_views.qfield_bootstrap_api,
         name="qfield_bootstrap_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/qfield/package/",
+        qfield_package_views.qfield_package_api,
+        name="qfield_package_api",
     ),
     path(
         "projects/<uuid:project_id>/api/qfield/roaming-plan/",
