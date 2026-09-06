@@ -11,12 +11,15 @@ Item {
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
     property var positioning: iface.positioning()
-    property string serverUrl: iface.readProjectEntry("GeoFlow", "server_url", "")
-    property string projectId: iface.readProjectEntry("GeoFlow", "project_id", "")
-    property string bearerToken: iface.readProjectEntry("GeoFlow", "qfield_token", "")
-    property string roamingPlanUrl: iface.readProjectEntry("GeoFlow", "roaming_plan_url", "")
-    property string roamingCellUrl: iface.readProjectEntry("GeoFlow", "roaming_cell_url", "")
-    property real movementThresholdM: iface.readProjectDoubleEntry("GeoFlow", "movement_threshold_m", 100.0)
+    // QField can instantiate a project sidecar while the project is still
+    // loading. Do not freeze project metadata into one-time property
+    // initializers; refresh it when iface.loadProjectEnded fires.
+    property string serverUrl: ""
+    property string projectId: ""
+    property string bearerToken: ""
+    property string roamingPlanUrl: ""
+    property string roamingCellUrl: ""
+    property real movementThresholdM: 100.0
     property bool requestInFlight: false
     property string lastViewport: ""
     property real lastLon: NaN
@@ -42,7 +45,7 @@ Item {
         id: bootstrapTimer
         interval: 1200
         repeat: false
-        running: true
+        running: false
         onTriggered: geoflowField.scheduleRoaming(true)
     }
 
@@ -50,12 +53,73 @@ Item {
         id: roamingTimer
         interval: 8000
         repeat: true
-        running: true
+        running: false
         onTriggered: geoflowField.scheduleRoaming(false)
+    }
+
+    Connections {
+        target: iface
+
+        function onLoadProjectEnded(path, name) {
+            geoflowField.log("project load ended: " + name)
+            geoflowField.reloadProjectConfig()
+            geoflowField.lastViewport = ""
+            geoflowField.lastLon = NaN
+            geoflowField.lastLat = NaN
+            bootstrapTimer.restart()
+            roamingTimer.restart()
+        }
     }
 
     function log(message) {
         try { iface.logMessage("GeoFlow Field: " + message) } catch (err) {}
+    }
+
+    function readProjectText(key) {
+        let value = ""
+        try { value = String(iface.readProjectEntry("GeoFlow", key, "") || "") } catch (err) {}
+        if (!value) {
+            try { value = String(iface.readProjectEntry("GeoFlow", "/" + key, "") || "") } catch (err2) {}
+        }
+        return value
+    }
+
+    function readProjectNumber(key, fallback) {
+        let value = fallback
+        try { value = Number(iface.readProjectDoubleEntry("GeoFlow", key, fallback)) } catch (err) {}
+        if (!isFinite(value) || value <= 0) {
+            try { value = Number(iface.readProjectDoubleEntry("GeoFlow", "/" + key, fallback)) } catch (err2) {}
+        }
+        if (!isFinite(value) || value <= 0) value = fallback
+        return value
+    }
+
+    function reloadProjectConfig() {
+        try { mainWindow = iface.mainWindow() } catch (err) {}
+        try { mapCanvas = iface.mapCanvas() } catch (err2) {}
+        try { positioning = iface.positioning() } catch (err3) {}
+
+        serverUrl = readProjectText("server_url")
+        projectId = readProjectText("project_id")
+        bearerToken = readProjectText("qfield_token")
+        roamingPlanUrl = readProjectText("roaming_plan_url")
+        roamingCellUrl = readProjectText("roaming_cell_url")
+        movementThresholdM = readProjectNumber("movement_threshold_m", 100.0)
+
+        if (serverUrl && projectId && bearerToken && roamingPlanUrl && roamingCellUrl) {
+            log("project config ready for " + projectId)
+            return true
+        }
+        log(
+            "project config incomplete" +
+            " server=" + Boolean(serverUrl) +
+            " project=" + Boolean(projectId) +
+            " token=" + Boolean(bearerToken) +
+            " plan=" + Boolean(roamingPlanUrl) +
+            " cell=" + Boolean(roamingCellUrl)
+        )
+        if (mainWindow) mainWindow.displayToast("GeoFlow 프로젝트 연결 정보를 기다리는 중입니다")
+        return false
     }
 
     function absoluteUrl(path) {
@@ -127,13 +191,11 @@ Item {
     }
 
     function scheduleRoaming(force) {
-        if (requestInFlight || !serverUrl || !projectId || !bearerToken) {
-            if (force && (!serverUrl || !projectId || !bearerToken)) {
-                log("project bootstrap metadata is incomplete")
-                mainWindow.displayToast("GeoFlow 프로젝트 연결 정보가 없습니다")
-            }
-            return
+        if (requestInFlight) return
+        if (!serverUrl || !projectId || !bearerToken || !roamingPlanUrl || !roamingCellUrl) {
+            if (!reloadProjectConfig()) return
         }
+
         let viewport = viewportText()
         let pos = currentPosition()
         let moved = false
@@ -152,6 +214,7 @@ Item {
         if (known.length) query.push("known=" + encodeURIComponent(known.join(",")))
         if (!pos && !viewport) {
             log("no GPS or viewport available yet")
+            if (force && mainWindow) mainWindow.displayToast("GeoFlow 지도 영역/GPS 준비를 기다리는 중입니다")
             return
         }
 
@@ -231,7 +294,10 @@ Item {
 
     Component.onCompleted: {
         iface.addItemToPluginsToolbar(syncButton)
-        log("plugin activated for project " + projectId)
-        mainWindow.displayToast("GeoFlow Field 연결됨 · 주변 데이터 동기화 시작")
+        reloadProjectConfig()
+        log("plugin component completed")
+        mainWindow.displayToast("GeoFlow Field 연결됨 · 프로젝트 준비 중")
+        bootstrapTimer.restart()
+        roamingTimer.restart()
     }
 }
