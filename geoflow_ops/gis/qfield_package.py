@@ -13,14 +13,14 @@ from typing import Any
 from django.conf import settings
 
 from .gpkg_snapshot_v2 import (
+    _copy_layer_rows,
     _create_feature_table,
     _init_gpkg,
-    _install_rtree_triggers,
     _layer_specs,
 )
 
 
-QFIELD_PACKAGE_VERSION = "0.3"
+QFIELD_PACKAGE_VERSION = "0.4"
 PROJECT_BASENAME = "geoflow-field"
 
 
@@ -48,18 +48,26 @@ def _project_crs_xml() -> str:
     """.strip()
 
 
-def build_empty_qfield_geopackage(
+def build_qfield_geopackage(
     alias: str,
     *,
     project_id: str,
     plan: dict[str, Any],
 ) -> tuple[Path, list[dict[str, Any]]]:
+    """Build a self-contained QField bootstrap package with server snapshot rows.
+
+    The project plugin can still expand the local cache through roaming cells,
+    but the initial project must remain usable even when the QML sidecar has
+    not started yet.  The same chunked snapshot/RTree materializer used by the
+    QGIS package provides the authoritative initial rows here.
+    """
+
     specs = _layer_specs(alias, plan)
     if not specs:
         raise ValueError("project Layer Plan is empty")
 
     temp = tempfile.NamedTemporaryFile(
-        prefix="geoflow-qfield-empty-",
+        prefix="geoflow-qfield-seed-",
         suffix=".gpkg",
         delete=False,
     )
@@ -69,18 +77,21 @@ def build_empty_qfield_geopackage(
     try:
         conn = sqlite3.connect(str(path))
         try:
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA cache_size=-65536")
             _init_gpkg(conn)
             profile = plan.get("profile") or {}
             conn.executemany(
                 "INSERT INTO _geoflow_package(key,value) VALUES (?,?)",
                 [
-                    ("package_version", "0.7"),
+                    ("package_version", "0.8"),
                     ("package_id", str(uuid.uuid4())),
                     ("project_id", str(uuid.UUID(str(project_id)))),
                     ("profile_id", str(profile.get("id") or "")),
                     ("profile_code", str(profile.get("code") or "")),
                     ("generated_at", dt.datetime.now(dt.timezone.utc).isoformat()),
                     ("qfield_package_version", QFIELD_PACKAGE_VERSION),
+                    ("bootstrap_mode", "project_snapshot_then_roaming"),
                     ("spatial_index", "gpkg_rtree_index"),
                 ],
             )
@@ -122,7 +133,7 @@ def build_empty_qfield_geopackage(
             )
             for spec in specs:
                 _create_feature_table(conn, spec)
-                _install_rtree_triggers(conn, spec)
+                count = _copy_layer_rows(alias, conn, spec, str(project_id))
                 layer_meta.append(
                     {
                         "standard_name": spec.standard_name,
@@ -130,6 +141,8 @@ def build_empty_qfield_geopackage(
                         "label": spec.label,
                         "domain": spec.domain,
                         "geometry_kind": spec.geometry_kind,
+                        "row_count": count,
+                        "spatial_index": "rtree",
                         "fields": [
                             {
                                 "name": field.name,
@@ -247,7 +260,7 @@ def build_qfield_bootstrap_zip(
     roaming_cell_url: str,
     project_center: list[float] | None,
 ) -> tuple[Path, int]:
-    gpkg_path, layers = build_empty_qfield_geopackage(
+    gpkg_path, layers = build_qfield_geopackage(
         alias,
         project_id=str(project["id"]),
         plan=plan,
@@ -277,8 +290,8 @@ def build_qfield_bootstrap_zip(
         readme = (
             "GeoFlow QField PoC package\n"
             "- geoflow-field.qgs: QField project\n"
-            "- geoflow-field.qml: project plugin\n"
-            "- geoflow-field.gpkg: local roaming cache\n"
+            "- geoflow-field.qml: project roaming plugin\n"
+            "- geoflow-field.gpkg: initial project snapshot + local roaming cache\n"
             "The embedded project ticket is short-lived and development-only.\n"
         )
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
