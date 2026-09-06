@@ -2,26 +2,29 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import uuid
 from typing import Any
 
-from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections, transaction
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
+from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+
+from geoflow_ops.models import Project
+from geoflow_ops.services.entity_access import require_tenant_context
 
 from .changeset import ChangesetUnavailable, apply_project_changeset
 from .events import publish_project_change_event
 from .gpkg_snapshot_v2 import _layer_specs
+from .layer_plan import project_layer_plan
 from .qfield_auth import qfield_ticket_required
 from .qfield_device_views import (
     _MAX_CHANGESET_BODY_BYTES,
     _actor_ref,
     _normalize_qfield_changeset_payload,
-    _project_and_plan,
 )
 from .qgis_sync import SyncConflict, SyncRejected
-from geoflow_ops.services.entity_access import require_tenant_context
 
 
 _QFIELD_CHANGESET_PROTOCOL = "geoflow_qfield_changeset_v2"
@@ -50,9 +53,6 @@ def _timestamps_match(expected: Any, actual: Any) -> bool:
     right = _parse_timestamp(actual)
     if left is None or right is None:
         return str(expected or "") == str(actual or "") and bool(expected)
-    # QField/Qt can expose a database timestamp at millisecond precision while
-    # PostgreSQL stores microseconds.  A sub-millisecond representation delta
-    # is the same snapshot version, not a concurrent edit.
     return abs((left - right).total_seconds()) < 0.001
 
 
@@ -70,6 +70,25 @@ def _latest_feature_revision(alias: str, project_id: str, standard_name: str, ob
     return int(row[0]) if row and row[0] is not None else 0
 
 
+def _ticket_project_and_plan(request, alias: str, project_id):
+    payload = getattr(request, "_qfield_ticket_payload", None) or {}
+    try:
+        ticket_project_id = str(uuid.UUID(str(payload.get("project_id"))))
+        requested_project_id = str(uuid.UUID(str(project_id)))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise SyncRejected("QField ticket project scope is invalid") from exc
+    if ticket_project_id != requested_project_id:
+        raise SyncRejected("QField ticket project scope mismatch")
+    if not bool(payload.get("write_authorized")):
+        raise SyncRejected("QField ticket is read-only")
+
+    project = get_object_or_404(Project.objects.using(alias), id=project_id)
+    plan = project_layer_plan(alias, project.id)
+    if plan.get("ready") and not plan.get("gis_enabled"):
+        raise Http404("GIS is not enabled by this project's business scope.")
+    return project, plan
+
+
 def _validate_qfield_concurrency(
     alias: str,
     *,
@@ -77,14 +96,7 @@ def _validate_qfield_concurrency(
     plan: dict[str, Any],
     payload: dict[str, Any],
 ) -> None:
-    """Lock edited server rows and reject stale QField snapshots.
-
-    QField v2 sends the source feature's ``updated_at`` whenever it is
-    available.  That protects against edits made by any GeoFlow/QGIS path,
-    including writes which did not create a Changeset revision.  The project
-    revision is retained as a compatibility fallback for packages where the
-    profile did not expose ``updated_at`` yet.
-    """
+    """Lock edited server rows and reject stale QField snapshots."""
 
     if not isinstance(payload, dict) or payload.get("protocol") != _QFIELD_CHANGESET_PROTOCOL:
         return
@@ -118,8 +130,6 @@ def _validate_qfield_concurrency(
             )
             row = cursor.fetchone()
         if row is None:
-            # The authoritative Changeset service will return the canonical
-            # missing-object conflict payload.
             continue
 
         server_updated_at = row[0]
@@ -132,7 +142,9 @@ def _validate_qfield_concurrency(
                         "id": object_id,
                         "reason": "server_object_changed",
                         "base_updated_at": str(base_updated_at),
-                        "server_updated_at": server_updated_at.isoformat() if hasattr(server_updated_at, "isoformat") else str(server_updated_at),
+                        "server_updated_at": server_updated_at.isoformat()
+                        if hasattr(server_updated_at, "isoformat")
+                        else str(server_updated_at),
                     }
                 )
             continue
@@ -153,7 +165,13 @@ def _validate_qfield_concurrency(
         raise SyncConflict(conflicts)
 
 
-def _enrich_applied_versions(alias: str, *, project_id: str, plan: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+def _enrich_applied_versions(
+    alias: str,
+    *,
+    project_id: str,
+    plan: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
     specs = {spec.standard_name.upper(): spec for spec in _layer_specs(alias, plan)}
     connection = connections[alias]
     schema = connection.ops.quote_name("gis")
@@ -189,9 +207,13 @@ def qfield_device_changeset_api(request, project_id):
     """Bearer-authenticated, offline-safe QField Changeset endpoint."""
 
     alias = require_tenant_context(request)
-    project, policy, plan = _project_and_plan(request, alias, project_id, require_write=True)
-    if not policy.can_webgis_write(project.id):
-        raise PermissionDenied("Permission denied")
+    try:
+        project, plan = _ticket_project_and_plan(request, alias, project_id)
+    except SyncRejected as exc:
+        return JsonResponse(
+            {"ok": False, "error": "qfield_scope_rejected", "message": str(exc)},
+            status=403,
+        )
 
     content_length = int(request.META.get("CONTENT_LENGTH") or 0)
     if content_length > _MAX_CHANGESET_BODY_BYTES:
@@ -210,9 +232,6 @@ def qfield_device_changeset_api(request, project_id):
         )
 
     try:
-        # Keep the optimistic-lock SELECT ... FOR UPDATE locks until the
-        # Changeset has committed.  apply_project_changeset() uses a nested
-        # atomic block on the same tenant connection.
         with transaction.atomic(using=alias):
             _validate_qfield_concurrency(
                 alias,
