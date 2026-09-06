@@ -11,7 +11,6 @@ from .cache_lifecycle import (
     inventory_cache,
     plan_cache_cleanup,
 )
-from .cache_project_state import stamp_project_cache_state
 
 
 _ACTIVE_UNUSED_DAYS_KEY = "GeoFlowConnector/cache/active_unused_days"
@@ -172,9 +171,10 @@ class CacheLifecycleMixin:
         result = super()._materialize_project(manifest, client, **kwargs)
         self._update_cache_pin_action()
         try:
-            package_path = str((self.active_context or {}).get("package_path") or "")
-            if package_path:
-                stamp_project_cache_state(package_path, manifest)
+            # SnapshotReuseMixin stamps status/last-opened metadata before the
+            # new OGR layers are opened. Housekeeping after materialization is
+            # therefore read-only for the active package and never competes
+            # with the layer provider's SQLite handle.
             self._run_cache_lifecycle()
         except Exception as exc:
             # Cache housekeeping must never block GIS work or synchronization.
