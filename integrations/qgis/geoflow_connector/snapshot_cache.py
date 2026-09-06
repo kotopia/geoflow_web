@@ -124,7 +124,8 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
 
     conn = None
     try:
-        conn = sqlite3.connect(f"file:{snapshot.as_posix()}?mode=rw", uri=True, timeout=5)
+        uri = snapshot.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5)
         conn.execute("PRAGMA busy_timeout=5000")
         if not _table_exists(conn, "_geoflow_package"):
             return None
@@ -185,13 +186,14 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
 
         pending = _row_count_if_table(conn, "_geoflow_pending_change")
         outbox = _row_count_if_table(conn, "_geoflow_outbox")
+        stat = snapshot.stat()
         return SnapshotCacheCandidate(
             path=str(snapshot),
-            size_bytes=int(snapshot.stat().st_size),
+            size_bytes=int(stat.st_size),
             last_applied_revision=last_revision,
             pending_count=pending,
             outbox_count=outbox,
-            mtime=float(snapshot.stat().st_mtime),
+            mtime=float(stat.st_mtime),
         )
     except (OSError, sqlite3.Error):
         return None
@@ -240,13 +242,4 @@ def select_reusable_snapshot(project_dir: str, manifest: dict) -> SnapshotCacheC
             "동일 GeoFlow 프로젝트에 미전송 변경이 남은 로컬 Snapshot이 둘 이상 있습니다. "
             "자동 선택으로 변경을 잃을 수 있어 프로젝트 열기를 중단했습니다."
         )
-    selected = dirty[0] if dirty else max(candidates, key=lambda row: row.mtime)
-    stamp_snapshot(selected.path, manifest)
-    return SnapshotCacheCandidate(
-        path=selected.path,
-        size_bytes=selected.size_bytes,
-        last_applied_revision=selected.last_applied_revision,
-        pending_count=selected.pending_count,
-        outbox_count=selected.outbox_count,
-        mtime=float(Path(selected.path).stat().st_mtime),
-    )
+    return dirty[0] if dirty else max(candidates, key=lambda row: row.mtime)
