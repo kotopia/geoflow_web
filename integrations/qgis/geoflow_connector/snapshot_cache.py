@@ -204,6 +204,7 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
 
 def stamp_snapshot(path: str, manifest: dict) -> None:
     now = dt.datetime.now(dt.timezone.utc).isoformat()
+    project = manifest.get("project") or {}
     conn = sqlite3.connect(path, timeout=30)
     try:
         conn.execute("PRAGMA busy_timeout=30000")
@@ -212,6 +213,8 @@ def stamp_snapshot(path: str, manifest: dict) -> None:
             [
                 ("cache_manifest_fingerprint", manifest_cache_fingerprint(manifest)),
                 ("cache_last_opened_at", now),
+                ("cache_project_status", str(project.get("status") or "")),
+                ("cache_project_code", str(project.get("code") or "")),
             ],
         )
         conn.commit()
