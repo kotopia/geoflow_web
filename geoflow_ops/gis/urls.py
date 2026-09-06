@@ -1,6 +1,13 @@
 from django.urls import path
 
-from . import qgis_views, realtime_ticket_views, realtime_views, sync_views, views
+from . import (
+    qfield_views,
+    qgis_views,
+    realtime_ticket_views,
+    realtime_views,
+    sync_views,
+    views,
+)
 
 app_name = "gis"
 
@@ -31,6 +38,16 @@ urlpatterns = [
         "projects/<uuid:project_id>/api/delta/",
         sync_views.project_delta_api,
         name="project_delta_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/qfield/roaming-plan/",
+        qfield_views.qfield_roaming_plan_api,
+        name="qfield_roaming_plan_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/qfield/roaming-cell/",
+        qfield_views.qfield_roaming_cell_api,
+        name="qfield_roaming_cell_api",
     ),
     path(
         "projects/<uuid:project_id>/api/qgis-manifest/",
