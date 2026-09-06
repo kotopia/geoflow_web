@@ -3,6 +3,7 @@ from django.urls import path
 from . import (
     qfield_device_views,
     qfield_package_views,
+    qfield_sync_views,
     qfield_views,
     qgis_views,
     realtime_ticket_views,
@@ -73,7 +74,7 @@ urlpatterns = [
     ),
     path(
         "projects/<uuid:project_id>/api/qfield/changesets/",
-        qfield_device_views.qfield_device_changeset_api,
+        qfield_sync_views.qfield_device_changeset_api,
         name="qfield_device_changeset_api",
     ),
     path(
