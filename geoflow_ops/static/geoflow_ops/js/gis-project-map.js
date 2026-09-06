@@ -68,7 +68,14 @@
 
   function initProjectMap() {
     var mapNode = document.getElementById("gisProjectMap");
-    if (!mapNode || typeof L === "undefined") return;
+    if (!mapNode) return;
+    if (typeof L === "undefined") {
+      var bootstrapStatus = document.getElementById("gisMapStatus");
+      if (bootstrapStatus) bootstrapStatus.textContent = "지도 라이브러리를 불러오지 못했습니다.";
+      mapNode.textContent = "Leaflet 지도 라이브러리를 불러오지 못했습니다. 네트워크/CDN 연결을 확인해 주세요.";
+      mapNode.classList.add("d-flex", "align-items-center", "justify-content-center", "text-muted", "p-3");
+      return;
+    }
 
     var endpoint = mapNode.getAttribute("data-geojson-url");
     var featureEndpoint = mapNode.getAttribute("data-feature-url");
