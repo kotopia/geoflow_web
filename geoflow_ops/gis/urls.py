@@ -52,6 +52,11 @@ urlpatterns = [
         name="qfield_package_api",
     ),
     path(
+        "projects/<uuid:project_id>/api/qfield/package-import/",
+        qfield_package_views.qfield_package_import_api,
+        name="qfield_package_import_api",
+    ),
+    path(
         "projects/<uuid:project_id>/api/qfield/roaming-plan/",
         qfield_views.qfield_roaming_plan_api,
         name="qfield_roaming_plan_api",
