@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from django.db import connections, transaction
 
-from .gpkg_snapshot_v2 import _layer_specs, build_project_geopackage
+from .gpkg_snapshot_file import build_project_geopackage_file
+from .gpkg_snapshot_v2 import _layer_specs
 from .qgis_sync_hash import content_hash, extract_gpkg_wkb
 
 
@@ -44,7 +44,11 @@ def _snapshot_revision(alias: str, project_id: str) -> int:
     return int(row[0]) if row else 0
 
 
-def _populate_baseline_hashes(conn: sqlite3.Connection, alias: str, plan: dict[str, Any]) -> None:
+def _populate_baseline_hashes(
+    conn: sqlite3.Connection,
+    alias: str,
+    plan: dict[str, Any],
+) -> None:
     for spec in _layer_specs(alias, plan):
         field_names = [field.name for field in spec.fields]
         editable_names = [
@@ -83,35 +87,32 @@ def _populate_baseline_hashes(conn: sqlite3.Connection, alias: str, plan: dict[s
             )
 
 
-def build_syncable_project_geopackage(
+def build_syncable_project_geopackage_file(
     alias: str,
     *,
     project_id: str,
     plan: dict[str, Any],
-) -> tuple[bytes, list[dict[str, Any]]]:
-    # A Delta cursor is valid only when every layer in the package was read from
-    # the same PostgreSQL snapshot. REPEATABLE READ keeps the server snapshot
-    # coherent even if another QGIS/QField client commits while materialization
-    # is in progress.
-    with transaction.atomic(using=alias):
-        with connections[alias].cursor() as cursor:
-            cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        snapshot_revision = _snapshot_revision(alias, project_id)
-        payload, layer_meta = build_project_geopackage(
-            alias,
-            project_id=project_id,
-            plan=plan,
-        )
+) -> tuple[Path, list[dict[str, Any]], int]:
+    """Build a syncable project Snapshot without converting it to bytes.
 
-    temp = tempfile.NamedTemporaryFile(
-        prefix="geoflow-syncable-",
-        suffix=".gpkg",
-        delete=False,
-    )
-    temp_path = Path(temp.name)
+    All PostgreSQL layer reads and the revision cursor are taken from one
+    REPEATABLE READ transaction.  The resulting file can then be streamed or
+    moved into the server Snapshot cache without a whole-file Python memory
+    copy.  The caller owns the returned temporary path.
+    """
+
+    temp_path: Path | None = None
     try:
-        temp.write(payload)
-        temp.close()
+        with transaction.atomic(using=alias):
+            with connections[alias].cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            snapshot_revision = _snapshot_revision(alias, project_id)
+            temp_path, layer_meta = build_project_geopackage_file(
+                alias,
+                project_id=project_id,
+                plan=plan,
+            )
+
         conn = sqlite3.connect(str(temp_path))
         try:
             conn.execute("PRAGMA temp_store=MEMORY")
@@ -136,6 +137,32 @@ def build_syncable_project_geopackage(
             conn.commit()
         finally:
             conn.close()
+        return temp_path, layer_meta, snapshot_revision
+    except Exception:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
+def build_syncable_project_geopackage(
+    alias: str,
+    *,
+    project_id: str,
+    plan: dict[str, Any],
+) -> tuple[bytes, list[dict[str, Any]]]:
+    """Compatibility wrapper for callers that still require bytes."""
+
+    temp_path, layer_meta, _snapshot_revision_value = (
+        build_syncable_project_geopackage_file(
+            alias,
+            project_id=project_id,
+            plan=plan,
+        )
+    )
+    try:
         return temp_path.read_bytes(), layer_meta
     finally:
         try:
