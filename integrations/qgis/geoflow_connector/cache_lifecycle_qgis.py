@@ -84,28 +84,39 @@ class CacheLifecycleMixin:
             "projects",
         )
 
-    def _update_cache_pin_action(self) -> None:
-        action = self._cache_pin_action
-        if action is None:
-            return
+    def _active_cache_pin_state(self) -> bool:
         project_id = str((self.active_context or {}).get("project_id") or "")
         if not project_id:
-            action.setEnabled(False)
-            action.setText("현재 GeoFlow 프로젝트 캐시 고정")
-            return
-        settings = QSettings()
-        pinned = _pinned_projects(settings)
-        action.setEnabled(True)
-        if project_id in pinned:
-            action.setText("현재 GeoFlow 프로젝트 캐시 고정 해제")
-        else:
-            action.setText("현재 GeoFlow 프로젝트 캐시 고정")
+            return False
+        return project_id in _pinned_projects(QSettings())
+
+    def _update_cache_pin_action(self) -> None:
+        action = self._cache_pin_action
+        project_id = str((self.active_context or {}).get("project_id") or "")
+        pinned = self._active_cache_pin_state()
+        if action is not None:
+            if not project_id:
+                action.setEnabled(False)
+                action.setText("현재 GeoFlow 프로젝트 캐시 고정")
+            else:
+                action.setEnabled(True)
+                action.setText(
+                    "현재 GeoFlow 프로젝트 캐시 고정 해제"
+                    if pinned
+                    else "현재 GeoFlow 프로젝트 캐시 고정"
+                )
+        dialog = getattr(self, "dialog", None)
+        if dialog is not None and hasattr(dialog, "refresh_cache_pin_state"):
+            try:
+                dialog.refresh_cache_pin_state()
+            except Exception:
+                pass
 
     def _toggle_active_cache_pin(self):
         project_id = str((self.active_context or {}).get("project_id") or "")
         project_code = str((self.active_context or {}).get("project_code") or project_id[:8])
         if not project_id:
-            return
+            return False
         settings = QSettings()
         pinned = _pinned_projects(settings)
         if project_id in pinned:
@@ -126,6 +137,7 @@ class CacheLifecycleMixin:
             level=Qgis.Info,
             duration=5,
         )
+        return enabled
 
     def _run_cache_lifecycle(self) -> None:
         root = self._cache_root()
