@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase
 from django.urls import reverse
 
+from . import qfield_package
 from .qfield_package import QFIELD_PACKAGE_VERSION, _qgs_xml
 
 
@@ -38,7 +40,14 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn(self.project_id, xml)
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
-        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.3")
+        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.4")
+
+    def test_qfield_bootstrap_materializes_project_rows_before_roaming(self):
+        source = inspect.getsource(qfield_package.build_qfield_geopackage)
+        self.assertIn("_copy_layer_rows(alias, conn, spec, str(project_id))", source)
+        self.assertIn('"row_count": count', source)
+        self.assertIn('("bootstrap_mode", "project_snapshot_then_roaming")', source)
+        self.assertNotIn("_install_rtree_triggers(conn, spec)", source)
 
     def test_project_sidecar_exists_and_bootstraps_after_project_load(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
