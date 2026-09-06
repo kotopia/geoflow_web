@@ -12,6 +12,8 @@ param(
 
     [string]$Listen = "127.0.0.1:8000",
 
+    [string]$LanHost = "",
+
     [string]$QgisRoot = ""
 )
 
@@ -29,6 +31,31 @@ if ($CentralDb -notmatch '(?i)(dev|test)' -or $TenantDb -notmatch '(?i)(dev|test
     throw "Safety stop: CentralDb and TenantDb must both contain dev/test."
 }
 
+if ($LanHost) {
+    try {
+        $lanAddress = [System.Net.IPAddress]::Parse($LanHost)
+    }
+    catch {
+        throw "LanHost must be a literal IP address, for example 192.168.219.128."
+    }
+    if ($lanAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        throw "LanHost currently supports IPv4 only."
+    }
+    if ([System.Net.IPAddress]::IsLoopback($lanAddress)) {
+        throw "LanHost must be the notebook LAN IPv4 address, not loopback."
+    }
+    if ($Listen -eq "127.0.0.1:8000") {
+        $Listen = "0.0.0.0:8000"
+    }
+}
+
+$listenParts = $Listen -split ':', 2
+if ($listenParts.Count -ne 2 -or -not $listenParts[0] -or -not $listenParts[1]) {
+    throw "Listen must use host:port form, for example 127.0.0.1:8000."
+}
+$listenHost = $listenParts[0]
+$listenPort = $listenParts[1]
+
 Write-Host "[1/4] Configure isolated development database environment..." -ForegroundColor Cyan
 & (Join-Path $repoRoot "scripts\dev\set_geoflow_dev_runtime_env.ps1") `
     -HostName $HostName `
@@ -36,6 +63,12 @@ Write-Host "[1/4] Configure isolated development database environment..." -Foreg
     -DbUser $DbUser `
     -CentralDb $CentralDb `
     -TenantDb $TenantDb
+
+if ($LanHost) {
+    $env:DJANGO_ALLOWED_HOSTS = "localhost,127.0.0.1,$LanHost"
+    $env:DJANGO_CSRF_TRUSTED_ORIGINS = "http://localhost:$listenPort,http://127.0.0.1:$listenPort,http://$($LanHost):$listenPort"
+    Write-Host "LAN QField DEV access: enabled for $LanHost only" -ForegroundColor Yellow
+}
 
 Write-Host "[2/4] Configure GeoDjango native libraries from QGIS..." -ForegroundColor Cyan
 $qgisScript = Join-Path $repoRoot "scripts\windows\set_geodjango_from_qgis.ps1"
@@ -72,13 +105,6 @@ if (-not (Test-Path $daphneExe)) {
     throw "Daphne is missing from the GeoFlow .venv. Run: .\.venv\Scripts\python.exe -m pip install -r requirements.txt"
 }
 
-$listenParts = $Listen -split ':', 2
-if ($listenParts.Count -ne 2 -or -not $listenParts[0] -or -not $listenParts[1]) {
-    throw "Listen must use host:port form, for example 127.0.0.1:8000."
-}
-$listenHost = $listenParts[0]
-$listenPort = $listenParts[1]
-
 Write-Host "[4/4] Start isolated GeoFlow ASGI development server..." -ForegroundColor Green
 Write-Host "STRICT DEV DB GUARD: enabled" -ForegroundColor Green
 Write-Host "DEV AUTH DIAGNOSTICS: enabled (stage/length only; no secrets)" -ForegroundColor Green
@@ -87,6 +113,11 @@ Write-Host "Central DB: $CentralDb" -ForegroundColor Green
 Write-Host "Tenant DB:  $TenantDb" -ForegroundColor Green
 Write-Host "Login:      http://$Listen/login/" -ForegroundColor Green
 Write-Host "GIS:        http://$Listen/gis/" -ForegroundColor Green
+if ($LanHost) {
+    Write-Host "LAN Login:  http://$($LanHost):$listenPort/login/" -ForegroundColor Green
+    Write-Host "LAN GIS:    http://$($LanHost):$listenPort/gis/" -ForegroundColor Green
+    Write-Host "If another device still cannot connect, allow inbound TCP $listenPort on the Windows Private firewall profile." -ForegroundColor Yellow
+}
 Write-Host "Press Ctrl+C to stop the development server." -ForegroundColor DarkCyan
 
 & $daphneExe -b $listenHost -p $listenPort geoflow_project.asgi:application
