@@ -6,7 +6,6 @@ import uuid
 from decimal import Decimal
 from urllib.parse import quote
 
-from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
 from django.http import Http404, JsonResponse
@@ -22,6 +21,7 @@ from geoflow_ops.services.project_access import project_access_policy
 from .changeset import changeset_runtime_enabled, project_current_revision
 from .gpkg_snapshot_v2 import project_geopackage_layer_manifest
 from .layer_plan import project_layer_plan
+from .qfield_auth import qfield_session_or_ticket_required
 from .qfield_roaming import (
     DEFAULT_ACTIVE_RADIUS_M,
     DEFAULT_CELL_SIZE_M,
@@ -140,7 +140,7 @@ def _layer_rows(alias: str, plan: dict, requested_names: set[str]) -> list[dict]
     return selected
 
 
-@login_required
+@qfield_session_or_ticket_required
 @require_GET
 def qfield_roaming_plan_api(request, project_id):
     alias = require_tenant_context(request)
@@ -255,7 +255,7 @@ def qfield_roaming_plan_api(request, project_id):
     return response
 
 
-@login_required
+@qfield_session_or_ticket_required
 @require_GET
 def qfield_roaming_cell_api(request, project_id):
     alias = require_tenant_context(request)
@@ -311,7 +311,10 @@ def qfield_roaming_cell_api(request, project_id):
                     if field.get("name") and str(field.get("name")) != "geom"
                 ]
                 quoted_table = connection.ops.quote_name(physical_name)
-                select_parts = ["ST_AsGeoJSON(geom, 8) AS geometry_json"]
+                select_parts = [
+                    "ST_AsGeoJSON(geom, 8) AS geometry_json",
+                    "ST_AsText(geom) AS geometry_wkt",
+                ]
                 for field_name in field_names:
                     quoted = connection.ops.quote_name(field_name)
                     select_parts.append(f"{quoted} AS {quoted}")
@@ -347,6 +350,7 @@ def qfield_roaming_cell_api(request, project_id):
                 features = []
                 for record in records:
                     geometry_json = record.pop("geometry_json", None)
+                    geometry_wkt = record.pop("geometry_wkt", None)
                     if not geometry_json:
                         continue
                     attrs = {
@@ -358,6 +362,7 @@ def qfield_roaming_cell_api(request, project_id):
                             "type": "Feature",
                             "id": attrs.get("id"),
                             "geometry": json.loads(geometry_json),
+                            "geometry_wkt": geometry_wkt,
                             "properties": attrs,
                         }
                     )
