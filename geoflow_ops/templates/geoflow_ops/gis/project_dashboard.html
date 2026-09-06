@@ -19,7 +19,7 @@
   <div class="d-flex gap-2">
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
-    <button class="btn btn-outline-secondary" type="button" disabled>QField 패키지</button>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:qfield_package_api' project.id %}">QField 패키지 (PoC)</a>
   </div>
 </div>
 
@@ -63,6 +63,7 @@
         {% empty %}<div class="text-muted">GIS 업무범위가 없습니다.</div>{% endfor %}
         <hr>
         <div class="text-muted small"><code>QGIS Manifest</code>는 WebGIS와 동일한 Layer Plan을 QGIS Connector가 소비할 수 있도록 materialize한 서버 계약입니다.</div>
+        <div class="text-muted small mt-2"><code>QField 패키지 (PoC)</code>는 빈 로컬 GeoPackage와 GPS/화면 기반 Roaming Cache 플러그인을 묶어 내려받습니다. 현재는 strict development runtime에서만 활성화됩니다.</div>
       </div>
     </div>
   </div>
@@ -87,7 +88,7 @@
 
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        integrity="sha256-20nQCchB9coqIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""></script>
 <script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260905-realtime-1"></script>
 {% endblock %}
