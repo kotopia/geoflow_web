@@ -85,6 +85,8 @@ class GeoFlowConnectorPlugin:
                 self.iface.mainWindow(),
                 on_open_project=self._materialize_project,
                 on_sync=self._sync_active_project,
+                on_cache_pin_state=getattr(self, "_active_cache_pin_state", None),
+                on_toggle_cache_pin=getattr(self, "_toggle_active_cache_pin", None),
             )
         self.dialog.show()
         self.dialog.raise_()
