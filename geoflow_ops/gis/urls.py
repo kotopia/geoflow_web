@@ -4,6 +4,7 @@ from . import (
     qfield_device_views,
     qfield_package_views,
     qfield_sync_views,
+    qfield_ticket_roaming_views,
     qfield_views,
     qgis_views,
     realtime_ticket_views,
@@ -64,7 +65,7 @@ urlpatterns = [
     ),
     path(
         "projects/<uuid:project_id>/api/qfield/roaming-cell/",
-        qfield_views.qfield_roaming_cell_api,
+        qfield_ticket_roaming_views.qfield_ticket_roaming_cell_api,
         name="qfield_roaming_cell_api",
     ),
     path(
