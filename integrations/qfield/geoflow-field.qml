@@ -140,13 +140,15 @@ Item {
         }
     }
 
-    Instantiator {
+    Repeater {
         id: layerSignalBridges
         model: geoflowField.managedLayerDescriptors
 
         delegate: Item {
             id: signalBridge
             visible: false
+            width: 0
+            height: 0
             property var descriptor: modelData || ({})
             property string physicalName: String(descriptor.physical_name || "")
             property string standardName: String(descriptor.standard_name || physicalName).toUpperCase()
@@ -953,7 +955,7 @@ Item {
                 state.base_revision = Number(plan.current_revision || 0)
                 saveProjectState(state)
             }
-            if (force) toast("GeoFlow Field 1.0 · 자동 동기화 준비 " + managedLayerDescriptors.length + "개 레이어")
+            if (force) toast("GeoFlow Field 1.0.1 · 자동 동기화 준비 " + managedLayerDescriptors.length + "개 레이어")
             fetchCells(plan.roaming.cells || [], 0, 0, force)
         }, !force)
     }
@@ -1039,14 +1041,14 @@ Item {
             return
         }
         updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 1.0 연결됨 · 서버 레이어 확인 중")
+        toast("GeoFlow Field 1.0.1 연결됨 · 서버 레이어 확인 중")
         scheduleRoaming(true)
         syncNow(false)
     }
 
     Component.onCompleted: {
         iface.addItemToPluginsToolbar(syncButton)
-        log("plugin 1.0 component completed")
+        log("plugin 1.0.1 component completed")
         bootstrapTimer.restart()
     }
 
