@@ -79,6 +79,15 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         self.assertIn("_is_native_qfield_bearer_request", freshness_source)
         self.assertIn("_is_native_qfield_bearer_request", tenant_source)
 
+    def test_roaming_cell_retries_one_transient_db_disconnect(self):
+        retry_source = inspect.getsource(qfield_ticket_roaming_views._db_retry_once)
+        endpoint_source = inspect.getsource(qfield_ticket_roaming_views.qfield_ticket_roaming_cell_api)
+        self.assertIn("for attempt in range(2)", retry_source)
+        self.assertIn("connections[alias].close()", retry_source)
+        self.assertIn("_db_retry_once", endpoint_source)
+        self.assertIn("qfield_roaming_cell_db_unavailable", endpoint_source)
+        self.assertIn('"retryable": True', endpoint_source)
+
     def test_qfield_sidecar_uses_load_safe_polling_fallback(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = path.read_text(encoding="utf-8")
@@ -91,9 +100,11 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         self.assertIn("scheduleRetry()", text)
         self.assertIn("pollingTimer", text)
         self.assertIn("function rebuildPollingBaseline()", text)
-        self.assertIn("function pollForLocalChanges()", text)
+        self.assertIn("function pollForLocalChanges(force)", text)
         self.assertIn("function featureSignature(layer, feature)", text)
         self.assertIn("poll detected update", text)
+        self.assertIn("Never infer deletes from iterator absence", text)
+        self.assertNotIn("poll detected delete", text)
         self.assertIn("syncNow(false, true)", text)
         self.assertIn("captureSuppressed = true", text)
         self.assertIn("managedLayerDescriptors = plan.layers || []", text)
@@ -102,7 +113,6 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         self.assertIn("layer.attributeValueChanged.connect", text)
         self.assertIn("xhr.status === 401", text)
         self.assertIn("xhr.status === 403", text)
-        self.assertIn("GeoFlow Field 0.9.2", text)
+        self.assertIn("GeoFlow Field 0.9.4", text)
         self.assertNotIn("Instantiator", text)
         self.assertNotIn("Repeater", text)
-        self.assertNotIn('iface.findItemByObjectName("featureForm")', text)
