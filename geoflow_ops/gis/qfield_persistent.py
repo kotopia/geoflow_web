@@ -10,14 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from .gpkg_snapshot_v2 import _layer_specs
-from .qfield_package import (
-    PROJECT_BASENAME,
-    QFIELD_PACKAGE_VERSION,
-    QFIELD_PLUGIN_RUNTIME_VERSION,
-)
+from .qfield_package import PROJECT_BASENAME, QFIELD_PACKAGE_VERSION, QFIELD_PLUGIN_RUNTIME_VERSION
 
 
-QFIELD_PERSISTENT_PROTOCOL_VERSION = "1.1"
+QFIELD_PERSISTENT_PROTOCOL_VERSION = "1.2"
 
 
 def qfield_install_id(project_id) -> str:
@@ -25,12 +21,6 @@ def qfield_install_id(project_id) -> str:
 
 
 def qfield_schema_fingerprint(alias: str, plan: dict[str, Any]) -> str:
-    """Return a stable client-package compatibility fingerprint.
-
-    Ordinary feature edits do not alter this fingerprint. Only profile/layer/
-    field contract changes require a package update.
-    """
-
     specs = _layer_specs(alias, plan)
     payload = {
         "profile": (plan.get("profile") or {}).get("code") or "",
@@ -53,28 +43,29 @@ def qfield_schema_fingerprint(alias: str, plan: dict[str, Any]) -> str:
             for spec in specs
         ],
     }
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:24]
 
 
 def _inject_qgs_persistent_metadata(
     text: str,
     *,
-    session_handoff_url: str,
+    claim_token: str,
+    session_claim_url: str,
+    delta_url: str,
     access_expires_at_ms: int,
+    snapshot_revision: int,
     schema_fingerprint: str,
     install_id: str,
 ) -> str:
     marker = "    </GeoFlow>"
     if marker not in text:
         raise RuntimeError("GeoFlow QField project metadata marker is missing")
-    additions = f"""      <qfield_session_handoff_url type=\"QString\">{session_handoff_url}</qfield_session_handoff_url>
+    additions = f"""      <qfield_claim_token type=\"QString\">{claim_token}</qfield_claim_token>
+      <qfield_session_claim_url type=\"QString\">{session_claim_url}</qfield_session_claim_url>
+      <qfield_delta_url type=\"QString\">{delta_url}</qfield_delta_url>
       <qfield_access_expires_at_ms type=\"QString\">{int(access_expires_at_ms)}</qfield_access_expires_at_ms>
+      <qfield_snapshot_revision type=\"QString\">{int(snapshot_revision)}</qfield_snapshot_revision>
       <qfield_package_version type=\"QString\">{QFIELD_PACKAGE_VERSION}</qfield_package_version>
       <qfield_plugin_runtime_version type=\"QString\">{QFIELD_PLUGIN_RUNTIME_VERSION}</qfield_plugin_runtime_version>
       <qfield_schema_fingerprint type=\"QString\">{schema_fingerprint}</qfield_schema_fingerprint>
@@ -85,20 +76,30 @@ def _inject_qgs_persistent_metadata(
 
 
 def _inject_qml_persistent_session(text: str) -> str:
-    """Layer explicit-auth and sparse-roaming behavior over proven runtime."""
+    """Add explicit-auth claim, push/pull delta, and disable automatic roaming."""
+
+    if "import org.qfield.core" not in text:
+        import_marker = "import org.qfield\n"
+        if import_marker not in text:
+            raise RuntimeError("QField import marker missing")
+        text = text.replace(import_marker, import_marker + "import org.qfield.core\n", 1)
 
     property_marker = '    property string syncStatus: "idle"\n'
     if property_marker not in text:
-        raise RuntimeError("QField persistent property marker is missing")
+        raise RuntimeError("QField persistent property marker missing")
     text = text.replace(
         property_marker,
         property_marker
-        + "    property bool handoffInFlight: false\n"
+        + "    property bool claimInFlight: false\n"
+        + "    property bool deltaInFlight: false\n"
         + "    property bool serverAuthRequired: false\n"
         + "    property bool packageUpdateRequired: false\n"
         + '    property string packageUpdateReason: ""\n'
-        + '    property string sessionHandoffUrl: ""\n'
+        + '    property string claimToken: ""\n'
+        + '    property string sessionClaimUrl: ""\n'
+        + '    property string deltaUrl: ""\n'
         + "    property double accessExpiresAtMs: 0\n"
+        + "    property int snapshotRevision: 0\n"
         + '    property string clientPackageVersion: ""\n'
         + '    property string clientPluginRuntimeVersion: ""\n'
         + '    property string clientSchemaFingerprint: ""\n'
@@ -108,8 +109,8 @@ def _inject_qml_persistent_session(text: str) -> str:
 
     toolbar_marker = "    QfToolButton {\n        id: syncButton"
     if toolbar_marker not in text:
-        raise RuntimeError("QField persistent toolbar marker is missing")
-    auth_settings = r'''    Settings {
+        raise RuntimeError("QField toolbar marker missing")
+    helpers = r'''    Settings {
         id: authState
         category: "GeoFlowFieldAuth/" + geoflowField.projectId
         property string accessToken: ""
@@ -119,8 +120,34 @@ def _inject_qml_persistent_session(text: str) -> str:
         property string lastSchemaFingerprint: ""
     }
 
+    QfFeatureModel {
+        id: deltaFeatureModel
+        project: qgisProject
+    }
+
 '''
-    text = text.replace(toolbar_marker, auth_settings + toolbar_marker, 1)
+    text = text.replace(toolbar_marker, helpers + toolbar_marker, 1)
+
+    # The package is a full project snapshot. Automatic 8-second roaming is no
+    # longer appropriate; server->device changes arrive through revision Delta.
+    roaming_timer_old = '''    Timer {
+        id: roamingTimer
+        interval: 8000
+        repeat: true
+        running: true
+        onTriggered: geoflowField.scheduleRoaming(false)
+    }'''
+    roaming_timer_new = '''    Timer {
+        id: roamingTimer
+        interval: 8000
+        repeat: false
+        running: false
+        onTriggered: geoflowField.scheduleRoaming(false)
+    }'''
+    if roaming_timer_old not in text:
+        raise RuntimeError("QField roaming timer marker missing")
+    text = text.replace(roaming_timer_old, roaming_timer_new, 1)
+    text = text.replace("            roamingTimer.restart()", "            roamingTimer.stop()")
 
     config_old = '''        bearerToken = readProjectText("qfield_token")
         roamingPlanUrl = readProjectText("roaming_plan_url")
@@ -129,7 +156,10 @@ def _inject_qml_persistent_session(text: str) -> str:
         changesetUrl = roamingPlanUrl.replace(/roaming-plan\\/?$/, "changesets/")'''
     config_new = '''        let embeddedAccessToken = readProjectText("qfield_token")
         let embeddedExpiresAtMs = Number(readProjectText("qfield_access_expires_at_ms") || "0")
-        sessionHandoffUrl = readProjectText("qfield_session_handoff_url")
+        claimToken = readProjectText("qfield_claim_token")
+        sessionClaimUrl = readProjectText("qfield_session_claim_url")
+        deltaUrl = readProjectText("qfield_delta_url")
+        snapshotRevision = Number(readProjectText("qfield_snapshot_revision") || "0")
         clientPackageVersion = readProjectText("qfield_package_version")
         clientPluginRuntimeVersion = readProjectText("qfield_plugin_runtime_version")
         clientSchemaFingerprint = readProjectText("qfield_schema_fingerprint")
@@ -155,27 +185,21 @@ def _inject_qml_persistent_session(text: str) -> str:
             serverAuthRequired = true
         }
 
-        if (localState.lastLocation) {
-            let parts = String(localState.lastLocation).split(",")
-            if (parts.length === 2) {
-                let savedLon = Number(parts[0])
-                let savedLat = Number(parts[1])
-                if (isFinite(savedLon) && isFinite(savedLat)) {
-                    lastLon = savedLon
-                    lastLat = savedLat
-                }
-            }
+        let state = projectState()
+        if (!state.outbox && !state.conflict && Object.keys(state.pending || {}).length === 0 && Number(state.base_revision || 0) === 0) {
+            state.base_revision = Math.max(0, Number(snapshotRevision || 0))
+            saveProjectState(state)
         }'''
     if config_old not in text:
-        raise RuntimeError("QField persistent config marker is missing")
+        raise RuntimeError("QField config marker missing")
     text = text.replace(config_old, config_new, 1)
 
     ready_old = '''            serverUrl && projectId && bearerToken && roamingPlanUrl && roamingCellUrl && changesetUrl
         )'''
-    ready_new = '''            serverUrl && projectId && sessionHandoffUrl && roamingPlanUrl && roamingCellUrl && changesetUrl
+    ready_new = '''            serverUrl && projectId && claimToken && sessionClaimUrl && deltaUrl && roamingPlanUrl && roamingCellUrl && changesetUrl
         )'''
     if ready_old not in text:
-        raise RuntimeError("QField persistent config-ready marker is missing")
+        raise RuntimeError("QField config-ready marker missing")
     text = text.replace(ready_old, ready_new, 1)
 
     reset_old = '''    function resetRoamingStateForFreshTicket() {
@@ -203,13 +227,14 @@ def _inject_qml_persistent_session(text: str) -> str:
         log("new QField install contract detected; roaming cache state reset")
     }'''
     if reset_old not in text:
-        raise RuntimeError("QField roaming cache reset marker is missing")
+        raise RuntimeError("QField cache reset marker missing")
     text = text.replace(reset_old, reset_new, 1)
 
     auth_get_marker = "    function authGet(path, callback, quiet) {"
     if auth_get_marker not in text:
-        raise RuntimeError("QField authGet marker is missing")
-    handoff_functions = r'''    function sessionAuthorized() {
+        raise RuntimeError("QField authGet marker missing")
+
+    runtime = r'''    function sessionAuthorized() {
         return Boolean(bearerToken && accessExpiresAtMs > Date.now())
     }
 
@@ -220,13 +245,11 @@ def _inject_qml_persistent_session(text: str) -> str:
         authState.accessExpiresAtMs = 0
         serverAuthRequired = true
         syncStatus = "auth_required"
-        if (showMessage) {
-            toast("GeoFlow 인증 시간이 만료되었습니다 · GeoFlow에 로그인한 뒤 QField에서 열기를 눌러 다시 인증하세요")
-        }
+        if (showMessage) toast("GeoFlow 인증이 만료되었습니다 · GeoFlow 로그인 후 QField에서 열기를 눌러주세요")
         log("QField server session expired; explicit GeoFlow handoff required")
     }
 
-    function applyHandoffDescriptor(body) {
+    function applySessionDescriptor(body) {
         if (!body || !body.ok || !body.auth) return false
         let token = String(body.auth.token || "")
         let expiresIn = Number(body.auth.expires_in || 0)
@@ -242,40 +265,41 @@ def _inject_qml_persistent_session(text: str) -> str:
         packageUpdateReason = packageUpdateRequired ? String(body.package.reason || "package_contract_changed") : ""
         serverAuthRequired = false
         authBlocked = false
-        if (packageUpdateRequired) {
-            toast("GeoFlow QField 업데이트가 필요합니다 · 로컬 변경은 먼저 서버로 전송할 수 있습니다")
-            log("package update required: " + packageUpdateReason)
-        } else {
-            log("explicit GeoFlow handoff accepted; access session active")
-        }
+        log("pending GeoFlow handoff claimed; access session active")
         return true
     }
 
-    function exchangeHandoff(handoffToken, callback) {
-        if (handoffInFlight || !sessionHandoffUrl || !handoffToken) {
+    function claimPendingSession(showMessage, callback) {
+        if (claimInFlight || !sessionClaimUrl || !claimToken) {
             if (callback) callback(false)
             return
         }
-        handoffInFlight = true
+        claimInFlight = true
         let xhr = new XMLHttpRequest()
-        let url = absoluteUrl(sessionHandoffUrl)
+        let url = absoluteUrl(sessionClaimUrl)
         xhr.open("POST", url)
         xhr.setRequestHeader("Accept", "application/json")
         xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8")
-        xhr.setRequestHeader("Authorization", "Bearer " + handoffToken)
+        xhr.setRequestHeader("Authorization", "Bearer " + claimToken)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
-            handoffInFlight = false
+            claimInFlight = false
+            let body = null
+            try { body = JSON.parse(xhr.responseText) } catch (err) {}
             if (xhr.status >= 200 && xhr.status < 300) {
-                let body = null
-                try { body = JSON.parse(xhr.responseText) } catch (parseErr) {}
-                let ok = applyHandoffDescriptor(body)
+                if (body && body.pending === false) {
+                    log("no pending GeoFlow handoff")
+                    if (callback) callback(false)
+                    return
+                }
+                let ok = applySessionDescriptor(body)
+                if (ok && showMessage) toast("GeoFlow 재인증 완료 · 12시간 서버 연결")
                 if (callback) callback(ok)
                 return
             }
-            log("explicit handoff failed HTTP " + xhr.status)
+            log("pending handoff claim failed HTTP " + xhr.status)
+            if (showMessage && xhr.status !== 0) toast("GeoFlow 재인증 확인 실패: HTTP " + xhr.status)
             if (callback) callback(false)
-            toast("GeoFlow QField 재인증에 실패했습니다 · GeoFlow에서 다시 로그인하세요")
         }
         xhr.send(JSON.stringify({
             package_version: clientPackageVersion,
@@ -285,94 +309,203 @@ def _inject_qml_persistent_session(text: str) -> str:
         }))
     }
 
-    function handleExternalAction(action) {
-        let text = String(action || "")
-        if (text.indexOf("qfield://geoflow") !== 0) return
-        let projectMatch = text.match(/[?&]project=([^&]+)/)
-        let handoffMatch = text.match(/[?&]handoff=([^&]+)/)
-        let requestedProject = projectMatch && projectMatch.length > 1 ? decodeURIComponent(projectMatch[1]) : ""
-        let handoffToken = handoffMatch && handoffMatch.length > 1 ? decodeURIComponent(handoffMatch[1]) : ""
-        if (requestedProject && canonicalUuid(requestedProject) !== canonicalUuid(projectId)) {
-            toast("GeoFlow에서 선택한 프로젝트가 현재 QField 프로젝트와 다릅니다 · 최근 프로젝트 목록에서 해당 프로젝트를 여세요")
-            return
+    function deltaLayer(row) {
+        let physical = String(row.physical_name || "")
+        if (physical) {
+            try {
+                let matches = qgisProject.mapLayersByName(physical)
+                if (matches && matches.length > 0) return matches[0]
+            } catch (err) {}
         }
-        if (!handoffToken) {
-            log("GeoFlow handoff action missing token")
-            return
+        let standard = String(row.layer || "").toUpperCase()
+        for (let i = 0; i < layerBindings.length; i++) {
+            if (String(layerBindings[i].standard || "").toUpperCase() === standard) return layerBindings[i].layer
         }
-        log("explicit GeoFlow handoff received")
-        exchangeHandoff(handoffToken, function(ok) {
-            if (!ok) return
-            syncNow(false, true)
-            scheduleRoaming(false)
-        })
+        return null
+    }
+
+    function featureByObjectId(layer, objectId) {
+        if (!layer || !objectId) return null
+        let escaped = String(objectId).replace(/'/g, "''")
+        let iterator = null
+        try {
+            iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "\"id\" = '" + escaped + "'")
+            if (iterator.hasNext()) return iterator.next()
+        } catch (err) {
+            log("delta feature lookup failed: " + err)
+        } finally {
+            if (iterator) try { iterator.close() } catch (closeErr) {}
+        }
+        return null
+    }
+
+    function applyDeltaChange(row, state) {
+        if (!row) return true
+        if (String(row.client_id || "") === String(state.client_id || "")) return true
+        let layer = deltaLayer(row)
+        if (!layer) {
+            log("delta layer missing " + String(row.layer || row.physical_name || ""))
+            return false
+        }
+        let action = String(row.action || "").toLowerCase()
+        let objectId = canonicalUuid(row.id || "")
+        if (!objectId) return false
+        let current = featureByObjectId(layer, objectId)
+
+        captureSuppressed = true
+        try {
+            if (action === "delete") {
+                if (!current) return true
+                return Boolean(LayerUtils.deleteFeature(qgisProject, layer, current.id, true))
+            }
+
+            if (action === "create" && !current) {
+                let geometry = GeometryUtils.createGeometryFromWkt(String(row.geometry_wkt || ""))
+                if (!geometry || geometry.isNull) {
+                    log("delta create missing geometry " + objectId)
+                    return false
+                }
+                let feature = FeatureUtils.createFeature(layer, geometry)
+                feature.setAttribute("id", objectId)
+                feature.setAttribute("project_id", projectId)
+                let attrs = row.attributes || {}
+                for (let name in attrs) {
+                    if (!Object.prototype.hasOwnProperty.call(attrs, name)) continue
+                    try { feature.setAttribute(name, attrs[name]) } catch (attrErr) {}
+                }
+                return Boolean(LayerUtils.addFeature(layer, feature))
+            }
+
+            if (!current) {
+                log("delta update target missing " + objectId)
+                return false
+            }
+
+            if (row.geometry_wkt) {
+                let geometry2 = GeometryUtils.createGeometryFromWkt(String(row.geometry_wkt))
+                if (!geometry2 || geometry2.isNull) return false
+                deltaFeatureModel.currentLayer = layer
+                deltaFeatureModel.feature = current
+                if (!deltaFeatureModel.changeGeometry(geometry2) || !deltaFeatureModel.save(true)) {
+                    log("delta geometry save failed " + objectId)
+                    return false
+                }
+                current = featureByObjectId(layer, objectId) || current
+            }
+
+            let attrs2 = row.attributes || {}
+            let names = layer.fields.names || []
+            let changed = false
+            if (Object.keys(attrs2).length > 0) {
+                if (!layer.startEditing()) {
+                    log("delta attribute edit start failed " + objectId)
+                    return false
+                }
+                for (let name2 in attrs2) {
+                    if (!Object.prototype.hasOwnProperty.call(attrs2, name2) || protectedField(name2)) continue
+                    let idx = names.indexOf(name2)
+                    if (idx < 0) continue
+                    if (layer.changeAttributeValue(current.id, idx, attrs2[name2])) changed = true
+                }
+                if (changed && !layer.commitChanges(true)) {
+                    log("delta attribute commit failed " + objectId)
+                    return false
+                }
+                if (!changed) {
+                    try { layer.rollBack() } catch (rollbackErr) {}
+                }
+            }
+            return true
+        } catch (err) {
+            log("delta apply failed " + objectId + ": " + err)
+            return false
+        } finally {
+            captureSuppressed = false
+        }
+    }
+
+    function pullDelta(manual) {
+        if (deltaInFlight || !configReady || !sessionAuthorized()) return
+        let state = projectState()
+        if (state.conflict || state.outbox || Object.keys(state.pending || {}).length > 0) return
+        deltaInFlight = true
+        let since = Math.max(0, Number(state.base_revision || 0))
+        let xhr = new XMLHttpRequest()
+        let url = absoluteUrl(deltaUrl) + "?since=" + encodeURIComponent(since) + "&limit=1000"
+        xhr.open("GET", url)
+        xhr.setRequestHeader("Accept", "application/json")
+        xhr.setRequestHeader("Authorization", "Bearer " + bearerToken)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            deltaInFlight = false
+            if (xhr.status === 401) {
+                markSessionExpired(manual)
+                return
+            }
+            if (xhr.status < 200 || xhr.status >= 300) {
+                log("delta pull failed HTTP " + xhr.status)
+                if (manual && xhr.status !== 0) toast("GeoFlow 변경분 수신 실패: HTTP " + xhr.status)
+                return
+            }
+            let body = null
+            try { body = JSON.parse(xhr.responseText) } catch (err) {}
+            if (!body || !body.ok) return
+            if (body.snapshot_required) {
+                log("delta history gap requires fresh snapshot")
+                if (manual) toast("GeoFlow 변경 이력이 오래되어 전체 스냅샷 업데이트가 필요합니다")
+                return
+            }
+            let rows = body.changes || []
+            let next = since
+            let applied = 0
+            for (let i = 0; i < rows.length; i++) {
+                let row = rows[i]
+                if (!applyDeltaChange(row, state)) break
+                next = Number(row.revision || next)
+                applied += 1
+            }
+            state.base_revision = Math.max(Number(state.base_revision || 0), next)
+            saveProjectState(state)
+            if (applied > 0) {
+                mapCanvas.refresh()
+                bindLayers()
+                rebuildPollingBaseline()
+                log("delta applied count=" + applied + " revision=" + state.base_revision)
+            }
+            if (body.has_more && applied === rows.length) {
+                pullDelta(manual)
+            } else if (manual) {
+                toast(applied > 0 ? "GeoFlow 변경분 " + applied + "건 수신 완료" : "GeoFlow 서버와 최신 상태입니다")
+            }
+        }
+        xhr.send()
     }
 
 '''
-    text = text.replace(auth_get_marker, handoff_functions + auth_get_marker, 1)
+    text = text.replace(auth_get_marker, runtime + auth_get_marker, 1)
 
-    connections_marker = "    function log(message) {"
-    if connections_marker not in text:
-        raise RuntimeError("QField Connections marker is missing")
-    external_connections = r'''    Connections {
-        target: iface
-        function onExecuteAction(action) {
-            geoflowField.handleExternalAction(action)
+    # No qfield:// custom action is required anymore. MAIN launcher restores the
+    # recent project, then initialization/app resume claims the staged handoff.
+    log_marker = "    function log(message) {"
+    app_state = r'''    Connections {
+        target: Qt.application
+        function onStateChanged() {
+            if (Qt.application.state === Qt.ApplicationActive && geoflowField.serverAuthRequired) {
+                geoflowField.claimPendingSession(false, function(ok) {
+                    if (ok) geoflowField.syncNow(false, true)
+                })
+            }
         }
     }
 
 '''
-    text = text.replace(connections_marker, external_connections + connections_marker, 1)
+    if log_marker not in text:
+        raise RuntimeError("QField log marker missing")
+    text = text.replace(log_marker, app_state + log_marker, 1)
 
-    roaming_old = '''    function scheduleRoaming(force) {
-        if (requestInFlight || !configReady) return
-        let viewport = viewportText()
-        let pos = currentPosition()
-        let moved = false
-        if (pos) moved = isNaN(lastLon) || distanceMeters(lastLon, lastLat, pos.lon, pos.lat) >= movementThresholdM
-        if (!force && !moved && viewport === lastViewport) return
-
-        let query = []
-        if (pos) {
-            query.push("lon=" + encodeURIComponent(pos.lon))
-            query.push("lat=" + encodeURIComponent(pos.lat))
-        }
-        if (viewport) query.push("viewport=" + encodeURIComponent(viewport))'''
-    roaming_new = '''    function scheduleRoaming(force) {
-        if (requestInFlight || !configReady || !sessionAuthorized()) return
-        if (packageUpdateRequired) {
-            if (force) toast("GeoFlow QField 패키지 업데이트가 필요합니다 · 로컬 변경 동기화 후 GeoFlow에서 업데이트하세요")
-            return
-        }
-        let viewport = viewportText()
-        let pos = currentPosition()
-        let moved = false
-        if (pos) moved = isNaN(lastLon) || distanceMeters(lastLon, lastLat, pos.lon, pos.lat) >= movementThresholdM
-        if (!force) {
-            if (pos && !moved) return
-            if (!pos && viewport === lastViewport) return
-        }
-
-        let query = []
-        if (pos) {
-            query.push("lon=" + encodeURIComponent(pos.lon))
-            query.push("lat=" + encodeURIComponent(pos.lat))
-        } else if (viewport) {
-            query.push("viewport=" + encodeURIComponent(viewport))
-        }'''
-    if roaming_old not in text:
-        raise RuntimeError("QField sparse roaming marker is missing")
-    text = text.replace(roaming_old, roaming_new, 1)
-
-    manual_old = '''        syncNow(true, true)
-        scheduleRoaming(true)
-    }'''
-    manual_new = '''        syncNow(true, true)
-        scheduleRoaming(false)
-    }'''
-    if manual_old not in text:
-        raise RuntimeError("QField manual roaming marker is missing")
-    text = text.replace(manual_old, manual_new, 1)
+    # Stop automatic roaming completely. It remains callable as a future
+    # fallback for spatially-partial packages, but the full snapshot uses Delta.
+    text = text.replace("        syncNow(true, true)\n        scheduleRoaming(true)", "        syncNow(true, true)", 1)
 
     sync_guard_old = '''        if (!configReady && !reloadProjectConfig()) {
             if (manual) toast("GeoFlow 프로젝트 연결 정보가 없습니다")
@@ -386,13 +519,44 @@ def _inject_qml_persistent_session(text: str) -> str:
         if (!sessionAuthorized()) {
             serverAuthRequired = true
             syncStatus = "auth_required"
-            if (manual) toast("GeoFlow 재인증이 필요합니다 · GeoFlow에 로그인한 뒤 QField에서 열기를 눌러주세요")
+            claimPendingSession(manual, function(ok) {
+                if (ok) geoflowField.syncNow(manual, acceptedEdit)
+                else if (manual) toast("GeoFlow 재인증이 필요합니다 · GeoFlow 로그인 후 QField에서 열기를 눌러주세요")
+            })
             return
         }
-        if (layerBindings.length === 0 && managedLayerDescriptors.length > 0) bindLayers()'''
+        if (layerBindings.length === 0) bindLayers()'''
     if sync_guard_old not in text:
-        raise RuntimeError("QField sync auth guard marker is missing")
+        raise RuntimeError("QField sync auth guard marker missing")
     text = text.replace(sync_guard_old, sync_guard_new, 1)
+
+    no_payload_old = '''        if (!payload) {
+            syncStatus = "synced"
+            if (manual) toast("GeoFlow: 동기화할 로컬 변경이 없습니다")
+            return
+        }
+        postOutbox(payload, manual)'''
+    no_payload_new = '''        if (!payload) {
+            syncStatus = "synced"
+            pullDelta(manual)
+            return
+        }
+        postOutbox(payload, manual)'''
+    if no_payload_old not in text:
+        raise RuntimeError("QField no-payload marker missing")
+    text = text.replace(no_payload_old, no_payload_new, 1)
+
+    base_old = '                    state.base_revision = Number(response.current_revision || state.base_revision || 0)'
+    base_new = '                    state.base_revision = Number(payload.base_revision || state.base_revision || 0)'
+    if base_old not in text:
+        raise RuntimeError("QField Changeset base revision marker missing")
+    text = text.replace(base_old, base_new, 1)
+
+    success_old = '                log("changeset applied revision=" + response.current_revision)\n                return'
+    success_new = '                log("changeset applied revision=" + response.current_revision)\n                pullDelta(manual)\n                return'
+    if success_old not in text:
+        raise RuntimeError("QField Changeset success marker missing")
+    text = text.replace(success_old, success_new, 1)
 
     post_401_old = '''            if (xhr.status === 401) {
                 authBlocked = true
@@ -405,7 +569,7 @@ def _inject_qml_persistent_session(text: str) -> str:
                 return
             }'''
     if post_401_old not in text:
-        raise RuntimeError("QField changeset 401 marker is missing")
+        raise RuntimeError("QField Changeset 401 marker missing")
     text = text.replace(post_401_old, post_401_new, 1)
 
     auth_401_old = '''                if (!quiet && xhr.status === 401) {
@@ -415,46 +579,45 @@ def _inject_qml_persistent_session(text: str) -> str:
                     markSessionExpired(!quiet)
                 } else if (!quiet && xhr.status === 403) {'''
     if auth_401_old not in text:
-        raise RuntimeError("QField read 401 marker is missing")
+        raise RuntimeError("QField read 401 marker missing")
     text = text.replace(auth_401_old, auth_401_new, 1)
 
-    init_old = '''        updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 0.9.7 연결됨 · 서버 레이어 확인 중")
+    init_old = f'''        updateUnsyncedCount(projectState())
+        toast("GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION} 연결됨 · 서버 레이어 확인 중")
         scheduleRoaming(true)
         syncNow(false, false)'''
-    init_new = '''        updateUnsyncedCount(projectState())
-        if (sessionAuthorized()) {
-            serverAuthRequired = false
-            toast("GeoFlow Field 0.9.7 연결됨 · 인증 유효")
-            let pos = currentPosition()
-            if (pos && isNaN(lastLon)) {
-                lastLon = pos.lon
-                lastLat = pos.lat
-                localState.lastLocation = pos.lon + "," + pos.lat
-            }
-            syncNow(false, false)
-        } else {
-            serverAuthRequired = true
-            toast("GeoFlow 로컬 프로젝트 열림 · 서버 사용은 GeoFlow 재인증 후 가능합니다")
-        }'''
+    init_new = f'''        updateUnsyncedCount(projectState())
+        bindLayers()
+        claimPendingSession(false, function(claimed) {{
+            if (sessionAuthorized()) {{
+                serverAuthRequired = false
+                toast("GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION} 연결됨 · 증분 동기화 준비")
+                syncNow(false, false)
+            }} else {{
+                serverAuthRequired = true
+                toast("GeoFlow 로컬 프로젝트 열림 · 서버 사용은 GeoFlow 재인증 후 가능합니다")
+            }}
+        }})'''
     if init_old not in text:
-        raise RuntimeError("QField initialize marker is missing")
+        raise RuntimeError("QField initialize marker missing")
     text = text.replace(init_old, init_new, 1)
 
     required = (
-        "function sessionAuthorized()",
-        "function exchangeHandoff(handoffToken, callback)",
-        "explicit GeoFlow handoff required",
-        "qfield_session_handoff_url",
-        "qfield_access_expires_at_ms",
-        "new QField install contract detected",
-        "if (pos && !moved) return",
-        "else if (viewport)",
+        "import org.qfield.core",
+        "QfFeatureModel",
+        "function claimPendingSession",
+        "function pullDelta",
+        "qfield_claim_token",
+        "qfield_session_claim_url",
+        "qfield_delta_url",
+        "qfield_snapshot_revision",
+        "project_snapshot_then_delta" if "project_snapshot_then_delta" in text else "delta applied count=",
+        "running: false",
     )
     missing = [marker for marker in required if marker not in text]
     if missing:
-        raise RuntimeError("Explicit-auth QField runtime render incomplete: " + ", ".join(missing))
-    if "refreshToken" in text or "sessionRefreshTimer" in text or "refreshSession(" in text:
+        raise RuntimeError("QField persistent render incomplete: " + ", ".join(missing))
+    if "sessionRefreshTimer" in text or "refreshSession(" in text or "qfield_refresh_token" in text:
         raise RuntimeError("Autonomous QField refresh path must not exist")
     return text
 
@@ -462,50 +625,44 @@ def _inject_qml_persistent_session(text: str) -> str:
 def upgrade_qfield_bootstrap_zip(
     zip_path: Path,
     *,
-    session_handoff_url: str,
+    claim_token: str,
+    session_claim_url: str,
+    delta_url: str,
     access_expires_at_ms: int,
+    snapshot_revision: int,
     schema_fingerprint: str,
     install_id: str,
 ) -> Path:
-    """Upgrade a bootstrap ZIP to explicit-auth persistent-project contract."""
-
     source = Path(zip_path)
-    temp = tempfile.NamedTemporaryFile(
-        prefix="geoflow-qfield-persistent-",
-        suffix=".zip",
-        delete=False,
-    )
+    temp = tempfile.NamedTemporaryFile(prefix="geoflow-qfield-persistent-", suffix=".zip", delete=False)
     output = Path(temp.name)
     temp.close()
     try:
-        with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(
-            output,
-            "w",
-            compression=zipfile.ZIP_DEFLATED,
-        ) as dst:
+        with zipfile.ZipFile(source, "r") as src, zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as dst:
             for info in src.infolist():
                 data = src.read(info.filename)
                 if info.filename == f"{PROJECT_BASENAME}.qgs":
-                    text = data.decode("utf-8")
                     text = _inject_qgs_persistent_metadata(
-                        text,
-                        session_handoff_url=session_handoff_url,
+                        data.decode("utf-8"),
+                        claim_token=claim_token,
+                        session_claim_url=session_claim_url,
+                        delta_url=delta_url,
                         access_expires_at_ms=access_expires_at_ms,
+                        snapshot_revision=snapshot_revision,
                         schema_fingerprint=schema_fingerprint,
                         install_id=install_id,
                     )
                     data = text.encode("utf-8")
                 elif info.filename == f"{PROJECT_BASENAME}.qml":
-                    text = _inject_qml_persistent_session(data.decode("utf-8"))
-                    data = text.encode("utf-8")
+                    data = _inject_qml_persistent_session(data.decode("utf-8")).encode("utf-8")
                 elif info.filename == "README.txt":
-                    text = data.decode("utf-8")
-                    text += (
+                    text = data.decode("utf-8") + (
                         f"- persistent protocol: {QFIELD_PERSISTENT_PROTOCOL_VERSION}\n"
                         f"- install id: {install_id}\n"
-                        "- project folder is persistent; ordinary data edits do not require package re-import.\n"
-                        "- access authorization is non-renewing and expires after the GeoFlow access window.\n"
-                        "- after expiry, authenticate in GeoFlow and launch QField again; local edits remain queued.\n"
+                        f"- snapshot revision: {snapshot_revision}\n"
+                        "- access authorization never auto-renews.\n"
+                        "- GeoFlow browser stages a 5-minute handoff; loaded QField project claims it.\n"
+                        "- server-to-device synchronization uses revision Delta; automatic roaming is disabled.\n"
                     )
                     data = text.encode("utf-8")
                 dst.writestr(info, data)
