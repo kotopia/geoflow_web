@@ -113,7 +113,7 @@ function Write-VenvQgisBootstrap([string]$BinDir) {
     if (-not (Test-Path $sitePackages)) { return }
 
     $pthFile = Join-Path $sitePackages 'geoflow_qgis_runtime.pth'
-    $escapedBin = $BinDir.Replace('\', '\\').Replace("'", "\'")
+    $escapedBin = $BinDir.Replace("\", "\\").Replace("'", "\'")
     $pthLine = "import os,builtins; p='$escapedBin'; os.environ['PATH']=p+';'+os.environ.get('PATH',''); builtins._geoflow_qgis_dll_dir=os.add_dll_directory(p)"
     Set-Content -Path $pthFile -Value $pthLine -Encoding ASCII
     Write-Host "QGIS venv bootstrap refreshed: $pthFile" -ForegroundColor Yellow
