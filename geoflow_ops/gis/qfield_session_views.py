@@ -15,10 +15,14 @@ from .layer_plan import project_layer_plan
 from .qfield_auth import (
     QFIELD_HANDOFF_MAX_AGE_SECONDS,
     QFIELD_TICKET_MAX_AGE_SECONDS,
+    bearer_token_from_request,
     hydrate_qfield_handoff_request,
+    hydrate_qfield_handoff_token,
     issue_qfield_ticket,
+    parse_qfield_claim_token,
     qfield_ticket_runtime_enabled,
 )
+from .qfield_handoff import consume_pending_handoff
 from .qfield_package import QFIELD_PACKAGE_VERSION, QFIELD_PLUGIN_RUNTIME_VERSION
 from .qfield_persistent import (
     QFIELD_PERSISTENT_PROTOCOL_VERSION,
@@ -28,6 +32,17 @@ from .qfield_persistent import (
 
 
 _MAX_HANDOFF_BODY_BYTES = 64 * 1024
+
+
+def _json_body(request) -> dict | None:
+    content_length = int(request.META.get("CONTENT_LENGTH") or 0)
+    if content_length > _MAX_HANDOFF_BODY_BYTES:
+        return None
+    try:
+        body = json.loads(request.body.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return body if isinstance(body, dict) else None
 
 
 def _package_compatibility(alias: str, project, plan: dict, client: dict) -> dict:
@@ -53,35 +68,7 @@ def _package_compatibility(alias: str, project, plan: dict, client: dict) -> dic
     return server
 
 
-@csrf_exempt
-@require_POST
-def qfield_session_handoff_api(request, project_id):
-    """Exchange an explicit GeoFlow-authenticated handoff for one access ticket.
-
-    There is deliberately no persistent refresh credential. A QField access
-    ticket expires after 12 hours and cannot be extended by QField activity.
-    After expiry the local project can still be opened and edited, but server
-    read/write access resumes only after the user authenticates in GeoFlow and
-    presses "QField에서 열기" again. The browser supplies a five-minute
-    project-scoped handoff token in the Authorization header.
-    """
-
-    if not qfield_ticket_runtime_enabled():
-        return JsonResponse({"ok": False, "error": "qfield_handoff_not_enabled"}, status=403)
-    content_length = int(request.META.get("CONTENT_LENGTH") or 0)
-    if content_length > _MAX_HANDOFF_BODY_BYTES:
-        return JsonResponse({"ok": False, "error": "handoff_body_too_large"}, status=413)
-    try:
-        body = json.loads(request.body.decode("utf-8") or "{}")
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
-    if not isinstance(body, dict):
-        return JsonResponse({"ok": False, "error": "invalid_handoff_payload"}, status=400)
-
-    payload = hydrate_qfield_handoff_request(request, project_id=str(project_id))
-    if payload is None:
-        return JsonResponse({"ok": False, "error": "invalid_qfield_handoff"}, status=401)
-
+def _issue_session_response(request, project_id, payload: dict, body: dict):
     alias = require_tenant_context(request)
     project = get_object_or_404(Project.objects.using(alias), id=project_id)
     plan = project_layer_plan(alias, project.id)
@@ -104,7 +91,7 @@ def qfield_session_handoff_api(request, project_id):
     response = JsonResponse(
         {
             "ok": True,
-            "protocol": "geoflow_qfield_explicit_handoff_v1",
+            "protocol": "geoflow_qfield_explicit_handoff_v2",
             "project_id": str(project.id),
             "auth": {
                 "scheme": "Bearer",
@@ -129,3 +116,80 @@ def qfield_session_handoff_api(request, project_id):
     )
     response["Cache-Control"] = "private, no-store"
     return response
+
+
+@csrf_exempt
+@require_POST
+def qfield_session_handoff_api(request, project_id):
+    """Warm-app direct handoff exchange retained as a compatibility fallback."""
+
+    if not qfield_ticket_runtime_enabled():
+        return JsonResponse({"ok": False, "error": "qfield_handoff_not_enabled"}, status=403)
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({"ok": False, "error": "invalid_handoff_payload"}, status=400)
+    payload = hydrate_qfield_handoff_request(request, project_id=str(project_id))
+    if payload is None:
+        return JsonResponse({"ok": False, "error": "invalid_qfield_handoff"}, status=401)
+    return _issue_session_response(request, project_id, payload, body)
+
+
+@csrf_exempt
+@require_POST
+def qfield_session_claim_api(request, project_id):
+    """Claim a handoff staged by an authenticated GeoFlow browser.
+
+    QField calls this only after the local project/plugin is loaded. The claim
+    token stored in the package grants no GIS access and cannot create a pending
+    handoff. Without a preceding GeoFlow login + QField-open action this returns
+    204 and never mints a fresh access ticket.
+    """
+
+    if not qfield_ticket_runtime_enabled():
+        return JsonResponse({"ok": False, "error": "qfield_claim_not_enabled"}, status=403)
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({"ok": False, "error": "invalid_claim_payload"}, status=400)
+
+    claim_token = bearer_token_from_request(request)
+    claim = parse_qfield_claim_token(claim_token, project_id=str(project_id))
+    if claim is None:
+        return JsonResponse({"ok": False, "error": "invalid_qfield_claim"}, status=401)
+
+    expected_install_id = qfield_install_id(project_id)
+    install_id = str(body.get("install_id") or "")
+    if install_id != expected_install_id:
+        return JsonResponse({"ok": False, "error": "qfield_install_identity_mismatch"}, status=409)
+
+    handoff_token = consume_pending_handoff(
+        project_id=str(project_id),
+        user_id=str(claim.get("user_id") or ""),
+        group_id=str(claim.get("group_id") or ""),
+        install_id=install_id,
+    )
+    if not handoff_token:
+        response = JsonResponse(
+            {"ok": True, "pending": False, "project_id": str(project_id)},
+            status=200,
+        )
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    payload = hydrate_qfield_handoff_token(
+        request,
+        project_id=str(project_id),
+        token=handoff_token,
+    )
+    if payload is None:
+        return JsonResponse({"ok": False, "error": "invalid_pending_qfield_handoff"}, status=401)
+
+    # A claim credential is identity-bound. Never allow another user/group's
+    # staged handoff to be consumed even if a cache key collision were possible.
+    if (
+        str(payload.get("user_id") or "") != str(claim.get("user_id") or "")
+        or str(payload.get("group_id") or "") != str(claim.get("group_id") or "")
+        or str(payload.get("alias") or "") != str(claim.get("alias") or "")
+    ):
+        return JsonResponse({"ok": False, "error": "qfield_claim_identity_mismatch"}, status=403)
+
+    return _issue_session_response(request, project_id, payload, body)
