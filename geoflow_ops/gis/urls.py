@@ -3,6 +3,7 @@ from django.urls import path
 from . import (
     qfield_device_views,
     qfield_package_views,
+    qfield_session_views,
     qfield_sync_views,
     qfield_ticket_roaming_views,
     qfield_views,
@@ -49,6 +50,11 @@ urlpatterns = [
         name="qfield_bootstrap_api",
     ),
     path(
+        "projects/<uuid:project_id>/api/qfield/install-status/",
+        qfield_package_views.qfield_install_status_api,
+        name="qfield_install_status_api",
+    ),
+    path(
         "projects/<uuid:project_id>/api/qfield/package/",
         qfield_package_views.qfield_package_api,
         name="qfield_package_api",
@@ -57,6 +63,11 @@ urlpatterns = [
         "projects/<uuid:project_id>/api/qfield/package-import/",
         qfield_package_views.qfield_package_import_api,
         name="qfield_package_import_api",
+    ),
+    path(
+        "projects/<uuid:project_id>/api/qfield/session-refresh/",
+        qfield_session_views.qfield_session_refresh_api,
+        name="qfield_session_refresh_api",
     ),
     path(
         "projects/<uuid:project_id>/api/qfield/roaming-plan/",
