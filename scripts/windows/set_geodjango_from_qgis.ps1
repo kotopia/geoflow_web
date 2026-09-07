@@ -12,39 +12,110 @@ function Add-PathEntry([string]$PathEntry) {
     }
 }
 
-if (-not $QgisRoot) {
-    $roots = @()
-    $programFiles = ${env:ProgramFiles}
-    if ($programFiles -and (Test-Path $programFiles)) {
-        $qgisDirs = @(Get-ChildItem $programFiles -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like 'QGIS*' })
+function Get-QgisVersion([string]$Name) {
+    if (-not $Name) { return [version]'0.0.0' }
+    $match = [regex]::Match($Name, '(?i)^QGIS\s+(\d+)(?:\.(\d+))?(?:\.(\d+))?')
+    if (-not $match.Success) { return [version]'0.0.0' }
+    $major = [int]$match.Groups[1].Value
+    $minor = if ($match.Groups[2].Success) { [int]$match.Groups[2].Value } else { 0 }
+    $patch = if ($match.Groups[3].Success) { [int]$match.Groups[3].Value } else { 0 }
+    return [version]::new($major, $minor, $patch)
+}
 
-        # GeoFlow's current tested desktop connector/runtime is QGIS 3.x.
-        # Prefer the newest installed 3.x build over a newer major QGIS 4.x
-        # installation until the 4.x runtime is separately validated.
-        $roots += $qgisDirs |
-            Where-Object { $_.Name -match '^QGIS\s+3\.' } |
-            Sort-Object Name -Descending |
-            Select-Object -ExpandProperty FullName
-        $roots += $qgisDirs |
-            Where-Object { $_.Name -notmatch '^QGIS\s+3\.' } |
-            Sort-Object Name -Descending |
-            Select-Object -ExpandProperty FullName
+function Get-QgisBinCandidates([string]$Root) {
+    return @(
+        (Join-Path $Root 'bin'),
+        (Join-Path $Root 'apps\qgis\bin'),
+        (Join-Path $Root 'apps\qgis-ltr\bin')
+    ) | Where-Object { Test-Path $_ }
+}
+
+function Test-QgisRuntime([string]$Root) {
+    if (-not $Root -or -not (Test-Path $Root)) { return $false }
+    $bins = @(Get-QgisBinCandidates $Root)
+    if ($bins.Count -eq 0) { return $false }
+
+    $hasGdal = $false
+    $hasGeos = $false
+    foreach ($bin in $bins) {
+        if (-not $hasGdal) {
+            $gdal = Get-ChildItem $bin -File -Filter 'gdal*.dll' -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^gdal\d+\.dll$' } |
+                Select-Object -First 1
+            $hasGdal = [bool]$gdal
+        }
+        if (-not $hasGeos) {
+            $hasGeos = Test-Path (Join-Path $bin 'geos_c.dll')
+        }
+        if ($hasGdal -and $hasGeos) { return $true }
     }
+    return $false
+}
+
+function Find-QgisRuntime {
+    $candidates = @()
+    $programRoots = @(${env:ProgramFiles}, ${env:ProgramFiles(x86)}) |
+        Where-Object { $_ -and (Test-Path $_) } |
+        Select-Object -Unique
+
+    foreach ($programRoot in $programRoots) {
+        $dirs = @(Get-ChildItem $programRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'QGIS*' })
+        foreach ($dir in $dirs) {
+            if (Test-QgisRuntime $dir.FullName) {
+                $candidates += [pscustomobject]@{
+                    Root = $dir.FullName
+                    Name = $dir.Name
+                    Version = Get-QgisVersion $dir.Name
+                    IsQgis = $dir.Name -match '(?i)^QGIS\s+'
+                }
+            }
+        }
+    }
+
     $osgeo4w = 'C:\OSGeo4W'
-    if (Test-Path $osgeo4w) { $roots += $osgeo4w }
-    $QgisRoot = $roots | Select-Object -First 1
+    if (Test-QgisRuntime $osgeo4w) {
+        $candidates += [pscustomobject]@{
+            Root = $osgeo4w
+            Name = 'OSGeo4W'
+            Version = [version]'0.0.0'
+            IsQgis = $false
+        }
+    }
+
+    if ($candidates.Count -eq 0) { return $null }
+
+    # Prefer a native QGIS installation, then the highest semantic QGIS version.
+    # This intentionally supports different workstation patch versions such as
+    # QGIS 4.2.1 at home and QGIS 4.2.2 at the office without changing commands.
+    return $candidates |
+        Sort-Object @{ Expression = { $_.IsQgis }; Descending = $true },
+                    @{ Expression = { $_.Version }; Descending = $true },
+                    @{ Expression = { $_.Name }; Descending = $true } |
+        Select-Object -First 1
 }
 
-if (-not $QgisRoot -or -not (Test-Path $QgisRoot)) {
-    throw "QGIS/OSGeo4W installation was not found. Install QGIS or pass -QgisRoot explicitly."
+$requestedQgisRoot = $QgisRoot
+if ($QgisRoot -and -not (Test-QgisRuntime $QgisRoot)) {
+    Write-Warning "Requested QGIS runtime is not usable on this workstation: $QgisRoot"
+    Write-Warning "GeoFlow will auto-detect another installed QGIS runtime instead."
+    $QgisRoot = ""
 }
 
-$binCandidates = @(
-    (Join-Path $QgisRoot 'bin'),
-    (Join-Path $QgisRoot 'apps\qgis\bin'),
-    (Join-Path $QgisRoot 'apps\qgis-ltr\bin')
-) | Where-Object { Test-Path $_ }
+if (-not $QgisRoot) {
+    $resolvedRuntime = Find-QgisRuntime
+    if ($resolvedRuntime) {
+        $QgisRoot = $resolvedRuntime.Root
+        Write-Host "Auto-detected QGIS runtime: $QgisRoot" -ForegroundColor Yellow
+    }
+}
+
+if (-not $QgisRoot -or -not (Test-QgisRuntime $QgisRoot)) {
+    $requestedText = if ($requestedQgisRoot) { " Requested root: $requestedQgisRoot." } else { "" }
+    throw "QGIS/OSGeo4W runtime with GDAL and GEOS was not found.$requestedText Install QGIS or pass -QgisRoot explicitly."
+}
+
+$binCandidates = @(Get-QgisBinCandidates $QgisRoot)
 
 $gdalDll = $null
 foreach ($bin in $binCandidates) {
@@ -75,6 +146,7 @@ foreach ($pathEntry in $pathCandidates) { Add-PathEntry $pathEntry }
 
 $env:GDAL_LIBRARY_PATH = $gdalDll
 $env:GEOS_LIBRARY_PATH = $geosDll
+$env:GEOFLOW_QGIS_ROOT = $QgisRoot
 if (-not $env:DJANGO_SETTINGS_MODULE) {
     $env:DJANGO_SETTINGS_MODULE = 'geoflow_project.settings'
 }
