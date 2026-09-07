@@ -19,6 +19,47 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-AutoLanHost {
+    try {
+        $routes = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+            Where-Object { $_.State -eq 'Alive' -and $_.NextHop -ne '0.0.0.0' } |
+            Sort-Object RouteMetric, InterfaceMetric)
+        foreach ($route in $routes) {
+            $addresses = @(Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $route.InterfaceIndex -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.IPAddress -and
+                    $_.IPAddress -notmatch '^127\.' -and
+                    $_.IPAddress -notmatch '^169\.254\.'
+                } |
+                Sort-Object SkipAsSource)
+            if ($addresses.Count -gt 0) {
+                return [string]$addresses[0].IPAddress
+            }
+        }
+    }
+    catch {
+        # Fall through to the broader interface scan below.
+    }
+
+    try {
+        $fallback = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object {
+                $_.IPAddress -and
+                $_.IPAddress -notmatch '^127\.' -and
+                $_.IPAddress -notmatch '^169\.254\.' -and
+                $_.AddressState -eq 'Preferred'
+            } |
+            Sort-Object InterfaceMetric, SkipAsSource |
+            Select-Object -First 1)
+        if ($fallback.Count -gt 0) {
+            return [string]$fallback[0].IPAddress
+        }
+    }
+    catch {}
+
+    return ""
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
@@ -31,18 +72,26 @@ if ($CentralDb -notmatch '(?i)(dev|test)' -or $TenantDb -notmatch '(?i)(dev|test
     throw "Safety stop: CentralDb and TenantDb must both contain dev/test."
 }
 
+if ($LanHost -and $LanHost.Trim().ToLowerInvariant() -eq 'auto') {
+    $LanHost = Resolve-AutoLanHost
+    if (-not $LanHost) {
+        throw "LanHost auto-detection failed. Pass the workstation IPv4 explicitly, for example -LanHost 192.168.1.20."
+    }
+    Write-Host "Auto-detected LAN IPv4: $LanHost" -ForegroundColor Yellow
+}
+
 if ($LanHost) {
     try {
         $lanAddress = [System.Net.IPAddress]::Parse($LanHost)
     }
     catch {
-        throw "LanHost must be a literal IP address, for example 192.168.219.128."
+        throw "LanHost must be 'auto' or a literal IP address, for example 192.168.219.128."
     }
     if ($lanAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
         throw "LanHost currently supports IPv4 only."
     }
     if ([System.Net.IPAddress]::IsLoopback($lanAddress)) {
-        throw "LanHost must be the notebook LAN IPv4 address, not loopback."
+        throw "LanHost must be the workstation LAN IPv4 address, not loopback."
     }
     if ($Listen -eq "127.0.0.1:8000") {
         $Listen = "0.0.0.0:8000"
@@ -111,6 +160,7 @@ Write-Host "DEV AUTH DIAGNOSTICS: enabled (stage/length only; no secrets)" -Fore
 Write-Host "GIS REALTIME: WebSocket enabled with one-process in-memory channel layer" -ForegroundColor Green
 Write-Host "Central DB: $CentralDb" -ForegroundColor Green
 Write-Host "Tenant DB:  $TenantDb" -ForegroundColor Green
+Write-Host "QGIS root:  $env:GEOFLOW_QGIS_ROOT" -ForegroundColor Green
 Write-Host "Login:      http://$Listen/login/" -ForegroundColor Green
 Write-Host "GIS:        http://$Listen/gis/" -ForegroundColor Green
 if ($LanHost) {
