@@ -13,16 +13,18 @@ from django.views.decorators.http import require_GET
 from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.services.entity_access import require_tenant_context
 
-from .changeset import changeset_runtime_enabled
+from .changeset import changeset_runtime_enabled, project_current_revision
 from .qfield_auth import (
     QFIELD_TICKET_MAX_AGE_SECONDS,
     hydrate_qfield_package_import_request,
+    issue_qfield_claim_token,
     issue_qfield_handoff_token,
     issue_qfield_package_import_token,
     issue_qfield_ticket,
     qfield_ticket_runtime_enabled,
 )
 from .qfield_device_views import _project_and_plan, _project_center
+from .qfield_handoff import stage_pending_handoff
 from .qfield_package import (
     QFIELD_PACKAGE_VERSION,
     QFIELD_PLUGIN_RUNTIME_VERSION,
@@ -37,8 +39,6 @@ from .qfield_persistent import (
 
 
 class _DeletingFile:
-    """File wrapper that removes a temporary package after FileResponse closes."""
-
     def __init__(self, path):
         self.path = str(path)
         self.handle = open(self.path, "rb")
@@ -96,22 +96,25 @@ def _fresh_install_url(request, alias, project, policy) -> str:
         roles=identity["roles"],
         perms=identity["perms"],
     )
-    import_path = reverse(
-        "gis:qfield_package_import_api",
-        kwargs={"project_id": project.id},
-    )
-    package_url = request.build_absolute_uri(
-        f"{import_path}?{urlencode({'token': token})}"
-    )
+    import_path = reverse("gis:qfield_package_import_api", kwargs={"project_id": project.id})
+    package_url = request.build_absolute_uri(f"{import_path}?{urlencode({'token': token})}")
     return "qfield://local?import=" + quote(package_url, safe="")
 
 
-def _launch_url(project, handoff_token: str) -> str:
-    return "qfield://geoflow?" + urlencode(
-        {
-            "project": str(project.id),
-            "handoff": handoff_token,
-        }
+def _launcher_intent_url() -> str:
+    """Launch QField with Android MAIN, not qfield:// VIEW.
+
+    A qfield:// action on cold start is consumed before the recent project is
+    restored. MAIN/LAUNCHER lets QField restore its existing recent project;
+    that project's plugin then claims the pending GeoFlow handoff.
+    """
+
+    return (
+        "intent:#Intent;"
+        "package=ch.opengis.qfield;"
+        "action=android.intent.action.MAIN;"
+        "category=android.intent.category.LAUNCHER;"
+        "end"
     )
 
 
@@ -125,20 +128,21 @@ def _package_response(request, alias, project, policy, plan):
 
     token = issue_qfield_ticket(**identity)
     access_expires_at_ms = int(time.time() * 1000) + (QFIELD_TICKET_MAX_AGE_SECONDS * 1000)
-    roaming_plan_url = reverse(
-        "gis:qfield_roaming_plan_api",
-        kwargs={"project_id": project.id},
+    claim_token = issue_qfield_claim_token(
+        project_id=identity["project_id"],
+        alias=identity["alias"],
+        group_id=identity["group_id"],
+        user_id=identity["user_id"],
+        email=identity["email"],
     )
-    roaming_cell_url = reverse(
-        "gis:qfield_roaming_cell_api",
-        kwargs={"project_id": project.id},
-    )
-    session_handoff_url = reverse(
-        "gis:qfield_session_handoff_api",
-        kwargs={"project_id": project.id},
-    )
+    roaming_plan_url = reverse("gis:qfield_roaming_plan_api", kwargs={"project_id": project.id})
+    roaming_cell_url = reverse("gis:qfield_roaming_cell_api", kwargs={"project_id": project.id})
+    session_claim_url = reverse("gis:qfield_session_claim_api", kwargs={"project_id": project.id})
+    delta_url = reverse("gis:qfield_device_delta_api", kwargs={"project_id": project.id})
+    snapshot_revision = project_current_revision(alias, str(project.id))
     schema_fingerprint = qfield_schema_fingerprint(alias, plan)
     install_id = qfield_install_id(project.id)
+
     zip_path, layer_count = build_qfield_bootstrap_zip(
         alias,
         project={
@@ -156,8 +160,11 @@ def _package_response(request, alias, project, policy, plan):
     )
     upgrade_qfield_bootstrap_zip(
         zip_path,
-        session_handoff_url=session_handoff_url,
+        claim_token=claim_token,
+        session_claim_url=session_claim_url,
+        delta_url=delta_url,
         access_expires_at_ms=access_expires_at_ms,
+        snapshot_revision=snapshot_revision,
         schema_fingerprint=schema_fingerprint,
         install_id=install_id,
     )
@@ -175,6 +182,7 @@ def _package_response(request, alias, project, policy, plan):
     response["X-GeoFlow-QField-Schema-Fingerprint"] = schema_fingerprint
     response["X-GeoFlow-QField-Persistent-Protocol"] = QFIELD_PERSISTENT_PROTOCOL_VERSION
     response["X-GeoFlow-QField-Access-Expires-In"] = str(QFIELD_TICKET_MAX_AGE_SECONDS)
+    response["X-GeoFlow-QField-Snapshot-Revision"] = str(snapshot_revision)
     response["X-GeoFlow-Layer-Count"] = str(layer_count)
     response["Cache-Control"] = "private, no-store"
     return response
@@ -183,11 +191,7 @@ def _package_response(request, alias, project, policy, plan):
 @login_required
 @require_GET
 def qfield_install_status_api(request, project_id):
-    """Describe first-install/update state and mint an explicit launch handoff.
-
-    The launch handoff exists only because this request is made by an
-    authenticated GeoFlow browser. QField cannot mint or renew it itself.
-    """
+    """Describe install state and stage a one-time authenticated handoff."""
 
     alias = require_tenant_context(request)
     if not gf_has_perm(request, "maps.view"):
@@ -201,7 +205,16 @@ def qfield_install_status_api(request, project_id):
     if identity is None or not install_url:
         return JsonResponse({"ok": False, "error": "qfield_identity_incomplete"}, status=403)
 
+    install_id = qfield_install_id(project.id)
     handoff_token = issue_qfield_handoff_token(**identity)
+    stage_pending_handoff(
+        project_id=str(project.id),
+        user_id=identity["user_id"],
+        group_id=identity["group_id"],
+        install_id=install_id,
+        handoff_token=handoff_token,
+    )
+
     schema_fingerprint = qfield_schema_fingerprint(alias, plan)
     response = JsonResponse(
         {
@@ -212,19 +225,22 @@ def qfield_install_status_api(request, project_id):
                 "name": project.name or "",
             },
             "install": {
-                "install_id": qfield_install_id(project.id),
+                "install_id": install_id,
                 "package_version": QFIELD_PACKAGE_VERSION,
                 "plugin_runtime_version": QFIELD_PLUGIN_RUNTIME_VERSION,
                 "schema_fingerprint": schema_fingerprint,
                 "persistent_protocol": QFIELD_PERSISTENT_PROTOCOL_VERSION,
                 "install_url": install_url,
-                "launch_url": _launch_url(project, handoff_token),
+                "launch_url": _launcher_intent_url(),
                 "one_project_folder_per_project_id": True,
                 "ordinary_data_change_requires_reinstall": False,
                 "outbox_survives_package_update": True,
                 "access_ttl_seconds": QFIELD_TICKET_MAX_AGE_SECONDS,
                 "access_auto_renew": False,
-                "reauthentication": "authenticated_geoflow_launch",
+                "reauthentication": "authenticated_geoflow_pending_handoff_claim",
+                "pending_handoff_seconds": 300,
+                "delta_sync": True,
+                "roaming_mode": "fallback_only",
             },
         },
         json_dumps_params={"ensure_ascii": False},
@@ -236,8 +252,6 @@ def qfield_install_status_api(request, project_id):
 @login_required
 @require_GET
 def qfield_package_api(request, project_id):
-    """Browser-session ZIP download retained as a manual fallback."""
-
     alias = require_tenant_context(request)
     if not gf_has_perm(request, "maps.view"):
         raise PermissionDenied("Permission denied")
@@ -247,12 +261,7 @@ def qfield_package_api(request, project_id):
 
 @require_GET
 def qfield_package_import_api(request, project_id):
-    """First-install/update package endpoint consumed by qfield://local?import=... ."""
-
-    payload = hydrate_qfield_package_import_request(
-        request,
-        project_id=str(project_id),
-    )
+    payload = hydrate_qfield_package_import_request(request, project_id=str(project_id))
     if payload is None:
         return JsonResponse({"ok": False, "error": "invalid_qfield_package_import"}, status=401)
 
