@@ -41,6 +41,7 @@ Item {
         category: "GeoFlowField/" + geoflowField.projectId
         property string knownCellsCsv: ""
         property string lastLocation: ""
+        property string packageTokenFingerprint: ""
     }
 
     Settings {
@@ -87,7 +88,7 @@ Item {
         interval: 2000
         repeat: true
         running: true
-        onTriggered: geoflowField.pollForLocalChanges()
+        onTriggered: geoflowField.pollForLocalChanges(false)
     }
 
     Timer {
@@ -109,7 +110,7 @@ Item {
             if (count > 0) {
                 stop()
                 geoflowField.rebuildPollingBaseline()
-                geoflowField.toast("GeoFlow Field 0.9.2 · 자동 동기화 준비 " + count + "개 레이어")
+                geoflowField.toast("GeoFlow Field 0.9.4 · 자동 동기화 준비 " + count + "개 레이어")
             }
         }
     }
@@ -158,6 +159,19 @@ Item {
         return value
     }
 
+    function resetRoamingStateForFreshTicket() {
+        let fingerprint = bearerToken ? bearerToken.slice(-24) : ""
+        if (!fingerprint) return
+        if (localState.packageTokenFingerprint && localState.packageTokenFingerprint === fingerprint) return
+        localState.packageTokenFingerprint = fingerprint
+        localState.knownCellsCsv = ""
+        localState.lastLocation = ""
+        lastViewport = ""
+        lastLon = NaN
+        lastLat = NaN
+        log("fresh package ticket detected; roaming cache state reset")
+    }
+
     function reloadProjectConfig() {
         try { mainWindow = iface.mainWindow() } catch (err) {}
         try { mapCanvas = iface.mapCanvas() } catch (err2) {}
@@ -174,6 +188,7 @@ Item {
             serverUrl && projectId && bearerToken && roamingPlanUrl && roamingCellUrl && changesetUrl
         )
         if (configReady) {
+            resetRoamingStateForFreshTicket()
             log("project config ready for " + projectId)
         } else {
             log(
@@ -449,8 +464,41 @@ Item {
         return total
     }
 
-    function pollForLocalChanges() {
-        if (!configReady || captureSuppressed || requestInFlight || syncInFlight || authBlocked) return
+    function seedPollingBaselineForMissing() {
+        if (!pollingBaselineReady) return rebuildPollingBaseline()
+        let seeded = 0
+        for (let i = 0; i < layerBindings.length; i++) {
+            let binding = layerBindings[i]
+            let iterator = null
+            try {
+                iterator = LayerUtils.createFeatureIterator(binding.layer)
+                while (iterator.hasNext()) {
+                    let feature = iterator.next()
+                    let objectId = canonicalUuid(feature.attribute("id"))
+                    if (!objectId) continue
+                    let key = pendingKey(binding.standard, objectId)
+                    if (pollingBaseline[key]) continue
+                    pollingBaseline[key] = {
+                        signature: featureSignature(binding.layer, feature),
+                        base_updated_at: featureBaseUpdatedAt(binding, feature, objectId)
+                    }
+                    seeded += 1
+                }
+            } catch (err) {
+                log(binding.standard + " polling seed failed: " + err)
+            } finally {
+                if (iterator) {
+                    try { iterator.close() } catch (closeErr) {}
+                }
+            }
+        }
+        if (seeded > 0) log("polling baseline seeded new server objects=" + seeded)
+        return seeded
+    }
+
+    function pollForLocalChanges(force) {
+        if (!configReady || captureSuppressed || syncInFlight || authBlocked) return
+        if (requestInFlight && !force) return
         if (layerBindings.length === 0) {
             if (managedLayerDescriptors.length > 0) bindLayers()
             return
@@ -460,7 +508,6 @@ Item {
             return
         }
 
-        let seen = ({})
         let changed = false
         for (let i = 0; i < layerBindings.length; i++) {
             let binding = layerBindings[i]
@@ -472,22 +519,16 @@ Item {
                     let objectId = canonicalUuid(feature.attribute("id"))
                     if (!objectId) continue
                     let key = pendingKey(binding.standard, objectId)
-                    seen[key] = true
                     let signature = featureSignature(binding.layer, feature)
                     let old = pollingBaseline[key]
                     if (!old) {
-                        let geometryWkt = featureGeometryWkt(feature)
-                        if (geometryWkt) {
-                            queueChange({
-                                action: "create",
-                                layer: binding.standard,
-                                id: objectId,
-                                attributes: collectAttributes(binding.layer, feature),
-                                geometry_wkt: geometryWkt
-                            })
-                            changed = true
+                        pollingBaseline[key] = {
+                            signature: signature,
+                            base_updated_at: featureBaseUpdatedAt(binding, feature, objectId)
                         }
-                    } else if (old.signature !== signature) {
+                        continue
+                    }
+                    if (old.signature !== signature) {
                         let geometryWkt = featureGeometryWkt(feature)
                         let update = {
                             action: "update",
@@ -503,7 +544,7 @@ Item {
                     }
                     pollingBaseline[key] = {
                         signature: signature,
-                        base_updated_at: old && old.base_updated_at ? old.base_updated_at : featureBaseUpdatedAt(binding, feature, objectId)
+                        base_updated_at: old.base_updated_at || featureBaseUpdatedAt(binding, feature, objectId)
                     }
                 }
             } catch (err) {
@@ -515,21 +556,9 @@ Item {
             }
         }
 
-        let baselineKeys = Object.keys(pollingBaseline)
-        for (let j = 0; j < baselineKeys.length; j++) {
-            let key = baselineKeys[j]
-            if (seen[key]) continue
-            let parts = key.split("|")
-            if (parts.length !== 2) continue
-            let old = pollingBaseline[key]
-            let deletion = { action: "delete", layer: parts[0], id: parts[1] }
-            if (old && old.base_updated_at) deletion.base_updated_at = old.base_updated_at
-            queueChange(deletion)
-            delete pollingBaseline[key]
-            changed = true
-            log("poll detected delete " + key)
-        }
-
+        // Never infer deletes from iterator absence. QField may temporarily hide
+        // cached/provider features while editing or refreshing. Deletes are sent
+        // only from the explicit featureDeleted signal path.
         if (changed) syncNow(false, true)
     }
 
@@ -1024,7 +1053,7 @@ Item {
             if (bound === 0 && managedLayerDescriptors.length > 0) {
                 bindRetryTimer.restart()
             } else if (force) {
-                toast("GeoFlow Field 0.9.2 · 자동 동기화 준비 " + bound + "개 레이어")
+                toast("GeoFlow Field 0.9.4 · 자동 동기화 준비 " + bound + "개 레이어")
             }
 
             let state = projectState()
@@ -1044,9 +1073,9 @@ Item {
                 mapCanvas.refresh()
                 let count = bindLayers()
                 if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()
-                else rebuildPollingBaseline()
+                else seedPollingBaselineForMissing()
             } else {
-                rebuildPollingBaseline()
+                seedPollingBaselineForMissing()
                 if (manual) toast("GeoFlow 영역 최신 상태")
             }
             return
@@ -1107,7 +1136,8 @@ Item {
 
     function manualSync() {
         authBlocked = false
-        pollForLocalChanges()
+        log("manual sync requested")
+        pollForLocalChanges(true)
         syncNow(true, true)
         scheduleRoaming(true)
     }
@@ -1118,14 +1148,14 @@ Item {
             return
         }
         updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 0.9.2 연결됨 · 서버 레이어 확인 중")
+        toast("GeoFlow Field 0.9.4 연결됨 · 서버 레이어 확인 중")
         scheduleRoaming(true)
         syncNow(false, false)
     }
 
     Component.onCompleted: {
         iface.addItemToPluginsToolbar(syncButton)
-        log("plugin 0.9.2 component completed")
+        log("plugin 0.9.4 component completed")
         bootstrapTimer.restart()
     }
 
