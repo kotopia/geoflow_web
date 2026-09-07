@@ -63,8 +63,17 @@ function Resolve-AutoLanHost {
 function Test-GeoFlowPythonDependencies {
     param([string]$PythonExe)
 
-    $null = & $PythonExe -c "import channels,daphne,django,openpyxl,psycopg2" 2>$null
-    return ($LASTEXITCODE -eq 0)
+    # Missing imports are an expected signal here: they mean this workstation's
+    # .venv needs to be synchronized.  With $ErrorActionPreference='Stop',
+    # Python's traceback on stderr can otherwise become a terminating PowerShell
+    # NativeCommandError before we can inspect the process exit code.
+    try {
+        & $PythonExe -c "import channels,daphne,django,openpyxl,psycopg2" *> $null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
 }
 
 function Ensure-GeoFlowPythonDependencies {
