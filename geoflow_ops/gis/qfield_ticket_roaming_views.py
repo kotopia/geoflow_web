@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 from django.db import DatabaseError, connections
 from django.http import Http404, JsonResponse
@@ -30,17 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def _ticket_project_and_plan(request, alias: str, project_id):
-    """Resolve the exact project already authorized by the signed QField ticket.
-
-    qfield_ticket_required() has already verified the signature, project scope,
-    expiry, current central user/group membership and tenant connection.  The
-    ticket itself is only issued after the browser-side maps/project read checks
-    succeed.  Do not re-interpret a copied ``gf_perms`` snapshot here: some
-    development identities receive project-scoped GIS access through role/policy
-    resolution even when that legacy permission list is sparse.  Requiring a
-    literal ``maps.view`` claim caused valid QField packages to fail every
-    roaming-cell request with HTTP 403 after roaming-plan had succeeded.
-    """
+    """Resolve the exact project already authorized by the signed QField ticket."""
 
     payload = getattr(request, "_qfield_ticket_payload", None) or {}
     try:
@@ -62,10 +54,160 @@ def _ticket_project_and_plan(request, alias: str, project_id):
     return project, plan, None
 
 
+def _db_retry_once(alias: str, operation: Callable[[], Any], *, label: str):
+    """Retry one read after dropping a stale/broken Django DB connection.
+
+    QField roaming performs many short sequential cell reads.  A transient RDS
+    disconnect can invalidate Django's cached psycopg connection between two
+    cells.  Read requests are idempotent, so close the broken connection and
+    retry exactly once instead of leaking an HTML 500 back to QField.
+    """
+
+    for attempt in range(2):
+        try:
+            return operation()
+        except DatabaseError:
+            if attempt:
+                raise
+            logger.warning(
+                "DEV-QFIELD-CELL transient DB failure label=%s alias=%s; reconnecting once",
+                label,
+                alias,
+                exc_info=True,
+            )
+            try:
+                connections[alias].close()
+            except Exception:  # pragma: no cover - defensive connection cleanup
+                logger.exception(
+                    "DEV-QFIELD-CELL failed to close broken DB connection alias=%s",
+                    alias,
+                )
+    raise RuntimeError("unreachable")
+
+
 def _current_revision(alias: str, project_id) -> int:
     if not changeset_runtime_enabled(alias):
         return 0
-    return project_current_revision(alias, str(project_id))
+    try:
+        return int(
+            _db_retry_once(
+                alias,
+                lambda: project_current_revision(alias, str(project_id)),
+                label="current_revision",
+            )
+        )
+    except DatabaseError:
+        logger.exception(
+            "DEV-QFIELD-CELL revision lookup failed after retry project_id=%s",
+            project_id,
+        )
+        return 0
+
+
+def _query_payload_layers(
+    alias: str,
+    *,
+    project_id,
+    layer_rows: list[dict],
+    bbox: tuple[float, float, float, float],
+    limit_per_layer: int,
+) -> list[dict]:
+    connection = connections[alias]
+    schema_name = connection.ops.quote_name("gis")
+    payload_layers: list[dict] = []
+    minx, miny, maxx, maxy = bbox
+
+    with connection.cursor() as cursor:
+        for layer in layer_rows:
+            physical_name = str(layer.get("physical_name") or "")
+            standard_name = str(layer.get("standard_name") or physical_name.upper())
+            if not physical_name:
+                continue
+
+            cursor.execute("SELECT to_regclass(%s)", [f"gis.{physical_name}"])
+            if cursor.fetchone()[0] is None:
+                payload_layers.append(
+                    {
+                        "standard_name": standard_name,
+                        "physical_name": physical_name,
+                        "features": [],
+                        "returned": 0,
+                        "truncated": False,
+                        "physical_status": "NOT_APPLIED",
+                    }
+                )
+                continue
+
+            field_names = [
+                str(field.get("name") or "")
+                for field in (layer.get("fields") or [])
+                if field.get("name") and str(field.get("name")) != "geom"
+            ]
+            quoted_table = connection.ops.quote_name(physical_name)
+            select_parts = [
+                "ST_AsGeoJSON(geom, 8) AS geometry_json",
+                "ST_AsText(geom) AS geometry_wkt",
+            ]
+            for field_name in field_names:
+                quoted = connection.ops.quote_name(field_name)
+                select_parts.append(f"{quoted} AS {quoted}")
+
+            cursor.execute(
+                f"""
+                SELECT {', '.join(select_parts)}
+                  FROM {schema_name}.{quoted_table}
+                 WHERE project_id=%s
+                   AND geom IS NOT NULL
+                   AND geom && ST_MakeEnvelope(%s,%s,%s,%s,4326)
+                   AND ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s,4326))
+                 ORDER BY id
+                 LIMIT %s
+                """,
+                [
+                    project_id,
+                    minx,
+                    miny,
+                    maxx,
+                    maxy,
+                    minx,
+                    miny,
+                    maxx,
+                    maxy,
+                    limit_per_layer + 1,
+                ],
+            )
+            columns = [item[0] for item in cursor.description]
+            records = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            truncated = len(records) > limit_per_layer
+            records = records[:limit_per_layer]
+            features = []
+            for record in records:
+                geometry_json = record.pop("geometry_json", None)
+                geometry_wkt = record.pop("geometry_wkt", None)
+                if not geometry_json:
+                    continue
+                attrs = {str(name): _json_value(value) for name, value in record.items()}
+                features.append(
+                    {
+                        "type": "Feature",
+                        "id": attrs.get("id"),
+                        "geometry": json.loads(geometry_json),
+                        "geometry_wkt": geometry_wkt,
+                        "properties": attrs,
+                    }
+                )
+            payload_layers.append(
+                {
+                    "standard_name": standard_name,
+                    "physical_name": physical_name,
+                    "geometry_kind": layer.get("geometry_kind"),
+                    "features": features,
+                    "returned": len(features),
+                    "truncated": truncated,
+                    "physical_status": "READY",
+                }
+            )
+    return payload_layers
 
 
 @qfield_ticket_required(write=False)
@@ -82,7 +224,6 @@ def qfield_ticket_roaming_cell_api(request, project_id):
         size, ix, iy = parse_cell_key(request.GET.get("cell") or "")
         bbox = cell_bbox(size, ix, iy)
         requested_layers = _parse_layer_filter(request.GET.get("layers"))
-        layer_rows = _layer_rows(alias, plan, requested_layers)
         limit_per_layer = _parse_int(
             request.GET.get("limit_per_layer"),
             name="limit_per_layer",
@@ -93,112 +234,38 @@ def qfield_ticket_roaming_cell_api(request, project_id):
     except ValueError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
-    connection = connections[alias]
-    schema_name = connection.ops.quote_name("gis")
-    payload_layers = []
-    minx, miny, maxx, maxy = bbox
-
+    cell_label = f"{size}:{ix}:{iy}"
     try:
-        with connection.cursor() as cursor:
-            for layer in layer_rows:
-                physical_name = str(layer.get("physical_name") or "")
-                standard_name = str(layer.get("standard_name") or physical_name.upper())
-                if not physical_name:
-                    continue
-
-                cursor.execute("SELECT to_regclass(%s)", [f"gis.{physical_name}"])
-                if cursor.fetchone()[0] is None:
-                    payload_layers.append(
-                        {
-                            "standard_name": standard_name,
-                            "physical_name": physical_name,
-                            "features": [],
-                            "returned": 0,
-                            "truncated": False,
-                            "physical_status": "NOT_APPLIED",
-                        }
-                    )
-                    continue
-
-                field_names = [
-                    str(field.get("name") or "")
-                    for field in (layer.get("fields") or [])
-                    if field.get("name") and str(field.get("name")) != "geom"
-                ]
-                quoted_table = connection.ops.quote_name(physical_name)
-                select_parts = [
-                    "ST_AsGeoJSON(geom, 8) AS geometry_json",
-                    "ST_AsText(geom) AS geometry_wkt",
-                ]
-                for field_name in field_names:
-                    quoted = connection.ops.quote_name(field_name)
-                    select_parts.append(f"{quoted} AS {quoted}")
-
-                cursor.execute(
-                    f"""
-                    SELECT {', '.join(select_parts)}
-                      FROM {schema_name}.{quoted_table}
-                     WHERE project_id=%s
-                       AND geom IS NOT NULL
-                       AND geom && ST_MakeEnvelope(%s,%s,%s,%s,4326)
-                       AND ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s,4326))
-                     ORDER BY id
-                     LIMIT %s
-                    """,
-                    [
-                        project.id,
-                        minx,
-                        miny,
-                        maxx,
-                        maxy,
-                        minx,
-                        miny,
-                        maxx,
-                        maxy,
-                        limit_per_layer + 1,
-                    ],
-                )
-                columns = [item[0] for item in cursor.description]
-                records = [dict(zip(columns, row)) for row in cursor.fetchall()]
-                truncated = len(records) > limit_per_layer
-                records = records[:limit_per_layer]
-                features = []
-                for record in records:
-                    geometry_json = record.pop("geometry_json", None)
-                    geometry_wkt = record.pop("geometry_wkt", None)
-                    if not geometry_json:
-                        continue
-                    attrs = {str(name): _json_value(value) for name, value in record.items()}
-                    features.append(
-                        {
-                            "type": "Feature",
-                            "id": attrs.get("id"),
-                            "geometry": json.loads(geometry_json),
-                            "geometry_wkt": geometry_wkt,
-                            "properties": attrs,
-                        }
-                    )
-                payload_layers.append(
-                    {
-                        "standard_name": standard_name,
-                        "physical_name": physical_name,
-                        "geometry_kind": layer.get("geometry_kind"),
-                        "features": features,
-                        "returned": len(features),
-                        "truncated": truncated,
-                        "physical_status": "READY",
-                    }
-                )
+        layer_rows = _db_retry_once(
+            alias,
+            lambda: _layer_rows(alias, plan, requested_layers),
+            label=f"manifest:{cell_label}",
+        )
+        payload_layers = _db_retry_once(
+            alias,
+            lambda: _query_payload_layers(
+                alias,
+                project_id=project.id,
+                layer_rows=layer_rows,
+                bbox=bbox,
+                limit_per_layer=limit_per_layer,
+            ),
+            label=f"features:{cell_label}",
+        )
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     except DatabaseError:
         logger.exception(
-            "DEV-QFIELD-CELL query failed project_id=%s cell=%s:%s:%s",
+            "DEV-QFIELD-CELL query failed after retry project_id=%s cell=%s",
             project.id,
-            size,
-            ix,
-            iy,
+            cell_label,
         )
         return JsonResponse(
-            {"ok": False, "error": "qfield_roaming_cell_query_failed"},
+            {
+                "ok": False,
+                "error": "qfield_roaming_cell_db_unavailable",
+                "retryable": True,
+            },
             status=503,
         )
 
@@ -209,7 +276,7 @@ def qfield_ticket_roaming_cell_api(request, project_id):
             "project_id": str(project.id),
             "current_revision": _current_revision(alias, project.id),
             "cell": {
-                "key": f"{size}:{ix}:{iy}",
+                "key": cell_label,
                 "cell_size_m": size,
                 "bbox": list(bbox),
             },
