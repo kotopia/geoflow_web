@@ -20,7 +20,8 @@ from .gpkg_snapshot_v2 import (
 )
 
 
-QFIELD_PACKAGE_VERSION = "0.4"
+QFIELD_PACKAGE_VERSION = "0.5"
+QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.3"
 PROJECT_BASENAME = "geoflow-field"
 
 
@@ -46,6 +47,98 @@ def _project_crs_xml() -> str:
         <geographicflag>true</geographicflag>
       </spatialrefsys>
     """.strip()
+
+
+def _render_qfield_plugin(template_path: Path) -> str:
+    """Render the load-safe QField sidecar with workstation sync hotfixes.
+
+    Keep the checked-in QML on the last configuration that is known to load in
+    QField 4.2.x. Package-time replacements are deliberately narrow and fail
+    closed if the expected source markers drift. This avoids introducing new
+    QML types while fixing polling semantics for freshly imported packages.
+    """
+
+    text = template_path.read_text(encoding="utf-8")
+    required_markers = (
+        "GeoFlow Field 0.9.2",
+        "function pollForLocalChanges()",
+        "function manualSync()",
+        "function rebuildPollingBaseline()",
+    )
+    missing = [marker for marker in required_markers if marker not in text]
+    if missing:
+        raise RuntimeError(
+            "GeoFlow QField plugin template is not the reviewed 0.9.2 baseline: "
+            + ", ".join(missing)
+        )
+
+    text = text.replace("GeoFlow Field 0.9.2", f"GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION}")
+    text = text.replace("plugin 0.9.2 component completed", f"plugin {QFIELD_PLUGIN_RUNTIME_VERSION} component completed")
+    text = text.replace("function pollForLocalChanges() {", "function pollForLocalChanges(force) {")
+    text = text.replace(
+        "if (!configReady || captureSuppressed || requestInFlight || syncInFlight || authBlocked) return",
+        "if (!configReady || captureSuppressed || syncInFlight || authBlocked) return\n        if (requestInFlight && !force) return",
+        1,
+    )
+
+    seed_function = r'''
+    function seedPollingBaselineForMissing() {
+        if (!pollingBaselineReady) return rebuildPollingBaseline()
+        let seeded = 0
+        for (let i = 0; i < layerBindings.length; i++) {
+            let binding = layerBindings[i]
+            let iterator = null
+            try {
+                iterator = LayerUtils.createFeatureIterator(binding.layer)
+                while (iterator.hasNext()) {
+                    let feature = iterator.next()
+                    let objectId = canonicalUuid(feature.attribute("id"))
+                    if (!objectId) continue
+                    let key = pendingKey(binding.standard, objectId)
+                    if (pollingBaseline[key]) continue
+                    pollingBaseline[key] = {
+                        signature: featureSignature(binding.layer, feature),
+                        base_updated_at: featureBaseUpdatedAt(binding, feature, objectId)
+                    }
+                    seeded += 1
+                }
+            } catch (err) {
+                log(binding.standard + " polling seed failed: " + err)
+            } finally {
+                if (iterator) {
+                    try { iterator.close() } catch (closeErr) {}
+                }
+            }
+        }
+        if (seeded > 0) log("polling baseline seeded new server objects=" + seeded)
+        return seeded
+    }
+
+'''
+    insertion_marker = "    function pollForLocalChanges(force) {"
+    if insertion_marker not in text:
+        raise RuntimeError("QField polling function marker disappeared during rendering")
+    text = text.replace(insertion_marker, seed_function + insertion_marker, 1)
+
+    text = text.replace(
+        "if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()\n                else rebuildPollingBaseline()",
+        "if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()\n                else seedPollingBaselineForMissing()",
+        1,
+    )
+    text = text.replace(
+        "} else {\n                rebuildPollingBaseline()\n                if (manual) toast(\"GeoFlow 영역 최신 상태\")",
+        "} else {\n                seedPollingBaselineForMissing()\n                if (manual) toast(\"GeoFlow 영역 최신 상태\")",
+        1,
+    )
+    text = text.replace(
+        "function manualSync() {\n        authBlocked = false\n        pollForLocalChanges()\n        syncNow(true, true)\n        scheduleRoaming(true)\n    }",
+        "function manualSync() {\n        authBlocked = false\n        log(\"manual sync requested\")\n        pollForLocalChanges(true)\n        syncNow(true, true)\n        scheduleRoaming(true)\n    }",
+        1,
+    )
+
+    if "pollForLocalChanges(true)" not in text or "seedPollingBaselineForMissing()" not in text:
+        raise RuntimeError("GeoFlow QField polling hotfix did not render completely")
+    return text
 
 
 def build_qfield_geopackage(
@@ -287,17 +380,18 @@ def build_qfield_bootstrap_zip(
             roaming_cell_url=roaming_cell_url,
             project_center=project_center,
         )
+        plugin_qml = _render_qfield_plugin(template_path)
         readme = (
             "GeoFlow QField PoC package\n"
             "- geoflow-field.qgs: QField project\n"
-            "- geoflow-field.qml: project roaming plugin\n"
+            f"- geoflow-field.qml: project roaming plugin {QFIELD_PLUGIN_RUNTIME_VERSION}\n"
             "- geoflow-field.gpkg: initial project snapshot + local roaming cache\n"
             "The embedded project ticket is short-lived and development-only.\n"
         )
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(gpkg_path, arcname=f"{PROJECT_BASENAME}.gpkg")
             archive.writestr(f"{PROJECT_BASENAME}.qgs", qgs.encode("utf-8"))
-            archive.write(template_path, arcname=f"{PROJECT_BASENAME}.qml")
+            archive.writestr(f"{PROJECT_BASENAME}.qml", plugin_qml.encode("utf-8"))
             archive.writestr("README.txt", readme.encode("utf-8"))
         return zip_path, len(layers)
     except Exception:
