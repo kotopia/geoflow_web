@@ -20,8 +20,8 @@ from .gpkg_snapshot_v2 import (
 )
 
 
-QFIELD_PACKAGE_VERSION = "0.7"
-QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.5"
+QFIELD_PACKAGE_VERSION = "0.8"
+QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.6"
 PROJECT_BASENAME = "geoflow-field"
 
 
@@ -50,7 +50,7 @@ def _project_crs_xml() -> str:
 
 
 def _render_qfield_plugin(template_path: Path) -> str:
-    """Render the load-safe 0.9.4 sidecar with a manual-sync fallback."""
+    """Render the load-safe 0.9.4 sidecar with manual-sync and retry fallbacks."""
 
     text = template_path.read_text(encoding="utf-8")
     required_markers = (
@@ -145,6 +145,18 @@ def _render_qfield_plugin(template_path: Path) -> str:
         raise RuntimeError("QField reviewed manualSync body disappeared")
     text = text.replace(old_manual, new_manual, 1)
 
+    error_log_marker = '                log("HTTP " + xhr.status + " " + url + (serverMessage ? " " + serverMessage : ""))'
+    retry_reset = '''                log("HTTP " + xhr.status + " " + url + (serverMessage ? " " + serverMessage : ""))
+                if (xhr.status >= 500) {
+                    lastViewport = ""
+                    lastLon = NaN
+                    lastLat = NaN
+                    log("server read unavailable; roaming will retry on next timer")
+                }'''
+    if error_log_marker not in text:
+        raise RuntimeError("QField authGet error marker disappeared")
+    text = text.replace(error_log_marker, retry_reset, 1)
+
     text = text.replace("GeoFlow Field 0.9.4", f"GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION}")
     text = text.replace(
         "plugin 0.9.4 component completed",
@@ -152,6 +164,8 @@ def _render_qfield_plugin(template_path: Path) -> str:
     )
     if "captureFocusedFeatureForManualSync()" not in text:
         raise RuntimeError("QField manual focused-feature fallback did not render")
+    if "server read unavailable; roaming will retry on next timer" not in text:
+        raise RuntimeError("QField server read retry fallback did not render")
     return text
 
 
