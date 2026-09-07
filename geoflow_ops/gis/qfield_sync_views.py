@@ -28,6 +28,7 @@ from .qgis_sync import SyncConflict, SyncRejected
 
 
 _QFIELD_CHANGESET_PROTOCOL = "geoflow_qfield_changeset_v2"
+_QFIELD_DELETE_ENABLED = False
 
 
 def _parse_timestamp(value: Any) -> dt.datetime | None:
@@ -96,8 +97,6 @@ def _validate_qfield_concurrency(
     plan: dict[str, Any],
     payload: dict[str, Any],
 ) -> None:
-    """Lock edited server rows and reject stale QField snapshots."""
-
     if not isinstance(payload, dict) or payload.get("protocol") != _QFIELD_CHANGESET_PROTOCOL:
         return
 
@@ -204,8 +203,6 @@ def _enrich_applied_versions(
 @qfield_ticket_required(write=True)
 @require_POST
 def qfield_device_changeset_api(request, project_id):
-    """Bearer-authenticated, offline-safe QField Changeset endpoint."""
-
     alias = require_tenant_context(request)
     try:
         project, plan = _ticket_project_and_plan(request, alias, project_id)
@@ -230,6 +227,23 @@ def qfield_device_changeset_api(request, project_id):
             {"ok": False, "error": "invalid_geometry_wkt", "message": str(exc)},
             status=400,
         )
+
+    if not _QFIELD_DELETE_ENABLED:
+        delete_items = [
+            raw
+            for raw in (payload.get("changes") or [])
+            if isinstance(raw, dict) and str(raw.get("action") or "").lower() == "delete"
+        ]
+        if delete_items:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "qfield_delete_not_enabled",
+                    "message": "QField delete sync is temporarily disabled while the field polling bridge is under validation.",
+                    "count": len(delete_items),
+                },
+                status=400,
+            )
 
     try:
         with transaction.atomic(using=alias):
