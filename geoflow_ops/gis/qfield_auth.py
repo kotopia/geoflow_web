@@ -16,19 +16,14 @@ from control.tenant_connections import ensure_tenant_connection_for_session
 
 QFIELD_TICKET_SALT = "geoflow.gis.qfield.project-session.v1"
 QFIELD_TICKET_MAX_AGE_SECONDS = 12 * 60 * 60
-QFIELD_REFRESH_SALT = "geoflow.gis.qfield.project-refresh.v1"
-QFIELD_REFRESH_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+QFIELD_HANDOFF_SALT = "geoflow.gis.qfield.session-handoff.v1"
+QFIELD_HANDOFF_MAX_AGE_SECONDS = 5 * 60
 QFIELD_PACKAGE_IMPORT_SALT = "geoflow.gis.qfield.package-import.v1"
 QFIELD_PACKAGE_IMPORT_MAX_AGE_SECONDS = 5 * 60
 
 
 def qfield_ticket_runtime_enabled() -> bool:
-    """Keep native-device bearer auth confined to the isolated GIS dev runtime.
-
-    Production QField authentication needs a separately reviewed revocable
-    device/session design. These signed tickets are for the current strict
-    development runtime only.
-    """
+    """Keep native-device auth confined to the isolated GIS dev runtime."""
 
     return bool(settings.DEBUG and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1")
 
@@ -68,6 +63,13 @@ def issue_qfield_ticket(
     perms,
     write_authorized: bool,
 ) -> str:
+    """Issue one non-renewing QField access ticket.
+
+    QField itself cannot extend this ticket. When it expires, a user must
+    authenticate in GeoFlow again and explicitly launch the project to obtain
+    a new ticket through a short-lived handoff.
+    """
+
     if not qfield_ticket_runtime_enabled():
         raise RuntimeError("QField project tickets are disabled outside strict development runtime")
     payload = _identity_payload(
@@ -83,7 +85,7 @@ def issue_qfield_ticket(
     return signing.dumps(payload, salt=QFIELD_TICKET_SALT, compress=True)
 
 
-def issue_qfield_refresh_token(
+def issue_qfield_handoff_token(
     *,
     project_id: str,
     alias: str,
@@ -94,17 +96,14 @@ def issue_qfield_refresh_token(
     perms,
     write_authorized: bool,
 ) -> str:
-    """Issue a project-scoped reconnect credential for a persistent QField install.
+    """Issue a five-minute browser-authenticated handoff token.
 
-    The refresh token never grants access directly to GIS APIs. It only allows
-    the native QField project to obtain a fresh short-lived access ticket after
-    current central membership is revalidated. It is intentionally restricted
-    to the strict development runtime until a revocable production device
-    session store is reviewed.
+    This token cannot access GIS endpoints directly. It can only be exchanged
+    once the user has authenticated in GeoFlow and pressed "QField에서 열기".
     """
 
     if not qfield_ticket_runtime_enabled():
-        raise RuntimeError("QField refresh tickets are disabled outside strict development runtime")
+        raise RuntimeError("QField handoff tickets are disabled outside strict development runtime")
     payload = _identity_payload(
         project_id=project_id,
         alias=alias,
@@ -115,8 +114,8 @@ def issue_qfield_refresh_token(
         perms=perms,
     )
     payload["write_authorized"] = bool(write_authorized)
-    payload["purpose"] = "qfield_project_refresh"
-    return signing.dumps(payload, salt=QFIELD_REFRESH_SALT, compress=True)
+    payload["purpose"] = "qfield_session_handoff"
+    return signing.dumps(payload, salt=QFIELD_HANDOFF_SALT, compress=True)
 
 
 def issue_qfield_package_import_token(
@@ -129,13 +128,7 @@ def issue_qfield_package_import_token(
     roles,
     perms,
 ) -> str:
-    """Issue a purpose-limited URL token for QField's native import flow.
-
-    QField's qfield://local?import=... handoff fetches the ZIP itself and cannot
-    reuse the browser session cookie. This short-lived token authorizes only
-    package materialization; the imported project receives its own access and
-    refresh credentials.
-    """
+    """Issue a purpose-limited URL token for QField's native import flow."""
 
     if not qfield_ticket_runtime_enabled():
         raise RuntimeError("QField package links are disabled outside strict development runtime")
@@ -183,14 +176,14 @@ def parse_qfield_ticket(token: str, *, project_id: str) -> dict | None:
     )
 
 
-def parse_qfield_refresh_token(token: str, *, project_id: str) -> dict | None:
+def parse_qfield_handoff_token(token: str, *, project_id: str) -> dict | None:
     payload = _parse_identity_token(
         token,
         project_id=project_id,
-        salt=QFIELD_REFRESH_SALT,
-        max_age=QFIELD_REFRESH_MAX_AGE_SECONDS,
+        salt=QFIELD_HANDOFF_SALT,
+        max_age=QFIELD_HANDOFF_MAX_AGE_SECONDS,
     )
-    if payload is None or payload.get("purpose") != "qfield_project_refresh":
+    if payload is None or payload.get("purpose") != "qfield_session_handoff":
         return None
     return payload
 
@@ -289,14 +282,15 @@ def hydrate_qfield_ticket_request(request, *, project_id: str, require_write: bo
     return payload
 
 
-def hydrate_qfield_refresh_request(request, *, project_id: str, token: str) -> dict | None:
-    payload = parse_qfield_refresh_token(token, project_id=project_id)
+def hydrate_qfield_handoff_request(request, *, project_id: str) -> dict | None:
+    token = bearer_token_from_request(request)
+    payload = parse_qfield_handoff_token(token, project_id=project_id)
     if payload is None:
         return None
     payload = _hydrate_identity_request(request, payload)
     if payload is None:
         return None
-    request._qfield_refresh_payload = payload
+    request._qfield_handoff_payload = payload
     return payload
 
 
