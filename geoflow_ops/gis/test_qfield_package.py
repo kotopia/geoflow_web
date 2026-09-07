@@ -8,7 +8,12 @@ from django.test import SimpleTestCase
 from django.urls import reverse
 
 from . import qfield_package
-from .qfield_package import QFIELD_PACKAGE_VERSION, _qgs_xml
+from .qfield_package import (
+    QFIELD_PACKAGE_VERSION,
+    QFIELD_PLUGIN_RUNTIME_VERSION,
+    _qgs_xml,
+    _render_qfield_plugin,
+)
 
 
 class QFieldPackageContractTests(SimpleTestCase):
@@ -40,7 +45,8 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn(self.project_id, xml)
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
-        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.4")
+        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.5")
+        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.3")
 
     def test_qfield_bootstrap_materializes_project_rows_before_roaming(self):
         source = inspect.getsource(qfield_package.build_qfield_geopackage)
@@ -72,6 +78,24 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertNotIn("QfLayerUtils", text)
         self.assertNotIn("QfGeometryUtils", text)
         self.assertNotIn("QfFeatureUtils", text)
+
+    def test_rendered_plugin_preserves_existing_baseline_during_roaming(self):
+        path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
+        text = _render_qfield_plugin(path)
+        self.assertIn("GeoFlow Field 0.9.3", text)
+        self.assertIn("function pollForLocalChanges(force)", text)
+        self.assertIn("if (requestInFlight && !force) return", text)
+        self.assertIn("function seedPollingBaselineForMissing()", text)
+        self.assertIn("pollForLocalChanges(true)", text)
+        self.assertIn('log("manual sync requested")', text)
+        self.assertNotIn(
+            "if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()\n                else rebuildPollingBaseline()",
+            text,
+        )
+        self.assertIn(
+            "if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()\n                else seedPollingBaselineForMissing()",
+            text,
+        )
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
