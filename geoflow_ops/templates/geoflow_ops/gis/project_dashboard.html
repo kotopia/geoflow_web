@@ -21,17 +21,23 @@
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
-    {% if qfield_open_url %}
-      <a class="btn btn-success" href="{{ qfield_open_url }}">QField에서 열기 (PoC)</a>
-    {% endif %}
-    <a class="btn btn-outline-success" href="{% url 'gis:qfield_package_api' project.id %}">QField ZIP 다운로드</a>
+    <button type="button"
+            class="btn btn-success"
+            id="qfieldPersistentOpen"
+            data-project-id="{{ project.id }}"
+            data-status-url="{% url 'gis:qfield_install_status_api' project.id %}">QField에서 열기</button>
+    <button type="button" class="btn btn-outline-success" id="qfieldForceInstall">QField 재설치/업데이트</button>
+    <button type="button" class="btn btn-outline-danger" id="qfieldRemoveLocal">QField 로컬 제거</button>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:qfield_package_api' project.id %}">ZIP 수동 다운로드</a>
   </div>
 </div>
 
 <div class="alert alert-info">
   프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
   QGIS Connector는 같은 서버 Layer Plan과 Changeset/Delta 계약을 사용하며, WebGIS는 서버 변경 이벤트를 받아 화면의 해당 객체만 갱신합니다.
-  {% if qfield_open_url %}<br><strong>QField에서 열기</strong>는 QField 공식 URL import 흐름으로 패키지를 가져온 뒤 바로 프로젝트를 엽니다. 첫 실행 시 프로젝트 플러그인 권한을 허용해야 GeoFlow Roaming Cache가 활성화됩니다.{% endif %}
+  <br><strong>QField 영구 프로젝트</strong>: 같은 프로젝트는 최초 1회만 설치합니다. 이후에는 기존 로컬 프로젝트를 재사용하고 인증과 공간데이터만 자동 갱신합니다.
+  패키지·플러그인·GIS 스키마 계약이 바뀐 경우에만 업데이트가 필요합니다.
+  <span class="d-block mt-1 small" id="qfieldPersistentStatus">QField 연결 상태 확인 전</span>
 </div>
 
 <div class="row g-3 mb-4">
@@ -102,4 +108,133 @@
   }
 </script>
 <script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260906-2"></script>
+<script>
+(() => {
+  const openButton = document.getElementById("qfieldPersistentOpen");
+  const forceButton = document.getElementById("qfieldForceInstall");
+  const removeButton = document.getElementById("qfieldRemoveLocal");
+  const statusNode = document.getElementById("qfieldPersistentStatus");
+  if (!openButton || !statusNode) return;
+
+  const projectId = String(openButton.dataset.projectId || "");
+  const statusUrl = String(openButton.dataset.statusUrl || "");
+  const storageKey = `geoflow.qfield.install.${projectId}`;
+
+  function readMarker() {
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+      return value && typeof value === "object" ? value : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function writeMarker(descriptor) {
+    const install = descriptor.install || {};
+    localStorage.setItem(storageKey, JSON.stringify({
+      install_id: String(install.install_id || ""),
+      package_version: String(install.package_version || ""),
+      plugin_runtime_version: String(install.plugin_runtime_version || ""),
+      schema_fingerprint: String(install.schema_fingerprint || ""),
+      persistent_protocol: String(install.persistent_protocol || ""),
+      requested_at: new Date().toISOString()
+    }));
+  }
+
+  function markerMatches(marker, install) {
+    return Boolean(marker && install &&
+      String(marker.install_id || "") === String(install.install_id || "") &&
+      String(marker.package_version || "") === String(install.package_version || "") &&
+      String(marker.plugin_runtime_version || "") === String(install.plugin_runtime_version || "") &&
+      String(marker.schema_fingerprint || "") === String(install.schema_fingerprint || ""));
+  }
+
+  async function descriptor() {
+    const response = await fetch(statusUrl, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {"Accept": "application/json"}
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body || !body.ok) {
+      throw new Error((body && (body.message || body.error)) || `HTTP ${response.status}`);
+    }
+    return body;
+  }
+
+  function launch(url) {
+    if (!url) throw new Error("QField 실행 URL이 없습니다.");
+    window.location.href = url;
+  }
+
+  async function openPersistentProject(forceInstall = false) {
+    openButton.disabled = true;
+    if (forceButton) forceButton.disabled = true;
+    statusNode.textContent = "QField 프로젝트 상태 확인 중…";
+    try {
+      const body = await descriptor();
+      const install = body.install || {};
+      const marker = readMarker();
+      const current = markerMatches(marker, install);
+
+      if (!forceInstall && current) {
+        statusNode.textContent = "이 기기에 현재 버전이 설치된 것으로 기록되어 있습니다 · 기존 프로젝트를 엽니다.";
+        launch(install.launch_url);
+        return;
+      }
+
+      if (marker && !current && !forceInstall) {
+        const ok = window.confirm(
+          "QField 프로젝트 구조 업데이트가 필요합니다. 현재 QField 편집을 먼저 저장해 주세요. " +
+          "GeoFlow outbox는 프로젝트 폴더와 별도로 보존되므로 전송 대기 변경은 업데이트 후에도 이어집니다. 지금 업데이트할까요?"
+        );
+        if (!ok) {
+          statusNode.textContent = "업데이트가 보류되었습니다 · 기존 QField 프로젝트에서 로컬 변경을 먼저 동기화하세요.";
+          return;
+        }
+      }
+
+      if (forceInstall) {
+        const ok = window.confirm(
+          "이 프로젝트 패키지를 다시 설치합니다. 현재 편집 중인 객체가 있다면 먼저 저장하세요. 계속할까요?"
+        );
+        if (!ok) return;
+      }
+
+      writeMarker(body);
+      statusNode.textContent = marker ? "QField 프로젝트 업데이트를 시작합니다…" : "QField 프로젝트를 최초 설치합니다…";
+      launch(install.install_url);
+    } catch (error) {
+      statusNode.textContent = `QField 연결 실패: ${error.message || error}`;
+    } finally {
+      window.setTimeout(() => {
+        openButton.disabled = false;
+        if (forceButton) forceButton.disabled = false;
+      }, 1200);
+    }
+  }
+
+  openButton.addEventListener("click", () => openPersistentProject(false));
+  if (forceButton) forceButton.addEventListener("click", () => openPersistentProject(true));
+
+  if (removeButton) {
+    removeButton.addEventListener("click", () => {
+      const ok = window.confirm(
+        "QField의 로컬 프로젝트 목록에서 이 프로젝트 폴더를 직접 삭제한 뒤 GeoFlow 설치표시를 초기화합니다. " +
+        "전송되지 않은 변경이 있다면 먼저 동기화하세요. 계속할까요?"
+      );
+      if (!ok) return;
+      localStorage.removeItem(storageKey);
+      statusNode.textContent = "이 기기의 GeoFlow 설치표시를 초기화했습니다. QField 로컬 프로젝트 화면에서 해당 폴더 메뉴 → 삭제를 선택하세요.";
+      window.location.href = "qfield://local";
+    });
+  }
+
+  const marker = readMarker();
+  statusNode.textContent = marker
+    ? "이 기기에 QField 프로젝트 설치 기록이 있습니다. 열기 시 서버 버전을 다시 확인합니다."
+    : "이 기기에는 아직 QField 프로젝트 설치 기록이 없습니다. 첫 열기에서 1회 설치합니다.";
+})();
+</script>
 {% endblock %}
