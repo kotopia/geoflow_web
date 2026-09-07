@@ -5,8 +5,10 @@ import inspect
 from pathlib import Path
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
 from django.urls import resolve, reverse
+
+from control import middleware as control_middleware
 
 from . import qfield_sync_views, qfield_ticket_roaming_views
 
@@ -54,6 +56,28 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         self.assertNotIn("project_access_policy", roaming_source)
         self.assertIn('payload.get("write_authorized")', changeset_source)
         self.assertNotIn("project_access_policy", changeset_source)
+
+    def test_native_qfield_bearer_request_bypasses_browser_session_freshness(self):
+        factory = RequestFactory()
+        path = f"/gis/projects/{self.project_id}/api/qfield/roaming-cell/"
+        request = factory.get(path, HTTP_AUTHORIZATION="Bearer signed-project-ticket")
+        self.assertTrue(control_middleware._is_native_qfield_bearer_request(request))
+
+        browser_request = factory.get(path)
+        self.assertFalse(control_middleware._is_native_qfield_bearer_request(browser_request))
+
+        package_request = factory.get(
+            f"/gis/projects/{self.project_id}/api/qfield/package/",
+            HTTP_AUTHORIZATION="Bearer signed-project-ticket",
+        )
+        self.assertFalse(control_middleware._is_native_qfield_bearer_request(package_request))
+
+        freshness_source = inspect.getsource(
+            control_middleware.TenantMembershipFreshnessGuardMiddleware.__call__
+        )
+        tenant_source = inspect.getsource(control_middleware.TenantMiddleware.__call__)
+        self.assertIn("_is_native_qfield_bearer_request", freshness_source)
+        self.assertIn("_is_native_qfield_bearer_request", tenant_source)
 
     def test_qfield_sidecar_combines_roaming_offline_sync_and_plan_layer_binding(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
