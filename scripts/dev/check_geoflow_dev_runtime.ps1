@@ -87,12 +87,33 @@ Write-Host "[4/5] Verify physical DB routing and central login path..." -Foregro
 if ($LASTEXITCODE -ne 0) { throw "Runtime database/login routing verification failed." }
 
 Write-Host "[5/5] Verify GIS metadata, UUID identity, and object counts..." -ForegroundColor Green
-& $PythonExe $verifier `
-    --tenant-alias $TenantAlias `
-    --expected-central-db $ExpectedCentralDb `
-    --expected-tenant-db $ExpectedTenantDb `
-    --mode gis
-if ($LASTEXITCODE -ne 0) { throw "GIS runtime verification failed." }
+# PowerShell 5.x can promote a native process stderr line into a terminating
+# NativeCommandError while ErrorActionPreference=Stop. The verifier deliberately
+# reports failed invariants through SystemExit/stderr, so temporarily capture
+# both streams, print them, and include the final diagnostic in the thrown error.
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $gisOutput = @(& $PythonExe $verifier `
+        --tenant-alias $TenantAlias `
+        --expected-central-db $ExpectedCentralDb `
+        --expected-tenant-db $ExpectedTenantDb `
+        --mode gis 2>&1)
+    $gisExitCode = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+
+foreach ($line in $gisOutput) {
+    Write-Host ($line | Out-String).TrimEnd()
+}
+
+if ($gisExitCode -ne 0) {
+    $reason = @($gisOutput | ForEach-Object { ($_ | Out-String).Trim() } | Where-Object { $_ }) | Select-Object -Last 1
+    if (-not $reason) { $reason = "unknown GIS invariant failure" }
+    throw "GIS runtime verification failed: $reason"
+}
 
 Write-Host "GeoFlow development runtime preflight completed successfully." -ForegroundColor Green
 Write-Host "Central: $ExpectedCentralDb | Tenant alias: $TenantAlias -> $ExpectedTenantDb" -ForegroundColor Green
