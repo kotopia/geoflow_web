@@ -95,6 +95,30 @@ function Find-QgisRuntime {
         Select-Object -First 1
 }
 
+function Remove-StaleQgisPathEntries {
+    $parts = @(
+        $env:PATH -split ';' |
+            Where-Object {
+                $_ -and
+                $_ -notmatch '(?i)^C:\\Program Files(?: \(x86\))?\\QGIS [^\\]+\\bin\\?$' -and
+                $_ -notmatch '(?i)^C:\\Program Files(?: \(x86\))?\\QGIS [^\\]+\\apps\\qgis(?:-ltr)?\\bin\\?$'
+            }
+    )
+    $env:PATH = $parts -join ';'
+}
+
+function Write-VenvQgisBootstrap([string]$BinDir) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+    $sitePackages = Join-Path $repoRoot '.venv\Lib\site-packages'
+    if (-not (Test-Path $sitePackages)) { return }
+
+    $pthFile = Join-Path $sitePackages 'geoflow_qgis_runtime.pth'
+    $escapedBin = $BinDir.Replace('\', '\\').Replace("'", "\'")
+    $pthLine = "import os,builtins; p='$escapedBin'; os.environ['PATH']=p+';'+os.environ.get('PATH',''); builtins._geoflow_qgis_dll_dir=os.add_dll_directory(p)"
+    Set-Content -Path $pthFile -Value $pthLine -Encoding ASCII
+    Write-Host "QGIS venv bootstrap refreshed: $pthFile" -ForegroundColor Yellow
+}
+
 $requestedQgisRoot = $QgisRoot
 if ($QgisRoot -and -not (Test-QgisRuntime $QgisRoot)) {
     Write-Warning "Requested QGIS runtime is not usable on this workstation: $QgisRoot"
@@ -135,7 +159,11 @@ foreach ($bin in $binCandidates) {
 if (-not $gdalDll) { throw "GDAL DLL was not found under QGIS root: $QgisRoot" }
 if (-not $geosDll) { throw "geos_c.dll was not found under QGIS root: $QgisRoot" }
 
+$runtimeBin = Split-Path $gdalDll -Parent
+Remove-StaleQgisPathEntries
+
 $pathCandidates = @(
+    $runtimeBin,
     (Join-Path $QgisRoot 'bin'),
     (Join-Path $QgisRoot 'apps\qgis\bin'),
     (Join-Path $QgisRoot 'apps\qgis-ltr\bin'),
@@ -147,13 +175,20 @@ foreach ($pathEntry in $pathCandidates) { Add-PathEntry $pathEntry }
 $env:GDAL_LIBRARY_PATH = $gdalDll
 $env:GEOS_LIBRARY_PATH = $geosDll
 $env:GEOFLOW_QGIS_ROOT = $QgisRoot
+$env:GEOFLOW_QGIS_BIN = $runtimeBin
 if (-not $env:DJANGO_SETTINGS_MODULE) {
     $env:DJANGO_SETTINGS_MODULE = 'geoflow_project.settings'
 }
 
+# A workstation may have a local-only .pth file created by an older launcher.
+# Rewrite it on every start so moving between QGIS 4.2.1 and 4.2.2 never leaves
+# Python loading DLLs from the other machine's installation path.
+Write-VenvQgisBootstrap $runtimeBin
+
 Write-Host "GeoDjango native library environment configured for this PowerShell session." -ForegroundColor Green
 Write-Host "QGIS root: $QgisRoot" -ForegroundColor Green
+Write-Host "QGIS runtime bin: $runtimeBin" -ForegroundColor Green
 Write-Host "GDAL_LIBRARY_PATH=$gdalDll" -ForegroundColor Green
 Write-Host "GEOS_LIBRARY_PATH=$geosDll" -ForegroundColor Green
 Write-Host "DJANGO_SETTINGS_MODULE=$env:DJANGO_SETTINGS_MODULE" -ForegroundColor Green
-Write-Host "QGIS runtime paths were prepended to PATH where present." -ForegroundColor Green
+Write-Host "QGIS runtime paths were refreshed for this workstation." -ForegroundColor Green
