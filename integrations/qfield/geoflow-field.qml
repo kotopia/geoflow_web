@@ -11,8 +11,6 @@ Item {
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
     property var positioning: iface.positioning()
-    property var featureFormBridge: null
-
     property string serverUrl: ""
     property string projectId: ""
     property string bearerToken: ""
@@ -20,7 +18,6 @@ Item {
     property string roamingCellUrl: ""
     property string changesetUrl: ""
     property real movementThresholdM: 100.0
-
     property bool configReady: false
     property bool requestInFlight: false
     property bool syncInFlight: false
@@ -31,15 +28,13 @@ Item {
     property int unsyncedCount: 0
     property int retryAttempt: 0
     property double nextRetryAtMs: 0
-
     property string lastViewport: ""
     property real lastLon: NaN
     property real lastLat: NaN
-    property string lastFeatureFormState: ""
-
+    property var layerBindings: []
     property var managedLayerDescriptors: []
-    property var layerFidMaps: ({})
-    property var layerVersionMaps: ({})
+    property var pollingBaseline: ({})
+    property bool pollingBaselineReady: false
 
     Settings {
         id: localState
@@ -84,23 +79,39 @@ Item {
         interval: 3000
         repeat: true
         running: true
-        onTriggered: geoflowField.syncNow(false)
+        onTriggered: geoflowField.syncNow(false, false)
+    }
+
+    Timer {
+        id: pollingTimer
+        interval: 2000
+        repeat: true
+        running: true
+        onTriggered: geoflowField.pollForLocalChanges()
     }
 
     Timer {
         id: editAcceptedSyncTimer
-        interval: 650
+        interval: 450
         repeat: false
         running: false
-        onTriggered: geoflowField.syncNow(false)
+        onTriggered: geoflowField.syncNow(false, true)
     }
 
     Timer {
-        id: refreshMapsTimer
-        interval: 500
-        repeat: false
+        id: bindRetryTimer
+        interval: 1500
+        repeat: true
         running: false
-        onTriggered: geoflowField.refreshAllFidMaps()
+        onTriggered: {
+            if (!managedLayerDescriptors || managedLayerDescriptors.length === 0) return
+            let count = geoflowField.bindLayers()
+            if (count > 0) {
+                stop()
+                geoflowField.rebuildPollingBaseline()
+                geoflowField.toast("GeoFlow Field 0.9.2 · 자동 동기화 준비 " + count + "개 레이어")
+            }
+        }
     }
 
     Connections {
@@ -113,93 +124,10 @@ Item {
             geoflowField.lastLat = NaN
             geoflowField.authBlocked = false
             geoflowField.managedLayerDescriptors = []
-            geoflowField.layerFidMaps = ({})
-            geoflowField.layerVersionMaps = ({})
-            geoflowField.featureFormBridge = null
-            geoflowField.lastFeatureFormState = ""
+            geoflowField.pollingBaseline = ({})
+            geoflowField.pollingBaselineReady = false
             bootstrapTimer.restart()
             roamingTimer.restart()
-        }
-    }
-
-    Connections {
-        target: geoflowField.featureFormBridge
-        ignoreUnknownSignals: true
-
-        function onStateChanged() {
-            let current = String(geoflowField.featureFormBridge ? geoflowField.featureFormBridge.state : "")
-            let previous = geoflowField.lastFeatureFormState
-            geoflowField.lastFeatureFormState = current
-            geoflowField.log("feature form state " + previous + " -> " + current)
-
-            if (previous === "FeatureFormEdit" && current !== "FeatureFormEdit") {
-                if (geoflowField.captureFocusedFeature("feature_form_confirmed")) {
-                    editAcceptedSyncTimer.restart()
-                }
-            }
-        }
-    }
-
-    Repeater {
-        id: layerSignalBridges
-        model: geoflowField.managedLayerDescriptors
-
-        delegate: Item {
-            id: signalBridge
-            visible: false
-            width: 0
-            height: 0
-            property var descriptor: modelData || ({})
-            property string physicalName: String(descriptor.physical_name || "")
-            property string standardName: String(descriptor.standard_name || physicalName).toUpperCase()
-            property var layer: geoflowField.layerByPhysicalName(physicalName)
-
-            Connections {
-                target: signalBridge.layer
-                ignoreUnknownSignals: true
-
-                function onGeometryChanged(fid, geometry) {
-                    geoflowField.log(signalBridge.standardName + " geometryChanged fid=" + fid)
-                    if (geoflowField.captureGeometry(signalBridge.layer, signalBridge.standardName, fid, geometry)) {
-                        editAcceptedSyncTimer.restart()
-                    }
-                }
-
-                function onAttributeValueChanged(fid, index, value) {
-                    geoflowField.log(signalBridge.standardName + " attributeValueChanged fid=" + fid + " index=" + index)
-                    if (geoflowField.captureAttribute(signalBridge.layer, signalBridge.standardName, fid, index, value)) {
-                        editAcceptedSyncTimer.restart()
-                    }
-                }
-
-                function onFeatureAdded(fid) {
-                    geoflowField.log(signalBridge.standardName + " featureAdded fid=" + fid)
-                    Qt.callLater(function() {
-                        if (geoflowField.captureCreate(signalBridge.layer, signalBridge.standardName, fid)) {
-                            editAcceptedSyncTimer.restart()
-                        }
-                    })
-                }
-
-                function onFeatureDeleted(fid) {
-                    geoflowField.log(signalBridge.standardName + " featureDeleted fid=" + fid)
-                    if (geoflowField.captureDelete(signalBridge.standardName, fid)) {
-                        editAcceptedSyncTimer.restart()
-                    }
-                }
-
-                function onEditingStopped() {
-                    geoflowField.log(signalBridge.standardName + " editingStopped")
-                    geoflowField.refreshLayerFidMap(signalBridge.layer, signalBridge.standardName)
-                    editAcceptedSyncTimer.restart()
-                }
-
-                function onAfterCommitChanges() {
-                    geoflowField.log(signalBridge.standardName + " afterCommitChanges")
-                    geoflowField.refreshLayerFidMap(signalBridge.layer, signalBridge.standardName)
-                    editAcceptedSyncTimer.restart()
-                }
-            }
         }
     }
 
@@ -234,7 +162,6 @@ Item {
         try { mainWindow = iface.mainWindow() } catch (err) {}
         try { mapCanvas = iface.mapCanvas() } catch (err2) {}
         try { positioning = iface.positioning() } catch (err3) {}
-        try { featureFormBridge = iface.findItemByObjectName("featureForm") } catch (err4) { featureFormBridge = null }
 
         serverUrl = readProjectText("server_url")
         projectId = readProjectText("project_id")
@@ -243,14 +170,11 @@ Item {
         roamingCellUrl = readProjectText("roaming_cell_url")
         movementThresholdM = readProjectNumber("movement_threshold_m", 100.0)
         changesetUrl = roamingPlanUrl.replace(/roaming-plan\/?$/, "changesets/")
-
         configReady = Boolean(
             serverUrl && projectId && bearerToken && roamingPlanUrl && roamingCellUrl && changesetUrl
         )
-        if (featureFormBridge) lastFeatureFormState = String(featureFormBridge.state || "")
-
         if (configReady) {
-            log("project config ready for " + projectId + " featureForm=" + Boolean(featureFormBridge))
+            log("project config ready for " + projectId)
         } else {
             log(
                 "project config incomplete" +
@@ -266,8 +190,8 @@ Item {
     }
 
     function absoluteUrl(path) {
-        if (String(path).indexOf("http://") === 0 || String(path).indexOf("https://") === 0) return String(path)
-        return serverUrl.replace(/\/$/, "") + "/" + String(path).replace(/^\//, "")
+        if (path.indexOf("http://") === 0 || path.indexOf("https://") === 0) return path
+        return serverUrl.replace(/\/$/, "") + "/" + path.replace(/^\//, "")
     }
 
     function uuidV4() {
@@ -331,37 +255,73 @@ Item {
         return String(value)
     }
 
-    function protectedField(name) {
-        return ["id", "project_id", "created_at", "updated_at", "created_by", "updated_by"].indexOf(name) >= 0
-    }
-
     function layerName(layer) {
-        if (!layer) return ""
         try { if (typeof layer.name === "string") return layer.name } catch (err) {}
         try { return String(layer.name()) } catch (err2) {}
         return ""
     }
 
-    function layerByPhysicalName(physicalName) {
-        if (!physicalName) return null
+    function isManagedLayer(layer) {
+        if (!layer) return false
         try {
-            let matches = qgisProject.mapLayersByName(String(physicalName))
-            if (matches && matches.length > 0) return matches[0]
+            let fields = layer.fields()
+            return fields.indexOf("id") >= 0 && fields.indexOf("project_id") >= 0
         } catch (err) {
-            log("mapLayersByName failed for " + physicalName + ": " + err)
+            return false
         }
-        return null
     }
 
-    function standardNameForPhysical(physicalName) {
-        let target = String(physicalName || "")
-        for (let i = 0; i < managedLayerDescriptors.length; i++) {
-            let row = managedLayerDescriptors[i] || {}
-            if (String(row.physical_name || "") === target) {
-                return String(row.standard_name || target).toUpperCase()
+    function managedLayers() {
+        let result = []
+        let seen = {}
+
+        if (managedLayerDescriptors && managedLayerDescriptors.length > 0) {
+            for (let i = 0; i < managedLayerDescriptors.length; i++) {
+                let descriptor = managedLayerDescriptors[i] || {}
+                let physical = String(descriptor.physical_name || "")
+                if (!physical || seen[physical]) continue
+                try {
+                    let matches = qgisProject.mapLayersByName(physical)
+                    if (matches && matches.length > 0) {
+                        seen[physical] = true
+                        result.push(matches[0])
+                    }
+                } catch (err) {
+                    log("mapLayersByName failed for " + physical + ": " + err)
+                }
+            }
+            if (result.length > 0) return result
+        }
+
+        try {
+            let rows = mapCanvas.mapSettings.layers
+            for (let j = 0; j < rows.length; j++) {
+                let layer = rows[j]
+                if (!isManagedLayer(layer)) continue
+                let name = layerName(layer)
+                if (!name || seen[name]) continue
+                seen[name] = true
+                result.push(layer)
+            }
+        } catch (err2) {
+            log("map canvas layer list unavailable: " + err2)
+        }
+        return result
+    }
+
+    function featureByFid(layer, fid) {
+        let iterator = null
+        try {
+            iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "$id = " + Number(fid))
+            if (iterator.hasNext()) return iterator.next()
+        } catch (err) {
+            log("feature lookup failed: " + err)
+        } finally {
+            if (iterator) {
+                try { iterator.close() } catch (closeErr) {}
             }
         }
-        return target.toUpperCase()
+        return null
     }
 
     function fieldName(layer, index) {
@@ -369,9 +329,25 @@ Item {
         return ""
     }
 
+    function featureGeometryWkt(feature) {
+        if (!feature) return ""
+        try {
+            let geometry = feature.geometry()
+            if (!geometry || geometry.isNull() || geometry.isEmpty()) return ""
+            return String(geometry.asWkt(8))
+        } catch (err) {
+            log("geometry WKT unavailable: " + err)
+            return ""
+        }
+    }
+
+    function protectedField(name) {
+        return ["id", "project_id", "created_at", "updated_at", "created_by", "updated_by"].indexOf(name) >= 0
+    }
+
     function collectAttributes(layer, feature) {
         let attrs = {}
-        if (!layer || !feature) return attrs
+        if (!feature) return attrs
         try {
             let fields = layer.fields()
             for (let i = 0; i < fields.count(); i++) {
@@ -387,133 +363,11 @@ Item {
         return attrs
     }
 
-    function featureGeometryWkt(feature) {
-        if (!feature) return ""
-        try {
-            let geometry = feature.geometry()
-            if (!geometry || geometry.isNull() || geometry.isEmpty()) return ""
-            return String(geometry.asWkt(8))
-        } catch (err) {
-            log("geometry WKT unavailable: " + err)
-            return ""
-        }
-    }
-
-    function featureByFid(layer, fid) {
-        let iterator = null
-        try {
-            iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "$id = " + Number(fid))
-            if (iterator && iterator.hasNext()) return iterator.next()
-        } catch (err) {
-            log("feature lookup failed fid=" + fid + ": " + err)
-        } finally {
-            if (iterator) {
-                try { iterator.close() } catch (closeErr) {}
-            }
-        }
-        return null
-    }
-
-    function fidMapFor(standardName) {
-        let key = String(standardName || "").toUpperCase()
-        let maps = layerFidMaps || ({})
-        if (!maps[key]) maps[key] = ({})
-        layerFidMaps = maps
-        return maps[key]
-    }
-
-    function versionMapFor(standardName) {
-        let key = String(standardName || "").toUpperCase()
-        let maps = layerVersionMaps || ({})
-        if (!maps[key]) maps[key] = ({})
-        layerVersionMaps = maps
-        return maps[key]
-    }
-
-    function featureVersion(standardName, objectId, feature) {
-        let state = projectState()
-        let stateKey = String(standardName) + "|" + String(objectId)
-        if (state.feature_versions[stateKey]) return String(state.feature_versions[stateKey])
-        if (feature) {
-            try {
-                let value = normalizedValue(feature.attribute("updated_at"))
-                if (value) return String(value)
-            } catch (err) {}
-        }
-        return ""
-    }
-
-    function refreshLayerFidMap(layer, standardName) {
-        if (!layer || !standardName) return 0
-        let fidMap = ({})
-        let versionMap = ({})
-        let iterator = null
-        let count = 0
-        try {
-            iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "\"id\" IS NOT NULL")
-            while (iterator && iterator.hasNext()) {
-                let feature = iterator.next()
-                let objectId = canonicalUuid(feature.attribute("id"))
-                if (!objectId) continue
-                let fid = String(feature.id())
-                fidMap[fid] = objectId
-                versionMap[fid] = featureVersion(standardName, objectId, feature)
-                count += 1
-            }
-        } catch (err) {
-            log(standardName + " fid map failed: " + err)
-        } finally {
-            if (iterator) {
-                try { iterator.close() } catch (closeErr) {}
-            }
-        }
-
-        let allFids = layerFidMaps || ({})
-        allFids[String(standardName).toUpperCase()] = fidMap
-        layerFidMaps = allFids
-        let allVersions = layerVersionMaps || ({})
-        allVersions[String(standardName).toUpperCase()] = versionMap
-        layerVersionMaps = allVersions
-        log(standardName + " fid map ready count=" + count)
-        return count
-    }
-
-    function refreshAllFidMaps() {
-        let total = 0
-        for (let i = 0; i < managedLayerDescriptors.length; i++) {
-            let row = managedLayerDescriptors[i] || {}
-            let physical = String(row.physical_name || "")
-            let standard = String(row.standard_name || physical).toUpperCase()
-            let layer = layerByPhysicalName(physical)
-            if (layer) total += refreshLayerFidMap(layer, standard)
-        }
-        log("all fid maps ready total=" + total)
-        return total
-    }
-
-    function resolveObjectId(layer, standardName, fid, feature) {
-        let map = fidMapFor(standardName)
-        let objectId = canonicalUuid(map[String(fid)] || "")
-        if (objectId) return objectId
-
-        let sourceFeature = feature || featureByFid(layer, fid)
-        if (sourceFeature) {
-            objectId = canonicalUuid(sourceFeature.attribute("id"))
-            if (objectId) {
-                map[String(fid)] = objectId
-                let maps = layerFidMaps || ({})
-                maps[String(standardName).toUpperCase()] = map
-                layerFidMaps = maps
-            }
-        }
-        return objectId
-    }
-
-    function baseUpdatedAt(standardName, fid, objectId, feature) {
-        let versions = versionMapFor(standardName)
-        let value = String(versions[String(fid)] || "")
-        if (value) return value
-        return featureVersion(standardName, objectId, feature)
+    function featureSignature(layer, feature) {
+        return JSON.stringify({
+            geometry_wkt: featureGeometryWkt(feature),
+            attributes: collectAttributes(layer, feature)
+        })
     }
 
     function pendingKey(changeOrLayer, objectId) {
@@ -523,8 +377,196 @@ Item {
         return String(changeOrLayer) + "|" + String(objectId)
     }
 
+    function featureBaseUpdatedAt(binding, feature, objectId) {
+        let state = projectState()
+        let key = pendingKey(binding.standard, objectId)
+        if (state.feature_versions[key]) return String(state.feature_versions[key])
+        if (feature) {
+            try {
+                let idx = binding.layer.fields().indexOf("updated_at")
+                if (idx >= 0) {
+                    let value = normalizedValue(feature.attribute("updated_at"))
+                    if (value) return String(value)
+                }
+            } catch (err) {}
+        }
+        return ""
+    }
+
+    function refreshFidMap(binding) {
+        binding.fidMap = {}
+        binding.versionMap = {}
+        let iterator = null
+        try {
+            iterator = LayerUtils.createFeatureIterator(binding.layer)
+            while (iterator.hasNext()) {
+                let feature = iterator.next()
+                let objectId = canonicalUuid(feature.attribute("id"))
+                if (!objectId) continue
+                binding.fidMap[String(feature.id())] = objectId
+                binding.versionMap[String(feature.id())] = featureBaseUpdatedAt(binding, feature, objectId)
+            }
+        } catch (err) {
+            log(binding.standard + " fid map failed: " + err)
+        } finally {
+            if (iterator) {
+                try { iterator.close() } catch (closeErr) {}
+            }
+        }
+    }
+
+    function rebuildPollingBaseline() {
+        if (layerBindings.length === 0) return 0
+        let baseline = ({})
+        let total = 0
+        for (let i = 0; i < layerBindings.length; i++) {
+            let binding = layerBindings[i]
+            let iterator = null
+            try {
+                iterator = LayerUtils.createFeatureIterator(binding.layer)
+                while (iterator.hasNext()) {
+                    let feature = iterator.next()
+                    let objectId = canonicalUuid(feature.attribute("id"))
+                    if (!objectId) continue
+                    let key = pendingKey(binding.standard, objectId)
+                    baseline[key] = {
+                        signature: featureSignature(binding.layer, feature),
+                        base_updated_at: featureBaseUpdatedAt(binding, feature, objectId)
+                    }
+                    total += 1
+                }
+            } catch (err) {
+                log(binding.standard + " polling baseline failed: " + err)
+            } finally {
+                if (iterator) {
+                    try { iterator.close() } catch (closeErr) {}
+                }
+            }
+        }
+        pollingBaseline = baseline
+        pollingBaselineReady = true
+        log("polling baseline ready count=" + total)
+        return total
+    }
+
+    function pollForLocalChanges() {
+        if (!configReady || captureSuppressed || requestInFlight || syncInFlight || authBlocked) return
+        if (layerBindings.length === 0) {
+            if (managedLayerDescriptors.length > 0) bindLayers()
+            return
+        }
+        if (!pollingBaselineReady) {
+            rebuildPollingBaseline()
+            return
+        }
+
+        let seen = ({})
+        let changed = false
+        for (let i = 0; i < layerBindings.length; i++) {
+            let binding = layerBindings[i]
+            let iterator = null
+            try {
+                iterator = LayerUtils.createFeatureIterator(binding.layer)
+                while (iterator.hasNext()) {
+                    let feature = iterator.next()
+                    let objectId = canonicalUuid(feature.attribute("id"))
+                    if (!objectId) continue
+                    let key = pendingKey(binding.standard, objectId)
+                    seen[key] = true
+                    let signature = featureSignature(binding.layer, feature)
+                    let old = pollingBaseline[key]
+                    if (!old) {
+                        let geometryWkt = featureGeometryWkt(feature)
+                        if (geometryWkt) {
+                            queueChange({
+                                action: "create",
+                                layer: binding.standard,
+                                id: objectId,
+                                attributes: collectAttributes(binding.layer, feature),
+                                geometry_wkt: geometryWkt
+                            })
+                            changed = true
+                        }
+                    } else if (old.signature !== signature) {
+                        let geometryWkt = featureGeometryWkt(feature)
+                        let update = {
+                            action: "update",
+                            layer: binding.standard,
+                            id: objectId,
+                            attributes: collectAttributes(binding.layer, feature)
+                        }
+                        if (geometryWkt) update.geometry_wkt = geometryWkt
+                        if (old.base_updated_at) update.base_updated_at = old.base_updated_at
+                        queueChange(update)
+                        changed = true
+                        log("poll detected update " + binding.standard + " " + objectId)
+                    }
+                    pollingBaseline[key] = {
+                        signature: signature,
+                        base_updated_at: old && old.base_updated_at ? old.base_updated_at : featureBaseUpdatedAt(binding, feature, objectId)
+                    }
+                }
+            } catch (err) {
+                log(binding.standard + " polling failed: " + err)
+            } finally {
+                if (iterator) {
+                    try { iterator.close() } catch (closeErr) {}
+                }
+            }
+        }
+
+        let baselineKeys = Object.keys(pollingBaseline)
+        for (let j = 0; j < baselineKeys.length; j++) {
+            let key = baselineKeys[j]
+            if (seen[key]) continue
+            let parts = key.split("|")
+            if (parts.length !== 2) continue
+            let old = pollingBaseline[key]
+            let deletion = { action: "delete", layer: parts[0], id: parts[1] }
+            if (old && old.base_updated_at) deletion.base_updated_at = old.base_updated_at
+            queueChange(deletion)
+            delete pollingBaseline[key]
+            changed = true
+            log("poll detected delete " + key)
+        }
+
+        if (changed) syncNow(false, true)
+    }
+
+    function ensureFeatureIdentity(binding, fid) {
+        let feature = featureByFid(binding.layer, fid)
+        if (!feature) return null
+        let objectId = canonicalUuid(feature.attribute("id"))
+        let projectValue = canonicalUuid(feature.attribute("project_id"))
+        let fields = binding.layer.fields()
+
+        captureSuppressed = true
+        try {
+            if (!objectId) {
+                objectId = uuidV4()
+                let idIndex = fields.indexOf("id")
+                if (idIndex >= 0) binding.layer.changeAttributeValue(fid, idIndex, objectId)
+            } else if (String(feature.attribute("id")) !== objectId) {
+                let canonicalIndex = fields.indexOf("id")
+                if (canonicalIndex >= 0) binding.layer.changeAttributeValue(fid, canonicalIndex, objectId)
+            }
+            if (!projectValue && projectId) {
+                let projectIndex = fields.indexOf("project_id")
+                if (projectIndex >= 0) binding.layer.changeAttributeValue(fid, projectIndex, projectId)
+            }
+        } finally {
+            captureSuppressed = false
+        }
+        let refreshed = featureByFid(binding.layer, fid) || feature
+        binding.fidMap[String(fid)] = objectId
+        if (binding.versionMap[String(fid)] === undefined) {
+            binding.versionMap[String(fid)] = featureBaseUpdatedAt(binding, refreshed, objectId)
+        }
+        return { id: objectId, feature: refreshed }
+    }
+
     function queueChange(change) {
-        if (captureSuppressed || !projectId || !change || !change.id || !change.layer) return false
+        if (!projectId || !change || !change.id || !change.layer) return
         let state = projectState()
         let pending = state.pending
         let key = pendingKey(change)
@@ -535,160 +577,170 @@ Item {
         } else if (old.action === "create" && change.action === "delete") {
             delete pending[key]
         } else if (change.action === "delete") {
-            let baseValue = old.base_updated_at || change.base_updated_at || ""
+            let baseUpdatedAt = old.base_updated_at || change.base_updated_at || ""
             pending[key] = { action: "delete", layer: change.layer, id: change.id }
-            if (baseValue) pending[key].base_updated_at = baseValue
+            if (baseUpdatedAt) pending[key].base_updated_at = baseUpdatedAt
         } else if (old.action === "create") {
             old.attributes = Object.assign({}, old.attributes || {}, change.attributes || {})
             if (change.geometry_wkt) old.geometry_wkt = change.geometry_wkt
             pending[key] = old
-        } else {
-            old.action = "update"
+        } else if (old.action === "update" && change.action === "update") {
             old.attributes = Object.assign({}, old.attributes || {}, change.attributes || {})
             if (change.geometry_wkt) old.geometry_wkt = change.geometry_wkt
             if (!old.base_updated_at && change.base_updated_at) old.base_updated_at = change.base_updated_at
             pending[key] = old
+        } else {
+            pending[key] = change
         }
-
         state.pending = pending
         saveProjectState(state)
         syncStatus = "pending"
-        log("queued " + change.action + " " + change.layer + " " + change.id + " pending=" + Object.keys(pending).length)
-        return true
+        log("queued " + change.action + " " + change.layer + " " + change.id)
     }
 
-    function captureGeometry(layer, standardName, fid, geometry) {
-        if (captureSuppressed || !layer) return false
-        let feature = null
-        let objectId = resolveObjectId(layer, standardName, fid, null)
-        if (!objectId) {
-            feature = featureByFid(layer, fid)
-            objectId = resolveObjectId(layer, standardName, fid, feature)
-        }
-        if (!objectId) {
-            log(standardName + " geometry skipped: UUID not found fid=" + fid)
-            return false
-        }
-
-        let wkt = ""
-        try {
-            if (geometry && !geometry.isNull() && !geometry.isEmpty()) wkt = String(geometry.asWkt(8))
-        } catch (err) {}
-        if (!wkt) {
-            if (!feature) feature = featureByFid(layer, fid)
-            wkt = featureGeometryWkt(feature)
-        }
-        if (!wkt) return false
-
-        let change = { action: "update", layer: standardName, id: objectId, geometry_wkt: wkt }
-        let baseValue = baseUpdatedAt(standardName, fid, objectId, feature)
-        if (baseValue) change.base_updated_at = baseValue
-        return queueChange(change)
-    }
-
-    function captureAttribute(layer, standardName, fid, index, value) {
-        if (captureSuppressed || !layer) return false
-        let name = fieldName(layer, index)
-        if (!name || protectedField(name)) return false
-        let feature = featureByFid(layer, fid)
-        let objectId = resolveObjectId(layer, standardName, fid, feature)
-        if (!objectId) return false
-
-        let attrs = ({})
-        attrs[name] = normalizedValue(value)
-        let change = { action: "update", layer: standardName, id: objectId, attributes: attrs }
-        let baseValue = baseUpdatedAt(standardName, fid, objectId, feature)
-        if (baseValue) change.base_updated_at = baseValue
-        return queueChange(change)
-    }
-
-    function captureCreate(layer, standardName, fid) {
-        if (captureSuppressed || !layer) return false
-        let feature = featureByFid(layer, fid)
-        if (!feature) return false
-
-        let objectId = canonicalUuid(feature.attribute("id"))
-        let fields = layer.fields()
-        captureSuppressed = true
-        try {
-            if (!objectId) {
-                objectId = uuidV4()
-                let idIndex = fields.indexOf("id")
-                if (idIndex >= 0) layer.changeAttributeValue(fid, idIndex, objectId)
-            }
-            let projectValue = canonicalUuid(feature.attribute("project_id"))
-            if (!projectValue && projectId) {
-                let projectIndex = fields.indexOf("project_id")
-                if (projectIndex >= 0) layer.changeAttributeValue(fid, projectIndex, projectId)
-            }
-        } finally {
-            captureSuppressed = false
-        }
-
-        feature = featureByFid(layer, fid) || feature
-        let wkt = featureGeometryWkt(feature)
-        if (!wkt || !objectId) return false
-
-        let map = fidMapFor(standardName)
-        map[String(fid)] = objectId
-        let allFids = layerFidMaps || ({})
-        allFids[String(standardName).toUpperCase()] = map
-        layerFidMaps = allFids
-
-        return queueChange({
+    function captureCreate(binding, fid) {
+        if (captureSuppressed) return
+        let identity = ensureFeatureIdentity(binding, fid)
+        if (!identity || !identity.id) return
+        let geometryWkt = featureGeometryWkt(identity.feature)
+        if (!geometryWkt) return
+        queueChange({
             action: "create",
-            layer: standardName,
-            id: objectId,
-            attributes: collectAttributes(layer, feature),
-            geometry_wkt: wkt
+            layer: binding.standard,
+            id: identity.id,
+            attributes: collectAttributes(binding.layer, identity.feature),
+            geometry_wkt: geometryWkt
         })
     }
 
-    function captureDelete(standardName, fid) {
-        if (captureSuppressed) return false
-        let map = fidMapFor(standardName)
-        let objectId = canonicalUuid(map[String(fid)] || "")
-        if (!objectId) {
-            log(standardName + " delete skipped: UUID not found fid=" + fid)
-            return false
-        }
-        let versions = versionMapFor(standardName)
-        let change = { action: "delete", layer: standardName, id: objectId }
-        if (versions[String(fid)]) change.base_updated_at = String(versions[String(fid)])
-        delete map[String(fid)]
-        delete versions[String(fid)]
-        return queueChange(change)
+    function captureAttribute(binding, fid, index, value) {
+        if (captureSuppressed) return
+        let name = fieldName(binding.layer, index)
+        if (!name || protectedField(name)) return
+        let identity = ensureFeatureIdentity(binding, fid)
+        if (!identity || !identity.id) return
+        let attrs = {}
+        attrs[name] = normalizedValue(value)
+        let change = { action: "update", layer: binding.standard, id: identity.id, attributes: attrs }
+        let baseUpdatedAt = binding.versionMap[String(fid)] || featureBaseUpdatedAt(binding, identity.feature, identity.id)
+        if (baseUpdatedAt) change.base_updated_at = baseUpdatedAt
+        queueChange(change)
     }
 
-    function captureFocusedFeature(reason) {
-        if (!featureFormBridge || captureSuppressed) return false
-        let layer = null
-        let feature = null
-        try { layer = featureFormBridge.selection.focusedLayer } catch (err) {}
-        try { feature = featureFormBridge.selection.focusedFeature } catch (err2) {}
-        if (!layer || !feature) {
-            log("focused feature capture skipped: selection unavailable reason=" + reason)
-            return false
+    function captureGeometry(binding, fid, geometry) {
+        if (captureSuppressed) return
+        let identity = ensureFeatureIdentity(binding, fid)
+        if (!identity || !identity.id) return
+        let wkt = ""
+        try {
+            if (geometry && !geometry.isNull() && !geometry.isEmpty()) wkt = String(geometry.asWkt(8))
+        } catch (err) {
+            wkt = featureGeometryWkt(identity.feature)
         }
+        if (!wkt) return
+        let change = { action: "update", layer: binding.standard, id: identity.id, geometry_wkt: wkt }
+        let baseUpdatedAt = binding.versionMap[String(fid)] || featureBaseUpdatedAt(binding, identity.feature, identity.id)
+        if (baseUpdatedAt) change.base_updated_at = baseUpdatedAt
+        queueChange(change)
+    }
 
-        let physical = layerName(layer)
-        let standard = standardNameForPhysical(physical)
-        let objectId = canonicalUuid(feature.attribute("id"))
-        if (!objectId) return false
-
-        let fid = String(feature.id())
-        let wkt = featureGeometryWkt(feature)
-        let change = {
-            action: "update",
-            layer: standard,
-            id: objectId,
-            attributes: collectAttributes(layer, feature)
+    function captureDelete(binding, fid) {
+        if (captureSuppressed) return
+        let objectId = canonicalUuid(binding.fidMap[String(fid)] || "")
+        if (!objectId) {
+            log(binding.standard + " delete skipped: UUID not found for fid " + fid)
+            return
         }
-        if (wkt) change.geometry_wkt = wkt
-        let baseValue = baseUpdatedAt(standard, fid, objectId, feature)
-        if (baseValue) change.base_updated_at = baseValue
-        log("focused feature captured reason=" + reason + " layer=" + standard + " id=" + objectId)
-        return queueChange(change)
+        let change = { action: "delete", layer: binding.standard, id: objectId }
+        let baseUpdatedAt = binding.versionMap[String(fid)] || ""
+        if (baseUpdatedAt) change.base_updated_at = baseUpdatedAt
+        queueChange(change)
+        delete binding.fidMap[String(fid)]
+        delete binding.versionMap[String(fid)]
+    }
+
+    function unbindLayers() {
+        for (let i = 0; i < layerBindings.length; i++) {
+            let b = layerBindings[i]
+            try { b.layer.featureAdded.disconnect(b.added) } catch (err) {}
+            try { b.layer.attributeValueChanged.disconnect(b.attribute) } catch (err2) {}
+            try { b.layer.geometryChanged.disconnect(b.geometry) } catch (err3) {}
+            try { b.layer.featureDeleted.disconnect(b.deleted) } catch (err4) {}
+            try { b.layer.editingStopped.disconnect(b.stopped) } catch (err5) {}
+            try { b.layer.editCommandEnded.disconnect(b.commandEnded) } catch (err6) {}
+            try { b.layer.afterCommitChanges.disconnect(b.committed) } catch (err7) {}
+        }
+        layerBindings = []
+    }
+
+    function standardNameForPhysical(physical) {
+        let target = String(physical || "")
+        for (let i = 0; i < managedLayerDescriptors.length; i++) {
+            let row = managedLayerDescriptors[i] || {}
+            if (String(row.physical_name || "") === target) {
+                return String(row.standard_name || target).toUpperCase()
+            }
+        }
+        return target.toUpperCase()
+    }
+
+    function bindLayers() {
+        unbindLayers()
+        let layers = managedLayers()
+        let bindings = []
+        for (let i = 0; i < layers.length; i++) {
+            let layer = layers[i]
+            let physicalName = layerName(layer)
+            let binding = {
+                layer: layer,
+                standard: standardNameForPhysical(physicalName),
+                fidMap: {},
+                versionMap: {}
+            }
+            refreshFidMap(binding)
+            binding.added = function(fid) { geoflowField.captureCreate(binding, fid) }
+            binding.attribute = function(fid, index, value) { geoflowField.captureAttribute(binding, fid, index, value) }
+            binding.geometry = function(fid, geometry) { geoflowField.captureGeometry(binding, fid, geometry) }
+            binding.deleted = function(fid) { geoflowField.captureDelete(binding, fid) }
+            binding.stopped = function() {
+                geoflowField.refreshFidMap(binding)
+                geoflowField.syncNow(false, true)
+            }
+            binding.commandEnded = function() {
+                geoflowField.log(binding.standard + " edit command accepted")
+                editAcceptedSyncTimer.restart()
+            }
+            binding.committed = function() {
+                geoflowField.refreshFidMap(binding)
+                geoflowField.syncNow(false, true)
+            }
+            try {
+                layer.featureAdded.connect(binding.added)
+                layer.attributeValueChanged.connect(binding.attribute)
+                layer.geometryChanged.connect(binding.geometry)
+                layer.featureDeleted.connect(binding.deleted)
+                layer.editingStopped.connect(binding.stopped)
+                try { layer.editCommandEnded.connect(binding.commandEnded) } catch (commandErr) {
+                    log(binding.standard + " editCommandEnded unavailable: " + commandErr)
+                }
+                try { layer.afterCommitChanges.connect(binding.committed) } catch (commitErr) {
+                    log(binding.standard + " afterCommitChanges unavailable: " + commitErr)
+                }
+                bindings.push(binding)
+            } catch (err) {
+                log(binding.standard + " listener bind failed: " + err)
+            }
+        }
+        layerBindings = bindings
+        log("edit listeners ready: " + layerBindings.length)
+        return layerBindings.length
+    }
+
+    function hasUncommittedEdits() {
+        for (let i = 0; i < layerBindings.length; i++) {
+            try { if (layerBindings[i].layer.isModified()) return true } catch (err) {}
+        }
+        return false
     }
 
     function makeOutbox(state) {
@@ -766,12 +818,21 @@ Item {
                     applyServerVersions(state, response)
                     saveProjectState(state)
                 }
+                let recovered = wasOffline
                 wasOffline = false
                 authBlocked = false
                 syncStatus = "synced"
                 clearRetry()
-                refreshMapsTimer.restart()
-                toast("GeoFlow 서버 반영 완료 · " + Number(response.total || 0) + "건 · revision " + Number(response.current_revision || 0))
+                rebuildPollingBaseline()
+                if (recovered) {
+                    toast("GeoFlow 재연결 · 보관된 변경사항 자동 동기화 완료")
+                } else if (manual || Number(response.total || 0) > 0) {
+                    toast(
+                        "GeoFlow 서버 반영 완료 · " +
+                        Number(response.total || 0) + "건" +
+                        " (revision " + Number(response.current_revision || 0) + ")"
+                    )
+                }
                 log("changeset applied revision=" + response.current_revision)
                 return
             }
@@ -781,7 +842,7 @@ Item {
                 syncStatus = "offline"
                 scheduleRetry()
                 log("offline; Changeset retained for retry")
-                if (manual) toast("오프라인입니다 · 변경사항을 보관했습니다")
+                if (manual) toast("오프라인입니다 · 변경사항 " + unsyncedCount + "건을 보관했습니다")
                 return
             }
 
@@ -802,7 +863,7 @@ Item {
             if (xhr.status === 403) {
                 authBlocked = true
                 syncStatus = "permission_denied"
-                toast("GeoFlow QField 쓰기 권한이 거부되었습니다 · 프로젝트 권한을 확인하세요")
+                toast("GeoFlow QField 쓰기 권한을 확인할 수 없습니다 · GeoFlow 프로젝트 권한을 확인하세요")
                 return
             }
             if (xhr.status === 409) {
@@ -825,11 +886,16 @@ Item {
         xhr.send(JSON.stringify(payload))
     }
 
-    function syncNow(manual) {
+    function syncNow(manual, acceptedEdit) {
         if (syncInFlight || authBlocked) return
         if (!manual && nextRetryAtMs > 0 && Date.now() < nextRetryAtMs) return
         if (!configReady && !reloadProjectConfig()) {
             if (manual) toast("GeoFlow 프로젝트 연결 정보가 없습니다")
+            return
+        }
+        if (layerBindings.length === 0 && managedLayerDescriptors.length > 0) bindLayers()
+        if (hasUncommittedEdits() && !acceptedEdit) {
+            if (manual) toast("현재 편집을 저장한 뒤 동기화하세요")
             return
         }
 
@@ -840,7 +906,6 @@ Item {
             if (manual) toast("GeoFlow 충돌이 보류 중입니다 · 새 프로젝트 패키지에서 서버 상태를 확인하세요")
             return
         }
-
         let payload = state.outbox
         if (!payload) payload = makeOutbox(state)
         if (!payload) {
@@ -867,9 +932,13 @@ Item {
                     serverMessage = String(body.message || body.error || body.detail || "")
                 } catch (parseErr) {}
                 log("HTTP " + xhr.status + " " + url + (serverMessage ? " " + serverMessage : ""))
-                if (!quiet && xhr.status === 401) toast("GeoFlow QField 인증 토큰이 만료되었거나 유효하지 않습니다")
-                else if (!quiet && xhr.status === 403) toast("GeoFlow QField 읽기 권한이 거부되었습니다" + (serverMessage ? " · " + serverMessage : ""))
-                else if (!quiet && xhr.status !== 0) toast("GeoFlow 수신 실패: HTTP " + xhr.status)
+                if (!quiet && xhr.status === 401) {
+                    toast("GeoFlow QField 인증 토큰이 만료되었거나 유효하지 않습니다")
+                } else if (!quiet && xhr.status === 403) {
+                    toast("GeoFlow QField 읽기 권한이 거부되었습니다" + (serverMessage ? " · " + serverMessage : ""))
+                } else if (!quiet && xhr.status !== 0) {
+                    toast("GeoFlow 수신 실패: HTTP " + xhr.status)
+                }
                 return
             }
             try { callback(JSON.parse(xhr.responseText)) }
@@ -887,7 +956,10 @@ Item {
         let e = mapCanvas.mapSettings.visibleExtent
         if (!e) return ""
         try { return [e.xMinimum(), e.yMinimum(), e.xMaximum(), e.yMaximum()].join(",") }
-        catch (err) { return "" }
+        catch (err) {
+            log("viewport unavailable: " + err)
+            return ""
+        }
     }
 
     function currentPosition() {
@@ -941,21 +1013,25 @@ Item {
             lastLat = pos.lat
             localState.lastLocation = pos.lon + "," + pos.lat
         }
-
         authGet(roamingPlanUrl + "?" + query.join("&"), function(plan) {
             if (!plan.ok || !plan.roaming) {
                 requestInFlight = false
                 return
             }
+
             managedLayerDescriptors = plan.layers || []
-            refreshMapsTimer.restart()
+            let bound = bindLayers()
+            if (bound === 0 && managedLayerDescriptors.length > 0) {
+                bindRetryTimer.restart()
+            } else if (force) {
+                toast("GeoFlow Field 0.9.2 · 자동 동기화 준비 " + bound + "개 레이어")
+            }
 
             let state = projectState()
             if (!state.outbox && Object.keys(state.pending || {}).length === 0 && Number(state.base_revision || 0) === 0) {
                 state.base_revision = Number(plan.current_revision || 0)
                 saveProjectState(state)
             }
-            if (force) toast("GeoFlow Field 1.0.1 · 자동 동기화 준비 " + managedLayerDescriptors.length + "개 레이어")
             fetchCells(plan.roaming.cells || [], 0, 0, force)
         }, !force)
     }
@@ -963,9 +1039,16 @@ Item {
     function fetchCells(cells, index, featureTotal, manual) {
         if (index >= cells.length) {
             requestInFlight = false
-            mapCanvas.refresh()
-            refreshMapsTimer.restart()
-            if (manual) toast("GeoFlow 영역 갱신: " + cells.length + "셀 / " + featureTotal + "객체")
+            if (cells.length > 0) {
+                if (manual) toast("GeoFlow 영역 갱신: " + cells.length + "셀 / " + featureTotal + "객체")
+                mapCanvas.refresh()
+                let count = bindLayers()
+                if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()
+                else rebuildPollingBaseline()
+            } else {
+                rebuildPollingBaseline()
+                if (manual) toast("GeoFlow 영역 최신 상태")
+            }
             return
         }
         let cell = cells[index]
@@ -977,18 +1060,11 @@ Item {
     }
 
     function featureExists(layer, objectId) {
-        let iterator = null
-        try {
-            let escaped = String(objectId).replace(/'/g, "''")
-            iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "\"id\" = '" + escaped + "'")
-            return Boolean(iterator && iterator.hasNext())
-        } catch (err) {
-            return false
-        } finally {
-            if (iterator) {
-                try { iterator.close() } catch (closeErr) {}
-            }
-        }
+        let escaped = String(objectId).replace(/'/g, "''")
+        let iterator = LayerUtils.createFeatureIteratorFromExpression(layer, "\"id\" = '" + escaped + "'")
+        let exists = iterator.hasNext()
+        iterator.close()
+        return exists
     }
 
     function mergeCell(payload) {
@@ -1001,8 +1077,9 @@ Item {
             for (let i = 0; i < layers.length; i++) {
                 let row = layers[i]
                 if (row.truncated) complete = false
-                let layer = layerByPhysicalName(row.physical_name)
-                if (!layer) continue
+                let matches = qgisProject.mapLayersByName(row.physical_name)
+                if (!matches || matches.length === 0) continue
+                let layer = matches[0]
                 let features = row.features || []
                 for (let j = 0; j < features.length; j++) {
                     let incoming = features[j]
@@ -1030,8 +1107,8 @@ Item {
 
     function manualSync() {
         authBlocked = false
-        captureFocusedFeature("manual_sync")
-        syncNow(true)
+        pollForLocalChanges()
+        syncNow(true, true)
         scheduleRoaming(true)
     }
 
@@ -1041,18 +1118,22 @@ Item {
             return
         }
         updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 1.0.1 연결됨 · 서버 레이어 확인 중")
+        toast("GeoFlow Field 0.9.2 연결됨 · 서버 레이어 확인 중")
         scheduleRoaming(true)
-        syncNow(false)
+        syncNow(false, false)
     }
 
     Component.onCompleted: {
         iface.addItemToPluginsToolbar(syncButton)
-        log("plugin 1.0.1 component completed")
+        log("plugin 0.9.2 component completed")
         bootstrapTimer.restart()
     }
 
     Component.onDestruction: {
+        pollingTimer.stop()
+        editAcceptedSyncTimer.stop()
+        bindRetryTimer.stop()
+        unbindLayers()
         try { iface.removeItemFromPluginsToolbar(syncButton) } catch (err) {}
     }
 }
