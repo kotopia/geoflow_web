@@ -60,6 +60,64 @@ function Resolve-AutoLanHost {
     return ""
 }
 
+function Test-GeoFlowPythonDependencies {
+    param([string]$PythonExe)
+
+    & $PythonExe -c "import channels,daphne,django,openpyxl,psycopg2; print('python_dependencies=ready')" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Ensure-GeoFlowPythonDependencies {
+    param(
+        [string]$PythonExe,
+        [string]$RepoRoot
+    )
+
+    $requirementsPath = Join-Path $RepoRoot "requirements.txt"
+    if (-not (Test-Path $requirementsPath)) {
+        throw "requirements.txt is missing: $requirementsPath"
+    }
+
+    $requirementsHash = (Get-FileHash $requirementsPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $stampPath = Join-Path $RepoRoot ".venv\.geoflow_requirements.sha256"
+    $installedHash = ""
+    if (Test-Path $stampPath) {
+        $installedHash = (Get-Content $stampPath -Raw -ErrorAction SilentlyContinue).Trim().ToLowerInvariant()
+    }
+
+    $importsReady = Test-GeoFlowPythonDependencies -PythonExe $PythonExe
+    $needsSync = (-not $importsReady) -or ($installedHash -ne $requirementsHash)
+
+    if (-not $needsSync) {
+        Write-Host "Python dependencies: up to date" -ForegroundColor Green
+        return
+    }
+
+    if (-not $importsReady) {
+        Write-Warning "GeoFlow Python dependencies are incomplete in this workstation .venv."
+    } else {
+        Write-Host "requirements.txt changed since this .venv was last synchronized." -ForegroundColor Yellow
+    }
+
+    Write-Host "Synchronizing .venv from requirements.txt..." -ForegroundColor Yellow
+    & $PythonExe -m pip install -r $requirementsPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to synchronize GeoFlow .venv from requirements.txt. Check Internet/package index access and retry."
+    }
+
+    & $PythonExe -m pip check
+    if ($LASTEXITCODE -ne 0) {
+        throw "GeoFlow .venv dependency check failed after requirements synchronization."
+    }
+
+    if (-not (Test-GeoFlowPythonDependencies -PythonExe $PythonExe)) {
+        throw "GeoFlow required Python modules are still unavailable after requirements synchronization."
+    }
+
+    Set-Content -Path $stampPath -Value $requirementsHash -Encoding ASCII
+    Write-Host "Python dependency synchronization complete." -ForegroundColor Green
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $repoRoot
 
@@ -105,7 +163,7 @@ if ($listenParts.Count -ne 2 -or -not $listenParts[0] -or -not $listenParts[1]) 
 $listenHost = $listenParts[0]
 $listenPort = $listenParts[1]
 
-Write-Host "[1/4] Configure isolated development database environment..." -ForegroundColor Cyan
+Write-Host "[1/5] Configure isolated development database environment..." -ForegroundColor Cyan
 & (Join-Path $repoRoot "scripts\dev\set_geoflow_dev_runtime_env.ps1") `
     -HostName $HostName `
     -Port $Port `
@@ -119,7 +177,7 @@ if ($LanHost) {
     Write-Host "LAN QField DEV access: enabled for $LanHost only" -ForegroundColor Yellow
 }
 
-Write-Host "[2/4] Configure GeoDjango native libraries from QGIS..." -ForegroundColor Cyan
+Write-Host "[2/5] Configure GeoDjango native libraries from QGIS..." -ForegroundColor Cyan
 $qgisScript = Join-Path $repoRoot "scripts\windows\set_geodjango_from_qgis.ps1"
 if ($QgisRoot) {
     & $qgisScript -QgisRoot $QgisRoot
@@ -143,7 +201,10 @@ if ($env:ENABLE_TENANT_PROVISIONING -ne "0") {
 # Safe development-only login tracing. No password/hash values are logged.
 $env:GEOFLOW_DEV_AUTH_DIAGNOSTICS = "1"
 
-Write-Host "[3/4] Run read-only development runtime preflight..." -ForegroundColor Cyan
+Write-Host "[3/5] Synchronize workstation Python dependencies if needed..." -ForegroundColor Cyan
+Ensure-GeoFlowPythonDependencies -PythonExe $venvPython -RepoRoot $repoRoot
+
+Write-Host "[4/5] Run read-only development runtime preflight..." -ForegroundColor Cyan
 & (Join-Path $repoRoot "scripts\dev\check_geoflow_dev_runtime.ps1") `
     -PythonExe $venvPython `
     -ExpectedCentralDb $CentralDb `
@@ -151,10 +212,10 @@ Write-Host "[3/4] Run read-only development runtime preflight..." -ForegroundCol
 
 $daphneExe = Join-Path $repoRoot ".venv\Scripts\daphne.exe"
 if (-not (Test-Path $daphneExe)) {
-    throw "Daphne is missing from the GeoFlow .venv. Run: .\.venv\Scripts\python.exe -m pip install -r requirements.txt"
+    throw "Daphne is missing from the GeoFlow .venv after requirements synchronization."
 }
 
-Write-Host "[4/4] Start isolated GeoFlow ASGI development server..." -ForegroundColor Green
+Write-Host "[5/5] Start isolated GeoFlow ASGI development server..." -ForegroundColor Green
 Write-Host "STRICT DEV DB GUARD: enabled" -ForegroundColor Green
 Write-Host "DEV AUTH DIAGNOSTICS: enabled (stage/length only; no secrets)" -ForegroundColor Green
 Write-Host "GIS REALTIME: WebSocket enabled with one-process in-memory channel layer" -ForegroundColor Green
