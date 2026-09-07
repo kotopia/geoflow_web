@@ -45,8 +45,8 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn(self.project_id, xml)
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
-        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.6")
-        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.4")
+        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.7")
+        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.5")
 
     def test_qfield_bootstrap_materializes_project_rows_before_roaming(self):
         source = inspect.getsource(qfield_package.build_qfield_geopackage)
@@ -81,17 +81,22 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertNotIn("QfGeometryUtils", text)
         self.assertNotIn("QfFeatureUtils", text)
 
-    def test_rendered_plugin_preserves_existing_baseline_and_never_infers_delete(self):
+    def test_rendered_plugin_forces_current_selected_feature_on_manual_sync(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = _render_qfield_plugin(path)
-        self.assertIn("GeoFlow Field 0.9.4", text)
+        self.assertIn("GeoFlow Field 0.9.5", text)
         self.assertIn("function pollForLocalChanges(force)", text)
         self.assertIn("if (requestInFlight && !force) return", text)
         self.assertIn("function seedPollingBaselineForMissing()", text)
-        self.assertIn("pollForLocalChanges(true)", text)
-        self.assertIn('log("manual sync requested")', text)
         self.assertIn("Never infer deletes from iterator absence", text)
         self.assertNotIn("poll detected delete", text)
+        self.assertIn("function captureFocusedFeatureForManualSync()", text)
+        self.assertIn('iface.findItemByObjectName("featureForm")', text)
+        self.assertIn("form.selection.focusedLayer", text)
+        self.assertIn("form.selection.focusedFeature", text)
+        self.assertIn("manual focused feature queued", text)
+        self.assertIn("let forced = captureFocusedFeatureForManualSync()", text)
+        self.assertIn("pollForLocalChanges(true)", text)
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
