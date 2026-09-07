@@ -36,6 +36,7 @@ from .qfield_persistent import (
     qfield_schema_fingerprint,
     upgrade_qfield_bootstrap_zip,
 )
+from .qfield_runtime_finalize import finalize_qfield_runtime_zip
 
 
 class _DeletingFile:
@@ -102,12 +103,7 @@ def _fresh_install_url(request, alias, project, policy) -> str:
 
 
 def _launcher_intent_url() -> str:
-    """Launch QField with Android MAIN, not qfield:// VIEW.
-
-    A qfield:// action on cold start is consumed before the recent project is
-    restored. MAIN/LAUNCHER lets QField restore its existing recent project;
-    that project's plugin then claims the pending GeoFlow handoff.
-    """
+    """Launch QField with Android MAIN instead of a qfield:// VIEW action."""
 
     return (
         "intent:#Intent;"
@@ -168,6 +164,7 @@ def _package_response(request, alias, project, policy, plan):
         schema_fingerprint=schema_fingerprint,
         install_id=install_id,
     )
+    finalize_qfield_runtime_zip(zip_path)
 
     response = FileResponse(
         _DeletingFile(zip_path),
@@ -191,7 +188,7 @@ def _package_response(request, alias, project, policy, plan):
 @login_required
 @require_GET
 def qfield_install_status_api(request, project_id):
-    """Describe install state and stage a one-time authenticated handoff."""
+    """Describe install state and stage one five-minute authenticated handoff."""
 
     alias = require_tenant_context(request)
     if not gf_has_perm(request, "maps.view"):
