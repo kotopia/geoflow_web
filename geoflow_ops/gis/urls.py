@@ -65,9 +65,9 @@ urlpatterns = [
         name="qfield_package_import_api",
     ),
     path(
-        "projects/<uuid:project_id>/api/qfield/session-refresh/",
-        qfield_session_views.qfield_session_refresh_api,
-        name="qfield_session_refresh_api",
+        "projects/<uuid:project_id>/api/qfield/session-handoff/",
+        qfield_session_views.qfield_session_handoff_api,
+        name="qfield_session_handoff_api",
     ),
     path(
         "projects/<uuid:project_id>/api/qfield/roaming-plan/",
