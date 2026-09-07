@@ -206,6 +206,7 @@ def _inject_qml_persistent_session(text: str) -> str:
         xhr.open("POST", url)
         xhr.setRequestHeader("Accept", "application/json")
         xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8")
+        if (bearerToken) xhr.setRequestHeader("Authorization", "Bearer " + bearerToken)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
             sessionRefreshInFlight = false
@@ -334,6 +335,7 @@ def _inject_qml_persistent_session(text: str) -> str:
         "packageUpdateRequired",
         "qfield_session_refresh_url",
         "qfield_schema_fingerprint",
+        'Authorization", "Bearer " + bearerToken',
         "access ticket expired during changeset",
     )
     missing = [marker for marker in required if marker not in text]
