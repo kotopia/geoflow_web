@@ -45,8 +45,8 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn(self.project_id, xml)
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
-        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.5")
-        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.3")
+        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.6")
+        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.4")
 
     def test_qfield_bootstrap_materializes_project_rows_before_roaming(self):
         source = inspect.getsource(qfield_package.build_qfield_geopackage)
@@ -71,6 +71,8 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn("GeometryUtils.createGeometryFromWkt", text)
         self.assertIn("FeatureUtils.createFeature", text)
         self.assertIn("knownCellsCsv", text)
+        self.assertIn("packageTokenFingerprint", text)
+        self.assertIn("function resetRoamingStateForFreshTicket()", text)
         self.assertIn("function reloadProjectConfig()", text)
         self.assertIn("function onLoadProjectEnded", text)
         self.assertIn('readProjectEntry("GeoFlow", "/" + key', text)
@@ -79,42 +81,24 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertNotIn("QfGeometryUtils", text)
         self.assertNotIn("QfFeatureUtils", text)
 
-    def test_rendered_plugin_preserves_existing_baseline_during_roaming(self):
+    def test_rendered_plugin_preserves_existing_baseline_and_never_infers_delete(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = _render_qfield_plugin(path)
-        self.assertIn("GeoFlow Field 0.9.3", text)
+        self.assertIn("GeoFlow Field 0.9.4", text)
         self.assertIn("function pollForLocalChanges(force)", text)
         self.assertIn("if (requestInFlight && !force) return", text)
         self.assertIn("function seedPollingBaselineForMissing()", text)
         self.assertIn("pollForLocalChanges(true)", text)
         self.assertIn('log("manual sync requested")', text)
-        self.assertNotIn(
-            "if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()\n                else rebuildPollingBaseline()",
-            text,
-        )
-        self.assertIn(
-            "if (count === 0 && managedLayerDescriptors.length > 0) bindRetryTimer.restart()\n                else seedPollingBaselineForMissing()",
-            text,
-        )
+        self.assertIn("Never infer deletes from iterator absence", text)
+        self.assertNotIn("poll detected delete", text)
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
         import_url = reverse("gis:qfield_package_import_api", kwargs={"project_id": self.project_id})
         delta_url = reverse("gis:qfield_device_delta_api", kwargs={"project_id": self.project_id})
         changeset_url = reverse("gis:qfield_device_changeset_api", kwargs={"project_id": self.project_id})
-        self.assertEqual(
-            package_url,
-            f"/gis/projects/{self.project_id}/api/qfield/package/",
-        )
-        self.assertEqual(
-            import_url,
-            f"/gis/projects/{self.project_id}/api/qfield/package-import/",
-        )
-        self.assertEqual(
-            delta_url,
-            f"/gis/projects/{self.project_id}/api/qfield/delta/",
-        )
-        self.assertEqual(
-            changeset_url,
-            f"/gis/projects/{self.project_id}/api/qfield/changesets/",
-        )
+        self.assertEqual(package_url, f"/gis/projects/{self.project_id}/api/qfield/package/")
+        self.assertEqual(import_url, f"/gis/projects/{self.project_id}/api/qfield/package-import/")
+        self.assertEqual(delta_url, f"/gis/projects/{self.project_id}/api/qfield/delta/")
+        self.assertEqual(changeset_url, f"/gis/projects/{self.project_id}/api/qfield/changesets/")
