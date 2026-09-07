@@ -34,9 +34,11 @@
 
 <div class="alert alert-info">
   프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
-  QGIS Connector는 같은 서버 Layer Plan과 Changeset/Delta 계약을 사용하며, WebGIS는 서버 변경 이벤트를 받아 화면의 해당 객체만 갱신합니다.
-  <br><strong>QField 영구 프로젝트</strong>: 같은 프로젝트는 최초 1회만 설치합니다. 이후에는 기존 로컬 프로젝트를 재사용하고 인증과 공간데이터만 자동 갱신합니다.
-  패키지·플러그인·GIS 스키마 계약이 바뀐 경우에만 업데이트가 필요합니다.
+  QGIS Connector는 같은 서버 Layer Plan과 Changeset 계약을 사용하며, WebGIS는 서버 변경 이벤트를 받아 화면의 해당 객체만 갱신합니다.
+  <br><strong>QField 영구 프로젝트</strong>: 같은 프로젝트는 최초 1회만 설치하고 이후 기존 로컬 프로젝트를 재사용합니다.
+  서버 인증은 발급 시점부터 최대 12시간이며 QField 실행·편집으로 자동 연장되지 않습니다.
+  인증 만료 후에도 로컬 프로젝트 열기와 편집은 가능하지만 서버 송수신은 중지되며, GeoFlow에 다시 로그인한 뒤 <strong>QField에서 열기</strong>를 눌러야 새 인증이 발급됩니다.
+  패키지·플러그인·GIS 스키마 계약이 바뀐 경우에만 재설치/업데이트가 필요합니다.
   <span class="d-block mt-1 small" id="qfieldPersistentStatus">QField 연결 상태 확인 전</span>
 </div>
 
@@ -146,7 +148,8 @@
       String(marker.install_id || "") === String(install.install_id || "") &&
       String(marker.package_version || "") === String(install.package_version || "") &&
       String(marker.plugin_runtime_version || "") === String(install.plugin_runtime_version || "") &&
-      String(marker.schema_fingerprint || "") === String(install.schema_fingerprint || ""));
+      String(marker.schema_fingerprint || "") === String(install.schema_fingerprint || "") &&
+      String(marker.persistent_protocol || "") === String(install.persistent_protocol || ""));
   }
 
   async function descriptor() {
@@ -171,7 +174,7 @@
   async function openPersistentProject(forceInstall = false) {
     openButton.disabled = true;
     if (forceButton) forceButton.disabled = true;
-    statusNode.textContent = "QField 프로젝트 상태 확인 중…";
+    statusNode.textContent = "QField 프로젝트 상태 및 인증 확인 중…";
     try {
       const body = await descriptor();
       const install = body.install || {};
@@ -179,18 +182,18 @@
       const current = markerMatches(marker, install);
 
       if (!forceInstall && current) {
-        statusNode.textContent = "이 기기에 현재 버전이 설치된 것으로 기록되어 있습니다 · 기존 프로젝트를 엽니다.";
+        statusNode.textContent = "기존 로컬 프로젝트를 사용합니다 · GeoFlow 로그인으로 새 서버 인증을 전달합니다.";
         launch(install.launch_url);
         return;
       }
 
       if (marker && !current && !forceInstall) {
         const ok = window.confirm(
-          "QField 프로젝트 구조 업데이트가 필요합니다. 현재 QField 편집을 먼저 저장해 주세요. " +
-          "GeoFlow outbox는 프로젝트 폴더와 별도로 보존되므로 전송 대기 변경은 업데이트 후에도 이어집니다. 지금 업데이트할까요?"
+          "QField 프로젝트 계약 업데이트가 필요합니다. 현재 QField 편집을 먼저 저장해 주세요. " +
+          "GeoFlow outbox는 별도로 보존되므로 전송 대기 변경은 업데이트 후에도 이어집니다. 지금 업데이트할까요?"
         );
         if (!ok) {
-          statusNode.textContent = "업데이트가 보류되었습니다 · 기존 QField 프로젝트에서 로컬 변경을 먼저 동기화하세요.";
+          statusNode.textContent = "업데이트가 보류되었습니다 · 기존 QField 프로젝트에서 로컬 변경을 먼저 정리하세요.";
           return;
         }
       }
@@ -233,7 +236,7 @@
 
   const marker = readMarker();
   statusNode.textContent = marker
-    ? "이 기기에 QField 프로젝트 설치 기록이 있습니다. 열기 시 서버 버전을 다시 확인합니다."
+    ? "이 기기에 QField 프로젝트 설치 기록이 있습니다. QField만 열면 기존 인증 만료시 서버는 연결되지 않습니다."
     : "이 기기에는 아직 QField 프로젝트 설치 기록이 없습니다. 첫 열기에서 1회 설치합니다.";
 })();
 </script>
