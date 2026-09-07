@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from urllib.parse import quote, urlencode
 
 from django.contrib.auth.decorators import login_required
@@ -14,9 +15,10 @@ from geoflow_ops.services.entity_access import require_tenant_context
 
 from .changeset import changeset_runtime_enabled
 from .qfield_auth import (
+    QFIELD_TICKET_MAX_AGE_SECONDS,
     hydrate_qfield_package_import_request,
+    issue_qfield_handoff_token,
     issue_qfield_package_import_token,
-    issue_qfield_refresh_token,
     issue_qfield_ticket,
     qfield_ticket_runtime_enabled,
 )
@@ -104,12 +106,13 @@ def _fresh_install_url(request, alias, project, policy) -> str:
     return "qfield://local?import=" + quote(package_url, safe="")
 
 
-def _launch_url(project) -> str:
-    # QField's qfield:// scheme opens the native app. The GeoFlow project
-    # plugin consumes this project-scoped action when it is already loaded;
-    # on cold start QField will restore its last local project and that project
-    # refreshes its own session automatically.
-    return "qfield://geoflow?" + urlencode({"project": str(project.id)})
+def _launch_url(project, handoff_token: str) -> str:
+    return "qfield://geoflow?" + urlencode(
+        {
+            "project": str(project.id),
+            "handoff": handoff_token,
+        }
+    )
 
 
 def _package_response(request, alias, project, policy, plan):
@@ -121,7 +124,7 @@ def _package_response(request, alias, project, policy, plan):
         return JsonResponse({"ok": False, "error": "qfield_identity_incomplete"}, status=403)
 
     token = issue_qfield_ticket(**identity)
-    refresh_token = issue_qfield_refresh_token(**identity)
+    access_expires_at_ms = int(time.time() * 1000) + (QFIELD_TICKET_MAX_AGE_SECONDS * 1000)
     roaming_plan_url = reverse(
         "gis:qfield_roaming_plan_api",
         kwargs={"project_id": project.id},
@@ -130,8 +133,8 @@ def _package_response(request, alias, project, policy, plan):
         "gis:qfield_roaming_cell_api",
         kwargs={"project_id": project.id},
     )
-    session_refresh_url = reverse(
-        "gis:qfield_session_refresh_api",
+    session_handoff_url = reverse(
+        "gis:qfield_session_handoff_api",
         kwargs={"project_id": project.id},
     )
     schema_fingerprint = qfield_schema_fingerprint(alias, plan)
@@ -153,8 +156,8 @@ def _package_response(request, alias, project, policy, plan):
     )
     upgrade_qfield_bootstrap_zip(
         zip_path,
-        refresh_token=refresh_token,
-        session_refresh_url=session_refresh_url,
+        session_handoff_url=session_handoff_url,
+        access_expires_at_ms=access_expires_at_ms,
         schema_fingerprint=schema_fingerprint,
         install_id=install_id,
     )
@@ -171,6 +174,7 @@ def _package_response(request, alias, project, policy, plan):
     response["X-GeoFlow-QField-Plugin-Version"] = QFIELD_PLUGIN_RUNTIME_VERSION
     response["X-GeoFlow-QField-Schema-Fingerprint"] = schema_fingerprint
     response["X-GeoFlow-QField-Persistent-Protocol"] = QFIELD_PERSISTENT_PROTOCOL_VERSION
+    response["X-GeoFlow-QField-Access-Expires-In"] = str(QFIELD_TICKET_MAX_AGE_SECONDS)
     response["X-GeoFlow-Layer-Count"] = str(layer_count)
     response["Cache-Control"] = "private, no-store"
     return response
@@ -179,12 +183,10 @@ def _package_response(request, alias, project, policy, plan):
 @login_required
 @require_GET
 def qfield_install_status_api(request, project_id):
-    """Describe install/open/update state for the browser-side device marker.
+    """Describe first-install/update state and mint an explicit launch handoff.
 
-    A normal browser cannot inspect QField's Android sandbox, so the same-phone
-    browser stores the last successfully requested install contract in
-    localStorage. QField itself remains authoritative for data/session state.
-    The user can explicitly clear the marker when removing the local project.
+    The launch handoff exists only because this request is made by an
+    authenticated GeoFlow browser. QField cannot mint or renew it itself.
     """
 
     alias = require_tenant_context(request)
@@ -194,9 +196,12 @@ def qfield_install_status_api(request, project_id):
     if not qfield_ticket_runtime_enabled() or not changeset_runtime_enabled(alias):
         return JsonResponse({"ok": False, "error": "qfield_install_not_enabled"}, status=403)
 
+    identity = _browser_identity(request, alias, project, policy)
     install_url = _fresh_install_url(request, alias, project, policy)
-    if not install_url:
+    if identity is None or not install_url:
         return JsonResponse({"ok": False, "error": "qfield_identity_incomplete"}, status=403)
+
+    handoff_token = issue_qfield_handoff_token(**identity)
     schema_fingerprint = qfield_schema_fingerprint(alias, plan)
     response = JsonResponse(
         {
@@ -213,10 +218,13 @@ def qfield_install_status_api(request, project_id):
                 "schema_fingerprint": schema_fingerprint,
                 "persistent_protocol": QFIELD_PERSISTENT_PROTOCOL_VERSION,
                 "install_url": install_url,
-                "launch_url": _launch_url(project),
+                "launch_url": _launch_url(project, handoff_token),
                 "one_project_folder_per_project_id": True,
                 "ordinary_data_change_requires_reinstall": False,
                 "outbox_survives_package_update": True,
+                "access_ttl_seconds": QFIELD_TICKET_MAX_AGE_SECONDS,
+                "access_auto_renew": False,
+                "reauthentication": "authenticated_geoflow_launch",
             },
         },
         json_dumps_params={"ensure_ascii": False},
