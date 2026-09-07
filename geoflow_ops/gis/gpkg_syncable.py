@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+from django.db import connections, transaction
+
+from .gpkg_snapshot_file import build_project_geopackage_file
+from .gpkg_snapshot_v2 import _layer_specs
+from .qgis_sync_hash import content_hash, extract_gpkg_wkb
+
+
+IMMUTABLE_FIELDS = {
+    "id",
+    "project_id",
+    "created_at",
+    "updated_at",
+    "created_by",
+    "updated_by",
+}
+HASH_BATCH_ROWS = 5_000
+
+
+def _ensure_hash_column(conn: sqlite3.Connection) -> None:
+    columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info('_geoflow_baseline')").fetchall()
+    }
+    if "content_hash" not in columns:
+        conn.execute("ALTER TABLE _geoflow_baseline ADD COLUMN content_hash TEXT")
+
+
+def _snapshot_revision(alias: str, project_id: str) -> int:
+    with connections[alias].cursor() as cursor:
+        cursor.execute("SELECT to_regclass('gis.project_sync_state')")
+        if cursor.fetchone()[0] is None:
+            return 0
+        cursor.execute(
+            "SELECT current_revision FROM gis.project_sync_state WHERE project_id=%s",
+            [project_id],
+        )
+        row = cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+def _populate_baseline_hashes(
+    conn: sqlite3.Connection,
+    alias: str,
+    plan: dict[str, Any],
+) -> None:
+    for spec in _layer_specs(alias, plan):
+        field_names = [field.name for field in spec.fields]
+        editable_names = [
+            field.name
+            for field in spec.fields
+            if field.editable and field.name not in IMMUTABLE_FIELDS
+        ]
+        quoted_fields = ", ".join(f'"{name}"' for name in field_names)
+        last_fid = 0
+        while True:
+            rows = conn.execute(
+                f'SELECT fid, {quoted_fields}, "geom" '
+                f'FROM "{spec.physical_name}" WHERE fid>? ORDER BY fid LIMIT ?',
+                (last_fid, HASH_BATCH_ROWS),
+            ).fetchall()
+            if not rows:
+                break
+
+            updates = []
+            for row in rows:
+                fid = int(row[0])
+                attrs = dict(zip(field_names, row[1:-1]))
+                object_id = str(attrs["id"])
+                geometry_wkb = extract_gpkg_wkb(row[-1])
+                digest = content_hash(attrs, geometry_wkb, editable_names)
+                updates.append((digest, spec.physical_name, object_id, fid))
+                last_fid = fid
+
+            conn.executemany(
+                """
+                UPDATE _geoflow_baseline
+                   SET content_hash=?
+                 WHERE layer_name=? AND object_id=? AND local_fid=?
+                """,
+                updates,
+            )
+
+
+def build_syncable_project_geopackage_file(
+    alias: str,
+    *,
+    project_id: str,
+    plan: dict[str, Any],
+) -> tuple[Path, list[dict[str, Any]], int]:
+    """Build a syncable project Snapshot without converting it to bytes.
+
+    All PostgreSQL layer reads and the revision cursor are taken from one
+    REPEATABLE READ transaction.  The resulting file can then be streamed or
+    moved into the server Snapshot cache without a whole-file Python memory
+    copy.  The caller owns the returned temporary path.
+    """
+
+    temp_path: Path | None = None
+    try:
+        with transaction.atomic(using=alias):
+            with connections[alias].cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            snapshot_revision = _snapshot_revision(alias, project_id)
+            temp_path, layer_meta = build_project_geopackage_file(
+                alias,
+                project_id=project_id,
+                plan=plan,
+            )
+
+        conn = sqlite3.connect(str(temp_path))
+        try:
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA cache_size=-65536")
+            _ensure_hash_column(conn)
+            conn.execute(
+                "UPDATE _geoflow_package SET value='0.6' WHERE key='package_version'"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO _geoflow_package(key,value) VALUES ('snapshot_revision',?)",
+                (str(snapshot_revision),),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO _geoflow_package(key,value) VALUES ('last_applied_revision',?)",
+                (str(snapshot_revision),),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO _geoflow_package(key,value) VALUES ('baseline_hash_batch_rows',?)",
+                (str(HASH_BATCH_ROWS),),
+            )
+            _populate_baseline_hashes(conn, alias, plan)
+            conn.commit()
+        finally:
+            conn.close()
+        return temp_path, layer_meta, snapshot_revision
+    except Exception:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
+def build_syncable_project_geopackage(
+    alias: str,
+    *,
+    project_id: str,
+    plan: dict[str, Any],
+) -> tuple[bytes, list[dict[str, Any]]]:
+    """Compatibility wrapper for callers that still require bytes."""
+
+    temp_path, layer_meta, _snapshot_revision_value = (
+        build_syncable_project_geopackage_file(
+            alias,
+            project_id=project_id,
+            plan=plan,
+        )
+    )
+    try:
+        return temp_path.read_bytes(), layer_meta
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass

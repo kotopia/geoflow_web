@@ -9,6 +9,7 @@
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-datatables@9.0.1/dist/style.css">
         <link rel="stylesheet" href="{% static 'geoflow_ops/css/process-timeline-horizontal.css' %}">
         <script src="{% static 'control/js/settings.js' %}"></script>
+        {% block extra_head %}{% endblock %}
     </head>
 
     <body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">

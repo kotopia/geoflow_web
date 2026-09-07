@@ -29,6 +29,7 @@ Primary Phase 4 areas:
 - employee qualifications, grades, career, and project participation history
 - tenant-scoped external APIs for Google Sheets and later integrations
 - WebGIS editing and authoritative PostGIS validation/calculation
+- GIS data model/profile foundation shared by WebGIS, QGIS, and QField
 - QGIS plugin login/project scoping with server-side authorization
 - server-side structured-editing jobs
 - dashboards and state/time/assignee filters
@@ -137,7 +138,19 @@ Key working assumptions:
 
 Open product decisions in the Phase 4 draft must be resolved before schema-heavy implementation; do not invent irreversible schema merely to avoid a product decision.
 
-## 8. WebGIS / QGIS Rules
+## 8. WebGIS / QGIS / QField Rules
+
+Before GIS schema, model, WebGIS, QGIS, or QField work, read and follow `docs/architecture/gis-data-model.md`. That document is the detailed GIS data-model invariant unless it is explicitly revised through a reviewed architecture change.
+
+Current GIS invariants include:
+
+- tenant DB uses one `gis` schema; do not split water/sewer/road/etc. into schemas merely because the table count grows
+- preserve public/legacy GIS table and field semantics; PostgreSQL physical identifiers are lowercase unquoted
+- reuse existing `ctr`/`hr`/`prj`/`ops` sources instead of duplicating project/worker/contract data in GIS
+- use one common survey model plus explicit `survey_link` lineage rather than one survey table per utility domain
+- keep `gis.doro` as the common underground-utility road reference dataset, separate from future formal road-ledger tables
+- metadata/profile is the source of truth; QGIS/QField project configuration may be materialized from it
+- do not add `wtl_error`/`swl_error` as standard asset tables; QC audit, if needed, is a separate workflow concern
 
 WebGIS may provide lightweight editing such as create/move/delete, vertex editing, snapping, split, and merge, but final geometry validity, project scope, and persistence authorization must be checked server-side/PostGIS-side.
 
@@ -151,6 +164,13 @@ QGIS plugin guidance:
 - keep the plugin thin: UI, project choice, data-edit UX, and server communication
 - never embed long-lived tenant-wide DB passwords, AWS keys, or authorization secrets in the plugin
 - if direct PostGIS transport is later used for performance, access must still be project-scoped through a reviewed RLS/view/short-lived-role/proxy design
+
+QField guidance:
+
+- use GeoFlow project/profile context
+- keep offline-generated identifiers collision-safe
+- do not introduce a separate QField-only data model
+- preserve raw survey lineage when processed/final coordinates are produced
 
 ## 9. Database and Migration Rules
 

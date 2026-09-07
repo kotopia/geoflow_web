@@ -1,0 +1,105 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
+
+{% block extra_head %}
+<link id="gfLeafletCss"
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQ3aOvS1RT/0Apk0E7VB4G1p4N1s4VY="
+      crossorigin=""
+      onerror="this.onerror=null;this.removeAttribute('integrity');this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260906-1">
+{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+  <div>
+    <div class="text-muted small mb-1"><a href="{% url 'gis:dashboard' %}">GIS</a> / 프로젝트</div>
+    <h1 class="h3 mb-1">{{ project.name|default:project.code|default:"프로젝트 GIS" }}</h1>
+    <div class="text-muted">{{ project.code|default:"코드 없음" }} · {{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
+    {% if qfield_open_url %}
+      <a class="btn btn-success" href="{{ qfield_open_url }}">QField에서 열기 (PoC)</a>
+    {% endif %}
+    <a class="btn btn-outline-success" href="{% url 'gis:qfield_package_api' project.id %}">QField ZIP 다운로드</a>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
+  QGIS Connector는 같은 서버 Layer Plan과 Changeset/Delta 계약을 사용하며, WebGIS는 서버 변경 이벤트를 받아 화면의 해당 객체만 갱신합니다.
+  {% if qfield_open_url %}<br><strong>QField에서 열기</strong>는 QField 공식 URL import 흐름으로 패키지를 가져온 뒤 바로 프로젝트를 엽니다. 첫 실행 시 프로젝트 플러그인 권한을 허용해야 GeoFlow Roaming Cache가 활성화됩니다.{% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">GIS Profile</div><div class="fw-semibold mt-1">{{ layer_plan.profile.name|default:"미지정" }}</div><div class="text-muted small">{{ layer_plan.profile.code|default:"-" }}</div></div></div></div>
+  <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">활성 Capability</div><div class="mt-2 d-flex flex-wrap gap-1">{% for capability in layer_plan.capabilities %}<span class="badge bg-primary">{{ capability.name }}</span>{% empty %}<span class="text-muted">없음</span>{% endfor %}</div></div></div></div>
+  <div class="col-12 col-md-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">Layer Plan</div><div class="display-6 fw-semibold mt-1">{{ feature_count }}</div></div></div></div>
+  <div class="col-12 col-md-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">GIS 객체</div><div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div></div></div></div>
+  <div class="col-12 col-md-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">현재 표시</div><div class="display-6 fw-semibold mt-1" id="gisMapVisibleCount">0</div></div></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-9">
+    <div class="card h-100 gf-gis-map-card">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="card-title mb-0">지도 작업영역</h5>
+        <div class="text-muted small gf-gis-map-status" id="gisMapStatus">지도 준비 중…</div>
+      </div>
+      <div class="card-body">
+        <div id="gisProjectMap"
+             role="region"
+             aria-label="프로젝트 GIS 지도"
+             data-geojson-url="{% url 'gis:project_layer_geojson_api' project.id %}"
+             data-feature-url="{% url 'gis:project_feature_batch_api' project.id %}"
+             data-websocket-path="/ws/gis/projects/{{ project.id }}/"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-3">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="card-title mb-0">프로젝트 GIS 구성</h5></div>
+      <div class="card-body">
+        <div class="text-muted small mb-2">업무범위에서 계산된 Capability</div>
+        {% for capability in layer_plan.capabilities %}
+          <div class="border rounded p-2 mb-2"><strong>{{ capability.name }}</strong><div class="text-muted small">{{ capability.code }}</div></div>
+        {% empty %}<div class="text-muted">GIS 업무범위가 없습니다.</div>{% endfor %}
+        <hr>
+        <div class="text-muted small"><code>QGIS Manifest</code>는 WebGIS와 동일한 Layer Plan을 QGIS Connector가 소비할 수 있도록 materialize한 서버 계약입니다.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">프로젝트 Layer Plan</h5><span class="text-muted small">업무범위/Profile 적용 {{ feature_count }}개</span></div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>구분</th><th>시설물</th><th>표준명</th><th>물리명</th><th>Geometry</th><th>객체수</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for feature in features %}
+        <tr><td>{{ feature.domain_label }}</td><td>{{ feature.label }}</td><td><code>{{ feature.standard_name }}</code></td><td><code>{{ feature.db_name }}</code></td><td>{{ feature.geometry_kind }}</td><td>{% if feature.row_count != None %}{{ feature.row_count }}{% else %}-{% endif %}</td><td>{% if feature.physical_status == 'READY' %}<span class="badge bg-success">Ready</span>{% else %}<span class="badge bg-light text-dark">미적용</span>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{{ features|json_script:"gis-map-layers" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+        onerror="this.onerror=null;this.removeAttribute('integrity');this.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';"></script>
+<script>
+  if (typeof window.L === "undefined") {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+  }
+</script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260906-2"></script>
+{% endblock %}

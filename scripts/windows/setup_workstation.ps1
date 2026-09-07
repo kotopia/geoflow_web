@@ -88,8 +88,12 @@ if (Test-Path $VenvPython) {
         Write-Warning "Django is not available in .venv; run with -Bootstrap"
     }
 
+    if (-not $env:DJANGO_SETTINGS_MODULE) {
+        $env:DJANGO_SETTINGS_MODULE = "geoflow_project.settings"
+    }
     try {
-        & $VenvPython -c "from django.contrib.gis import gdal, geos; print('geodjango_native_libraries=ready')"
+        & $VenvPython -c "import django; django.setup(); from django.contrib.gis import gdal, geos; print('geodjango_native_libraries=ready'); print('gdal_version=' + '.'.join(map(str, gdal.GDAL_VERSION)))"
+        if ($LASTEXITCODE -ne 0) { throw "GeoDjango import failed" }
     } catch {
         Write-Check "geodjango_native_libraries" "attention_required"
         Write-Warning "Windows GDAL/GEOS runtime is not yet loadable. Configure the native GIS libraries before local GeoDjango work."
