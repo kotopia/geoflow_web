@@ -13,10 +13,9 @@ from geoflow_ops.services.entity_access import require_tenant_context
 from .changeset import project_current_revision
 from .layer_plan import project_layer_plan
 from .qfield_auth import (
-    QFIELD_REFRESH_MAX_AGE_SECONDS,
+    QFIELD_HANDOFF_MAX_AGE_SECONDS,
     QFIELD_TICKET_MAX_AGE_SECONDS,
-    hydrate_qfield_refresh_request,
-    issue_qfield_refresh_token,
+    hydrate_qfield_handoff_request,
     issue_qfield_ticket,
     qfield_ticket_runtime_enabled,
 )
@@ -28,7 +27,7 @@ from .qfield_persistent import (
 )
 
 
-_MAX_REFRESH_BODY_BYTES = 64 * 1024
+_MAX_HANDOFF_BODY_BYTES = 64 * 1024
 
 
 def _package_compatibility(alias: str, project, plan: dict, client: dict) -> dict:
@@ -56,35 +55,32 @@ def _package_compatibility(alias: str, project, plan: dict, client: dict) -> dic
 
 @csrf_exempt
 @require_POST
-def qfield_session_refresh_api(request, project_id):
-    """Rotate the native QField access session without reinstalling the project.
+def qfield_session_handoff_api(request, project_id):
+    """Exchange an explicit GeoFlow-authenticated handoff for one access ticket.
 
-    The refresh credential is project scoped and can only mint a short-lived
-    access ticket after current central membership is revalidated. This remains
-    strict-development-only until GeoFlow has a production revocable device
-    session store.
+    There is deliberately no persistent refresh credential. A QField access
+    ticket expires after 12 hours and cannot be extended by QField activity.
+    After expiry the local project can still be opened and edited, but server
+    read/write access resumes only after the user authenticates in GeoFlow and
+    presses "QField에서 열기" again. The browser supplies a five-minute
+    project-scoped handoff token in the Authorization header.
     """
 
     if not qfield_ticket_runtime_enabled():
-        return JsonResponse({"ok": False, "error": "qfield_refresh_not_enabled"}, status=403)
+        return JsonResponse({"ok": False, "error": "qfield_handoff_not_enabled"}, status=403)
     content_length = int(request.META.get("CONTENT_LENGTH") or 0)
-    if content_length > _MAX_REFRESH_BODY_BYTES:
-        return JsonResponse({"ok": False, "error": "refresh_body_too_large"}, status=413)
+    if content_length > _MAX_HANDOFF_BODY_BYTES:
+        return JsonResponse({"ok": False, "error": "handoff_body_too_large"}, status=413)
     try:
-        body = json.loads(request.body.decode("utf-8"))
+        body = json.loads(request.body.decode("utf-8") or "{}")
     except (UnicodeDecodeError, json.JSONDecodeError):
         return JsonResponse({"ok": False, "error": "invalid_json"}, status=400)
     if not isinstance(body, dict):
-        return JsonResponse({"ok": False, "error": "invalid_refresh_payload"}, status=400)
+        return JsonResponse({"ok": False, "error": "invalid_handoff_payload"}, status=400)
 
-    refresh_token = str(body.get("refresh_token") or "")
-    payload = hydrate_qfield_refresh_request(
-        request,
-        project_id=str(project_id),
-        token=refresh_token,
-    )
+    payload = hydrate_qfield_handoff_request(request, project_id=str(project_id))
     if payload is None:
-        return JsonResponse({"ok": False, "error": "invalid_qfield_refresh"}, status=401)
+        return JsonResponse({"ok": False, "error": "invalid_qfield_handoff"}, status=401)
 
     alias = require_tenant_context(request)
     project = get_object_or_404(Project.objects.using(alias), id=project_id)
@@ -93,37 +89,39 @@ def qfield_session_refresh_api(request, project_id):
         return JsonResponse({"ok": False, "error": "qfield_project_not_gis_enabled"}, status=404)
 
     write_authorized = bool(payload.get("write_authorized"))
-    token_args = {
-        "project_id": str(project.id),
-        "alias": alias,
-        "group_id": str(payload.get("group_id") or ""),
-        "user_id": str(payload.get("user_id") or ""),
-        "email": str(payload.get("email") or ""),
-        "roles": payload.get("roles") or [],
-        "perms": payload.get("perms") or [],
-        "write_authorized": write_authorized,
-    }
-    access_token = issue_qfield_ticket(**token_args)
-    rotated_refresh_token = issue_qfield_refresh_token(**token_args)
+    access_token = issue_qfield_ticket(
+        project_id=str(project.id),
+        alias=alias,
+        group_id=str(payload.get("group_id") or ""),
+        user_id=str(payload.get("user_id") or ""),
+        email=str(payload.get("email") or ""),
+        roles=payload.get("roles") or [],
+        perms=payload.get("perms") or [],
+        write_authorized=write_authorized,
+    )
     package = _package_compatibility(alias, project, plan, body)
 
     response = JsonResponse(
         {
             "ok": True,
-            "protocol": "geoflow_qfield_persistent_session_v1",
+            "protocol": "geoflow_qfield_explicit_handoff_v1",
             "project_id": str(project.id),
             "auth": {
                 "scheme": "Bearer",
                 "token": access_token,
                 "expires_in": QFIELD_TICKET_MAX_AGE_SECONDS,
-                "refresh_token": rotated_refresh_token,
-                "refresh_expires_in": QFIELD_REFRESH_MAX_AGE_SECONDS,
+                "renewal": "explicit_geoflow_handoff_only",
                 "write_authorized": write_authorized,
                 "dev_poc_only": True,
+            },
+            "handoff": {
+                "max_age_seconds": QFIELD_HANDOFF_MAX_AGE_SECONDS,
+                "requires_authenticated_geoflow_browser": True,
             },
             "package": package,
             "sync": {
                 "current_revision": project_current_revision(alias, str(project.id)),
+                "outbox_survives_auth_expiry": True,
                 "outbox_survives_package_update": True,
             },
         },
