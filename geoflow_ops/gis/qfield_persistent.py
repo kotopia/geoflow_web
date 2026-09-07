@@ -76,8 +76,6 @@ def _inject_qgs_persistent_metadata(
 
 
 def _inject_qml_persistent_session(text: str) -> str:
-    """Add explicit-auth claim, push/pull delta, and disable automatic roaming."""
-
     if "import org.qfield.core" not in text:
         import_marker = "import org.qfield\n"
         if import_marker not in text:
@@ -128,8 +126,6 @@ def _inject_qml_persistent_session(text: str) -> str:
 '''
     text = text.replace(toolbar_marker, helpers + toolbar_marker, 1)
 
-    # The package is a full project snapshot. Automatic 8-second roaming is no
-    # longer appropriate; server->device changes arrive through revision Delta.
     roaming_timer_old = '''    Timer {
         id: roamingTimer
         interval: 8000
@@ -148,6 +144,24 @@ def _inject_qml_persistent_session(text: str) -> str:
         raise RuntimeError("QField roaming timer marker missing")
     text = text.replace(roaming_timer_old, roaming_timer_new, 1)
     text = text.replace("            roamingTimer.restart()", "            roamingTimer.stop()")
+
+    sync_timer_old = '''    Timer {
+        id: syncTimer
+        interval: 3000
+        repeat: true
+        running: true
+        onTriggered: geoflowField.syncNow(false, false)
+    }'''
+    sync_timer_new = '''    Timer {
+        id: syncTimer
+        interval: 3000
+        repeat: true
+        running: geoflowField.unsyncedCount > 0
+        onTriggered: geoflowField.syncNow(false, false)
+    }'''
+    if sync_timer_old not in text:
+        raise RuntimeError("QField sync timer marker missing")
+    text = text.replace(sync_timer_old, sync_timer_new, 1)
 
     config_old = '''        bearerToken = readProjectText("qfield_token")
         roamingPlanUrl = readProjectText("roaming_plan_url")
@@ -395,7 +409,6 @@ def _inject_qml_persistent_session(text: str) -> str:
 
             let attrs2 = row.attributes || {}
             let names = layer.fields.names || []
-            let changed = false
             if (Object.keys(attrs2).length > 0) {
                 if (!layer.startEditing()) {
                     log("delta attribute edit start failed " + objectId)
@@ -405,14 +418,11 @@ def _inject_qml_persistent_session(text: str) -> str:
                     if (!Object.prototype.hasOwnProperty.call(attrs2, name2) || protectedField(name2)) continue
                     let idx = names.indexOf(name2)
                     if (idx < 0) continue
-                    if (layer.changeAttributeValue(current.id, idx, attrs2[name2])) changed = true
+                    layer.changeAttributeValue(current.id, idx, attrs2[name2])
                 }
-                if (changed && !layer.commitChanges(true)) {
+                if (!layer.commitChanges(true)) {
                     log("delta attribute commit failed " + objectId)
                     return false
-                }
-                if (!changed) {
-                    try { layer.rollBack() } catch (rollbackErr) {}
                 }
             }
             return true
@@ -484,27 +494,8 @@ def _inject_qml_persistent_session(text: str) -> str:
 '''
     text = text.replace(auth_get_marker, runtime + auth_get_marker, 1)
 
-    # No qfield:// custom action is required anymore. MAIN launcher restores the
-    # recent project, then initialization/app resume claims the staged handoff.
-    log_marker = "    function log(message) {"
-    app_state = r'''    Connections {
-        target: Qt.application
-        function onStateChanged() {
-            if (Qt.application.state === Qt.ApplicationActive && geoflowField.serverAuthRequired) {
-                geoflowField.claimPendingSession(false, function(ok) {
-                    if (ok) geoflowField.syncNow(false, true)
-                })
-            }
-        }
-    }
-
-'''
-    if log_marker not in text:
-        raise RuntimeError("QField log marker missing")
-    text = text.replace(log_marker, app_state + log_marker, 1)
-
-    # Stop automatic roaming completely. It remains callable as a future
-    # fallback for spatially-partial packages, but the full snapshot uses Delta.
+    # No qfield:// handoff action. QField is launched with Android MAIN so its
+    # recent project loads first; that project claims the server-staged handoff.
     text = text.replace("        syncNow(true, true)\n        scheduleRoaming(true)", "        syncNow(true, true)", 1)
 
     sync_guard_old = '''        if (!configReady && !reloadProjectConfig()) {
@@ -553,7 +544,7 @@ def _inject_qml_persistent_session(text: str) -> str:
     text = text.replace(base_old, base_new, 1)
 
     success_old = '                log("changeset applied revision=" + response.current_revision)\n                return'
-    success_new = '                log("changeset applied revision=" + response.current_revision)\n                pullDelta(manual)\n                return'
+    success_new = '                log("changeset applied revision=" + response.current_revision)\n                lastEditedStandard = ""\n                lastEditedFid = -1\n                pullDelta(manual)\n                return'
     if success_old not in text:
         raise RuntimeError("QField Changeset success marker missing")
     text = text.replace(success_old, success_new, 1)
@@ -588,16 +579,21 @@ def _inject_qml_persistent_session(text: str) -> str:
         syncNow(false, false)'''
     init_new = f'''        updateUnsyncedCount(projectState())
         bindLayers()
-        claimPendingSession(false, function(claimed) {{
-            if (sessionAuthorized()) {{
-                serverAuthRequired = false
-                toast("GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION} 연결됨 · 증분 동기화 준비")
-                syncNow(false, false)
-            }} else {{
-                serverAuthRequired = true
-                toast("GeoFlow 로컬 프로젝트 열림 · 서버 사용은 GeoFlow 재인증 후 가능합니다")
-            }}
-        }})'''
+        if (sessionAuthorized()) {{
+            serverAuthRequired = false
+            toast("GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION} 연결됨 · 증분 동기화 준비")
+            syncNow(false, false)
+        }} else {{
+            serverAuthRequired = true
+            claimPendingSession(false, function(claimed) {{
+                if (claimed) {{
+                    toast("GeoFlow 재인증 완료 · 증분 동기화 시작")
+                    syncNow(false, false)
+                }} else {{
+                    toast("GeoFlow 로컬 프로젝트 열림 · 서버 사용은 GeoFlow 재인증 후 가능합니다")
+                }}
+            }})
+        }}'''
     if init_old not in text:
         raise RuntimeError("QField initialize marker missing")
     text = text.replace(init_old, init_new, 1)
@@ -611,8 +607,8 @@ def _inject_qml_persistent_session(text: str) -> str:
         "qfield_session_claim_url",
         "qfield_delta_url",
         "qfield_snapshot_revision",
-        "project_snapshot_then_delta" if "project_snapshot_then_delta" in text else "delta applied count=",
-        "running: false",
+        "delta applied count=",
+        "running: geoflowField.unsyncedCount > 0",
     )
     missing = [marker for marker in required if marker not in text]
     if missing:
@@ -642,7 +638,7 @@ def upgrade_qfield_bootstrap_zip(
             for info in src.infolist():
                 data = src.read(info.filename)
                 if info.filename == f"{PROJECT_BASENAME}.qgs":
-                    text = _inject_qgs_persistent_metadata(
+                    data = _inject_qgs_persistent_metadata(
                         data.decode("utf-8"),
                         claim_token=claim_token,
                         session_claim_url=session_claim_url,
@@ -651,20 +647,18 @@ def upgrade_qfield_bootstrap_zip(
                         snapshot_revision=snapshot_revision,
                         schema_fingerprint=schema_fingerprint,
                         install_id=install_id,
-                    )
-                    data = text.encode("utf-8")
+                    ).encode("utf-8")
                 elif info.filename == f"{PROJECT_BASENAME}.qml":
                     data = _inject_qml_persistent_session(data.decode("utf-8")).encode("utf-8")
                 elif info.filename == "README.txt":
-                    text = data.decode("utf-8") + (
+                    data = (data.decode("utf-8") + (
                         f"- persistent protocol: {QFIELD_PERSISTENT_PROTOCOL_VERSION}\n"
                         f"- install id: {install_id}\n"
                         f"- snapshot revision: {snapshot_revision}\n"
                         "- access authorization never auto-renews.\n"
                         "- GeoFlow browser stages a 5-minute handoff; loaded QField project claims it.\n"
                         "- server-to-device synchronization uses revision Delta; automatic roaming is disabled.\n"
-                    )
-                    data = text.encode("utf-8")
+                    )).encode("utf-8")
                 dst.writestr(info, data)
         os.replace(output, source)
         return source
