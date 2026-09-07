@@ -45,8 +45,8 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn(self.project_id, xml)
         self.assertIn("<authid>EPSG:4326</authid>", xml)
         self.assertIn("movement_threshold_m", xml)
-        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.7")
-        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.5")
+        self.assertEqual(QFIELD_PACKAGE_VERSION, "0.8")
+        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.6")
 
     def test_qfield_bootstrap_materializes_project_rows_before_roaming(self):
         source = inspect.getsource(qfield_package.build_qfield_geopackage)
@@ -81,10 +81,10 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertNotIn("QfGeometryUtils", text)
         self.assertNotIn("QfFeatureUtils", text)
 
-    def test_rendered_plugin_forces_current_selected_feature_on_manual_sync(self):
+    def test_rendered_plugin_forces_current_selected_feature_and_retries_server_reads(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = _render_qfield_plugin(path)
-        self.assertIn("GeoFlow Field 0.9.5", text)
+        self.assertIn("GeoFlow Field 0.9.6", text)
         self.assertIn("function pollForLocalChanges(force)", text)
         self.assertIn("if (requestInFlight && !force) return", text)
         self.assertIn("function seedPollingBaselineForMissing()", text)
@@ -97,6 +97,11 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn("manual focused feature queued", text)
         self.assertIn("let forced = captureFocusedFeatureForManualSync()", text)
         self.assertIn("pollForLocalChanges(true)", text)
+        self.assertIn('if (xhr.status >= 500)', text)
+        self.assertIn('lastViewport = ""', text)
+        self.assertIn("lastLon = NaN", text)
+        self.assertIn("lastLat = NaN", text)
+        self.assertIn("server read unavailable; roaming will retry on next timer", text)
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
