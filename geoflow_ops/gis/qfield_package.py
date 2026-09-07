@@ -20,8 +20,8 @@ from .gpkg_snapshot_v2 import (
 )
 
 
-QFIELD_PACKAGE_VERSION = "0.8"
-QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.6"
+QFIELD_PACKAGE_VERSION = "0.9"
+QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.7"
 PROJECT_BASENAME = "geoflow-field"
 
 
@@ -49,8 +49,76 @@ def _project_crs_xml() -> str:
     """.strip()
 
 
+def _apply_qfield_qml_property_compat(text: str) -> str:
+    """Translate Python/C++ style accessor calls to QField's QML property API.
+
+    QField exposes QgsFeature, QgsVectorLayer, QgsFields, QgsGeometry and
+    QgsRectangle value types to QML. Their Q_PROPERTY members must be read as
+    properties (``feature.id``, ``feature.geometry``, ``layer.fields`` and
+    ``extent.xMinimum``), not invoked as functions. QField's own QML tests use
+    ``feature.geometry.asWkt()`` after reading the geometry property.
+    """
+
+    replacements: tuple[tuple[str, str], ...] = (
+        (
+            '''            let fields = layer.fields()\n            for (let i = 0; i < fields.count(); i++) {\n                let name = String(fields.at(i).name())''',
+            '''            let fields = layer.fields\n            let names = fields.names || []\n            for (let i = 0; i < names.length; i++) {\n                let name = String(names[i])''',
+        ),
+        (
+            'try { return String(layer.fields().at(Number(index)).name()) } catch (err) {}',
+            'try { let names = layer.fields.names || []; let idx = Number(index); return idx >= 0 && idx < names.length ? String(names[idx]) : "" } catch (err) {}',
+        ),
+        ('let fields = layer.fields()', 'let fields = layer.fields'),
+        ('let fields = binding.layer.fields()', 'let fields = binding.layer.fields'),
+        ('binding.layer.fields().indexOf(', 'binding.layer.fields.indexOf('),
+        ('let geometry = feature.geometry()', 'let geometry = feature.geometry'),
+        ('binding.fidMap[String(feature.id())]', 'binding.fidMap[String(feature.id)]'),
+        ('binding.versionMap[String(feature.id())]', 'binding.versionMap[String(feature.id)]'),
+        (
+            'if (!geometry || geometry.isNull() || geometry.isEmpty()) return ""',
+            'if (!geometry || geometry.isNull) return ""',
+        ),
+        (
+            'if (geometry && !geometry.isNull() && !geometry.isEmpty()) wkt = String(geometry.asWkt(8))',
+            'if (geometry && !geometry.isNull) wkt = String(geometry.asWkt(8))',
+        ),
+        (
+            'if (!geometry || geometry.isNull() || geometry.isEmpty()) continue',
+            'if (!geometry || geometry.isNull) continue',
+        ),
+        (
+            'return [e.xMinimum(), e.yMinimum(), e.xMaximum(), e.yMaximum()].join(",")',
+            'return [e.xMinimum, e.yMinimum, e.xMaximum, e.yMaximum].join(",")',
+        ),
+        ('try { return String(layer.name()) } catch (err2) {}', 'try { return String(layer.name || "") } catch (err2) {}'),
+    )
+
+    for old, new in replacements:
+        if old not in text:
+            raise RuntimeError(f"QField 4.2 property compatibility marker missing: {old[:80]!r}")
+        text = text.replace(old, new)
+
+    forbidden = (
+        "layer.fields()",
+        "binding.layer.fields()",
+        "feature.geometry()",
+        "feature.id()",
+        "geometry.isNull()",
+        "e.xMinimum()",
+        "e.yMinimum()",
+        "e.xMaximum()",
+        "e.yMaximum()",
+    )
+    remaining = [marker for marker in forbidden if marker in text]
+    if remaining:
+        raise RuntimeError(
+            "QField 4.2 property compatibility rewrite incomplete: " + ", ".join(remaining)
+        )
+    return text
+
+
 def _render_qfield_plugin(template_path: Path) -> str:
-    """Render the load-safe 0.9.4 sidecar with manual-sync and retry fallbacks."""
+    """Render the load-safe sidecar with QField 4.2 property semantics."""
 
     text = template_path.read_text(encoding="utf-8")
     required_markers = (
@@ -67,30 +135,82 @@ def _render_qfield_plugin(template_path: Path) -> str:
             + ", ".join(missing)
         )
 
+    property_marker = "    property bool pollingBaselineReady: false\n"
+    if property_marker not in text:
+        raise RuntimeError("QField polling property marker disappeared")
+    text = text.replace(
+        property_marker,
+        property_marker
+        + '    property string lastEditedStandard: ""\n'
+        + "    property int lastEditedFid: -1\n",
+        1,
+    )
+
+    remember_edit = r'''
+    function rememberEditedFeature(binding, fid) {
+        if (!binding) return
+        lastEditedStandard = String(binding.standard || "")
+        lastEditedFid = Number(fid)
+        log("edited feature observed " + lastEditedStandard + " fid=" + lastEditedFid)
+    }
+
+    function lastEditedBinding() {
+        if (!lastEditedStandard || lastEditedFid < 0) return null
+        for (let i = 0; i < layerBindings.length; i++) {
+            let binding = layerBindings[i]
+            if (String(binding.standard || "") === lastEditedStandard) return binding
+        }
+        return null
+    }
+
+'''
+    unbind_marker = "    function unbindLayers() {"
+    if unbind_marker not in text:
+        raise RuntimeError("QField unbind marker disappeared")
+    text = text.replace(unbind_marker, remember_edit + unbind_marker, 1)
+
+    binding_replacements = (
+        (
+            'binding.added = function(fid) { geoflowField.captureCreate(binding, fid) }',
+            'binding.added = function(fid) { geoflowField.rememberEditedFeature(binding, fid); geoflowField.captureCreate(binding, fid) }',
+        ),
+        (
+            'binding.attribute = function(fid, index, value) { geoflowField.captureAttribute(binding, fid, index, value) }',
+            'binding.attribute = function(fid, index, value) { geoflowField.rememberEditedFeature(binding, fid); geoflowField.captureAttribute(binding, fid, index, value) }',
+        ),
+        (
+            'binding.geometry = function(fid, geometry) { geoflowField.captureGeometry(binding, fid, geometry) }',
+            'binding.geometry = function(fid, geometry) { geoflowField.rememberEditedFeature(binding, fid); geoflowField.captureGeometry(binding, fid, geometry) }',
+        ),
+    )
+    for old, new in binding_replacements:
+        if old not in text:
+            raise RuntimeError("QField edit listener marker disappeared")
+        text = text.replace(old, new, 1)
+
     forced_capture = r'''
     function captureFocusedFeatureForManualSync() {
         let form = null
         try { form = iface.findItemByObjectName("featureForm") } catch (err) {}
-        if (!form) {
-            log("manual focused capture unavailable: featureForm not found")
-            return false
-        }
 
         let layer = null
         let feature = null
-        try { layer = form.selection.focusedLayer } catch (err2) {}
-        try { feature = form.selection.focusedFeature } catch (err3) {}
-        if ((!layer || !feature) && form.selection && form.selection.model) {
-            try { if (!layer) layer = form.selection.model.selectedLayer } catch (err4) {}
-            try {
-                if (!feature) {
-                    let selected = form.selection.model.selectedFeatures
-                    if (selected && selected.length > 0) feature = selected[0]
-                }
-            } catch (err5) {}
+        if (form && form.selection) {
+            try { layer = form.selection.focusedLayer } catch (err2) {}
+            try { feature = form.selection.focusedFeature } catch (err3) {}
         }
+
         if (!layer || !feature) {
-            log("manual focused capture unavailable: no focused feature")
+            let binding = lastEditedBinding()
+            if (binding) {
+                layer = binding.layer
+                feature = featureByFid(layer, lastEditedFid)
+                if (feature) log("manual sync using last edited feature " + binding.standard + " fid=" + lastEditedFid)
+            }
+        }
+
+        if (!layer || !feature) {
+            log("manual focused capture unavailable: no focused or last edited feature")
             return false
         }
 
@@ -157,15 +277,27 @@ def _render_qfield_plugin(template_path: Path) -> str:
         raise RuntimeError("QField authGet error marker disappeared")
     text = text.replace(error_log_marker, retry_reset, 1)
 
+    text = _apply_qfield_qml_property_compat(text)
     text = text.replace("GeoFlow Field 0.9.4", f"GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION}")
     text = text.replace(
         "plugin 0.9.4 component completed",
         f"plugin {QFIELD_PLUGIN_RUNTIME_VERSION} component completed",
     )
-    if "captureFocusedFeatureForManualSync()" not in text:
-        raise RuntimeError("QField manual focused-feature fallback did not render")
-    if "server read unavailable; roaming will retry on next timer" not in text:
-        raise RuntimeError("QField server read retry fallback did not render")
+
+    required_rendered = (
+        "captureFocusedFeatureForManualSync()",
+        "manual sync using last edited feature",
+        "server read unavailable; roaming will retry on next timer",
+        "let geometry = feature.geometry",
+        "let fields = layer.fields",
+        "String(feature.id)",
+        "e.xMinimum, e.yMinimum, e.xMaximum, e.yMaximum",
+    )
+    missing_rendered = [marker for marker in required_rendered if marker not in text]
+    if missing_rendered:
+        raise RuntimeError(
+            "GeoFlow QField 4.2 compatibility render incomplete: " + ", ".join(missing_rendered)
+        )
     return text
 
 
