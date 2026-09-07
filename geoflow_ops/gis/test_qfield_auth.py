@@ -5,9 +5,13 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, override_settings
 
 from .qfield_auth import (
+    QFIELD_HANDOFF_MAX_AGE_SECONDS,
+    QFIELD_TICKET_MAX_AGE_SECONDS,
     bearer_token_from_request,
+    issue_qfield_handoff_token,
     issue_qfield_package_import_token,
     issue_qfield_ticket,
+    parse_qfield_handoff_token,
     parse_qfield_package_import_token,
     parse_qfield_ticket,
     qfield_ticket_runtime_enabled,
@@ -41,7 +45,8 @@ class QFieldTicketTests(SimpleTestCase):
         with patch.dict("os.environ", {"GEOFLOW_DEV_RUNTIME_STRICT": "0"}):
             self.assertFalse(qfield_ticket_runtime_enabled())
 
-    def test_ticket_is_project_tenant_and_identity_scoped(self):
+    def test_access_ticket_is_fixed_twelve_hours_and_not_refreshable(self):
+        self.assertEqual(QFIELD_TICKET_MAX_AGE_SECONDS, 12 * 60 * 60)
         with patch.dict("os.environ", {"GEOFLOW_DEV_RUNTIME_STRICT": "1"}):
             token = self._issue()
             payload = parse_qfield_ticket(token, project_id=self.project_id)
@@ -61,6 +66,24 @@ class QFieldTicketTests(SimpleTestCase):
             tampered = parse_qfield_ticket(token + "x", project_id=self.project_id)
         self.assertIsNone(other)
         self.assertIsNone(tampered)
+
+    def test_handoff_is_short_lived_purpose_scoped_and_not_an_access_ticket(self):
+        self.assertEqual(QFIELD_HANDOFF_MAX_AGE_SECONDS, 5 * 60)
+        with patch.dict("os.environ", {"GEOFLOW_DEV_RUNTIME_STRICT": "1"}):
+            token = issue_qfield_handoff_token(
+                **self._identity(),
+                write_authorized=True,
+            )
+            payload = parse_qfield_handoff_token(token, project_id=self.project_id)
+            as_access = parse_qfield_ticket(token, project_id=self.project_id)
+            wrong_project = parse_qfield_handoff_token(
+                token,
+                project_id="11111111-1111-4111-8111-111111111402",
+            )
+        self.assertEqual(payload["purpose"], "qfield_session_handoff")
+        self.assertTrue(payload["write_authorized"])
+        self.assertIsNone(as_access)
+        self.assertIsNone(wrong_project)
 
     def test_package_import_token_is_purpose_and_project_scoped(self):
         with patch.dict("os.environ", {"GEOFLOW_DEV_RUNTIME_STRICT": "1"}):
