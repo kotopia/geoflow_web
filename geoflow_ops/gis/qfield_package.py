@@ -20,8 +20,8 @@ from .gpkg_snapshot_v2 import (
 )
 
 
-QFIELD_PACKAGE_VERSION = "0.6"
-QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.4"
+QFIELD_PACKAGE_VERSION = "0.7"
+QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.5"
 PROJECT_BASENAME = "geoflow-field"
 
 
@@ -50,12 +50,15 @@ def _project_crs_xml() -> str:
 
 
 def _render_qfield_plugin(template_path: Path) -> str:
+    """Render the load-safe 0.9.4 sidecar with a manual-sync fallback."""
+
     text = template_path.read_text(encoding="utf-8")
     required_markers = (
-        f"GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION}",
+        "GeoFlow Field 0.9.4",
         "function pollForLocalChanges(force)",
         "function resetRoamingStateForFreshTicket()",
         "Never infer deletes from iterator absence",
+        "function manualSync()",
     )
     missing = [marker for marker in required_markers if marker not in text]
     if missing:
@@ -63,6 +66,92 @@ def _render_qfield_plugin(template_path: Path) -> str:
             "GeoFlow QField plugin template is not the reviewed 0.9.4 baseline: "
             + ", ".join(missing)
         )
+
+    forced_capture = r'''
+    function captureFocusedFeatureForManualSync() {
+        let form = null
+        try { form = iface.findItemByObjectName("featureForm") } catch (err) {}
+        if (!form) {
+            log("manual focused capture unavailable: featureForm not found")
+            return false
+        }
+
+        let layer = null
+        let feature = null
+        try { layer = form.selection.focusedLayer } catch (err2) {}
+        try { feature = form.selection.focusedFeature } catch (err3) {}
+        if ((!layer || !feature) && form.selection && form.selection.model) {
+            try { if (!layer) layer = form.selection.model.selectedLayer } catch (err4) {}
+            try {
+                if (!feature) {
+                    let selected = form.selection.model.selectedFeatures
+                    if (selected && selected.length > 0) feature = selected[0]
+                }
+            } catch (err5) {}
+        }
+        if (!layer || !feature) {
+            log("manual focused capture unavailable: no focused feature")
+            return false
+        }
+
+        let physical = layerName(layer)
+        let standard = standardNameForPhysical(physical)
+        let objectId = canonicalUuid(feature.attribute("id"))
+        if (!standard || !objectId) {
+            log("manual focused capture skipped: GeoFlow identity missing")
+            return false
+        }
+
+        let key = pendingKey(standard, objectId)
+        let old = pollingBaseline[key]
+        let geometryWkt = featureGeometryWkt(feature)
+        let change = {
+            action: "update",
+            layer: standard,
+            id: objectId,
+            attributes: collectAttributes(layer, feature)
+        }
+        if (geometryWkt) change.geometry_wkt = geometryWkt
+        if (old && old.base_updated_at) change.base_updated_at = old.base_updated_at
+
+        queueChange(change)
+        log("manual focused feature queued " + standard + " " + objectId)
+        return true
+    }
+
+'''
+    marker = "    function manualSync() {"
+    if marker not in text:
+        raise RuntimeError("QField manualSync marker disappeared")
+    text = text.replace(marker, forced_capture + marker, 1)
+
+    old_manual = '''    function manualSync() {
+        authBlocked = false
+        log("manual sync requested")
+        pollForLocalChanges(true)
+        syncNow(true, true)
+        scheduleRoaming(true)
+    }'''
+    new_manual = '''    function manualSync() {
+        authBlocked = false
+        log("manual sync requested")
+        let forced = captureFocusedFeatureForManualSync()
+        pollForLocalChanges(true)
+        if (!forced) log("manual sync continuing without focused feature fallback")
+        syncNow(true, true)
+        scheduleRoaming(true)
+    }'''
+    if old_manual not in text:
+        raise RuntimeError("QField reviewed manualSync body disappeared")
+    text = text.replace(old_manual, new_manual, 1)
+
+    text = text.replace("GeoFlow Field 0.9.4", f"GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION}")
+    text = text.replace(
+        "plugin 0.9.4 component completed",
+        f"plugin {QFIELD_PLUGIN_RUNTIME_VERSION} component completed",
+    )
+    if "captureFocusedFeatureForManualSync()" not in text:
+        raise RuntimeError("QField manual focused-feature fallback did not render")
     return text
 
 
