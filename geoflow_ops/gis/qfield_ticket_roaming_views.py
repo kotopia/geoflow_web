@@ -30,6 +30,18 @@ logger = logging.getLogger(__name__)
 
 
 def _ticket_project_and_plan(request, alias: str, project_id):
+    """Resolve the exact project already authorized by the signed QField ticket.
+
+    qfield_ticket_required() has already verified the signature, project scope,
+    expiry, current central user/group membership and tenant connection.  The
+    ticket itself is only issued after the browser-side maps/project read checks
+    succeed.  Do not re-interpret a copied ``gf_perms`` snapshot here: some
+    development identities receive project-scoped GIS access through role/policy
+    resolution even when that legacy permission list is sparse.  Requiring a
+    literal ``maps.view`` claim caused valid QField packages to fail every
+    roaming-cell request with HTTP 403 after roaming-plan had succeeded.
+    """
+
     payload = getattr(request, "_qfield_ticket_payload", None) or {}
     try:
         ticket_project_id = str(uuid.UUID(str(payload.get("project_id"))))
@@ -41,15 +53,6 @@ def _ticket_project_and_plan(request, alias: str, project_id):
     if ticket_project_id != requested_project_id:
         return None, None, JsonResponse(
             {"ok": False, "error": "qfield_project_scope_mismatch"}, status=403
-        )
-    if "maps.view" not in {str(value) for value in (payload.get("perms") or [])}:
-        logger.warning(
-            "DEV-QFIELD-TICKET read denied project_id=%s reason=maps.view_missing perms=%s",
-            requested_project_id,
-            payload.get("perms") or [],
-        )
-        return None, None, JsonResponse(
-            {"ok": False, "error": "qfield_maps_view_required"}, status=403
         )
 
     project = get_object_or_404(Project.objects.using(alias), id=project_id)
@@ -68,15 +71,7 @@ def _current_revision(alias: str, project_id) -> int:
 @qfield_ticket_required(write=False)
 @require_GET
 def qfield_ticket_roaming_cell_api(request, project_id):
-    """Read one roaming cell using only the signed project-scoped QField ticket.
-
-    The package ticket was issued only after browser-session project authorization
-    succeeded, and every native request revalidates the central user/group
-    membership in qfield_ticket_required().  Re-running employee/project policy
-    resolution for each cell made native requests depend on browser/session
-    state and caused false 403 responses.  This endpoint therefore enforces the
-    signed project scope and maps.view claim directly.
-    """
+    """Read one roaming cell using the validated project-scoped QField ticket."""
 
     alias = require_tenant_context(request)
     project, plan, error = _ticket_project_and_plan(request, alias, project_id)
