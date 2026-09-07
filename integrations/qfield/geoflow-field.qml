@@ -77,7 +77,15 @@ Item {
         interval: 3000
         repeat: true
         running: true
-        onTriggered: geoflowField.syncNow(false)
+        onTriggered: geoflowField.syncNow(false, false)
+    }
+
+    Timer {
+        id: editAcceptedSyncTimer
+        interval: 450
+        repeat: false
+        running: false
+        onTriggered: geoflowField.syncNow(false, true)
     }
 
     Timer {
@@ -90,7 +98,7 @@ Item {
             let count = geoflowField.bindLayers()
             if (count > 0) {
                 stop()
-                geoflowField.toast("GeoFlow Field 0.8 · 자동 동기화 준비 " + count + "개 레이어")
+                geoflowField.toast("GeoFlow Field 0.9 · 자동 동기화 준비 " + count + "개 레이어")
             }
         }
     }
@@ -254,10 +262,6 @@ Item {
         let result = []
         let seen = {}
 
-        // The signed roaming plan is the authoritative list of layers in this
-        // GeoFlow project. QField's QML API does not consistently expose
-        // qgisProject.mapLayers() as an enumerable JS object on all builds, so
-        // resolve the known names explicitly through mapLayersByName().
         if (managedLayerDescriptors && managedLayerDescriptors.length > 0) {
             for (let i = 0; i < managedLayerDescriptors.length; i++) {
                 let descriptor = managedLayerDescriptors[i] || {}
@@ -276,7 +280,6 @@ Item {
             if (result.length > 0) return result
         }
 
-        // Fallback for older packages before the first roaming-plan response.
         try {
             let rows = mapCanvas.mapSettings.layers
             for (let j = 0; j < rows.length; j++) {
@@ -526,6 +529,8 @@ Item {
             try { b.layer.geometryChanged.disconnect(b.geometry) } catch (err3) {}
             try { b.layer.featureDeleted.disconnect(b.deleted) } catch (err4) {}
             try { b.layer.editingStopped.disconnect(b.stopped) } catch (err5) {}
+            try { b.layer.editCommandEnded.disconnect(b.commandEnded) } catch (err6) {}
+            try { b.layer.afterCommitChanges.disconnect(b.committed) } catch (err7) {}
         }
         layerBindings = []
     }
@@ -561,7 +566,15 @@ Item {
             binding.deleted = function(fid) { geoflowField.captureDelete(binding, fid) }
             binding.stopped = function() {
                 geoflowField.refreshFidMap(binding)
-                geoflowField.syncNow(false)
+                geoflowField.syncNow(false, true)
+            }
+            binding.commandEnded = function() {
+                geoflowField.log(binding.standard + " edit command accepted")
+                editAcceptedSyncTimer.restart()
+            }
+            binding.committed = function() {
+                geoflowField.refreshFidMap(binding)
+                geoflowField.syncNow(false, true)
             }
             try {
                 layer.featureAdded.connect(binding.added)
@@ -569,6 +582,12 @@ Item {
                 layer.geometryChanged.connect(binding.geometry)
                 layer.featureDeleted.connect(binding.deleted)
                 layer.editingStopped.connect(binding.stopped)
+                try { layer.editCommandEnded.connect(binding.commandEnded) } catch (commandErr) {
+                    log(binding.standard + " editCommandEnded unavailable: " + commandErr)
+                }
+                try { layer.afterCommitChanges.connect(binding.committed) } catch (commitErr) {
+                    log(binding.standard + " afterCommitChanges unavailable: " + commitErr)
+                }
                 bindings.push(binding)
             } catch (err) {
                 log(binding.standard + " listener bind failed: " + err)
@@ -727,7 +746,7 @@ Item {
         xhr.send(JSON.stringify(payload))
     }
 
-    function syncNow(manual) {
+    function syncNow(manual, acceptedEdit) {
         if (syncInFlight || authBlocked) return
         if (!manual && nextRetryAtMs > 0 && Date.now() < nextRetryAtMs) return
         if (!configReady && !reloadProjectConfig()) {
@@ -735,7 +754,7 @@ Item {
             return
         }
         if (layerBindings.length === 0 && managedLayerDescriptors.length > 0) bindLayers()
-        if (hasUncommittedEdits()) {
+        if (hasUncommittedEdits() && !acceptedEdit) {
             if (manual) toast("현재 편집을 저장한 뒤 동기화하세요")
             return
         }
@@ -865,7 +884,7 @@ Item {
             if (bound === 0 && managedLayerDescriptors.length > 0) {
                 bindRetryTimer.restart()
             } else if (force) {
-                toast("GeoFlow Field 0.8 · 자동 동기화 준비 " + bound + "개 레이어")
+                toast("GeoFlow Field 0.9 · 자동 동기화 준비 " + bound + "개 레이어")
             }
 
             let state = projectState()
@@ -942,7 +961,7 @@ Item {
 
     function manualSync() {
         authBlocked = false
-        syncNow(true)
+        syncNow(true, true)
         scheduleRoaming(true)
     }
 
@@ -952,9 +971,9 @@ Item {
             return
         }
         updateUnsyncedCount(projectState())
-        toast("GeoFlow Field 0.8 연결됨 · 서버 레이어 확인 중")
+        toast("GeoFlow Field 0.9 연결됨 · 서버 레이어 확인 중")
         scheduleRoaming(true)
-        syncNow(false)
+        syncNow(false, false)
     }
 
     Component.onCompleted: {
@@ -964,6 +983,7 @@ Item {
     }
 
     Component.onDestruction: {
+        editAcceptedSyncTimer.stop()
         bindRetryTimer.stop()
         unbindLayers()
         try { iface.removeItemFromPluginsToolbar(syncButton) } catch (err) {}
