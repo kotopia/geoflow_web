@@ -24,16 +24,44 @@ _RESUME_CONNECTION = r'''    Connections {
     }
 
 '''
+_SYNC_RUNNING_OLD = "        running: geoflowField.unsyncedCount > 0\n"
+_SYNC_RUNNING_NEW = "        running: geoflowField.unsyncedCount > 0 && geoflowField.sessionAuthorized()\n"
+
+
+def _finalize_qml(text: str) -> str:
+    """Finalize foreground and retry behavior after persistent QML rendering."""
+
+    if "target: Qt.application" not in text:
+        if _RESUME_MARKER not in text:
+            raise RuntimeError("QField resume injection marker missing")
+        text = text.replace(_RESUME_MARKER, _RESUME_CONNECTION + _RESUME_MARKER, 1)
+
+    if _SYNC_RUNNING_OLD in text:
+        text = text.replace(_SYNC_RUNNING_OLD, _SYNC_RUNNING_NEW, 1)
+    elif _SYNC_RUNNING_NEW not in text:
+        raise RuntimeError("QField authenticated retry marker missing")
+
+    required = (
+        "target: Qt.application",
+        "Qt.ApplicationActive",
+        "claimPendingSession(false",
+        "sessionAuthorized()",
+        "running: geoflowField.unsyncedCount > 0 && geoflowField.sessionAuthorized()",
+    )
+    missing = [marker for marker in required if marker not in text]
+    if missing:
+        raise RuntimeError("QField resume runtime incomplete: " + ", ".join(missing))
+    return text
 
 
 def finalize_qfield_runtime_zip(zip_path: Path) -> Path:
-    """Add foreground-resume claim/delta behavior after persistent rendering.
+    """Add foreground handoff claim and prevent expired-session retry traffic.
 
-    Android MAIN launch restores the existing project on cold start. When QField
-    is already alive, MAIN simply brings it to the foreground; this connection
-    gives the already-loaded project plugin one chance to claim the handoff
-    staged by GeoFlow. It also performs one Delta check per foreground resume,
-    never a periodic poll.
+    Android MAIN restores the existing recent project on cold start. When
+    QField is already alive, MAIN simply brings it forward; the loaded project
+    then claims one handoff staged by GeoFlow. The retry timer remains disabled
+    while server authorization is expired, so offline edits cannot poll the
+    claim endpoint every three seconds.
     """
 
     source = Path(zip_path)
@@ -45,21 +73,7 @@ def finalize_qfield_runtime_zip(zip_path: Path) -> Path:
             for info in src.infolist():
                 data = src.read(info.filename)
                 if info.filename == f"{PROJECT_BASENAME}.qml":
-                    text = data.decode("utf-8")
-                    if "target: Qt.application" not in text:
-                        if _RESUME_MARKER not in text:
-                            raise RuntimeError("QField resume injection marker missing")
-                        text = text.replace(_RESUME_MARKER, _RESUME_CONNECTION + _RESUME_MARKER, 1)
-                    required = (
-                        "target: Qt.application",
-                        "Qt.ApplicationActive",
-                        "claimPendingSession(false",
-                        "sessionAuthorized()",
-                    )
-                    missing = [marker for marker in required if marker not in text]
-                    if missing:
-                        raise RuntimeError("QField resume runtime incomplete: " + ", ".join(missing))
-                    data = text.encode("utf-8")
+                    data = _finalize_qml(data.decode("utf-8")).encode("utf-8")
                 dst.writestr(info, data)
         os.replace(output, source)
         return source
