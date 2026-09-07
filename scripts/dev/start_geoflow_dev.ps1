@@ -63,7 +63,7 @@ function Resolve-AutoLanHost {
 function Test-GeoFlowPythonDependencies {
     param([string]$PythonExe)
 
-    & $PythonExe -c "import channels,daphne,django,openpyxl,psycopg2; print('python_dependencies=ready')" 2>$null
+    $null = & $PythonExe -c "import channels,daphne,django,openpyxl,psycopg2" 2>$null
     return ($LASTEXITCODE -eq 0)
 }
 
