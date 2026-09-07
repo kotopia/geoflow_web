@@ -50,7 +50,7 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         roaming_source = inspect.getsource(qfield_ticket_roaming_views._ticket_project_and_plan)
         changeset_source = inspect.getsource(qfield_sync_views._ticket_project_and_plan)
         self.assertIn('payload.get("project_id")', roaming_source)
-        self.assertIn('"maps.view"', roaming_source)
+        self.assertNotIn('"maps.view"', roaming_source)
         self.assertNotIn("project_access_policy", roaming_source)
         self.assertIn('payload.get("write_authorized")', changeset_source)
         self.assertNotIn("project_access_policy", changeset_source)
