@@ -18,6 +18,8 @@ QFIELD_TICKET_SALT = "geoflow.gis.qfield.project-session.v1"
 QFIELD_TICKET_MAX_AGE_SECONDS = 12 * 60 * 60
 QFIELD_HANDOFF_SALT = "geoflow.gis.qfield.session-handoff.v1"
 QFIELD_HANDOFF_MAX_AGE_SECONDS = 5 * 60
+QFIELD_CLAIM_SALT = "geoflow.gis.qfield.install-claim.v1"
+QFIELD_CLAIM_MAX_AGE_SECONDS = 180 * 24 * 60 * 60
 QFIELD_PACKAGE_IMPORT_SALT = "geoflow.gis.qfield.package-import.v1"
 QFIELD_PACKAGE_IMPORT_MAX_AGE_SECONDS = 5 * 60
 
@@ -63,12 +65,7 @@ def issue_qfield_ticket(
     perms,
     write_authorized: bool,
 ) -> str:
-    """Issue one non-renewing QField access ticket.
-
-    QField itself cannot extend this ticket. When it expires, a user must
-    authenticate in GeoFlow again and explicitly launch the project to obtain
-    a new ticket through a short-lived handoff.
-    """
+    """Issue one non-renewing QField access ticket."""
 
     if not qfield_ticket_runtime_enabled():
         raise RuntimeError("QField project tickets are disabled outside strict development runtime")
@@ -96,11 +93,7 @@ def issue_qfield_handoff_token(
     perms,
     write_authorized: bool,
 ) -> str:
-    """Issue a five-minute browser-authenticated handoff token.
-
-    This token cannot access GIS endpoints directly. It can only be exchanged
-    once the user has authenticated in GeoFlow and pressed "QField에서 열기".
-    """
+    """Issue a five-minute browser-authenticated handoff token."""
 
     if not qfield_ticket_runtime_enabled():
         raise RuntimeError("QField handoff tickets are disabled outside strict development runtime")
@@ -116,6 +109,36 @@ def issue_qfield_handoff_token(
     payload["write_authorized"] = bool(write_authorized)
     payload["purpose"] = "qfield_session_handoff"
     return signing.dumps(payload, salt=QFIELD_HANDOFF_SALT, compress=True)
+
+
+def issue_qfield_claim_token(
+    *,
+    project_id: str,
+    alias: str,
+    group_id: str,
+    user_id: str,
+    email: str,
+) -> str:
+    """Issue a long-lived install identity which grants no GIS access by itself.
+
+    The claim credential can only consume a five-minute pending handoff which
+    the same user explicitly staged from an authenticated GeoFlow browser.
+    It cannot authenticate roaming, delta, or Changeset endpoints directly.
+    """
+
+    if not qfield_ticket_runtime_enabled():
+        raise RuntimeError("QField claim credentials are disabled outside strict development runtime")
+    payload = _identity_payload(
+        project_id=project_id,
+        alias=alias,
+        group_id=group_id,
+        user_id=user_id,
+        email=email,
+        roles=[],
+        perms=[],
+    )
+    payload["purpose"] = "qfield_install_claim"
+    return signing.dumps(payload, salt=QFIELD_CLAIM_SALT, compress=True)
 
 
 def issue_qfield_package_import_token(
@@ -184,6 +207,18 @@ def parse_qfield_handoff_token(token: str, *, project_id: str) -> dict | None:
         max_age=QFIELD_HANDOFF_MAX_AGE_SECONDS,
     )
     if payload is None or payload.get("purpose") != "qfield_session_handoff":
+        return None
+    return payload
+
+
+def parse_qfield_claim_token(token: str, *, project_id: str) -> dict | None:
+    payload = _parse_identity_token(
+        token,
+        project_id=project_id,
+        salt=QFIELD_CLAIM_SALT,
+        max_age=QFIELD_CLAIM_MAX_AGE_SECONDS,
+    )
+    if payload is None or payload.get("purpose") != "qfield_install_claim":
         return None
     return payload
 
@@ -282,8 +317,7 @@ def hydrate_qfield_ticket_request(request, *, project_id: str, require_write: bo
     return payload
 
 
-def hydrate_qfield_handoff_request(request, *, project_id: str) -> dict | None:
-    token = bearer_token_from_request(request)
+def hydrate_qfield_handoff_token(request, *, project_id: str, token: str) -> dict | None:
     payload = parse_qfield_handoff_token(token, project_id=project_id)
     if payload is None:
         return None
@@ -292,6 +326,14 @@ def hydrate_qfield_handoff_request(request, *, project_id: str) -> dict | None:
         return None
     request._qfield_handoff_payload = payload
     return payload
+
+
+def hydrate_qfield_handoff_request(request, *, project_id: str) -> dict | None:
+    return hydrate_qfield_handoff_token(
+        request,
+        project_id=project_id,
+        token=bearer_token_from_request(request),
+    )
 
 
 def hydrate_qfield_package_import_request(request, *, project_id: str) -> dict | None:
