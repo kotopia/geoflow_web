@@ -16,6 +16,8 @@ from control.tenant_connections import ensure_tenant_connection_for_session
 
 QFIELD_TICKET_SALT = "geoflow.gis.qfield.project-session.v1"
 QFIELD_TICKET_MAX_AGE_SECONDS = 12 * 60 * 60
+QFIELD_REFRESH_SALT = "geoflow.gis.qfield.project-refresh.v1"
+QFIELD_REFRESH_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 QFIELD_PACKAGE_IMPORT_SALT = "geoflow.gis.qfield.package-import.v1"
 QFIELD_PACKAGE_IMPORT_MAX_AGE_SECONDS = 5 * 60
 
@@ -24,7 +26,8 @@ def qfield_ticket_runtime_enabled() -> bool:
     """Keep native-device bearer auth confined to the isolated GIS dev runtime.
 
     Production QField authentication needs a separately reviewed revocable
-    device/session design. This ticket is for the current QField PoC only.
+    device/session design. These signed tickets are for the current strict
+    development runtime only.
     """
 
     return bool(settings.DEBUG and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1")
@@ -80,6 +83,42 @@ def issue_qfield_ticket(
     return signing.dumps(payload, salt=QFIELD_TICKET_SALT, compress=True)
 
 
+def issue_qfield_refresh_token(
+    *,
+    project_id: str,
+    alias: str,
+    group_id: str,
+    user_id: str,
+    email: str,
+    roles,
+    perms,
+    write_authorized: bool,
+) -> str:
+    """Issue a project-scoped reconnect credential for a persistent QField install.
+
+    The refresh token never grants access directly to GIS APIs. It only allows
+    the native QField project to obtain a fresh short-lived access ticket after
+    current central membership is revalidated. It is intentionally restricted
+    to the strict development runtime until a revocable production device
+    session store is reviewed.
+    """
+
+    if not qfield_ticket_runtime_enabled():
+        raise RuntimeError("QField refresh tickets are disabled outside strict development runtime")
+    payload = _identity_payload(
+        project_id=project_id,
+        alias=alias,
+        group_id=group_id,
+        user_id=user_id,
+        email=email,
+        roles=roles,
+        perms=perms,
+    )
+    payload["write_authorized"] = bool(write_authorized)
+    payload["purpose"] = "qfield_project_refresh"
+    return signing.dumps(payload, salt=QFIELD_REFRESH_SALT, compress=True)
+
+
 def issue_qfield_package_import_token(
     *,
     project_id: str,
@@ -93,9 +132,9 @@ def issue_qfield_package_import_token(
     """Issue a purpose-limited URL token for QField's native import flow.
 
     QField's qfield://local?import=... handoff fetches the ZIP itself and cannot
-    reuse the browser session cookie.  This short-lived token authorizes only
-    package materialization; the imported project receives its own normal
-    project-scoped QField bearer ticket.
+    reuse the browser session cookie. This short-lived token authorizes only
+    package materialization; the imported project receives its own access and
+    refresh credentials.
     """
 
     if not qfield_ticket_runtime_enabled():
@@ -142,6 +181,18 @@ def parse_qfield_ticket(token: str, *, project_id: str) -> dict | None:
         salt=QFIELD_TICKET_SALT,
         max_age=QFIELD_TICKET_MAX_AGE_SECONDS,
     )
+
+
+def parse_qfield_refresh_token(token: str, *, project_id: str) -> dict | None:
+    payload = _parse_identity_token(
+        token,
+        project_id=project_id,
+        salt=QFIELD_REFRESH_SALT,
+        max_age=QFIELD_REFRESH_MAX_AGE_SECONDS,
+    )
+    if payload is None or payload.get("purpose") != "qfield_project_refresh":
+        return None
+    return payload
 
 
 def parse_qfield_package_import_token(token: str, *, project_id: str) -> dict | None:
@@ -235,6 +286,17 @@ def hydrate_qfield_ticket_request(request, *, project_id: str, require_write: bo
     if payload is None:
         return None
     request._qfield_ticket_payload = payload
+    return payload
+
+
+def hydrate_qfield_refresh_request(request, *, project_id: str, token: str) -> dict | None:
+    payload = parse_qfield_refresh_token(token, project_id=project_id)
+    if payload is None:
+        return None
+    payload = _hydrate_identity_request(request, payload)
+    if payload is None:
+        return None
+    request._qfield_refresh_payload = payload
     return payload
 
 
