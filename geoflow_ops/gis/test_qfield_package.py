@@ -81,8 +81,6 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn("function resetRoamingStateForFreshTicket()", text)
         self.assertIn("function reloadProjectConfig()", text)
         self.assertIn("function onLoadProjectEnded", text)
-        self.assertIn('readProjectEntry("GeoFlow", "/" + key', text)
-        self.assertIn("bootstrapTimer.restart()", text)
         self.assertNotIn("QfLayerUtils", text)
         self.assertNotIn("QfGeometryUtils", text)
         self.assertNotIn("QfFeatureUtils", text)
@@ -107,22 +105,28 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn('if (xhr.status >= 500)', text)
         self.assertIn("server read unavailable; roaming will retry on next timer", text)
 
-    def test_persistent_runtime_refreshes_auth_and_protects_stale_packages(self):
+    def test_persistent_runtime_requires_explicit_handoff_and_sparse_roaming(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         rendered = _render_qfield_plugin(path)
         text = _inject_qml_persistent_session(rendered)
+        self.assertEqual(QFIELD_PERSISTENT_PROTOCOL_VERSION, "1.1")
         self.assertIn("GeoFlowFieldAuth/", text)
-        self.assertIn("function refreshSession(callback, quiet)", text)
-        self.assertIn("qfield_session_refresh_url", text)
-        self.assertIn("qfield_schema_fingerprint", text)
-        self.assertIn("packageUpdateRequired", text)
-        self.assertIn("if (packageUpdateRequired)", text)
+        self.assertIn("function sessionAuthorized()", text)
+        self.assertIn("function exchangeHandoff(handoffToken, callback)", text)
+        self.assertIn("qfield_session_handoff_url", text)
+        self.assertIn("qfield_access_expires_at_ms", text)
+        self.assertIn("explicit GeoFlow handoff required", text)
         self.assertIn("function handleExternalAction(action)", text)
         self.assertIn("qfield://geoflow", text)
-        self.assertIn("access ticket expired during changeset", text)
-        self.assertIn("syncNow(false, true)", text)
+        self.assertIn("if (pos && !moved) return", text)
+        self.assertIn("else if (viewport)", text)
+        self.assertIn("new QField install contract detected", text)
+        self.assertNotIn("refreshToken", text)
+        self.assertNotIn("sessionRefreshTimer", text)
+        self.assertNotIn("refreshSession(", text)
+        self.assertNotIn("bearerToken.slice(-24)", text)
 
-    def test_persistent_qgs_metadata_is_project_stable(self):
+    def test_persistent_qgs_metadata_has_explicit_access_expiry_not_refresh_secret(self):
         xml = _qgs_xml(
             project={"id": self.project_id, "code": "GIS-DEV-001", "name": "GIS DEV"},
             layers=[],
@@ -135,28 +139,30 @@ class QFieldPackageContractTests(SimpleTestCase):
         install_id = qfield_install_id(self.project_id)
         persistent = _inject_qgs_persistent_metadata(
             xml,
-            refresh_token="refresh-ticket",
-            session_refresh_url=f"/gis/projects/{self.project_id}/api/qfield/session-refresh/",
+            session_handoff_url=f"/gis/projects/{self.project_id}/api/qfield/session-handoff/",
+            access_expires_at_ms=1234567890000,
             schema_fingerprint="abc123",
             install_id=install_id,
         )
         self.assertEqual(install_id, f"geoflow-{self.project_id}")
-        self.assertIn("refresh-ticket", persistent)
-        self.assertIn("qfield_session_refresh_url", persistent)
+        self.assertIn("qfield_session_handoff_url", persistent)
+        self.assertIn("qfield_access_expires_at_ms", persistent)
+        self.assertIn("1234567890000", persistent)
         self.assertIn("abc123", persistent)
         self.assertIn(install_id, persistent)
         self.assertIn(QFIELD_PERSISTENT_PROTOCOL_VERSION, persistent)
+        self.assertNotIn("qfield_refresh_token", persistent)
 
     def test_qfield_routes_are_project_scoped(self):
         package_url = reverse("gis:qfield_package_api", kwargs={"project_id": self.project_id})
         import_url = reverse("gis:qfield_package_import_api", kwargs={"project_id": self.project_id})
         status_url = reverse("gis:qfield_install_status_api", kwargs={"project_id": self.project_id})
-        refresh_url = reverse("gis:qfield_session_refresh_api", kwargs={"project_id": self.project_id})
+        handoff_url = reverse("gis:qfield_session_handoff_api", kwargs={"project_id": self.project_id})
         delta_url = reverse("gis:qfield_device_delta_api", kwargs={"project_id": self.project_id})
         changeset_url = reverse("gis:qfield_device_changeset_api", kwargs={"project_id": self.project_id})
         self.assertEqual(package_url, f"/gis/projects/{self.project_id}/api/qfield/package/")
         self.assertEqual(import_url, f"/gis/projects/{self.project_id}/api/qfield/package-import/")
         self.assertEqual(status_url, f"/gis/projects/{self.project_id}/api/qfield/install-status/")
-        self.assertEqual(refresh_url, f"/gis/projects/{self.project_id}/api/qfield/session-refresh/")
+        self.assertEqual(handoff_url, f"/gis/projects/{self.project_id}/api/qfield/session-handoff/")
         self.assertEqual(delta_url, f"/gis/projects/{self.project_id}/api/qfield/delta/")
         self.assertEqual(changeset_url, f"/gis/projects/{self.project_id}/api/qfield/changesets/")
