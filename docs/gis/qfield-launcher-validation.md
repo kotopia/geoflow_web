@@ -207,3 +207,21 @@ promise automatic server-to-QField updates while idle. Manual sync retrieves
 server deltas. Local full-feature polling and initial per-layer requests remain
 scaling considerations, even without periodic network uploads. This audit is not
 a load test and does not establish concurrent-user capacity.
+
+### Import redirected to HTML after an existing native session
+
+The 18:35:13 device test returned package-import 302 → /control/ 302 → /login/
+200; QField then opened Imported Datasets/_3. rather than geoflow-field.qgs.
+A native cookie jar can retain tenant session state without a Django browser
+login. Both browser tenant freshness and tenant connection routing must defer
+this exact GET package-import route (with token) to its view's signed-token
+hydration. Token presence alone never grants access. Invalid tokens receive 401;
+project scope, current membership and maps.view remain enforced by the view.
+Other browser/package routes retain the browser guards.
+
+ADB no-device/unauthorized messages mean force-stop and backup did not succeed.
+Do not delete further projects based on an empty backup directory. Unlock phone,
+accept USB debugging authorization, and verify `adb devices` reports `device`
+before backup/capture. ADB failure does not explain this HTTP redirect.
+After server update, retry explicit import once, then require package-import
+200 with a ZIP and a QField geoflow-field.qgs load before repeated-open tests.

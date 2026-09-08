@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Optional
 import threading
+import re
 
 from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
@@ -39,6 +40,25 @@ def _is_native_qfield_bearer_request(request: HttpRequest) -> bool:
         return False
     authorization = str(request.headers.get("Authorization") or "").strip()
     return authorization.lower().startswith("bearer ")
+
+
+def _is_native_qfield_import_request(request: HttpRequest) -> bool:
+    """Defer only the native GET import route to its signed-token validator.
+
+    QField's cookie jar can contain tenant state without a Django browser login.
+    Token presence is NOT authorization: the view checks signature, expiry,
+    project identity, current membership, and map/project permissions before ZIP.
+    Invalid tokens must reach that validator and return 401, not login HTML.
+    """
+    return (
+        request.method == "GET"
+        and re.fullmatch(
+            r"/gis/projects/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/api/qfield/package-import/",
+            str(getattr(request, "path", "") or ""),
+        ) is not None
+        and bool(request.GET.get("token"))
+    )
 
 
 class CentralAccountActiveGuardMiddleware:
@@ -235,8 +255,8 @@ class TenantMembershipFreshnessGuardMiddleware:
         # inside the target view. It intentionally has no Django browser login,
         # so applying browser-session freshness here produces a false 403 after
         # the first successful roaming-plan request has created a session cookie.
-        if _is_native_qfield_bearer_request(request):
-            logger.debug("QField bearer request bypasses browser tenant freshness guard: %s", path)
+        if _is_native_qfield_bearer_request(request) or _is_native_qfield_import_request(request):
+            logger.debug("QField request defers browser tenant freshness to API authentication: %s", path)
             return self.get_response(request)
 
         central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
@@ -312,7 +332,7 @@ class TenantMiddleware:
         # Native QField bearer requests establish their exact tenant context only
         # after the signed ticket has been verified inside the view decorator.
         # Do not pre-route them from a stale/non-browser session cookie here.
-        if _is_native_qfield_bearer_request(request):
+        if _is_native_qfield_bearer_request(request) or _is_native_qfield_import_request(request):
             _set_threadlocal(central_alias, True, None)
             logger.debug("MW: deferred native QField tenant resolution")
             return self.get_response(request)
