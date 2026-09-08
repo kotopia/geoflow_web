@@ -28,7 +28,6 @@ from .qgis_sync import SyncConflict, SyncRejected
 
 
 _QFIELD_CHANGESET_PROTOCOL = "geoflow_qfield_changeset_v2"
-_QFIELD_DELETE_ENABLED = False
 
 
 def _parse_timestamp(value: Any) -> dt.datetime | None:
@@ -71,7 +70,7 @@ def _latest_feature_revision(alias: str, project_id: str, standard_name: str, ob
     return int(row[0]) if row and row[0] is not None else 0
 
 
-def _ticket_project_and_plan(request, alias: str, project_id):
+def _ticket_project_and_plan(request, alias: str, project_id, *, require_write: bool = True):
     payload = getattr(request, "_qfield_ticket_payload", None) or {}
     try:
         ticket_project_id = str(uuid.UUID(str(payload.get("project_id"))))
@@ -80,7 +79,7 @@ def _ticket_project_and_plan(request, alias: str, project_id):
         raise SyncRejected("QField ticket project scope is invalid") from exc
     if ticket_project_id != requested_project_id:
         raise SyncRejected("QField ticket project scope mismatch")
-    if not bool(payload.get("write_authorized")):
+    if require_write and not bool(payload.get("write_authorized")):
         raise SyncRejected("QField ticket is read-only")
 
     project = get_object_or_404(Project.objects.using(alias), id=project_id)
@@ -231,23 +230,6 @@ def qfield_device_changeset_api(request, project_id):
             {"ok": False, "error": "invalid_geometry_wkt", "message": str(exc)},
             status=400,
         )
-
-    if not _QFIELD_DELETE_ENABLED:
-        delete_items = [
-            raw
-            for raw in (payload.get("changes") or [])
-            if isinstance(raw, dict) and str(raw.get("action") or "").lower() == "delete"
-        ]
-        if delete_items:
-            return JsonResponse(
-                {
-                    "ok": False,
-                    "error": "qfield_delete_not_enabled",
-                    "message": "QField delete sync is temporarily disabled while the field polling bridge is under validation.",
-                    "count": len(delete_items),
-                },
-                status=400,
-            )
 
     try:
         with transaction.atomic(using=alias):

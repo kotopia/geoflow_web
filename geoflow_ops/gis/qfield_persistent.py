@@ -414,6 +414,9 @@ def _inject_qml_persistent_session(text: str) -> str:
     function applyDeltaChange(row, state) {
         if (!row) return true
         if (String(row.client_id || "") === String(state.client_id || "")) return true
+        // Relation changes share the project revision stream but do not map to
+        // a geometry layer. The field-link UI will consume them separately.
+        if (String(row.resource_kind || "feature") === "relation") return true
         let layer = deltaLayer(row)
         if (!layer) {
             log("delta layer missing " + String(row.layer || row.physical_name || ""))

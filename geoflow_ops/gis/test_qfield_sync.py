@@ -40,6 +40,16 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         match = resolve(url)
         self.assertIs(match.func, qfield_sync_views.qfield_device_changeset_api)
 
+    def test_qfield_explicit_delete_contract_is_enabled(self):
+        path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("layer.featureDeleted.connect(binding.deleted)", text)
+        self.assertIn("function captureDelete(binding, fid)", text)
+        self.assertIn('action: "delete"', text)
+        self.assertIn("function reconcilePendingDeletes(state)", text)
+        self.assertIn("reconcilePendingDeletes(state)", text)
+        self.assertNotIn("qfield_delete_not_enabled", inspect.getsource(qfield_sync_views))
+
     def test_qfield_roaming_cell_route_uses_ticket_scoped_endpoint(self):
         url = reverse("gis:qfield_roaming_cell_api", kwargs={"project_id": self.project_id})
         match = resolve(url)

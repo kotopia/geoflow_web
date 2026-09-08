@@ -102,6 +102,9 @@ jobs:
             geoflow_ops.test_event_upload_route_boundaries \
             geoflow_ops.test_s3_default_credential_chain
 
+      - name: GIS common foundation contract regression
+        run: python scripts/ci/run_gis_unit_tests.py
+
       - name: Strict repository release preflight
         run: python manage.py check_release_preflight --strict
 

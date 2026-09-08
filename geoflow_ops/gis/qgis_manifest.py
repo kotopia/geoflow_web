@@ -5,7 +5,7 @@ from typing import Any
 from .events import realtime_runtime_enabled
 
 
-QGIS_MANIFEST_VERSION = "0.8"
+QGIS_MANIFEST_VERSION = "0.9"
 QGIS_TRANSPORT_MODE = "server_gpkg_editable_snapshot"
 
 
@@ -25,6 +25,8 @@ def build_qgis_manifest(
     current_revision: int = 0,
     realtime_supported: bool | None = None,
     reference_catalog_url: str = "",
+    survey_links_url: str = "",
+    survey_link_changeset_url: str = "",
 ) -> dict[str, Any]:
     """Build the server-authoritative QGIS GeoPackage manifest."""
 
@@ -60,6 +62,12 @@ def build_qgis_manifest(
         reference_catalog_url
         or f"/gis/projects/{project_id}/api/reference-catalog/"
     )
+    effective_survey_links_url = survey_links_url or f"/gis/projects/{project_id}/api/survey-links/"
+    effective_survey_link_changeset_url = (
+        (survey_link_changeset_url or f"/gis/projects/{project_id}/api/survey-link-changesets/")
+        if effective_changeset
+        else ""
+    )
 
     return {
         "manifest_version": QGIS_MANIFEST_VERSION,
@@ -90,6 +98,9 @@ def build_qgis_manifest(
             "reference_catalog_url": effective_reference_catalog_url,
             "reference_catalog_source": "gis",
             "reference_values_embedded": False,
+            "survey_link_supported": bool(effective_changeset and effective_survey_link_changeset_url),
+            "survey_links_url": effective_survey_links_url,
+            "survey_link_changeset_url": effective_survey_link_changeset_url,
             "write_authorized": bool(can_write),
             "note": (
                 "The v1 operating model is field-level Changeset write + revision Delta read. "

@@ -152,6 +152,30 @@ Last-write-wins is acceptable only with durable server history. Each committed o
 - actor reference when available;
 - timestamp.
 
+### Survey-to-feature lineage
+
+`gis.survey_link` is a non-spatial relation in the same project revision stream.
+Its API uses a separate `survey_link_changeset_v1` payload because a relation has
+no geometry and must not be materialized as a GIS feature layer.
+
+- create validates that both the survey and the target facility belong to the
+  requested project;
+- the target layer must be enabled by the current Layer Plan;
+- duplicate link UUIDs and duplicate survey/layer/target tuples are conflicts;
+- unlink is an explicit `delete` action and is revisioned/audited;
+- deleting a linked survey or facility is rejected until its links are explicitly
+  removed, preventing silent cascades and orphan lineage;
+- Delta rows identify these entries with `resource_kind=relation`; clients without
+  a link UI ignore the payload while still advancing the contiguous revision cursor.
+
+Session-authenticated QGIS/Web clients use:
+
+- `GET /gis/projects/{project_id}/api/survey-links/`
+- `POST /gis/projects/{project_id}/api/survey-link-changesets/`
+
+QField uses the equivalent `/api/qfield/` routes with the same signed,
+project-scoped bearer ticket as its feature Changeset transport.
+
 ## 11. Transition from the current MVP
 
 Current MVP behavior uploads a complete GeoPackage and computes a server-side diff. It has proven project authorization, editable local GeoPackage operation, save-triggered sync, and PostGIS persistence, but it is not the final high-volume transport.

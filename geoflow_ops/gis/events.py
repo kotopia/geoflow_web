@@ -38,6 +38,7 @@ def build_project_change_event(result: dict[str, Any]) -> dict[str, Any] | None:
                 "action": str(row.get("action") or ""),
                 "layer": str(row.get("layer") or ""),
                 "id": str(uuid.UUID(str(row.get("id")))),
+                "resource_kind": str(row.get("resource_kind") or "feature"),
             }
         )
 

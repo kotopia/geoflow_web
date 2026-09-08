@@ -690,6 +690,7 @@ def project_delta(
                 "physical_name": str(row[4]),
                 "id": str(row[5]),
                 "action": str(row[6]),
+                "resource_kind": "relation" if str(row[4]) == "survey_link" else "feature",
                 "changed_fields": changed_fields,
                 "attributes": new_values,
                 "geometry_wkb": row[9] or None,

@@ -38,7 +38,7 @@ class QFieldPackageContractTests(SimpleTestCase):
 
     def test_package_versions_force_snapshot_delta_upgrade(self):
         self.assertEqual(QFIELD_PACKAGE_VERSION, "1.0")
-        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.8")
+        self.assertEqual(QFIELD_PLUGIN_RUNTIME_VERSION, "0.9.18")
         self.assertEqual(QFIELD_PERSISTENT_PROTOCOL_VERSION, "1.2")
         xml = self._qgs()
         self.assertIn("./geoflow-field.gpkg|layername=doro", xml)
@@ -66,7 +66,7 @@ class QFieldPackageContractTests(SimpleTestCase):
     def test_rendered_base_keeps_qfield_42_property_compatibility(self):
         path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
         text = _render_qfield_plugin(path)
-        self.assertIn("GeoFlow Field 0.9.8", text)
+        self.assertIn("GeoFlow Field 0.9.18", text)
         self.assertIn("function captureFocusedFeatureForManualSync()", text)
         self.assertIn("manual sync using last edited feature", text)
         self.assertIn("let geometry = feature.geometry", text)
@@ -88,6 +88,7 @@ class QFieldPackageContractTests(SimpleTestCase):
         self.assertIn("function claimPendingSession(showMessage, callback)", text)
         self.assertIn("function pullDelta(manual)", text)
         self.assertIn("function applyDeltaChange(row, state)", text)
+        self.assertIn('String(row.resource_kind || "feature") === "relation"', text)
         self.assertIn("qfield_claim_token", text)
         self.assertIn("qfield_session_claim_url", text)
         self.assertIn("qfield_delta_url", text)

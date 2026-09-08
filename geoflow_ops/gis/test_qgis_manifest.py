@@ -45,7 +45,7 @@ class QgisManifestTests(SimpleTestCase):
             realtime_supported=True,
         )
 
-        self.assertEqual(manifest["manifest_version"], "0.7")
+        self.assertEqual(manifest["manifest_version"], "0.9")
         self.assertEqual(manifest["transport"]["mode"], "server_gpkg_editable_snapshot")
         self.assertFalse(manifest["transport"]["direct_postgis_credentials_exposed"])
         self.assertTrue(manifest["transport"]["local_editing_supported"])
@@ -69,6 +69,11 @@ class QgisManifestTests(SimpleTestCase):
         self.assertEqual(
             manifest["transport"]["delta_url"],
             "/gis/projects/x/api/delta/",
+        )
+        self.assertTrue(manifest["transport"]["survey_link_supported"])
+        self.assertEqual(
+            manifest["transport"]["survey_links_url"],
+            "/gis/projects/11111111-1111-4111-8111-111111111402/api/survey-links/",
         )
         self.assertTrue(manifest["transport"]["realtime_supported"])
         self.assertEqual(

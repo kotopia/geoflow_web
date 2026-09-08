@@ -192,6 +192,14 @@ def qgis_project_manifest_api(request, project_id):
         "gis:project_delta_api",
         kwargs={"project_id": project.id},
     )
+    survey_links_url = reverse(
+        "gis:project_survey_links_api",
+        kwargs={"project_id": project.id},
+    )
+    survey_link_changeset_url = reverse(
+        "gis:project_survey_link_changeset_api",
+        kwargs={"project_id": project.id},
+    )
     changeset_supported = changeset_runtime_enabled(alias)
     manifest = build_qgis_manifest(
         project={
@@ -215,6 +223,8 @@ def qgis_project_manifest_api(request, project_id):
             if changeset_supported
             else 0
         ),
+        survey_links_url=survey_links_url,
+        survey_link_changeset_url=survey_link_changeset_url,
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
 

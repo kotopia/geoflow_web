@@ -903,6 +903,7 @@ Item {
     }
 
     function makeOutbox(state) {
+        reconcilePendingDeletes(state)
         let keys = Object.keys(state.pending || {})
         if (keys.length === 0) return null
         let changes = []
@@ -919,6 +920,33 @@ Item {
         state.pending = {}
         saveProjectState(state)
         return payload
+    }
+
+    function reconcilePendingDeletes(state) {
+        let pending = state.pending || {}
+        let changed = false
+        for (let key of Object.keys(pending)) {
+            let change = pending[key]
+            if (!change || change.action !== "delete") continue
+            let binding = null
+            for (let item of layerBindings) {
+                if (String(item.standard || "") === String(change.layer || "")) {
+                    binding = item
+                    break
+                }
+            }
+            // Reaching syncNow means the edit buffer is committed or rolled
+            // back. If the UUID exists again, the delete was cancelled.
+            if (binding && featureByObjectId(binding.layer, canonicalUuid(change.id))) {
+                delete pending[key]
+                changed = true
+                log("cancelled uncommitted delete " + String(change.layer) + " " + String(change.id))
+            }
+        }
+        if (changed) {
+            state.pending = pending
+            saveProjectState(state)
+        }
     }
 
     function scheduleRetry() {

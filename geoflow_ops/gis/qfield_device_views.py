@@ -295,6 +295,14 @@ def qfield_bootstrap_api(request, project_id):
                     "gis:qfield_device_changeset_api",
                     kwargs={"project_id": project.id},
                 ),
+                "survey_links_url": reverse(
+                    "gis:qfield_survey_links_api",
+                    kwargs={"project_id": project.id},
+                ),
+                "survey_link_changeset_url": reverse(
+                    "gis:qfield_survey_link_changeset_api",
+                    kwargs={"project_id": project.id},
+                ),
             },
             "sync": {
                 "write_authorized": write_authorized,

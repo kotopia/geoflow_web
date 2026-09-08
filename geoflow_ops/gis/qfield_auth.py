@@ -25,9 +25,12 @@ QFIELD_PACKAGE_IMPORT_MAX_AGE_SECONDS = 5 * 60
 
 
 def qfield_ticket_runtime_enabled() -> bool:
-    """Keep native-device auth confined to the isolated GIS dev runtime."""
+    """Enable native auth only in strict dev or an explicit production pilot."""
 
-    return bool(settings.DEBUG and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1")
+    return bool(
+        (settings.DEBUG and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1")
+        or os.getenv("GEOFLOW_GIS_PILOT_ENABLED") == "1"
+    )
 
 
 def _identity_payload(

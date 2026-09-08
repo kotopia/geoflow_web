@@ -14,6 +14,7 @@ from . import (
     realtime_views,
     reference_views,
     sync_views,
+    survey_link_views,
     views,
 )
 
@@ -29,6 +30,8 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/features/", realtime_views.project_feature_batch_api, name="project_feature_batch_api"),
     path("projects/<uuid:project_id>/api/changesets/", sync_views.project_changeset_api, name="project_changeset_api"),
     path("projects/<uuid:project_id>/api/delta/", sync_views.project_delta_api, name="project_delta_api"),
+    path("projects/<uuid:project_id>/api/survey-links/", survey_link_views.project_survey_links_api, name="project_survey_links_api"),
+    path("projects/<uuid:project_id>/api/survey-link-changesets/", survey_link_views.project_survey_link_changeset_api, name="project_survey_link_changeset_api"),
     path("projects/<uuid:project_id>/api/reference-catalog/", reference_views.qgis_reference_catalog_api, name="project_reference_catalog_api"),
     path("projects/<uuid:project_id>/api/qfield/bootstrap/", qfield_device_views.qfield_bootstrap_api, name="qfield_bootstrap_api"),
     path("projects/<uuid:project_id>/api/qfield/install-status/", qfield_package_views.qfield_install_status_api, name="qfield_install_status_api"),
@@ -41,6 +44,8 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/qfield/reference-catalog/", reference_views.qfield_reference_catalog_api, name="qfield_reference_catalog_api"),
     path("projects/<uuid:project_id>/api/qfield/delta/", qfield_device_views.qfield_device_delta_api, name="qfield_device_delta_api"),
     path("projects/<uuid:project_id>/api/qfield/changesets/", qfield_sync_views.qfield_device_changeset_api, name="qfield_device_changeset_api"),
+    path("projects/<uuid:project_id>/api/qfield/survey-links/", survey_link_views.qfield_survey_links_api, name="qfield_survey_links_api"),
+    path("projects/<uuid:project_id>/api/qfield/survey-link-changesets/", survey_link_views.qfield_survey_link_changeset_api, name="qfield_survey_link_changeset_api"),
     path("projects/<uuid:project_id>/api/qgis-manifest/", qgis_views.qgis_project_manifest_api, name="qgis_project_manifest_api"),
     path("projects/<uuid:project_id>/api/qgis-package/", qgis_views.qgis_project_package_api, name="qgis_project_package_api"),
     path("projects/<uuid:project_id>/api/qgis-realtime-ticket/", realtime_ticket_views.qgis_project_realtime_ticket_api, name="qgis_project_realtime_ticket_api"),

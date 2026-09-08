@@ -48,14 +48,28 @@ class SyncOperation:
 
 
 def sync_runtime_enabled(alias: str) -> bool:
-    if not settings.DEBUG or os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") != "1":
-        return False
     try:
         db_name = str(connections[alias].settings_dict.get("NAME") or "")
     except Exception:
         return False
     lowered = db_name.lower()
-    return "dev" in lowered or "test" in lowered
+    if (
+        settings.DEBUG
+        and os.getenv("GEOFLOW_DEV_RUNTIME_STRICT") == "1"
+        and ("dev" in lowered or "test" in lowered)
+    ):
+        return True
+
+    # Production remains fail-closed. Enabling the pilot globally is not
+    # sufficient: the exact physical tenant DB name must also be allow-listed.
+    if os.getenv("GEOFLOW_GIS_PILOT_ENABLED") != "1":
+        return False
+    allowed = {
+        value.strip().lower()
+        for value in os.getenv("GEOFLOW_GIS_PILOT_DATABASES", "").split(",")
+        if value.strip()
+    }
+    return bool(lowered and lowered in allowed)
 
 
 def _quote_ident(value: str) -> str:
@@ -346,6 +360,30 @@ def _table_has_column(alias: str, physical_name: str, column_name: str) -> bool:
         return bool(cursor.fetchone()[0])
 
 
+def _dependent_survey_link_count(alias: str, op: SyncOperation) -> int:
+    """Protect explicit survey lineage across every delete transport."""
+    with connections[alias].cursor() as cursor:
+        cursor.execute("SELECT to_regclass('gis.survey_link') IS NOT NULL")
+        if not bool(cursor.fetchone()[0]):
+            return 0
+        if str(op.standard_name).upper() == "SURVEY":
+            cursor.execute(
+                "SELECT count(*) FROM gis.survey_link WHERE survey_id=%s",
+                [op.object_id],
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT count(*)
+                  FROM gis.survey_link sl
+                  JOIN gis.meta_feature_type ft ON ft.id=sl.feature_type_id
+                 WHERE ft.physical_name=%s AND sl.target_id=%s
+                """,
+                [op.table, op.object_id],
+            )
+        return int(cursor.fetchone()[0])
+
+
 def _collect_operations(
     alias: str,
     *,
@@ -473,9 +511,18 @@ def _collect_operations(
 
 def _apply_operation(alias: str, project_id: str, op: SyncOperation) -> None:
     table = _quote_ident(op.table)
-    has_updated_at = _table_has_column(alias, op.table, "updated_at")
 
     if op.action == "delete":
+        dependent_count = _dependent_survey_link_count(alias, op)
+        if dependent_count:
+            raise SyncConflict(
+                [{
+                    "layer": op.standard_name,
+                    "id": op.object_id,
+                    "reason": "survey_links_exist",
+                    "link_count": dependent_count,
+                }]
+            )
         with connections[alias].cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM \"gis\".{table} WHERE project_id=%s AND id=%s",
@@ -505,6 +552,7 @@ def _apply_operation(alias: str, project_id: str, op: SyncOperation) -> None:
         return
 
     if op.action == "update":
+        has_updated_at = _table_has_column(alias, op.table, "updated_at")
         assignments: list[str] = []
         params = []
         for name, value in op.attributes.items():
