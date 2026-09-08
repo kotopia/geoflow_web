@@ -82,6 +82,9 @@ def _normalize(value: Any) -> Any:
     return value
 
 
+# Object defaults declared in the GIS feature/survey foundation SQL.
+_JSON_OBJECT_DEFAULT_FIELDS = frozenset({"ext_data", "raw_data"})
+
 _DATE_TYPES = {"date"}
 _DATETIME_TYPES = {"timestamp", "timestamptz", "timestamp with time zone", "timestamp without time zone"}
 _TIME_TYPES = {"time", "timetz", "time with time zone", "time without time zone"}
@@ -140,16 +143,13 @@ def _coerce_typed_scalar(value: Any, field: PackageField, kind: str) -> Any:
 
 def _coerce_for_pg(value: Any, field: PackageField) -> Any:
     kind = re.sub(r"\(\d+(?:,\s*\d+)?\)", "", str(field.data_type or "").lower()).strip()
-    if field.name == "ext_data" and kind in {"json", "jsonb"} and isinstance(value, str) and not value.strip():
+    if field.name in _JSON_OBJECT_DEFAULT_FIELDS and kind in {"json", "jsonb"} and isinstance(value, str) and not value.strip():
         return Json({})
     if value is None:
-        # GeoFlow GIS feature tables define ext_data as
-        # JSONB NOT NULL DEFAULT '{}'. QGIS/OGR represents an untouched JSON
-        # field on a newly created feature as NULL, so an explicit NULL insert
-        # would bypass the database default and violate the table contract.
-        # Keep the normalization narrowly scoped to ext_data; other nullable
-        # JSON fields must retain their own NULL semantics.
-        if field.name == "ext_data" and kind in {"json", "jsonb"}:
+        # Facility ext_data and survey raw_data both have NOT NULL DEFAULT '{}'.
+        # Explicit widget absence would otherwise bypass those DB defaults.
+        # Other JSON fields retain their existing NULL semantics.
+        if field.name in _JSON_OBJECT_DEFAULT_FIELDS and kind in {"json", "jsonb"}:
             return Json({})
         return None
     if kind == "uuid":

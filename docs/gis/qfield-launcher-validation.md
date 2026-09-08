@@ -464,3 +464,22 @@ not a successful PostGIS/device insertion claim. Update/restart SERVER ONLY; kee
 Field 0.9.17 and existing project/outbox. Retry the same retained three features.
 If input is truly malformed nonempty data, expect a field-specific validation
 error rather than repeated generic database 503; preserve the queue for review.
+
+## Mixed create batch: survey raw_data default coverage
+
+The 20:47 test confirms first valve creation committed as revision 71. The next
+three-item batch is rejected with raw_data: invalid JSON. Atomic rejection keeps
+the remaining survey/valve and successor update pending; do not recreate objects.
+The foundation SQL declares two feature/survey JSON object defaults: ext_data and
+raw_data. Server absence normalization now covers both, while other JSON fields
+retain their semantics and malformed nonempty measurement JSON remains rejected.
+The exact raw value is not in the device trace; nonempty malformed data still
+requires review rather than silent replacement.
+
+15 focused tests pass. A schema-derived coverage test enumerates every jsonb
+NOT NULL DEFAULT '{}' field in both GIS foundation SQL files, checks both blank
+and NULL input, and verifies actual measurement values are preserved and invalid
+content is rejected. No DB/schema mutation or QField runtime change is needed.
+Update/restart server only; open the same project and retry the retained batch.
+Expect the remaining survey and valve plus pending attribute update to commit;
+verify actual UUIDs/counts/attributes as well as HTTP success.
