@@ -10,7 +10,7 @@ Item {
         category: "GeoFlowLauncherV1"
         property string projectsJson: "{}"
     }
-    function log(stage) { iface.logMessage("GeoFlow Launcher 0.1.1 " + stage) }
+    function log(stage) { iface.logMessage("GeoFlow Launcher 0.1.2 " + stage) }
     function toast(text) { iface.mainWindow().displayToast(text) }
     function normalServer(value) { return String(value || "").replace(/\/+$/, "") }
     function entry(key) { return String(iface.readProjectEntry("GeoFlow", key, "") || "") }
@@ -58,6 +58,14 @@ Item {
                 launcher.log("load requested")
                 iface.loadFile(path)
             } else {
+                // QField may retain the project while showing its welcome screen.
+                // Reveal the existing map without reloading or discarding edits.
+                let welcome = iface.findItemByObjectName("welcomeScreen")
+                if (welcome && welcome.visible) {
+                    welcome.visible = false
+                    welcome.focus = false
+                    launcher.log("current project welcome screen dismissed")
+                }
                 launcher.log("registered project already current")
             }
         }

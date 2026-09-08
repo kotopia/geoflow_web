@@ -42,3 +42,46 @@ cold-start action delivery, or actual Android recovery behavior. Authentication
 and changeset synchronization must be checked separately. The last supplied
 log contains a successful session claim followed by changeset_failed; obtain
 the matching server traceback before changing the edit protocol.
+
+## 0.1.2: reconnect after the old development key was lost
+
+The development startup script now stores one Windows DPAPI-protected signing
+key per host/port/central/tenant combination under LOCALAPPDATA/GeoFlow/dev-runtime.
+It generates a key only once, never prints it, and fails on unreadable stored keys.
+The first transition still invalidates old credentials. This is development-only;
+production settings are unchanged. Windows DPAPI must be verified on Windows.
+
+After pulling and restarting the dev server, log in on the PC using the SAME LAN
+origin as the phone (http://192.168.0.6:8000). Download the browser-authorized file:
+`/gis/projects/11111111-1111-4111-8111-111111111401/api/qfield/connection-recovery/`.
+Save it as `C:\GeoFlow\logs\geoflow-qfield-connection.json`. Do not upload it to
+chat or git: it contains an identity-bound claim credential. It grants no GIS
+access by itself and does not stage a handoff. Access still requires the same
+user's explicit browser action and normal server-side membership validation.
+
+Save edits and stop QField, then run:
+
+```powershell
+adb shell am force-stop ch.opengis.qfield
+.\.venv\Scripts\python.exe .\scripts\dev\reconnect_qfield_project.py `
+  --connection-file "C:\GeoFlow\logs\geoflow-qfield-connection.json" `
+  --project-dir "/storage/emulated/0/Android/data/ch.opengis.qfield/files/Imported Projects/geoflow-qfield-GIS-DEV-001" `
+  --backup-dir "C:\GeoFlow\logs\qfield-recovery"
+```
+
+The tool backs up the whole selected project, checks exact project/server match,
+preserves all QGS bytes except the claim value, rejects concurrent file changes,
+and reads back the uploaded QGS. It does not change the runtime, access cache,
+GeoPackage or outbox. Open the existing project, then use Open in QField from the
+same account's browser to authorize the next session claim. This is a one-time
+ADB-assisted development recovery, not the final end-user pairing experience.
+
+Update Launcher using `/gis/qfield/launcher.zip?v=0.1.2`. In QField's plugin
+permission dialog, select "Remember my choice" when allowing the trusted
+launcher, and ensure it is enabled. Inspected QField source only persists
+userEnabled with permanent permission; one-session allowance explains a possible
+missing ready message after restart. Never modify QField permission settings
+programmatically. Actual installed-version behavior still needs device testing.
+0.1.2 dismisses the welcome screen for an already-current registered project,
+without reloading it. Other project screens and cold-start action timing remain
+subject to device validation.

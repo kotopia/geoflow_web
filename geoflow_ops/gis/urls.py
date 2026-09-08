@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import (
+    qfield_connection_views,
     qfield_device_views,
     qfield_launcher,
     qfield_package_views,
@@ -19,6 +20,7 @@ from . import (
 app_name = "gis"
 
 urlpatterns = [
+    path("projects/<uuid:project_id>/api/qfield/connection-recovery/", qfield_connection_views.qfield_connection_recovery_api, name="qfield_connection_recovery_api"),
     path("qfield/launcher.zip", qfield_launcher.launcher_download, name="qfield_launcher_download"),
     path("", views.dashboard, name="dashboard"),
     path("projects/<uuid:project_id>/", views.project_dashboard, name="project_dashboard"),
