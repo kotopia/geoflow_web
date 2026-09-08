@@ -16,7 +16,7 @@ class LauncherRecoveryTests(unittest.TestCase):
                 qml = archive.read('main.qml').decode()
                 self.assertNotIn('writeFileContent', qml)
                 self.assertNotIn('readFileContent', qml)
-                self.assertIn('version=0.1.2', archive.read('metadata.txt').decode())
+                self.assertIn('version=0.1.3', archive.read('metadata.txt').decode())
             response.close()
 
     def test_restore_rejects_existing_runtime_and_bad_backups(self):

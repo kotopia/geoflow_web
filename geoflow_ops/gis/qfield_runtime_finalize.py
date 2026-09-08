@@ -41,6 +41,78 @@ _SYNC_RUNNING_OLD = "        running: geoflowField.unsyncedCount > 0\n"
 _SYNC_RUNNING_NEW = "        running: geoflowField.unsyncedCount > 0 && geoflowField.sessionAuthorized()\n"
 
 
+_OWNER_RUNTIME = r'''    property var runtimeLease: null
+    property bool runtimeActive: false
+    function acquireRuntime() {
+        let host = mainWindow.contentItem
+        let lease = null
+        for (let i = 0; i < host.children.length; i++) {
+            if (host.children[i].objectName === "geoflowFieldRuntimeOwnerV1") {
+                lease = host.children[i]
+                break
+            }
+        }
+        if (!lease) lease = Qt.createQmlObject(
+            'import QtQuick; Item { objectName: "geoflowFieldRuntimeOwnerV1"; visible: false; property var owner: null }', host)
+        runtimeLease = lease
+        if (lease.owner && lease.owner !== geoflowField) return false
+        lease.owner = geoflowField
+        runtimeActive = true
+        return true
+    }
+    function ownsRuntime() {
+        return runtimeActive && runtimeLease && runtimeLease.owner === geoflowField
+    }
+    Timer {
+        interval: 2000
+        repeat: true
+        running: !geoflowField.runtimeActive
+        onTriggered: {
+            if (geoflowField.acquireRuntime()) {
+                geoflowField.log("runtime ownership acquired")
+                iface.addItemToPluginsToolbar(syncButton)
+                bootstrapTimer.restart()
+            }
+        }
+    }
+
+'''
+
+
+def _single_owner_qml(text: str) -> str:
+    if 'function ownsRuntime()' in text:
+        return text
+    text = text.replace('    function log(message) {', _OWNER_RUNTIME + '    function log(message) {', 1)
+    # Disable external signals and entry points on duplicate plugin instances.
+    text = text.replace('    Connections {\n', '    Connections {\n        enabled: geoflowField.runtimeActive\n')
+    guarded = (
+        'initializeProject()', 'reloadProjectConfig()', 'bindLayers()',
+        'pollForLocalChanges(force)', 'syncNow(manual, acceptedEdit)',
+        'postOutbox(payload, manual)', 'scheduleRoaming(force)',
+        'authGet(path, callback, quiet)', 'pullDelta(manual)',
+        'claimPendingSession(showMessage, callback)', 'manualSync()',
+        'captureCreate(binding, fid)', 'captureAttribute(binding, fid, index, value)',
+        'captureGeometry(binding, fid, geometry)', 'captureDelete(binding, fid)',
+        'configure()', 'acceptConflictRecovery()',
+    )
+    for signature in guarded:
+        marker = '    function ' + signature + ' {\n'
+        if marker not in text:
+            raise RuntimeError('QField owner guard marker missing: ' + signature)
+        text = text.replace(marker, marker + '        if (!ownsRuntime()) return\n', 1)
+    text = text.replace('        return Boolean(bearerToken && accessExpiresAtMs > Date.now())',
+                        '        return Boolean(ownsRuntime() && bearerToken && accessExpiresAtMs > Date.now())')
+    text = text.replace('        onTriggered: geoflowField.pollForLocalChanges(false)',
+                        '        onTriggered: { if (geoflowField.runtimeActive) geoflowField.pollForLocalChanges(false) }')
+    text = text.replace('        function onLoadProjectEnded(path, name) {\n',
+        '        function onLoadProjectEnded(path, name) {\n            geoflowField.unbindLayers()\n            geoflowField.configReady = false\n', 1)
+    text = text.replace('    Component.onCompleted: {\n',
+        '    Component.onCompleted: {\n        if (!acquireRuntime()) { log("duplicate runtime suppressed"); return }\n', 1)
+    text = text.replace('    Component.onDestruction: {\n',
+        '    Component.onDestruction: {\n        if (runtimeLease && runtimeLease.owner === geoflowField) runtimeLease.owner = null\n        runtimeActive = false\n', 1)
+    return text
+
+
 def _finalize_qml(text: str) -> str:
     """Finalize foreground and retry behavior after persistent QML rendering."""
 
@@ -67,7 +139,7 @@ def _finalize_qml(text: str) -> str:
     missing = [marker for marker in required if marker not in text]
     if missing:
         raise RuntimeError("QField resume runtime incomplete: " + ", ".join(missing))
-    return text
+    return _single_owner_qml(text)
 
 
 def finalize_qfield_runtime_zip(zip_path: Path) -> Path:

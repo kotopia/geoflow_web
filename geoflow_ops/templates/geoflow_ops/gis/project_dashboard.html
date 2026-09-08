@@ -38,7 +38,7 @@
   <br><strong>QField 영구 프로젝트</strong>: 같은 프로젝트는 최초 1회만 설치하고 이후 기존 로컬 프로젝트를 재사용합니다.
   서버 인증은 발급 시점부터 최대 12시간이며 QField 실행·편집으로 자동 연장되지 않습니다.
   인증 만료 후에도 로컬 프로젝트 열기와 편집은 가능하지만 서버 송수신은 중지되며, GeoFlow에 다시 로그인한 뒤 <strong>QField에서 열기</strong>를 눌러야 새 인증이 발급됩니다.
-  GeoFlow Launcher는 QField 앱 플러그인으로 한 번 설치하고 사용할 기존 프로젝트를 등록합니다. 런처 0.1.1 이상은 프로젝트 위치만 등록합니다. ZIP을 반복해서 가져오면 복사본이 생깁니다.
+  GeoFlow Launcher 0.1.3 이상은 처음 연 프로젝트를 자동 등록합니다. 이미 다른 복사본이 등록되어 있으면 사용할 프로젝트를 직접 선택해 등록하세요. ZIP을 반복해서 가져오면 복사본이 생깁니다.
   <span class="d-block mt-1 small" id="qfieldPersistentStatus">QField 연결 상태 확인 전</span>
 </div>
 
@@ -161,7 +161,7 @@
       const body = await descriptor();
       const install = body.install || {};
       if (!forceInstall) {
-        statusNode.textContent = "등록된 기존 프로젝트를 엽니다 · 처음 사용하는 기기는 ‘QField 최초 가져오기’ 후 Launcher에서 현재 프로젝트를 등록하세요.";
+        statusNode.textContent = "등록된 기존 프로젝트를 엽니다 · 처음 사용하는 기기는 ‘QField 최초 가져오기’를 사용하세요. Launcher 0.1.3 이상은 자동 등록합니다.";
         launch(install.launch_url);
         return;
       }
@@ -173,7 +173,7 @@
       if (!ok) return;
 
       writeMarker(body);
-      statusNode.textContent = "새 프로젝트를 가져옵니다 · 가져온 후 GeoFlow Launcher에서 현재 프로젝트를 등록하세요.";
+      statusNode.textContent = "새 프로젝트를 가져옵니다 · Launcher 0.1.3 이상은 처음 연 프로젝트를 자동 등록합니다.";
       launch(install.install_url);
     } catch (error) {
       statusNode.textContent = `QField 연결 실패: ${error.message || error}`;
@@ -201,7 +201,7 @@
     });
   }
 
-  statusNode.textContent = "기존 프로젝트는 ‘QField에서 열기’ · 처음 사용하는 기기만 ‘QField 최초 가져오기’ 후 Launcher에서 등록하세요.";
+  statusNode.textContent = "기존 프로젝트는 ‘QField에서 열기’ · 처음 사용하는 기기만 ‘QField 최초 가져오기’ · Launcher 0.1.3 이상에서 자동 등록됩니다.";
 })();
 </script>
 {% endblock %}

@@ -225,3 +225,61 @@ accept USB debugging authorization, and verify `adb devices` reports `device`
 before backup/capture. ADB failure does not explain this HTTP redirect.
 After server update, retry explicit import once, then require package-import
 200 with a ZIP and a QField geoflow-field.qgs load before repeated-open tests.
+
+## Consolidated stability milestone: Field 0.9.13 / Launcher 0.1.3
+
+The 19:04 device trace contains two POST starts one millisecond apart under the
+same QField tag; revision 62 succeeds and the other response conflicts. This is
+not just QField/default log mirroring. Duplicate runtime/event handling is a
+working diagnosis; exact device plugin-loading cause is not yet established.
+
+Generated Field QML now elects one owner under the shared main-window content
+item. Duplicate instances cannot capture, claim authentication, fetch deltas,
+transmit outboxes, or attach layer listeners. Only the owner gets the toolbar
+button. Owner destruction releases the slot; a local-only standby timer can
+activate a remaining instance. Pending changes and conflict records are never
+cleared as part of ownership election. Project load clears stale bindings before
+configuration reload. Launcher independently elects a single owner.
+
+Launcher automatically registers the currently loaded GeoFlow QGS after startup
+or project-load completion. Missing/deleted registrations are replaced; a valid
+different copy is retained until the user explicitly registers another copy.
+Only the local path registry changes; QGS/QML/GeoPackage contents are untouched.
+QField's plugin installation/permission prompt still requires the user. This is
+not automatic plugin installation or a bypass of project/server permissions.
+
+Implementation checks: 27 isolated Python tests and 5 Node suites pass, including
+execution of ownership/registration functions extracted from generated QML,
+blocked inactive capture/network entry points, lease release, retained valid
+copy, stale-path replacement, and replay/conflict/timeout regressions. Android
+QML lifecycle and end-to-end editing require the consolidated device test below.
+
+Update once (no re-import or deletion): stop QField, update the existing selected
+project with scripts/dev/update_qfield_runtime.py, start the development server,
+and update the app launcher via /gis/qfield/launcher.zip?v=0.1.3. Fully restart
+QField after updates so pre-0.9.13 instances cannot remain alive; verify versions.
+
+One device acceptance session:
+1. Open the existing GeoFlow project; Launcher auto-registers if missing. Existing
+   valid registration remains valid. Do not import a fresh copy solely to test.
+2. Start one continuous QField/server capture and note each action time.
+3. Open via browser three times; same file, no package-import request.
+4. Wait two minutes without movement; no periodic changeset traffic.
+5. Edit/save road once, wait for PC update, then edit/save once again. Expect one
+   active runtime, no paired POST start for one save and no self-conflict. A retry
+   after a real network failure is allowed and must retain its request identity.
+6. If an older conflict is already present, preserve it and report it; do not
+   repeatedly import or silently reset sync state. This milestone does not resolve
+   historical conflicting edits without review.
+
+Subsequent development batches (not claimed complete):
+- Offline/reconnect and receive behavior: queue durability across app restart,
+  retries and concurrent-edit conflict UX; choose bounded server-to-device change
+  notification/polling and verify idle request rate and convergence together.
+- Field workflow: create/edit facilities and survey links, GNSS/attributes/photos
+  against existing metadata and scoped storage routes.
+- Multi-user/scale and delivery: permissions/isolation, measured request/DB cost,
+  large layer local polling, and QGIS/exports with realistic test data.
+Each batch should finish automated regressions before requesting one documented
+user acceptance session. Device-only failures can still require a focused retry;
+minor implementation edits alone should not trigger another manual test cycle.

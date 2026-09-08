@@ -1,4 +1,4 @@
 name=GeoFlow Launcher
-version=0.1.2
+version=0.1.3
 author=GeoFlow
 description=Register an existing GeoFlow project and open it from GeoFlow without importing another copy.

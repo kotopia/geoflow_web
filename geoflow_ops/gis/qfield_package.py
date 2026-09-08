@@ -21,7 +21,7 @@ from .gpkg_snapshot_v2 import (
 
 
 QFIELD_PACKAGE_VERSION = "1.0"
-QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.12"
+QFIELD_PLUGIN_RUNTIME_VERSION = "0.9.13"
 PROJECT_BASENAME = "geoflow-field"
 
 
