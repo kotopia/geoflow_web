@@ -1,22 +1,23 @@
-name: GeoFlow tenant group locator
+name: GeoFlow GIS project readiness
 
 on:
-  push:
-    branches:
-      - release/stabilized-deploy
-    paths:
-      - .github/workflows/geoflow-tenant-group-locator.yml
   workflow_dispatch:
+    inputs:
+      project_id:
+        description: Exact prj.projects UUID to inspect read-only
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  locate-geoflow-group:
+  inspect-gis-project:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production
     env:
+      PROJECT_ID: ${{ inputs.project_id }}
       SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
       SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
       SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
@@ -30,18 +31,19 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
 
-      - name: Validate exact release and SSH inputs
+      - name: Validate exact release and inputs
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s' "$PROJECT_ID" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
           test -n "$SSH_HOST"
           test -n "$SSH_USER"
           test -n "$SSH_KEY"
           test -n "$SSH_KNOWN_HOSTS"
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
-          echo 'geoflow_group_locator_exact_release=yes'
+          echo 'gis_project_readiness_exact_release=yes'
 
       - name: Configure strict SSH trust
         shell: bash
@@ -54,7 +56,21 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Locate tenant group candidates read-only
+      - name: Upload reviewed read-only diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          scp \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            scripts/ops/diagnose_gis_project_readiness.py \
+            "$SSH_USER@$SSH_HOST:/tmp/geoflow-gis-project-readiness-$GITHUB_RUN_ID.py"
+
+      - name: Inspect project and GIS state read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -65,12 +81,17 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" \
+            "bash -s -- '$PROJECT_ID' '$GITHUB_RUN_ID'" <<'REMOTE'
           set -euo pipefail
+          project_id="$1"
+          run_id="$2"
+          diagnostic="/tmp/geoflow-gis-project-readiness-$run_id.py"
+          trap 'rm -f "$diagnostic"' EXIT
 
           service='geoflow-stabilized.service'
           fail() {
-            echo "geoflow_group_locator_blocker=$1"
+            echo "gis_project_readiness_blocker=$1"
             exit 2
           }
 
@@ -86,66 +107,8 @@ jobs:
           [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
           python="$repo/.venv/bin/python"
           [ -x "$python" ] || fail 'venv_python_missing'
+          [ -f "$diagnostic" ] || fail 'diagnostic_upload_missing'
 
           cd "$repo"
-          "$python" - <<'PY'
-          import os
-          os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'geoflow_project.settings')
-
-          import django
-          django.setup()
-
-          from django.db import connections, transaction
-          from django.conf import settings
-
-          alias = getattr(settings, 'CENTRAL_DB_ALIAS', 'default')
-          match_sql = """
-              SELECT g.code,
-                     g.name,
-                     g.status,
-                     COALESCE(c.db_alias, '') AS db_alias
-                FROM groups g
-                LEFT JOIN group_db_config c ON c.group_id = g.id
-               WHERE lower(COALESCE(g.code, '')) LIKE '%geoflow%'
-                  OR lower(COALESCE(g.name, '')) LIKE '%geoflow%'
-                  OR EXISTS (
-                       SELECT 1
-                         FROM unnest(COALESCE(g.allowed_domains, ARRAY[]::text[])) AS d(domain)
-                        WHERE lower(d.domain) LIKE '%geoflow%'
-                  )
-               ORDER BY g.code
-          """
-          active_sql = """
-              SELECT g.code,
-                     g.name,
-                     g.status,
-                     COALESCE(c.db_alias, '') AS db_alias
-                FROM groups g
-                LEFT JOIN group_db_config c ON c.group_id = g.id
-               WHERE lower(COALESCE(g.status, '')) = 'active'
-               ORDER BY g.code
-               LIMIT 50
-          """
-
-          with transaction.atomic(using=alias):
-              with connections[alias].cursor() as cur:
-                  cur.execute('SET LOCAL TRANSACTION READ ONLY')
-                  cur.execute(match_sql)
-                  matches = cur.fetchall()
-                  if matches:
-                      candidates = matches
-                      source = 'geoflow_text_match'
-                  else:
-                      cur.execute(active_sql)
-                      candidates = cur.fetchall()
-                      source = 'all_active_fallback'
-
-          print(f'geoflow_group_locator_source={source}')
-          print(f'geoflow_group_locator_candidates={len(candidates)}')
-          for code, name, status, db_alias in candidates:
-              print(
-                  'geoflow_group_locator_candidate '
-                  f'code={code!s} name={name!s} status={status!s} db_alias={db_alias!s}'
-              )
-          PY
+          PYTHONPATH="$repo" "$python" "$diagnostic" --project-id "$project_id"
           REMOTE
