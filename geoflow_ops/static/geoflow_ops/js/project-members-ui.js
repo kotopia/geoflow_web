@@ -2,7 +2,7 @@
   "use strict";
 
   function projectDetailId() {
-    var match = window.location.pathname.match(/\/projects\/([0-9a-fA-F-]{36})\/?$/);
+    var match = window.location.pathname.match(/^\/projects\/([0-9a-fA-F-]{36})\/?$/);
     return match ? match[1] : null;
   }
 

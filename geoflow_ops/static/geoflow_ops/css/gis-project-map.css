@@ -1,0 +1,46 @@
+#gisProjectMap {
+  width: 100%;
+  min-height: 520px;
+  border-radius: 0 0 .25rem .25rem;
+  background: #f3f6f9;
+}
+
+.gf-gis-map-card .card-body {
+  padding: 0;
+}
+
+.gf-gis-map-status {
+  min-height: 1.25rem;
+}
+
+.gf-gis-layer-dot {
+  display: inline-block;
+  width: .55rem;
+  height: .55rem;
+  border-radius: 50%;
+  margin-right: .35rem;
+  vertical-align: .05rem;
+  background: currentColor;
+}
+
+.gf-gis-popup dl {
+  margin: 0;
+}
+
+.gf-gis-popup dt {
+  font-size: .72rem;
+  color: #6c757d;
+  font-weight: 600;
+  margin-top: .35rem;
+}
+
+.gf-gis-popup dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+@media (max-width: 767.98px) {
+  #gisProjectMap {
+    min-height: 420px;
+  }
+}

@@ -1,0 +1,207 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
+
+{% block extra_head %}
+<link id="gfLeafletCss"
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQ3aOvS1RT/0Apk0E7VB4G1p4N1s4VY="
+      crossorigin=""
+      onerror="this.onerror=null;this.removeAttribute('integrity');this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260906-1">
+{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+  <div>
+    <div class="text-muted small mb-1"><a href="{% url 'gis:dashboard' %}">GIS</a> / 프로젝트</div>
+    <h1 class="h3 mb-1">{{ project.name|default:project.code|default:"프로젝트 GIS" }}</h1>
+    <div class="text-muted">{{ project.code|default:"코드 없음" }} · {{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
+    <button type="button"
+            class="btn btn-success"
+            id="qfieldPersistentOpen"
+            data-project-id="{{ project.id }}"
+            data-status-url="{% url 'gis:qfield_install_status_api' project.id %}">QField에서 열기</button>
+    <button type="button" class="btn btn-outline-success" id="qfieldForceInstall">QField 최초 가져오기</button>
+    <button type="button" class="btn btn-outline-danger" id="qfieldRemoveLocal">QField 로컬 제거</button>
+    <a class="btn btn-outline-secondary" href="{% url 'gis:qfield_package_api' project.id %}">ZIP 수동 다운로드</a>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  프로젝트 업무범위 → GIS Capability → Profile을 계산해 이 프로젝트에 필요한 레이어만 표시합니다.
+  QGIS Connector는 같은 서버 Layer Plan과 Changeset 계약을 사용하며, WebGIS는 서버 변경 이벤트를 받아 화면의 해당 객체만 갱신합니다.
+  <br><strong>QField 영구 프로젝트</strong>: 같은 프로젝트는 최초 1회만 설치하고 이후 기존 로컬 프로젝트를 재사용합니다.
+  서버 인증은 발급 시점부터 최대 12시간이며 QField 실행·편집으로 자동 연장되지 않습니다.
+  인증 만료 후에도 로컬 프로젝트 열기와 편집은 가능하지만 서버 송수신은 중지되며, GeoFlow에 다시 로그인한 뒤 <strong>QField에서 열기</strong>를 눌러야 새 인증이 발급됩니다.
+  GeoFlow Launcher 0.1.3 이상은 처음 연 프로젝트를 자동 등록합니다. 이미 다른 복사본이 등록되어 있으면 사용할 프로젝트를 직접 선택해 등록하세요. ZIP을 반복해서 가져오면 복사본이 생깁니다.
+  <span class="d-block mt-1 small" id="qfieldPersistentStatus">QField 연결 상태 확인 전</span>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">GIS Profile</div><div class="fw-semibold mt-1">{{ layer_plan.profile.name|default:"미지정" }}</div><div class="text-muted small">{{ layer_plan.profile.code|default:"-" }}</div></div></div></div>
+  <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">활성 Capability</div><div class="mt-2 d-flex flex-wrap gap-1">{% for capability in layer_plan.capabilities %}<span class="badge bg-primary">{{ capability.name }}</span>{% empty %}<span class="text-muted">없음</span>{% endfor %}</div></div></div></div>
+  <div class="col-12 col-md-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">Layer Plan</div><div class="display-6 fw-semibold mt-1">{{ feature_count }}</div></div></div></div>
+  <div class="col-12 col-md-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">GIS 객체</div><div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div></div></div></div>
+  <div class="col-12 col-md-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">현재 표시</div><div class="display-6 fw-semibold mt-1" id="gisMapVisibleCount">0</div></div></div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-9">
+    <div class="card h-100 gf-gis-map-card">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="card-title mb-0">지도 작업영역</h5>
+        <div class="text-muted small gf-gis-map-status" id="gisMapStatus">지도 준비 중…</div>
+      </div>
+      <div class="card-body">
+        <div id="gisProjectMap"
+             role="region"
+             aria-label="프로젝트 GIS 지도"
+             data-geojson-url="{% url 'gis:project_layer_geojson_api' project.id %}"
+             data-feature-url="{% url 'gis:project_feature_batch_api' project.id %}"
+             data-websocket-path="/ws/gis/projects/{{ project.id }}/"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-3">
+    <div class="card h-100">
+      <div class="card-header"><h5 class="card-title mb-0">프로젝트 GIS 구성</h5></div>
+      <div class="card-body">
+        <div class="text-muted small mb-2">업무범위에서 계산된 Capability</div>
+        {% for capability in layer_plan.capabilities %}
+          <div class="border rounded p-2 mb-2"><strong>{{ capability.name }}</strong><div class="text-muted small">{{ capability.code }}</div></div>
+        {% empty %}<div class="text-muted">GIS 업무범위가 없습니다.</div>{% endfor %}
+        <hr>
+        <div class="text-muted small"><code>QGIS Manifest</code>는 WebGIS와 동일한 Layer Plan을 QGIS Connector가 소비할 수 있도록 materialize한 서버 계약입니다.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center"><h5 class="card-title mb-0">프로젝트 Layer Plan</h5><span class="text-muted small">업무범위/Profile 적용 {{ feature_count }}개</span></div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>구분</th><th>시설물</th><th>표준명</th><th>물리명</th><th>Geometry</th><th>객체수</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for feature in features %}
+        <tr><td>{{ feature.domain_label }}</td><td>{{ feature.label }}</td><td><code>{{ feature.standard_name }}</code></td><td><code>{{ feature.db_name }}</code></td><td>{{ feature.geometry_kind }}</td><td>{% if feature.row_count != None %}{{ feature.row_count }}{% else %}-{% endif %}</td><td>{% if feature.physical_status == 'READY' %}<span class="badge bg-success">Ready</span>{% else %}<span class="badge bg-light text-dark">미적용</span>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{{ features|json_script:"gis-map-layers" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+        onerror="this.onerror=null;this.removeAttribute('integrity');this.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';"></script>
+<script>
+  if (typeof window.L === "undefined") {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+  }
+</script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260908-3"></script>
+<script>
+(() => {
+  const openButton = document.getElementById("qfieldPersistentOpen");
+  const forceButton = document.getElementById("qfieldForceInstall");
+  const removeButton = document.getElementById("qfieldRemoveLocal");
+  const statusNode = document.getElementById("qfieldPersistentStatus");
+  if (!openButton || !statusNode) return;
+
+  const projectId = String(openButton.dataset.projectId || "");
+  const statusUrl = String(openButton.dataset.statusUrl || "");
+  const storageKey = `geoflow.qfield.install.${projectId}`;
+
+  function writeMarker(descriptor) {
+    const install = descriptor.install || {};
+    localStorage.setItem(storageKey, JSON.stringify({
+      install_id: String(install.install_id || ""),
+      package_version: String(install.package_version || ""),
+      plugin_runtime_version: String(install.plugin_runtime_version || ""),
+      schema_fingerprint: String(install.schema_fingerprint || ""),
+      persistent_protocol: String(install.persistent_protocol || ""),
+      requested_at: new Date().toISOString()
+    }));
+  }
+
+  async function descriptor() {
+    const response = await fetch(statusUrl, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {"Accept": "application/json"}
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body || !body.ok) {
+      throw new Error((body && (body.message || body.error)) || `HTTP ${response.status}`);
+    }
+    return body;
+  }
+
+  function launch(url) {
+    if (!url) throw new Error("QField 실행 URL이 없습니다.");
+    window.location.href = url;
+  }
+
+  async function openPersistentProject(forceInstall = false) {
+    openButton.disabled = true;
+    if (forceButton) forceButton.disabled = true;
+    statusNode.textContent = "QField 프로젝트 상태 및 인증 확인 중…";
+    try {
+      const body = await descriptor();
+      const install = body.install || {};
+      if (!forceInstall) {
+        statusNode.textContent = "등록된 기존 프로젝트를 엽니다 · 처음 사용하는 기기는 ‘QField 최초 가져오기’를 사용하세요. Launcher 0.1.3 이상은 자동 등록합니다.";
+        launch(install.launch_url);
+        return;
+      }
+
+      const ok = window.confirm(
+        "새 프로젝트 복사본을 가져옵니다. 이미 사용하는 프로젝트가 있으면 취소하고 ‘QField에서 열기’를 누르세요. " +
+        "미전송 편집이 없는지 확인했으며, 새로 가져오시겠습니까?"
+      );
+      if (!ok) return;
+
+      writeMarker(body);
+      statusNode.textContent = "새 프로젝트를 가져옵니다 · Launcher 0.1.3 이상은 처음 연 프로젝트를 자동 등록합니다.";
+      launch(install.install_url);
+    } catch (error) {
+      statusNode.textContent = `QField 연결 실패: ${error.message || error}`;
+    } finally {
+      window.setTimeout(() => {
+        openButton.disabled = false;
+        if (forceButton) forceButton.disabled = false;
+      }, 1200);
+    }
+  }
+
+  openButton.addEventListener("click", () => openPersistentProject(false));
+  if (forceButton) forceButton.addEventListener("click", () => openPersistentProject(true));
+
+  if (removeButton) {
+    removeButton.addEventListener("click", () => {
+      const ok = window.confirm(
+        "QField의 로컬 프로젝트 목록에서 이 프로젝트 폴더를 직접 삭제한 뒤 GeoFlow 설치표시를 초기화합니다. " +
+        "전송되지 않은 변경이 있다면 먼저 동기화하세요. 계속할까요?"
+      );
+      if (!ok) return;
+      localStorage.removeItem(storageKey);
+      statusNode.textContent = "이 기기의 GeoFlow 설치표시를 초기화했습니다. QField 로컬 프로젝트 화면에서 해당 폴더 메뉴 → 삭제를 선택하세요.";
+      window.location.href = "qfield://local";
+    });
+  }
+
+  statusNode.textContent = "기존 프로젝트는 ‘QField에서 열기’ · 처음 사용하는 기기만 ‘QField 최초 가져오기’ · Launcher 0.1.3 이상에서 자동 등록됩니다.";
+})();
+</script>
+{% endblock %}

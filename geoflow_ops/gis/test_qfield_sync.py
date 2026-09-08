@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import datetime as dt
+import inspect
+from pathlib import Path
+from unittest.mock import patch
+
+from django.conf import settings
+from django.test import RequestFactory, SimpleTestCase
+from django.urls import resolve, reverse
+
+from control import middleware as control_middleware
+
+from . import qfield_sync_views, qfield_ticket_roaming_views
+from .gpkg_snapshot_v2 import PackageField, PackageLayer
+from .qfield_device_views import _normalize_qfield_changeset_payload
+
+
+class QFieldSyncConcurrencyContractTests(SimpleTestCase):
+    project_id = "11111111-1111-4111-8111-111111111401"
+
+    def test_timestamp_lock_treats_timezone_equivalents_as_same_version(self):
+        self.assertTrue(
+            qfield_sync_views._timestamps_match(
+                "2026-09-07T01:02:03.123456Z",
+                dt.datetime(2026, 9, 7, 1, 2, 3, 123456, tzinfo=dt.timezone.utc),
+            )
+        )
+
+    def test_timestamp_lock_rejects_changed_server_version(self):
+        self.assertFalse(
+            qfield_sync_views._timestamps_match(
+                "2026-09-07T01:02:03.123Z",
+                "2026-09-07T01:02:04.123+00:00",
+            )
+        )
+
+    def test_qfield_changeset_route_uses_guarded_endpoint(self):
+        url = reverse("gis:qfield_device_changeset_api", kwargs={"project_id": self.project_id})
+        match = resolve(url)
+        self.assertIs(match.func, qfield_sync_views.qfield_device_changeset_api)
+
+    def test_qfield_explicit_delete_contract_is_enabled(self):
+        path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("layer.featureDeleted.connect(binding.deleted)", text)
+        self.assertIn("function captureDelete(binding, fid)", text)
+        self.assertIn('action: "delete"', text)
+        self.assertIn("function reconcilePendingDeletes(state)", text)
+        self.assertIn("reconcilePendingDeletes(state)", text)
+        self.assertNotIn("qfield_delete_not_enabled", inspect.getsource(qfield_sync_views))
+
+    def test_qfield_roaming_cell_route_uses_ticket_scoped_endpoint(self):
+        url = reverse("gis:qfield_roaming_cell_api", kwargs={"project_id": self.project_id})
+        match = resolve(url)
+        self.assertIs(match.func, qfield_ticket_roaming_views.qfield_ticket_roaming_cell_api)
+
+    def test_guard_locks_rows_and_has_revision_fallback(self):
+        source = inspect.getsource(qfield_sync_views._validate_qfield_concurrency)
+        self.assertIn("FOR UPDATE", source)
+        self.assertIn("base_updated_at", source)
+        self.assertIn("server_changed_since_base_revision", source)
+
+    def test_native_endpoints_use_signed_project_scope_without_browser_policy_recheck(self):
+        roaming_source = inspect.getsource(qfield_ticket_roaming_views._ticket_project_and_plan)
+        changeset_source = inspect.getsource(qfield_sync_views._ticket_project_and_plan)
+        self.assertIn('payload.get("project_id")', roaming_source)
+        self.assertNotIn('"maps.view"', roaming_source)
+        self.assertNotIn("project_access_policy", roaming_source)
+        self.assertIn('payload.get("write_authorized")', changeset_source)
+        self.assertNotIn("project_access_policy", changeset_source)
+
+    def test_native_qfield_bearer_request_bypasses_browser_session_freshness(self):
+        factory = RequestFactory()
+        path = f"/gis/projects/{self.project_id}/api/qfield/roaming-cell/"
+        request = factory.get(path, HTTP_AUTHORIZATION="Bearer signed-project-ticket")
+        self.assertTrue(control_middleware._is_native_qfield_bearer_request(request))
+
+        browser_request = factory.get(path)
+        self.assertFalse(control_middleware._is_native_qfield_bearer_request(browser_request))
+
+        package_request = factory.get(
+            f"/gis/projects/{self.project_id}/api/qfield/package/",
+            HTTP_AUTHORIZATION="Bearer signed-project-ticket",
+        )
+        self.assertFalse(control_middleware._is_native_qfield_bearer_request(package_request))
+
+        freshness_source = inspect.getsource(
+            control_middleware.TenantMembershipFreshnessGuardMiddleware.__call__
+        )
+        tenant_source = inspect.getsource(control_middleware.TenantMiddleware.__call__)
+        self.assertIn("_is_native_qfield_bearer_request", freshness_source)
+        self.assertIn("_is_native_qfield_bearer_request", tenant_source)
+
+    def test_roaming_cell_retries_one_transient_db_disconnect(self):
+        retry_source = inspect.getsource(qfield_ticket_roaming_views._db_retry_once)
+        endpoint_source = inspect.getsource(qfield_ticket_roaming_views.qfield_ticket_roaming_cell_api)
+        self.assertIn("for attempt in range(2)", retry_source)
+        self.assertIn("connections[alias].close()", retry_source)
+        self.assertIn("_db_retry_once", endpoint_source)
+        self.assertIn("qfield_roaming_cell_db_unavailable", endpoint_source)
+        self.assertIn('"retryable": True', endpoint_source)
+
+    def test_qfield_sidecar_uses_load_safe_polling_fallback(self):
+        path = Path(settings.BASE_DIR) / "integrations" / "qfield" / "geoflow-field.qml"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("function scheduleRoaming(force)", text)
+        self.assertIn("function queueChange(change)", text)
+        self.assertIn("function syncNow(manual, acceptedEdit)", text)
+        self.assertIn('protocol: "geoflow_qfield_changeset_v2"', text)
+        self.assertIn("base_updated_at", text)
+        self.assertIn("state.conflict", text)
+        self.assertIn("scheduleRetry()", text)
+        self.assertIn("pollingTimer", text)
+        self.assertIn("function rebuildPollingBaseline()", text)
+        self.assertIn("function pollForLocalChanges(force)", text)
+        self.assertIn("function featureSignature(layer, feature)", text)
+        self.assertIn("poll detected update", text)
+        self.assertIn("Never infer deletes from iterator absence", text)
+        self.assertNotIn("poll detected delete", text)
+        self.assertIn("syncNow(false, true)", text)
+        self.assertIn("captureSuppressed = true", text)
+        self.assertIn("managedLayerDescriptors = plan.layers || []", text)
+        self.assertIn("qgisProject.mapLayersByName", text)
+        self.assertIn("layer.geometryChanged.connect", text)
+        self.assertIn("layer.attributeValueChanged.connect", text)
+        self.assertIn("xhr.status === 401", text)
+        self.assertIn("xhr.status === 403", text)
+        self.assertIn("GeoFlow Field 0.9.4", text)
+        self.assertNotIn("Instantiator", text)
+        self.assertNotIn("Repeater", text)
+
+    def test_retained_survey_create_drops_legacy_raw_geometry_attribute(self):
+        layer = PackageLayer(
+            standard_name="SURVEY", physical_name="survey", label="공통 측량",
+            domain="COMMON", geometry_kind="POINT",
+            fields=(
+                PackageField("id", "uuid", False, True, -100),
+                PackageField("project_id", "uuid", False, True, -99),
+                PackageField("name", "character varying(30)", True, True, 1),
+                PackageField("raw_data", "jsonb", True, True, 2),
+            ),
+        )
+        payload = {"changes": [{
+            "action": "create", "layer": "SURVEY", "id": self.project_id,
+            "attributes": {"name": "측량점", "raw_data": "", "raw_geom": ""},
+            "geometry_wkb": "010100000000000000000000000000000000000000",
+        }]}
+        with patch("geoflow_ops.gis.qfield_device_views._layer_specs", return_value=(layer,)):
+            normalized = _normalize_qfield_changeset_payload("tenant", {}, payload)
+        self.assertEqual(normalized["changes"][0]["attributes"], {"name": "측량점", "raw_data": ""})

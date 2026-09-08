@@ -41,6 +41,7 @@ urlpatterns = [
 
     path('control/', include(('control.urls', 'control'), namespace='control')),
     path('api/catalog/', include(('control.catalog.urls', 'catalog'), namespace='catalog')),
+    path('gis/', include(('geoflow_ops.gis.urls', 'gis'), namespace='gis')),
     path('', include(('geoflow_ops.urls', 'tenant'), namespace='tenant')),
 ]
 

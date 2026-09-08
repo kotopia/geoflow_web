@@ -1,0 +1,104 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h1 class="h3 mb-1">GIS</h1>
+    <div class="text-muted">프로젝트 업무범위 기반 GeoFlow GIS · QGIS · QField 공통 Layer Plan</div>
+  </div>
+  <span class="badge bg-primary">Scope-driven GIS</span>
+</div>
+
+{% if scope_capability_active %}
+<div class="alert alert-info">
+  아래 프로젝트는 현재 로그인 사용자가 조회할 수 있고, 프로젝트 업무범위에 활성 GIS Capability가 연결된 프로젝트만 표시됩니다.
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  {% for item in domain_counts %}
+  <div class="col-12 col-md-4">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">{{ item.label }}</div>
+      <div class="d-flex align-items-end gap-2 mt-1">
+        <div class="display-6 fw-semibold">{{ item.count }}</div>
+        <div class="text-muted mb-2">등록 Feature</div>
+      </div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">물리 테이블 준비</div>
+      <div class="display-6 fw-semibold mt-1">{{ physical_ready_count }} / {{ feature_count }}</div>
+    </div></div>
+  </div>
+  <div class="col-12 col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <div class="text-muted small">전체 GIS 객체</div>
+      <div class="display-6 fw-semibold mt-1">{{ physical_object_count }}</div>
+    </div></div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="card-title mb-0">내 GIS 프로젝트</h5>
+    <span class="text-muted small">업무범위 + 접근권한 적용</span>
+  </div>
+  <div class="card-body">
+    {% if projects %}
+    <div class="row g-2">
+      {% for project in projects %}
+      <div class="col-12 col-lg-6 col-xxl-4">
+        <a class="text-decoration-none" href="{% url 'gis:project_dashboard' project.id %}">
+          <div class="border rounded p-3 h-100">
+            <div class="d-flex justify-content-between gap-3">
+              <strong class="text-body">{{ project.name|default:project.code|default:"프로젝트" }}</strong>
+              <span class="badge bg-light text-dark">{{ project.status|default:"-" }}</span>
+            </div>
+            <div class="text-muted small mt-1">{{ project.code|default:"코드 없음" }}</div>
+            <div class="text-muted small mt-2">{{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-muted">현재 사용자에게 허용된 GIS 업무범위 프로젝트가 없습니다.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="card-title mb-0">GIS Feature Registry</h5>
+    <span class="text-muted small">전체 {{ feature_count }}개</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead><tr><th>구분</th><th>표준명</th><th>DB 물리명</th><th>Geometry</th><th>객체수</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for feature in features %}
+        <tr>
+          <td>{{ feature.domain_label }}</td>
+          <td><code>{{ feature.standard_name }}</code></td>
+          <td><code>{{ feature.db_name }}</code></td>
+          <td>{{ feature.geometry_kind }}</td>
+          <td>{% if feature.row_count != None %}{{ feature.row_count }}{% else %}-{% endif %}</td>
+          <td>
+            {% if feature.physical_status == 'READY' %}
+              <span class="badge bg-success">Ready</span>
+            {% else %}
+              <span class="badge bg-light text-dark">미적용</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Optional
 import threading
+import re
 
 from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
@@ -18,6 +19,46 @@ from control.tenant_connections import (
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def _is_native_qfield_bearer_request(request: HttpRequest) -> bool:
+    """Return True only for project-scoped native QField bearer API calls.
+
+    Native QField requests authenticate inside the GIS view decorator with a
+    signed, project-scoped bearer ticket. They must not be rejected earlier by
+    browser-session freshness middleware just because QField has no persistent
+    Django-authenticated browser user.
+    """
+
+    path = str(getattr(request, "path", "") or "")
+    if not (
+        path.startswith("/gis/projects/")
+        and "/api/qfield/" in path
+        and not path.endswith("/api/qfield/package/")
+        and "/api/qfield/package-import/" not in path
+    ):
+        return False
+    authorization = str(request.headers.get("Authorization") or "").strip()
+    return authorization.lower().startswith("bearer ")
+
+
+def _is_native_qfield_import_request(request: HttpRequest) -> bool:
+    """Defer only the native GET import route to its signed-token validator.
+
+    QField's cookie jar can contain tenant state without a Django browser login.
+    Token presence is NOT authorization: the view checks signature, expiry,
+    project identity, current membership, and map/project permissions before ZIP.
+    Invalid tokens must reach that validator and return 401, not login HTML.
+    """
+    return (
+        request.method == "GET"
+        and re.fullmatch(
+            r"/gis/projects/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/api/qfield/package-import/",
+            str(getattr(request, "path", "") or ""),
+        ) is not None
+        and bool(request.GET.get("token"))
+    )
 
 
 class CentralAccountActiveGuardMiddleware:
@@ -122,7 +163,7 @@ class CentralAccountActiveGuardMiddleware:
 
 
 class TenantMembershipFreshnessGuardMiddleware:
-    """Fail closed when a tenant session is no longer centrally authorized."""
+    """Fail closed when a tenant browser session is no longer centrally authorized."""
 
     EXEMPT_EXACT_PATHS = {
         "/login",
@@ -210,6 +251,14 @@ class TenantMembershipFreshnessGuardMiddleware:
         if self._is_exempt_path(path):
             return self.get_response(request)
 
+        # A signed QField bearer request is validated by qfield_ticket_required
+        # inside the target view. It intentionally has no Django browser login,
+        # so applying browser-session freshness here produces a false 403 after
+        # the first successful roaming-plan request has created a session cookie.
+        if _is_native_qfield_bearer_request(request) or _is_native_qfield_import_request(request):
+            logger.debug("QField request defers browser tenant freshness to API authentication: %s", path)
+            return self.get_response(request)
+
         central_alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
         tenant_alias = request.session.get("tenant_db_alias")
         if not tenant_alias or tenant_alias == central_alias:
@@ -278,6 +327,14 @@ class TenantMiddleware:
         if path.startswith(("/login/", "/signup/", "/static/", "/media/")):
             _set_threadlocal(central_alias, True, None)
             request.session["scope"] = "central"
+            return self.get_response(request)
+
+        # Native QField bearer requests establish their exact tenant context only
+        # after the signed ticket has been verified inside the view decorator.
+        # Do not pre-route them from a stale/non-browser session cookie here.
+        if _is_native_qfield_bearer_request(request) or _is_native_qfield_import_request(request):
+            _set_threadlocal(central_alias, True, None)
+            logger.debug("MW: deferred native QField tenant resolution")
             return self.get_response(request)
 
         # ✅ /control/ 진입은 무조건 중앙으로
