@@ -18,6 +18,7 @@ from django.db import connections
 MAX_ROWS_PER_LAYER = 100_000
 GPKG_APPLICATION_ID = 0x47504B47
 _SAFE_IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
+_SPATIAL_DATA_TYPE = re.compile(r"^(?:geometry|geography)(?:\s|\(|$)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,10 @@ def _quote_ident(value: str) -> str:
     if not _SAFE_IDENT.fullmatch(value):
         raise ValueError(f"unsafe GIS identifier: {value}")
     return '"' + value + '"'
+
+
+def _is_spatial_data_type(value: str | None) -> bool:
+    return bool(_SPATIAL_DATA_TYPE.match(str(value or "").strip()))
 
 
 def _sqlite_type(pg_type: str) -> str:
@@ -181,7 +186,11 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
         rows = cursor.fetchall()
     fields = []
     for name, data_type, editable, visible, sort_order in rows:
-        if name == "geom":
+        # A GeoPackage feature table has one managed geometry column. Survey
+        # raw_geom is server-side GNSS lineage, not a scalar form attribute.
+        # Packaging it as TEXT makes an untouched QField value arrive as an
+        # empty string which PostGIS then tries (and fails) to parse.
+        if name == "geom" or _is_spatial_data_type(data_type):
             continue
         if not _SAFE_IDENT.fullmatch(name):
             continue

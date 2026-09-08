@@ -106,7 +106,7 @@ SELECT
     NULL,
     NULL,
     CASE
-        WHEN pf.physical_name = 'geom' THEN 'map'
+        WHEN pf.data_type LIKE 'geometry%' OR pf.data_type LIKE 'geography%' THEN 'map'
         WHEN pf.data_type = 'date' THEN 'date'
         WHEN pf.data_type LIKE 'timestamp%' THEN 'datetime'
         WHEN pf.data_type IN ('integer','bigint','smallint','real','double precision') OR pf.data_type LIKE 'numeric%' THEN 'number'
@@ -114,7 +114,8 @@ SELECT
         ELSE 'text'
     END,
     pf.required_default,
-    (pf.physical_name IN ('id','project_id','ftr_cde','geom','created_at','updated_at')),
+    (pf.physical_name IN ('id','project_id','ftr_cde','geom','created_at','updated_at')
+     OR pf.data_type LIKE 'geometry%' OR pf.data_type LIKE 'geography%'),
     pf.sort_order,
     CASE pf.physical_name
         WHEN 'id' THEN 'GeoFlow authoritative internal object identifier. UUID; use for internal relations.'
@@ -162,7 +163,11 @@ INSERT INTO gis.profile_field(id, profile_id, field_def_id, enabled, required, e
 SELECT
     gen_random_uuid(), p.id, fd.id, true,
     CASE WHEN fd.physical_name IN ('id','created_at','updated_at') THEN false ELSE fd.required_default END,
-    CASE WHEN fd.physical_name IN ('id','created_at','updated_at') THEN false ELSE true END,
+    CASE
+        WHEN fd.physical_name IN ('id','created_at','updated_at')
+          OR fd.data_type LIKE 'geometry%' OR fd.data_type LIKE 'geography%'
+        THEN false ELSE true
+    END,
     true,
     fd.sort_order
 FROM gis.profile p

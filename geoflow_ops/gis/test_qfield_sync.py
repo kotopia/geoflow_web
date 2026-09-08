@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import inspect
 from pathlib import Path
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import RequestFactory, SimpleTestCase
@@ -11,6 +12,8 @@ from django.urls import resolve, reverse
 from control import middleware as control_middleware
 
 from . import qfield_sync_views, qfield_ticket_roaming_views
+from .gpkg_snapshot_v2 import PackageField, PackageLayer
+from .qfield_device_views import _normalize_qfield_changeset_payload
 
 
 class QFieldSyncConcurrencyContractTests(SimpleTestCase):
@@ -116,3 +119,23 @@ class QFieldSyncConcurrencyContractTests(SimpleTestCase):
         self.assertIn("GeoFlow Field 0.9.4", text)
         self.assertNotIn("Instantiator", text)
         self.assertNotIn("Repeater", text)
+
+    def test_retained_survey_create_drops_legacy_raw_geometry_attribute(self):
+        layer = PackageLayer(
+            standard_name="SURVEY", physical_name="survey", label="공통 측량",
+            domain="COMMON", geometry_kind="POINT",
+            fields=(
+                PackageField("id", "uuid", False, True, -100),
+                PackageField("project_id", "uuid", False, True, -99),
+                PackageField("name", "character varying(30)", True, True, 1),
+                PackageField("raw_data", "jsonb", True, True, 2),
+            ),
+        )
+        payload = {"changes": [{
+            "action": "create", "layer": "SURVEY", "id": self.project_id,
+            "attributes": {"name": "측량점", "raw_data": "", "raw_geom": ""},
+            "geometry_wkb": "010100000000000000000000000000000000000000",
+        }]}
+        with patch("geoflow_ops.gis.qfield_device_views._layer_specs", return_value=(layer,)):
+            normalized = _normalize_qfield_changeset_payload("tenant", {}, payload)
+        self.assertEqual(normalized["changes"][0]["attributes"], {"name": "측량점", "raw_data": ""})

@@ -483,3 +483,20 @@ content is rejected. No DB/schema mutation or QField runtime change is needed.
 Update/restart server only; open the same project and retry the retained batch.
 Expect the remaining survey and valve plus pending attribute update to commit;
 verify actual UUIDs/counts/attributes as well as HTTP success.
+
+## Mixed create batch: secondary PostGIS geometry exclusion
+
+The 20:53 retry passed JSON and temporal coercion, then failed with PostgreSQL
+`XX000` on the first feature INSERT. The missed field is `survey.raw_geom`:
+metadata exposed this second PostGIS geometry column as an editable scalar and
+the generated GeoPackage represented it as TEXT. An untouched QField survey
+therefore submitted an empty `raw_geom`; PostGIS attempted to parse that scalar
+as geometry and aborted the atomic three-item batch, rolling the valve back too.
+
+Both GeoPackage materializers now exclude every secondary geometry/geography
+column from scalar fields. The server derives its accepted QField attributes
+from the same filtered manifest, so the existing Field 0.9.17 retained payload
+has legacy `raw_geom` removed before authoritative validation. A defensive
+coercion guard rejects any future spatial scalar explicitly instead of returning
+a database 503. The metadata seed also marks all spatial fields read-only.
+No device reinstallation or project re-import is required for this recovery.

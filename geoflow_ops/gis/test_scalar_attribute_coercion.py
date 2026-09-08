@@ -23,3 +23,11 @@ class ScalarAttributeTests(unittest.TestCase):
     def test_text_and_json_remain_separate(self):
         self.assertEqual(_coerce_for_pg('',self.field('text')),'')
         with self.assertRaises(SyncRejected):_coerce_for_pg('',self.field('jsonb'))
+
+    def test_postgis_geometry_is_never_accepted_as_a_scalar_attribute(self):
+        field = PackageField('raw_geom','geometry(Point,4326)',True,True,1)
+        for value in (None, '', 'POINT (127 36)'):
+            with self.subTest(value=value):
+                with self.assertRaises(SyncRejected) as caught:
+                    _coerce_for_pg(value, field)
+                self.assertEqual(caught.exception.details[0]['reason'], 'spatial_attribute_not_allowed')

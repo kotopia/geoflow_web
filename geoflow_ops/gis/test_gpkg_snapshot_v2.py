@@ -14,6 +14,7 @@ from .gpkg_snapshot_v2 import (
     _install_rtree_triggers,
     _rtree_name,
 )
+from .gpkg import _is_spatial_data_type
 
 
 class GeoPackageSnapshotV2Tests(SimpleTestCase):
@@ -88,3 +89,12 @@ class GeoPackageSnapshotV2Tests(SimpleTestCase):
         self.assertIn("ST_XMax(Box3D(geom))", source)
         self.assertIn("ST_YMax(Box3D(geom))", source)
         self.assertNotIn("ST_Box3D", source)
+
+    def test_secondary_postgis_geometry_is_not_a_scalar_package_field(self):
+        self.assertTrue(_is_spatial_data_type("geometry(Point,4326)"))
+        self.assertTrue(_is_spatial_data_type("geography (Point,4326)"))
+        self.assertFalse(_is_spatial_data_type("text"))
+
+        from . import gpkg, gpkg_snapshot_v2
+        self.assertIn("_is_spatial_data_type(data_type)", inspect.getsource(gpkg._profile_layer_fields))
+        self.assertIn("_is_spatial_data_type(data_type)", inspect.getsource(gpkg_snapshot_v2._profile_layer_fields))

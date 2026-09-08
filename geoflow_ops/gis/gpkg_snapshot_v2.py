@@ -14,6 +14,8 @@ from typing import Any
 
 from django.db import connections
 
+from .gpkg import _is_spatial_data_type
+
 
 GPKG_APPLICATION_ID = 0x47504B47
 SNAPSHOT_BATCH_ROWS = 5_000
@@ -189,7 +191,10 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
         rows = cursor.fetchall()
     fields = []
     for name, data_type, editable, visible, sort_order in rows:
-        if name == "geom":
+        # Only the canonical geom column belongs in this feature table. Other
+        # PostGIS columns (currently survey.raw_geom) are server lineage fields,
+        # not QField scalar attributes.
+        if name == "geom" or _is_spatial_data_type(data_type):
             continue
         if not _SAFE_IDENT.fullmatch(name):
             continue

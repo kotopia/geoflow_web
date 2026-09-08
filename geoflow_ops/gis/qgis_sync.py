@@ -16,7 +16,7 @@ from django.conf import settings
 from django.db import connections, transaction
 from psycopg2.extras import Json
 
-from .gpkg import PackageField, _layer_specs
+from .gpkg import PackageField, _is_spatial_data_type, _layer_specs
 from .layer_plan import allowed_standard_names
 
 
@@ -143,6 +143,11 @@ def _coerce_typed_scalar(value: Any, field: PackageField, kind: str) -> Any:
 
 def _coerce_for_pg(value: Any, field: PackageField) -> Any:
     kind = re.sub(r"\(\d+(?:,\s*\d+)?\)", "", str(field.data_type or "").lower()).strip()
+    if _is_spatial_data_type(field.data_type):
+        raise SyncRejected(
+            f"{field.name}: spatial field cannot be submitted as an attribute",
+            details=[{"field": field.name, "reason": "spatial_attribute_not_allowed"}],
+        )
     if field.name in _JSON_OBJECT_DEFAULT_FIELDS and kind in {"json", "jsonb"} and isinstance(value, str) and not value.strip():
         return Json({})
     if value is None:
