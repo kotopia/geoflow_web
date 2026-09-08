@@ -32,11 +32,12 @@ class LauncherRecoveryTests(unittest.TestCase):
         from types import SimpleNamespace
         cause = Exception('SECRET row value and SQL')
         cause.sqlstate = '23502'
-        cause.diag = SimpleNamespace(schema_name='gis', table_name='doro', column_name='id', constraint_name=None)
+        cause.diag = SimpleNamespace(schema_name='gis', table_name='doro', column_name='id', constraint_name=None, message_primary='invalid input syntax for type uuid: SECRET')
         exc = Exception('SECRET request')
         exc.__cause__ = cause
         with self.assertLogs('geoflow_ops.gis.qfield_db_diagnostics', level='ERROR') as logs:
             log_changeset_database_error(exc)
         self.assertIn('23502', logs.output[0])
         self.assertIn('column=id', logs.output[0])
+        self.assertIn('target_type=uuid', logs.output[0])
         self.assertNotIn('SECRET', logs.output[0])
