@@ -175,6 +175,41 @@ def verify_gis(args: argparse.Namespace) -> None:
         field_defs = cursor.fetchone()[0]
 
         cursor.execute(
+            "select to_regclass('gis.ref_code_group'), to_regclass('gis.ref_code_value')"
+        )
+        reference_group_table, reference_value_table = cursor.fetchone()
+        if reference_group_table is None or reference_value_table is None:
+            raise SystemExit(
+                "GIS reference foundation is missing: "
+                "gis.ref_code_group/gis.ref_code_value"
+            )
+
+        cursor.execute("select count(*) from gis.ref_code_group where active")
+        reference_groups = cursor.fetchone()[0]
+        cursor.execute("select count(*) from gis.ref_code_value where active")
+        reference_values = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            select count(*)
+              from gis.meta_field_def
+             where nullif(btrim(code_group_key), '') is not null
+            """
+        )
+        reference_bindings = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            select count(*)
+              from gis.meta_field_def fd
+              left join gis.ref_code_group g
+                on g.group_key=fd.code_group_key
+               and g.active
+             where nullif(btrim(fd.code_group_key), '') is not null
+               and g.id is null
+            """
+        )
+        invalid_reference_bindings = cursor.fetchone()[0]
+
+        cursor.execute(
             "select id::text, code, name from prj.projects "
             "where code=%s order by updated_at desc nulls last limit 1",
             ["GIS-DEV-001"],
@@ -228,6 +263,11 @@ def verify_gis(args: argparse.Namespace) -> None:
         survey_links = cursor.fetchone()[0]
 
     print(f"feature_types={feature_types} field_defs={field_defs}")
+    print(
+        "gis_references "
+        f"groups={reference_groups} values={reference_values} "
+        f"bindings={reference_bindings} invalid_bindings={invalid_reference_bindings}"
+    )
     print(f"physical_tables_ready={len(initial_tables) - len(missing_tables)}/{len(initial_tables)}")
     print(f"project_id={project_id} code={project[1]} name={project[2]}")
     print("counts " + " ".join(f"{key}={value}" for key, value in layer_counts.items()))
@@ -238,6 +278,11 @@ def verify_gis(args: argparse.Namespace) -> None:
         raise SystemExit(f"expected 19 feature types, got {feature_types}")
     if field_defs <= 0:
         raise SystemExit("field metadata is empty")
+    if invalid_reference_bindings:
+        raise SystemExit(
+            "GIS field metadata references missing/inactive GIS code groups: "
+            f"{invalid_reference_bindings}"
+        )
     if missing_tables:
         raise SystemExit("missing GIS physical tables: " + ", ".join(missing_tables))
     if layer_counts["survey"] < 1 or layer_counts["wtl_pipe_lm"] < 2:
