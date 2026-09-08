@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
-from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.services.entity_access import require_tenant_context
 
 from .layer_plan import allowed_standard_names
