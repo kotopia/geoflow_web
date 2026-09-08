@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from django.db import DatabaseError, connections
-from django.http import Http404, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET
 
@@ -15,7 +15,7 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 
 from .changeset import changeset_runtime_enabled, project_current_revision
-from .layer_plan import project_layer_plan
+from .layer_plan import project_layer_plan, require_enabled_layer_plan
 from .qfield_auth import qfield_ticket_required
 from .qfield_roaming import cell_bbox, parse_cell_key
 from .qfield_views import (
@@ -49,8 +49,7 @@ def _ticket_project_and_plan(request, alias: str, project_id):
 
     project = get_object_or_404(Project.objects.using(alias), id=project_id)
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     return project, plan, None
 
 

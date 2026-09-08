@@ -5,7 +5,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError
-from django.http import Http404, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_POST
 
@@ -16,7 +16,7 @@ from geoflow_ops.services.project_access import project_access_policy
 
 from .changeset import ChangesetUnavailable, apply_project_changeset, project_delta
 from .events import publish_project_change_event
-from .layer_plan import project_layer_plan
+from .layer_plan import project_layer_plan, require_enabled_layer_plan
 from .qgis_sync import SyncConflict, SyncRejected
 
 
@@ -39,8 +39,7 @@ def _require_project(request, alias, project_id):
     if not policy.can_webgis_read(project.id):
         raise PermissionDenied("Permission denied")
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     return project, policy, plan
 
 

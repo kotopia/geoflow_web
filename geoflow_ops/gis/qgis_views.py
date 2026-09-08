@@ -9,7 +9,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
-from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -22,7 +22,7 @@ from geoflow_ops.services.project_access import project_access_policy
 from .changeset import changeset_runtime_enabled, project_current_revision
 from .gpkg import project_geopackage_layer_manifest
 from .gpkg_syncable import build_syncable_project_geopackage
-from .layer_plan import gis_enabled_project_ids, project_layer_plan
+from .layer_plan import gis_enabled_project_ids, project_layer_plan, require_enabled_layer_plan
 from .qgis_manifest import build_qgis_manifest
 from .qgis_sync import SyncConflict, SyncRejected, sync_runtime_enabled
 from .qgis_sync_v2 import sync_project_geopackage_v2
@@ -69,8 +69,7 @@ def _require_project(request, alias, project_id):
     if not policy.can_webgis_read(project.id):
         raise PermissionDenied("Permission denied")
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     return project, policy, plan
 
 
@@ -142,7 +141,7 @@ def qgis_projects_api(request):
     results = []
     for project in queryset[:200]:
         plan = project_layer_plan(alias, project.id)
-        if plan.get("ready") and not plan.get("gis_enabled"):
+        if not plan.get("ready") or not plan.get("gis_enabled"):
             continue
         member = policy.membership(project.id)
         results.append(

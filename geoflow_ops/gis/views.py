@@ -17,14 +17,16 @@ from geoflow_ops.services.project_access import project_access_policy
 from .changeset import changeset_runtime_enabled
 from .layer_plan import (
     allowed_standard_names,
+    allowed_standard_names_for_projects,
     gis_enabled_project_ids,
     project_layer_plan,
+    require_enabled_layer_plan,
 )
 from .qfield_auth import (
     issue_qfield_package_import_token,
     qfield_ticket_runtime_enabled,
 )
-from .registry import FEATURE_TYPES, domain_counts, feature_rows
+from .registry import FEATURE_TYPES, domain_counts_for_rows, feature_rows
 
 
 _GEOJSON_PROPERTY_CANDIDATES = (
@@ -53,13 +55,15 @@ def _project_queryset(alias):
     return Project.objects.using(alias).order_by("-start_date", "name")
 
 
-def _require_project_gis_access(request, alias, project_id):
+def _require_project_gis_access(request, alias, project_id, *, allow_unready=False):
     project = get_object_or_404(_project_queryset(alias), id=project_id)
     policy = project_access_policy(request, alias)
     if not policy.can_webgis_read(project.id):
         raise PermissionDenied("Permission denied")
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
+    if not allow_unready:
+        require_enabled_layer_plan(plan)
+    elif plan.get("ready") and not plan.get("gis_enabled"):
         raise Http404("GIS is not enabled by this project's business scope.")
     return project, plan
 
@@ -101,7 +105,13 @@ def _parse_limit(value):
     return min(limit, 5000)
 
 
-def _physical_feature_rows(alias, *, project_id=None, allowed_names=None):
+def _physical_feature_rows(
+    alias,
+    *,
+    project_id=None,
+    project_ids=None,
+    allowed_names=None,
+):
     rows = feature_rows()
     if allowed_names is not None:
         allowed = {str(name).upper() for name in allowed_names}
@@ -126,6 +136,13 @@ def _physical_feature_rows(alias, *, project_id=None, allowed_names=None):
                 if project_id is not None:
                     sql += " WHERE project_id = %s"
                     params.append(project_id)
+                elif project_ids is not None:
+                    scoped_ids = [str(value) for value in project_ids]
+                    if not scoped_ids:
+                        row["row_count"] = 0
+                        continue
+                    sql += " WHERE project_id = ANY(%s::uuid[])"
+                    params.append(scoped_ids)
                 cursor.execute(sql, params)
                 row["row_count"] = cursor.fetchone()[0]
     except DatabaseError:
@@ -190,18 +207,34 @@ def dashboard(request):
     if visible_ids is not None:
         queryset = queryset.filter(pk__in=visible_ids)
     enabled_ids = gis_enabled_project_ids(alias)
-    if enabled_ids is not None:
+    if enabled_ids is None:
+        queryset = queryset.none()
+    else:
         queryset = queryset.filter(pk__in=enabled_ids)
 
     projects = list(queryset[:200])
-    rows = _physical_feature_rows(alias)
+    project_ids = [project.id for project in projects]
+    dashboard_layers = (
+        allowed_standard_names_for_projects(alias, project_ids)
+        if enabled_ids is not None
+        else set()
+    )
+    rows = (
+        _physical_feature_rows(
+            alias,
+            project_ids=project_ids,
+            allowed_names=dashboard_layers,
+        )
+        if enabled_ids is not None
+        else []
+    )
     return render(
         request,
         "geoflow_ops/gis/dashboard.html",
         {
             "projects": projects,
             "features": rows,
-            "domain_counts": domain_counts(),
+            "domain_counts": domain_counts_for_rows(rows),
             "feature_count": len(rows),
             "physical_ready_count": sum(1 for row in rows if row["physical_status"] == "READY"),
             "physical_object_count": sum((row["row_count"] or 0) for row in rows),
@@ -214,8 +247,10 @@ def dashboard(request):
 @require_GET
 def project_dashboard(request, project_id):
     alias = _require_gis_view(request)
-    project, plan = _require_project_gis_access(request, alias, project_id)
-    allowed = allowed_standard_names(plan) if plan.get("ready") else None
+    project, plan = _require_project_gis_access(
+        request, alias, project_id, allow_unready=True
+    )
+    allowed = allowed_standard_names(plan)
     rows = _physical_feature_rows(alias, project_id=project.id, allowed_names=allowed)
     map_layers = [
         {
@@ -238,11 +273,15 @@ def project_dashboard(request, project_id):
             "features": rows,
             "map_layers": map_layers,
             "layer_plan": plan,
-            "domain_counts": domain_counts(),
+            "domain_counts": domain_counts_for_rows(rows),
             "feature_count": len(rows),
             "physical_ready_count": sum(1 for row in rows if row["physical_status"] == "READY"),
             "physical_object_count": sum((row["row_count"] or 0) for row in rows),
-            "qfield_open_url": _qfield_open_url(request, alias, project),
+            "qfield_open_url": (
+                _qfield_open_url(request, alias, project)
+                if plan.get("ready") and plan.get("gis_enabled")
+                else ""
+            ),
         },
     )
 
@@ -251,14 +290,36 @@ def project_dashboard(request, project_id):
 @require_GET
 def layer_registry_api(request):
     alias = _require_gis_view(request)
-    return JsonResponse({"features": _physical_feature_rows(alias)})
+    policy = project_access_policy(request, alias)
+    queryset = _project_queryset(alias)
+    visible_ids = policy.visible_project_ids()
+    if visible_ids is not None:
+        queryset = queryset.filter(pk__in=visible_ids)
+    enabled_ids = gis_enabled_project_ids(alias)
+    if enabled_ids is None:
+        return JsonResponse(
+            {"features": [], "error": "gis_foundation_unavailable"}, status=503
+        )
+    queryset = queryset.filter(pk__in=enabled_ids)
+    project_ids = list(queryset.values_list("id", flat=True)[:5000])
+    allowed = allowed_standard_names_for_projects(alias, project_ids)
+    return JsonResponse(
+        {
+            "features": _physical_feature_rows(
+                alias, project_ids=project_ids, allowed_names=allowed
+            )
+        }
+    )
 
 
 @login_required
 @require_GET
 def project_layer_plan_api(request, project_id):
     alias = _require_gis_view(request)
-    project, plan = _require_project_gis_access(request, alias, project_id)
+    project, plan = _require_project_gis_access(
+        request, alias, project_id, allow_unready=True
+    )
+    status = 200 if plan.get("ready") else 503
     return JsonResponse(
         {
             "project": {
@@ -269,6 +330,7 @@ def project_layer_plan_api(request, project_id):
             },
             **plan,
         },
+        status=status,
         json_dumps_params={"ensure_ascii": False},
     )
 
@@ -282,7 +344,7 @@ def project_layer_geojson_api(request, project_id):
     if feature_type is None:
         return JsonResponse({"error": "Unknown or missing GIS layer."}, status=400)
 
-    if plan.get("ready") and feature_type.standard_name.upper() not in allowed_standard_names(plan):
+    if feature_type.standard_name.upper() not in allowed_standard_names(plan):
         raise Http404("GIS layer is not enabled by this project's business scope/profile.")
 
     try:

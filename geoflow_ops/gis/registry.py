@@ -75,3 +75,16 @@ def domain_counts():
         {"code": key, "label": DOMAIN_LABELS[key], "count": counts.get(key, 0)}
         for key in DOMAIN_LABELS
     ]
+
+
+def domain_counts_for_rows(rows):
+    """Summarize only the feature rows already authorized for a view."""
+    counts = {}
+    for row in rows:
+        code = str(row.get("domain") or "").upper()
+        if code:
+            counts[code] = counts.get(code, 0) + 1
+    return [
+        {"code": code, "label": DOMAIN_LABELS.get(code, code), "count": count}
+        for code, count in counts.items()
+    ]
