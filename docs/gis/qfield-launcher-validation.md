@@ -140,3 +140,30 @@ It never clears a conflict merely to retry. A committed receipt resolves it;
 a genuine conflict remains blocked and logs layer/reason. Pending later edits
 are preserved. The sync button now uses the available QField theme icon
 ic_cloud_synchronize_24dp instead of the missing ic_sync_white_24dp.
+
+## Field 0.9.12: explicit local-edit conflict recovery
+
+Save edits, authenticate through GeoFlow, then long-press the GeoFlow sync
+button. The confirmation dialog lists the update targets and explains that
+local geometry/attribute edits will be submitted. Cancel makes no state change.
+Confirm creates a new changeset using the server_updated_at from the retained
+conflict response. The unchanged server concurrency validator checks that
+version under lock; another server edit results in a new 409, never force-write.
+
+Before submission the project state archives the original outbox, pending
+changes and conflict together. Pending successors for the same object merge
+into the new update (latest geometry/attributes); unrelated pending changes
+remain queued. Only update actions and server_object_changed conflicts with
+known server timestamps are supported. Delete/missing/versionless/mismatched
+conflicts stop without mutation. State changes while the dialog is open cancel
+submission. This is explicit local preference, not automatic conflict merging.
+The archive remains in QField's durable sync settings; do not clear app data.
+
+Apply code and runtime with the existing update_qfield_runtime.py tool (full
+project PC backup and QML byte verification). Confirm Runtime 0.9.12 in output.
+Start logs, open the existing project via GeoFlow, save edits, long-press sync,
+confirm the listed DORO target and wait 40 seconds. Expect recovery submitted,
+POST 200, changeset applied, and WebGIS geometry refresh. If 409 occurs, retain
+the archive and compare again. JavaScript state tests cover preservation,
+latest pending geometry, unsupported conflicts, and unchanged input state;
+actual QField dialog rendering and device persistence require device validation.

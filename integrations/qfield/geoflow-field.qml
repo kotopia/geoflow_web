@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls as Controls
 import QtCore
 import org.qfield
 import org.qgis
@@ -73,6 +74,92 @@ Item {
         property string projectStatesJson: "{}"
     }
 
+    property string recoverySnapshot: ""
+    property var recoveryCandidate: null
+    Controls.Dialog {
+        id: conflictDialog
+        parent: geoflowField.mainWindow.contentItem
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 32, 480)
+        modal: true
+        title: "QField 편집으로 충돌 복구"
+        standardButtons: Controls.Dialog.Ok | Controls.Dialog.Cancel
+        contentItem: Controls.Label {
+            text: "대상: " + (geoflowField.recoveryCandidate ? geoflowField.recoveryCandidate.summary : "") +
+                  "\nQField에 보관한 도형·속성 편집을 서버에 반영합니다. 기존 요청은 복구 이력에 보관합니다. 서버가 다시 변경되면 전송을 중단합니다.\n확인을 누르면 전송합니다."
+            wrapMode: Text.WordWrap
+        }
+        onAccepted: geoflowField.acceptConflictRecovery()
+    }
+
+    function buildConflictRecovery(original, newId) {
+        let state = JSON.parse(JSON.stringify(original))
+        if (!state.outbox || !state.conflict || state.conflict.changeset_id !== state.outbox.changeset_id)
+            throw new Error("충돌 요청을 먼저 동기화 버튼으로 재확인하세요")
+        let conflicts = state.conflict.conflicts || []
+        if (!conflicts.length) throw new Error("충돌 상세가 없습니다 · 동기화 버튼으로 재확인하세요")
+        let versions = {}
+        for (let row of conflicts) {
+            if (row.reason !== "server_object_changed" || !row.server_updated_at)
+                throw new Error("자동 복구할 수 없는 충돌입니다 · 기존 변경을 보존했습니다")
+            versions[pendingKey(String(row.layer), String(row.id))] = String(row.server_updated_at)
+        }
+        let changes = []
+        for (let sent of state.outbox.changes || []) {
+            let key = pendingKey(String(sent.layer), String(sent.id))
+            let later = (state.pending || {})[key]
+            if (sent.action !== "update" || (later && later.action !== "update"))
+                throw new Error("이 복구는 기존 객체 수정만 지원합니다")
+            let change = JSON.parse(JSON.stringify(sent))
+            if (later) {
+                change.attributes = Object.assign({}, change.attributes || {}, later.attributes || {})
+                if (later.geometry_wkt) { change.geometry_wkt = later.geometry_wkt; delete change.geometry_wkb }
+                if (later.geometry_wkb) { change.geometry_wkb = later.geometry_wkb; delete change.geometry_wkt }
+                delete state.pending[key]
+            }
+            if (versions[key]) { change.base_updated_at = versions[key]; delete versions[key] }
+            changes.push(change)
+        }
+        if (Object.keys(versions).length) throw new Error("충돌 대상과 전송 대상이 일치하지 않습니다")
+        if (!changes.length) throw new Error("복구할 편집이 없습니다")
+        state.recovery_archive = state.recovery_archive || []
+        state.recovery_archive.push({outbox: original.outbox, pending: original.pending, conflict: original.conflict})
+        state.outbox = Object.assign({}, state.outbox, {changeset_id: newId, changes: changes})
+        state.conflict = null
+        return {state: state, summary: changes.map(function(c) { return c.layer + " " + c.id }).join("\n")}
+    }
+
+    // QField exposes configure through the project's plugin settings button.
+    function configure() {
+        if (syncInFlight || hasUncommittedEdits()) { toast("편집을 저장하고 전송이 끝난 뒤 복구하세요"); return }
+        if (!sessionAuthorized()) { toast("GeoFlow에서 QField 열기로 먼저 연결하세요"); return }
+        try {
+            let original = projectState()
+            recoveryCandidate = buildConflictRecovery(original, uuidV4())
+            recoverySnapshot = JSON.stringify(original)
+            conflictDialog.open()
+        } catch (err) { toast(String(err.message || err)) }
+    }
+
+    function acceptConflictRecovery() {
+        if (!recoveryCandidate || syncInFlight || hasUncommittedEdits() || !sessionAuthorized() ||
+            JSON.stringify(projectState()) !== recoverySnapshot) {
+            toast("확인 중 상태가 변경됐습니다 · 복구를 다시 열어주세요")
+            return
+        }
+        saveProjectState(recoveryCandidate.state)
+        durableState.sync()
+        if (JSON.stringify(projectState()) !== JSON.stringify(recoveryCandidate.state)) {
+            toast("복구 이력 저장을 확인할 수 없어 전송을 중단했습니다")
+            return
+        }
+        clearRetry()
+        lastSyncBlock = ""
+        log("explicit conflict recovery submitted; original request archived")
+        postOutbox(recoveryCandidate.state.outbox, true)
+        recoveryCandidate = null
+    }
+
     QfToolButton {
         id: syncButton
         iconSource: Theme.getThemeVectorIcon("ic_cloud_synchronize_24dp")
@@ -80,6 +167,7 @@ Item {
         bgcolor: Theme.toolButtonBackgroundColor
         round: true
         onClicked: geoflowField.manualSync()
+        onPressAndHold: geoflowField.configure()
     }
 
     Timer {
