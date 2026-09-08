@@ -26,7 +26,7 @@
             id="qfieldPersistentOpen"
             data-project-id="{{ project.id }}"
             data-status-url="{% url 'gis:qfield_install_status_api' project.id %}">QField에서 열기</button>
-    <button type="button" class="btn btn-outline-success" id="qfieldForceInstall">QField 프로젝트 등록 안내</button>
+    <button type="button" class="btn btn-outline-success" id="qfieldForceInstall">QField 최초 가져오기</button>
     <button type="button" class="btn btn-outline-danger" id="qfieldRemoveLocal">QField 로컬 제거</button>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qfield_package_api' project.id %}">ZIP 수동 다운로드</a>
   </div>
@@ -122,15 +122,6 @@
   const statusUrl = String(openButton.dataset.statusUrl || "");
   const storageKey = `geoflow.qfield.install.${projectId}`;
 
-  function readMarker() {
-    try {
-      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
-      return value && typeof value === "object" ? value : null;
-    } catch (_err) {
-      return null;
-    }
-  }
-
   function writeMarker(descriptor) {
     const install = descriptor.install || {};
     localStorage.setItem(storageKey, JSON.stringify({
@@ -141,15 +132,6 @@
       persistent_protocol: String(install.persistent_protocol || ""),
       requested_at: new Date().toISOString()
     }));
-  }
-
-  function markerMatches(marker, install) {
-    return Boolean(marker && install &&
-      String(marker.install_id || "") === String(install.install_id || "") &&
-      String(marker.package_version || "") === String(install.package_version || "") &&
-      String(marker.plugin_runtime_version || "") === String(install.plugin_runtime_version || "") &&
-      String(marker.schema_fingerprint || "") === String(install.schema_fingerprint || "") &&
-      String(marker.persistent_protocol || "") === String(install.persistent_protocol || ""));
   }
 
   async function descriptor() {
@@ -178,41 +160,20 @@
     try {
       const body = await descriptor();
       const install = body.install || {};
-      const marker = readMarker();
-      const current = markerMatches(marker, install);
-
-      if (forceInstall && marker) {
-        statusNode.textContent = "기존 프로젝트를 열고 QField 설정 → 플러그인 → GeoFlow Launcher의 설정 버튼으로 등록하세요 (런처 0.1.1 이상). 프로젝트를 다시 가져오지 않습니다.";
+      if (!forceInstall) {
+        statusNode.textContent = "등록된 기존 프로젝트를 엽니다 · 처음 사용하는 기기는 ‘QField 최초 가져오기’ 후 Launcher에서 현재 프로젝트를 등록하세요.";
         launch(install.launch_url);
         return;
       }
 
-      if (!forceInstall && current) {
-        statusNode.textContent = "GeoFlow Launcher에 등록한 로컬 프로젝트를 엽니다 · 앱 플러그인 최초 설치와 등록이 필요합니다.";
-        launch(install.launch_url);
-        return;
-      }
-
-      if (marker && !current && !forceInstall) {
-        const ok = window.confirm(
-          "QField 프로젝트 계약 업데이트가 필요합니다. 현재 QField 편집을 먼저 저장해 주세요. " +
-          "GeoFlow outbox는 별도로 보존되므로 전송 대기 변경은 업데이트 후에도 이어집니다. 지금 업데이트할까요?"
-        );
-        if (!ok) {
-          statusNode.textContent = "업데이트가 보류되었습니다 · 기존 QField 프로젝트에서 로컬 변경을 먼저 정리하세요.";
-          return;
-        }
-      }
-
-      if (forceInstall) {
-        const ok = window.confirm(
-          "이 프로젝트 패키지를 다시 설치합니다. 현재 편집 중인 객체가 있다면 먼저 저장하세요. 계속할까요?"
-        );
-        if (!ok) return;
-      }
+      const ok = window.confirm(
+        "새 프로젝트 복사본을 가져옵니다. 이미 사용하는 프로젝트가 있으면 취소하고 ‘QField에서 열기’를 누르세요. " +
+        "미전송 편집이 없는지 확인했으며, 새로 가져오시겠습니까?"
+      );
+      if (!ok) return;
 
       writeMarker(body);
-      statusNode.textContent = marker ? "QField 프로젝트 업데이트를 시작합니다…" : "QField 프로젝트를 최초 설치합니다…";
+      statusNode.textContent = "새 프로젝트를 가져옵니다 · 가져온 후 GeoFlow Launcher에서 현재 프로젝트를 등록하세요.";
       launch(install.install_url);
     } catch (error) {
       statusNode.textContent = `QField 연결 실패: ${error.message || error}`;
@@ -240,10 +201,7 @@
     });
   }
 
-  const marker = readMarker();
-  statusNode.textContent = marker
-    ? "이 기기에 QField 프로젝트 설치 기록이 있습니다. QField만 열면 기존 인증 만료시 서버는 연결되지 않습니다."
-    : "이 기기에는 아직 QField 프로젝트 설치 기록이 없습니다. 첫 열기에서 1회 설치합니다.";
+  statusNode.textContent = "기존 프로젝트는 ‘QField에서 열기’ · 처음 사용하는 기기만 ‘QField 최초 가져오기’ 후 Launcher에서 등록하세요.";
 })();
 </script>
 {% endblock %}

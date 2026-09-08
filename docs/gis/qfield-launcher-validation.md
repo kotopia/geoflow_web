@@ -167,3 +167,43 @@ POST 200, changeset applied, and WebGIS geometry refresh. If 409 occurs, retain
 the archive and compare again. JavaScript state tests cover preservation,
 latest pending geometry, unsupported conflicts, and unchanged input state;
 actual QField dialog rendering and device persistence require device validation.
+
+## Explicit import and repeated-open validation (2026-09-08)
+
+The dashboard Open button now always invokes the registered launcher URL. Missing
+browser storage, a different browser origin, and runtime/schema version changes
+must never silently select ZIP import. Only **QField 최초 가져오기** imports a new
+copy, after explicit confirmation. This does not automatically upgrade a registered
+project's runtime/schema; use the validated in-place runtime procedure for runtime
+updates and a separate reviewed migration for schema changes.
+
+Device test order:
+1. Finish syncing current edits; resolve any pending/conflict indication before
+   deleting anything. Stop QField and back up Imported Projects with adb pull.
+   Do not clear QField application data or uninstall the app/launcher.
+2. Pull this branch and restart the development server; hard-refresh the phone
+   browser at the same LAN origin. Start fresh QField/server log capture.
+3. Remove the old GeoFlow project folders in QField (only after step 1).
+4. In the phone browser choose **QField 최초 가져오기** once and confirm. Open
+   that project, allow its plugin, then use GeoFlow Launcher configuration to
+   register this exact current project. Launcher registration remains necessary.
+5. Save and close the project. From the browser click **QField에서 열기** three
+   times, returning to the browser between attempts. Expect the same registered
+   path and only one package-import GET in the entire test.
+6. Leave the map still for two minutes. Edit/save one road vertex; expect a
+   changesets POST, delta GET, and a PC features GET for DORO. Observe the PC
+   geometry update without manual reload. Repeat once. Upload both logs.
+
+Transport audit of the recovery test: 3 changesets POSTs, 3 delta GETs, 3 PC
+features GETs, and 57 geojson GETs (layer loads; not 57 edit uploads). The client
+loads layers initially and on WebSocket open/reconnect, and after map movement
+with a 250 ms debounce. WebSocket changes fetch affected objects. The 2-second
+QField polling timer inspects local features, not HTTP; the 3-second send timer
+runs only with unsent work. Failed uploads retry with 3/6/12/24/48/60-second
+backoff. Persistent runtime disables periodic roaming. Delta is pulled on sync
+without an upload and after successful upload, rather than constant idle polling.
+Thus an idle QField project does not continuously poll server changes; do not
+promise automatic server-to-QField updates while idle. Manual sync retrieves
+server deltas. Local full-feature polling and initial per-layer requests remain
+scaling considerations, even without periodic network uploads. This audit is not
+a load test and does not establish concurrent-user capacity.
