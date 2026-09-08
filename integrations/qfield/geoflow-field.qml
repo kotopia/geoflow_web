@@ -75,7 +75,7 @@ Item {
 
     QfToolButton {
         id: syncButton
-        iconSource: Theme.getThemeVectorIcon("ic_sync_white_24dp")
+        iconSource: Theme.getThemeVectorIcon("ic_cloud_synchronize_24dp")
         iconColor: Theme.toolButtonColor
         bgcolor: Theme.toolButtonBackgroundColor
         round: true
@@ -930,6 +930,9 @@ Item {
                     conflicts: errorPayload && errorPayload.conflicts ? errorPayload.conflicts : []
                 }
                 saveProjectState(state)
+                for (let detail of state.conflict.conflicts) {
+                    log("conflict detail layer=" + String(detail.layer || "") + " reason=" + String(detail.reason || "unknown"))
+                }
                 syncStatus = "conflict"
                 toast("GeoFlow 동기화 충돌 · 서버 변경과 겹쳐 자동 전송을 중단했습니다")
                 return
@@ -959,9 +962,16 @@ Item {
         let state = projectState()
         updateUnsyncedCount(state)
         if (state.conflict) {
+            // Recheck the identical frozen request only on explicit user action.
+            // The server returns its receipt or preserves a genuine conflict.
+            if (manual && state.outbox) {
+                log("rechecking retained conflict changeset")
+                postOutbox(state.outbox, true)
+                return
+            }
             reportSyncBlock("conflict requires review")
             syncStatus = "conflict"
-            if (manual) toast("GeoFlow 충돌이 보류 중입니다 · 새 프로젝트 패키지에서 서버 상태를 확인하세요")
+            if (manual) toast("GeoFlow 충돌이 보류 중입니다 · 기존 변경을 보존했습니다")
             return
         }
         lastSyncBlock = ""

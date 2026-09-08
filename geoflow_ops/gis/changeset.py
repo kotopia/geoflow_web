@@ -272,6 +272,7 @@ def apply_project_changeset(
     plan: dict[str, Any],
     payload: dict[str, Any],
     actor_ref: str | None = None,
+    validate_before_apply=None,
 ) -> dict[str, Any]:
     if not changeset_runtime_enabled(alias):
         raise ChangesetUnavailable(
@@ -326,6 +327,9 @@ def apply_project_changeset(
             if replay is None:
                 raise ChangesetUnavailable("Changeset idempotency receipt is unavailable")
             return replay
+
+        if validate_before_apply is not None:
+            validate_before_apply()
 
         events: list[dict[str, Any]] = []
         counts = {"create": 0, "update": 0, "delete": 0}

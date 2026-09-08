@@ -122,3 +122,21 @@ geometry change without refresh. If a guard/conflict is logged, preserve data
 and diagnose that guard; do not delete the queue or reimport the project.
 Tests cover Python regressions and extracted JavaScript timeout state behavior;
 actual QML/Android behavior and live PostGIS/WebSocket end-to-end remain unverified.
+
+## Field 0.9.10: retained conflict recheck
+
+The 17:26-17:29 device log explicitly reports `conflict requires review`.
+No changeset is sent in that state. The server now checks committed changeset
+receipts before QField version validation, within the existing transaction and
+project lock, so a retry after a lost success response does not conflict with
+its own committed edit. New requests still undergo concurrency validation.
+This ordering bug is confirmed in code; whether it caused the saved device
+conflict requires rechecking that original request.
+
+Update using update_qfield_runtime.py after saving edits and stopping QField.
+Field 0.9.10 allows the user to press the plugin toolbar sync button to recheck
+the exact retained outbox, keeping its ID, base version, and attributes intact.
+It never clears a conflict merely to retry. A committed receipt resolves it;
+a genuine conflict remains blocked and logs layer/reason. Pending later edits
+are preserved. The sync button now uses the available QField theme icon
+ic_cloud_synchronize_24dp instead of the missing ic_sync_white_24dp.

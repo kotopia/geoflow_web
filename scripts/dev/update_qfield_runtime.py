@@ -56,7 +56,8 @@ def main():
     if read_device_file(remote) != content:
         raise RuntimeError('Verification failed; retain the PC backup.')
     print('Project backup:', saved)
-    print('Runtime 0.9.9 updated and verified; project data and outbox retained.')
+    from geoflow_ops.gis.qfield_package import QFIELD_PLUGIN_RUNTIME_VERSION
+    print('Runtime ' + QFIELD_PLUGIN_RUNTIME_VERSION + ' updated and verified; project data and outbox retained.')
 
 
 if __name__ == '__main__':

@@ -247,18 +247,15 @@ def qfield_device_changeset_api(request, project_id):
 
     try:
         with transaction.atomic(using=alias):
-            _validate_qfield_concurrency(
-                alias,
-                project_id=str(project.id),
-                plan=plan,
-                payload=payload,
-            )
             result = apply_project_changeset(
                 alias,
                 project_id=str(project.id),
                 plan=plan,
                 payload=payload,
                 actor_ref=_actor_ref(request),
+                validate_before_apply=lambda: _validate_qfield_concurrency(
+                    alias, project_id=str(project.id), plan=plan, payload=payload,
+                ),
             )
             result = _enrich_applied_versions(
                 alias,
