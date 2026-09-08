@@ -44,6 +44,12 @@ class GISProjectReadinessWorkflowContractTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.diagnostic)
 
+    def test_diagnostic_supports_legacy_scope_item_without_active_or_ord(self):
+        self.assertIn('scope_has_active = _column_exists', self.diagnostic)
+        self.assertIn('"TRUE AS active"', self.diagnostic)
+        self.assertIn('active_filter = " AND s.active" if scope_has_active else ""', self.diagnostic)
+        self.assertIn('order_clause = "ord, id" if scope_has_ord else "id"', self.diagnostic)
+
 
 if __name__ == "__main__":
     unittest.main()
