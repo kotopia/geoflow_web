@@ -171,6 +171,9 @@ def _enrich_applied_versions(
     plan: dict[str, Any],
     result: dict[str, Any],
 ) -> dict[str, Any]:
+    # Replays must retain the version captured at commit, never today's version.
+    if result.get("replayed"):
+        return result
     specs = {spec.standard_name.upper(): spec for spec in _layer_specs(alias, plan)}
     connection = connections[alias]
     schema = connection.ops.quote_name("gis")
@@ -195,6 +198,7 @@ def _enrich_applied_versions(
     return {
         **result,
         "strategy": "feature_updated_at_optimistic_concurrency",
+        "version_receipt": True,
         "applied": applied,
     }
 
@@ -263,6 +267,13 @@ def qfield_device_changeset_api(request, project_id):
                 plan=plan,
                 result=result,
             )
+            if not result.get("replayed"):
+                with connections[alias].cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE gis.changeset_receipt SET response_payload=%s::jsonb "
+                        "WHERE project_id=%s AND client_id=%s AND changeset_id=%s",
+                        [json.dumps(result), str(project.id), payload["client_id"], payload["changeset_id"]],
+                    )
     except SyncConflict as exc:
         return JsonResponse(
             {

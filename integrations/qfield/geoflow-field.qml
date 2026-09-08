@@ -825,7 +825,7 @@ Item {
         nextRetryAtMs = 0
     }
 
-    function applyServerVersions(state, response) {
+    function applyServerVersions(state, response, sentPayload) {
         let applied = response.applied || []
         for (let i = 0; i < applied.length; i++) {
             let row = applied[i]
@@ -834,6 +834,18 @@ Item {
                 delete state.feature_versions[key]
             } else if (row.updated_at) {
                 state.feature_versions[key] = String(row.updated_at)
+                // Advance only a successor based on this exact acknowledged edit.
+                // Never change a frozen outbox or adopt a later server version.
+                let pending = (state.pending || {})[key]
+                if (response.version_receipt === true && pending && sentPayload) {
+                    for (let sent of sentPayload.changes || []) {
+                        if (pendingKey(String(sent.layer || ""), String(sent.id || "")) === key &&
+                            String(pending.base_updated_at || "") === String(sent.base_updated_at || "") &&
+                            String(sent.base_updated_at || "") !== "") {
+                            pending.base_updated_at = String(row.updated_at)
+                        }
+                    }
+                }
             }
         }
     }
@@ -871,7 +883,7 @@ Item {
                     state.outbox = null
                     state.conflict = null
                     state.base_revision = Number(response.current_revision || state.base_revision || 0)
-                    applyServerVersions(state, response)
+                    applyServerVersions(state, response, payload)
                     saveProjectState(state)
                 }
                 let recovered = wasOffline
