@@ -13,13 +13,26 @@ _RESUME_CONNECTION = r'''    Connections {
         target: Qt.application
         function onStateChanged() {
             if (Qt.application.state !== Qt.ApplicationActive) return
-            if (geoflowField.serverAuthRequired) {
+            if (!geoflowField.sessionAuthorized()) {
                 geoflowField.claimPendingSession(false, function(ok) {
                     if (ok) geoflowField.syncNow(false, true)
                 })
-            } else if (geoflowField.sessionAuthorized()) {
+            } else {
                 geoflowField.syncNow(false, false)
             }
+        }
+    }
+
+'''
+_ACTION_CONNECTION = r'''    Connections {
+        target: iface
+        function onExecuteAction(action) {
+            let data = QfUrlUtils.getActionDetails(String(action))
+            if (data.type !== "geoflow" || String(data.project) !== geoflowField.projectId ||
+                String(data.server).replace(/\/+$/, "") !== geoflowField.serverUrl.replace(/\/+$/, "")) return
+            geoflowField.claimPendingSession(false, function(ok) {
+                if (ok) geoflowField.syncNow(false, false)
+            })
         }
     }
 
@@ -35,6 +48,9 @@ def _finalize_qml(text: str) -> str:
         if _RESUME_MARKER not in text:
             raise RuntimeError("QField resume injection marker missing")
         text = text.replace(_RESUME_MARKER, _RESUME_CONNECTION + _RESUME_MARKER, 1)
+
+    if 'data.type !== "geoflow"' not in text:
+        text = text.replace(_RESUME_MARKER, _ACTION_CONNECTION + _RESUME_MARKER, 1)
 
     if _SYNC_RUNNING_OLD in text:
         text = text.replace(_SYNC_RUNNING_OLD, _SYNC_RUNNING_NEW, 1)

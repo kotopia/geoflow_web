@@ -579,21 +579,16 @@ def _inject_qml_persistent_session(text: str) -> str:
         syncNow(false, false)'''
     init_new = f'''        updateUnsyncedCount(projectState())
         bindLayers()
-        if (sessionAuthorized()) {{
-            serverAuthRequired = false
-            toast("GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION} 연결됨 · 증분 동기화 준비")
-            syncNow(false, false)
-        }} else {{
-            serverAuthRequired = true
-            claimPendingSession(false, function(claimed) {{
-                if (claimed) {{
-                    toast("GeoFlow 재인증 완료 · 증분 동기화 시작")
-                    syncNow(false, false)
-                }} else {{
-                    toast("GeoFlow 로컬 프로젝트 열림 · 서버 사용은 GeoFlow 재인증 후 가능합니다")
-                }}
-            }})
-        }}'''
+        claimPendingSession(false, function(claimed) {{
+            if (claimed || sessionAuthorized()) {{
+                serverAuthRequired = false
+                toast("GeoFlow Field {QFIELD_PLUGIN_RUNTIME_VERSION} 연결됨 · 증분 동기화 준비")
+                syncNow(false, false)
+            }} else {{
+                serverAuthRequired = true
+                toast("GeoFlow 로컬 프로젝트 열림 · 서버 사용은 GeoFlow 재인증 후 가능합니다")
+            }}
+        }})'''
     if init_old not in text:
         raise RuntimeError("QField initialize marker missing")
     text = text.replace(init_old, init_new, 1)

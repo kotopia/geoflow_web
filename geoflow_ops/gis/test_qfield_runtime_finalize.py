@@ -22,6 +22,8 @@ class QFieldRuntimeFinalizeTests(SimpleTestCase):
         self.assertIn("target: Qt.application", text)
         self.assertIn("Qt.ApplicationActive", text)
         self.assertIn("claimPendingSession(false", text)
+        self.assertIn("if (!geoflowField.sessionAuthorized())", text)
+        self.assertNotIn("if (geoflowField.serverAuthRequired)", text)
         self.assertIn(
             "running: geoflowField.unsyncedCount > 0 && geoflowField.sessionAuthorized()",
             text,

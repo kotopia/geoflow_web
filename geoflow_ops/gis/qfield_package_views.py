@@ -102,14 +102,12 @@ def _fresh_install_url(request, alias, project, policy) -> str:
     return "qfield://local?import=" + quote(package_url, safe="")
 
 
-def _launcher_intent_url() -> str:
-    """Resume QField through its browser-supported VIEW scheme.
-
-    No import parameter: keep the installed project and its pending edits.
-    The foreground plugin claims the handoff staged by install-status.
-    MAIN/LAUNCHER intents are not browser deep links and can open Play Store.
-    """
-    return "qfield://local"
+def _launcher_intent_url(request, project_id) -> str:
+    """Ask the app-wide launcher to open an explicitly registered local file."""
+    return "qfield://geoflow?" + urlencode({
+        "server": request.build_absolute_uri("/").rstrip("/"),
+        "project": str(project_id),
+    })
 
 
 def _package_response(request, alias, project, policy, plan):
@@ -226,7 +224,7 @@ def qfield_install_status_api(request, project_id):
                 "schema_fingerprint": schema_fingerprint,
                 "persistent_protocol": QFIELD_PERSISTENT_PROTOCOL_VERSION,
                 "install_url": install_url,
-                "launch_url": _launcher_intent_url(),
+                "launch_url": _launcher_intent_url(request, project.id),
                 "one_project_folder_per_project_id": True,
                 "ordinary_data_change_requires_reinstall": False,
                 "outbox_survives_package_update": True,
