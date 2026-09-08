@@ -105,7 +105,7 @@ def _single_owner_qml(text: str) -> str:
     text = text.replace('        onTriggered: geoflowField.pollForLocalChanges(false)',
                         '        onTriggered: { if (geoflowField.runtimeActive) geoflowField.pollForLocalChanges(false) }')
     text = text.replace('        function onLoadProjectEnded(path, name) {\n',
-        '        function onLoadProjectEnded(path, name) {\n            geoflowField.unbindLayers()\n            geoflowField.configReady = false\n', 1)
+        '        function onLoadProjectEnded(path, name) {\n            geoflowField.unbindLayers()\n            geoflowField.configReady = false\n            geoflowField.nextDeltaAtMs = 0\n            geoflowField.deltaSnapshotRequired = false\n', 1)
     text = text.replace('    Component.onCompleted: {\n',
         '    Component.onCompleted: {\n        if (!acquireRuntime()) { log("duplicate runtime suppressed"); return }\n', 1)
     text = text.replace('    Component.onDestruction: {\n',

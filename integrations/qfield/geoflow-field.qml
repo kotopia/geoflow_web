@@ -360,6 +360,7 @@ Item {
         let states = parseStates()
         states[projectId] = state
         durableState.projectStatesJson = JSON.stringify(states)
+        durableState.sync()
         updateUnsyncedCount(state)
     }
 

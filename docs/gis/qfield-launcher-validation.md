@@ -283,3 +283,59 @@ Subsequent development batches (not claimed complete):
 Each batch should finish automated regressions before requesting one documented
 user acceptance session. Device-only failures can still require a focused retry;
 minor implementation edits alone should not trigger another manual test cycle.
+
+## Field 0.9.14: offline flush and bounded foreground receive
+
+Device evidence for 0.9.13: three edits each produced one POST and successful
+revisions 64/65/66, with no paired request/self-conflict in this trace. The
+launcher still reported 0.1.2, so auto-registration was NOT device-validated.
+No QField requests appear between 19:20:35 and 19:28:04 in the submitted server
+excerpt; that observation does not establish behavior under other workloads.
+
+Changes in 0.9.14:
+- Save sync state with Settings.sync immediately (pending/outbox/conflict retained).
+- Foreground, authorized delta check: 15 seconds after changed data, 30 seconds
+  after first empty check, then capped at 60 seconds. Failures wait 60 seconds;
+  manual sync can request earlier. Background periodic checks are disabled.
+  No polling during pending upload, conflict, in-flight upload, or active edit.
+- Re-read state at response time. If project/server, base revision, authorization,
+  pending/outbox/conflict, or active editing changed, do not apply the response.
+- Delta and claim time out after 30 seconds; clear request reference before abort
+  and reject late callbacks. Delta timeout retains local state and cursor.
+- Stop automatic checks when history requires a new snapshot. Do not repeatedly
+  download full projects; explicit recovery/migration remains a separate action.
+- Empty has_more responses cannot trigger a tight recursive paging loop.
+
+This changes prior idle behavior intentionally: an idle *foreground* authorized
+QField now makes up to roughly one empty delta request/minute after backoff.
+Each request still incurs authentication/DB cost. This is a bounded interim receive
+strategy, not zero-cost push and not a demonstrated multi-user capacity figure.
+Changed data is returned incrementally; no periodic whole-project ZIP transfer.
+The current project dashboard is read-only, so do not instruct users to edit on
+that page to manufacture reverse-direction changes. A second authorized editor
+is needed for an end-to-end server-to-device acceptance check.
+
+Validation: 27 isolated Python tests and 6 Node suites pass. The new suite executes
+rendered QML JS to check request coalescing, deadline/backoff, stale response and
+edit-race rejection, cursor preservation, empty pagination handling, and immediate
+state flush/reconstruction. It cannot prove Android disk/power-loss durability or
+actual network reconnection; those remain device acceptance gates.
+
+Consolidated device session (one update and one capture, preserve existing data):
+1. Save project; pull branch; stop QField and update the existing project using
+   update_qfield_runtime.py. Restart development server. Verify Field 0.9.14.
+   Update Launcher separately to 0.1.3; do not reimport project or clear app data.
+2. Keep continuous adb/server logs. Edit/save once online; verify PC geometry.
+3. Disable phone Wi-Fi/mobile data, keep USB connected. Edit/save again and
+   confirm unsent state. Close/reopen QField while still offline; verify geometry
+   and pending indicator remain. Do not delete or reinstall anything.
+4. Restore Wi-Fi and leave QField open for up to 90 seconds (request timeout plus
+   capped retry). Verify pending state clears and PC catches up, without pressing
+   manual sync. If authentication expired, return via GeoFlow once; expiry never
+   grants a silent token extension.
+5. Leave QField foreground idle for 3 minutes. Expect sparse delta requests, no
+   repeated changeset POST after acknowledgment. For reverse-direction testing,
+   use another authorized editor only when available; no direct DB mutation.
+6. Upload logs covering the same times and report online sync, offline retention,
+   and reconnect result together. Historical conflict states are preserved; do
+   not silently clear them to get a passing test.

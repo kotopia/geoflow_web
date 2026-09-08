@@ -89,7 +89,14 @@ def _inject_qml_persistent_session(text: str) -> str:
         property_marker,
         property_marker
         + "    property bool claimInFlight: false\n"
+        + "    property var claimRequest: null\n"
+        + "    property double claimStartedAtMs: 0\n"
         + "    property bool deltaInFlight: false\n"
+        + "    property var deltaRequest: null\n"
+        + "    property double deltaStartedAtMs: 0\n"
+        + "    property double nextDeltaAtMs: 0\n"
+        + "    property int deltaIdleDelayMs: 15000\n"
+        + "    property bool deltaSnapshotRequired: false\n"
         + "    property bool serverAuthRequired: false\n"
         + "    property bool packageUpdateRequired: false\n"
         + '    property string packageUpdateReason: ""\n'
@@ -248,7 +255,51 @@ def _inject_qml_persistent_session(text: str) -> str:
     if auth_get_marker not in text:
         raise RuntimeError("QField authGet marker missing")
 
-    runtime = r'''    function sessionAuthorized() {
+    runtime = r'''    Timer {
+        interval: 2000
+        repeat: true
+        running: geoflowField.sessionAuthorized() && Qt.application.state === Qt.ApplicationActive
+        onTriggered: {
+            if (Date.now() >= geoflowField.nextDeltaAtMs && !geoflowField.deltaSnapshotRequired)
+                geoflowField.pullDelta(false)
+        }
+    }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: geoflowField.deltaInFlight || geoflowField.claimInFlight
+        onTriggered: {
+            geoflowField.expireStalledDelta()
+            geoflowField.expireStalledClaim()
+        }
+    }
+    function scheduleDeltaCheck(changed, failed) {
+        deltaIdleDelayMs = changed ? 15000 : (failed ? 60000 : Math.min(60000, deltaIdleDelayMs * 2))
+        nextDeltaAtMs = Date.now() + deltaIdleDelayMs
+    }
+    function expireStalledDelta() {
+        if (!deltaInFlight || !deltaRequest || Date.now() - deltaStartedAtMs < 30000) return
+        let stalled = deltaRequest
+        deltaRequest = null
+        deltaInFlight = false
+        scheduleDeltaCheck(false, true)
+        stalled.abort()
+        log("delta timeout; local changes and cursor retained")
+    }
+    function expireStalledClaim() {
+        if (!claimInFlight || !claimRequest || Date.now() - claimStartedAtMs < 30000) return
+        let stalled = claimRequest
+        claimRequest = null
+        claimInFlight = false
+        stalled.abort()
+        log("session claim timeout; retry from GeoFlow or foreground")
+    }
+    function canApplyDelta(requestProject, requestServer, since, state) {
+        return requestProject === projectId && requestServer === serverUrl && sessionAuthorized() &&
+            !syncInFlight && !hasUncommittedEdits() && !state.conflict && !state.outbox &&
+            Object.keys(state.pending || {}).length === 0 && Number(state.base_revision || 0) === since
+    }
+    function sessionAuthorized() {
         return Boolean(bearerToken && accessExpiresAtMs > Date.now())
     }
 
@@ -290,6 +341,10 @@ def _inject_qml_persistent_session(text: str) -> str:
         }
         claimInFlight = true
         let xhr = new XMLHttpRequest()
+        claimRequest = xhr
+        claimStartedAtMs = Date.now()
+        let claimProject = projectId
+        let claimServer = serverUrl
         let url = absoluteUrl(sessionClaimUrl)
         xhr.open("POST", url)
         xhr.setRequestHeader("Accept", "application/json")
@@ -297,7 +352,10 @@ def _inject_qml_persistent_session(text: str) -> str:
         xhr.setRequestHeader("Authorization", "Bearer " + claimToken)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (claimRequest !== xhr) return
+            claimRequest = null
             claimInFlight = false
+            if (claimProject !== projectId || claimServer !== serverUrl) return
             let body = null
             try { body = JSON.parse(xhr.responseText) } catch (err) {}
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -435,36 +493,54 @@ def _inject_qml_persistent_session(text: str) -> str:
     }
 
     function pullDelta(manual) {
-        if (deltaInFlight || !configReady || !sessionAuthorized()) return
+        if (deltaInFlight || syncInFlight || hasUncommittedEdits() || !configReady || !sessionAuthorized()) return
+        if (!manual && (deltaSnapshotRequired || Date.now() < nextDeltaAtMs)) return
         let state = projectState()
         if (state.conflict || state.outbox || Object.keys(state.pending || {}).length > 0) return
         deltaInFlight = true
+        nextDeltaAtMs = Date.now() + 15000
+        let requestProject = projectId
+        let requestServer = serverUrl
         let since = Math.max(0, Number(state.base_revision || 0))
         let xhr = new XMLHttpRequest()
+        deltaRequest = xhr
+        deltaStartedAtMs = Date.now()
         let url = absoluteUrl(deltaUrl) + "?since=" + encodeURIComponent(since) + "&limit=1000"
         xhr.open("GET", url)
         xhr.setRequestHeader("Accept", "application/json")
         xhr.setRequestHeader("Authorization", "Bearer " + bearerToken)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (deltaRequest !== xhr) return
+            deltaRequest = null
             deltaInFlight = false
+            if (requestProject !== projectId || requestServer !== serverUrl) return
             if (xhr.status === 401) {
                 markSessionExpired(manual)
                 return
             }
             if (xhr.status < 200 || xhr.status >= 300) {
+                scheduleDeltaCheck(false, true)
                 log("delta pull failed HTTP " + xhr.status)
                 if (manual && xhr.status !== 0) toast("GeoFlow 변경분 수신 실패: HTTP " + xhr.status)
                 return
             }
             let body = null
             try { body = JSON.parse(xhr.responseText) } catch (err) {}
-            if (!body || !body.ok) return
+            if (!body || !body.ok) { scheduleDeltaCheck(false, true); return }
             if (body.snapshot_required) {
+                deltaSnapshotRequired = true
                 log("delta history gap requires fresh snapshot")
                 if (manual) toast("GeoFlow 변경 이력이 오래되어 전체 스냅샷 업데이트가 필요합니다")
                 return
             }
+            state = projectState()
+            if (!canApplyDelta(requestProject, requestServer, since, state)) {
+                scheduleDeltaCheck(false, false)
+                log("delta deferred; local edit or project state changed during request")
+                return
+            }
+            deltaSnapshotRequired = false
             let rows = body.changes || []
             let next = since
             let applied = 0
@@ -482,7 +558,9 @@ def _inject_qml_persistent_session(text: str) -> str:
                 rebuildPollingBaseline()
                 log("delta applied count=" + applied + " revision=" + state.base_revision)
             }
-            if (body.has_more && applied === rows.length) {
+            scheduleDeltaCheck(applied > 0, false)
+            if (body.has_more && rows.length > 0 && applied === rows.length) {
+                nextDeltaAtMs = 0
                 pullDelta(manual)
             } else if (manual) {
                 toast(applied > 0 ? "GeoFlow 변경분 " + applied + "건 수신 완료" : "GeoFlow 서버와 최신 상태입니다")
