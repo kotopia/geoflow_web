@@ -20,7 +20,30 @@ Item {
     property real movementThresholdM: 100.0
     property bool configReady: false
     property bool requestInFlight: false
+    property var changesetRequest: null
+    property double changesetStartedAtMs: 0
+    property string lastSyncBlock: ""
     property bool syncInFlight: false
+    Timer {
+        interval: 1000
+        repeat: true
+        running: geoflowField.syncInFlight
+        onTriggered: geoflowField.expireStalledChangeset()
+    }
+    function expireStalledChangeset() {
+        if (!syncInFlight || !changesetRequest || Date.now() - changesetStartedAtMs < 30000) return
+        let stalled = changesetRequest
+        changesetRequest = null
+        syncInFlight = false
+        stalled.abort()
+        syncStatus = "offline"
+        scheduleRetry()
+        log("changeset timeout; existing outbox retained for retry")
+    }
+    function reportSyncBlock(reason) {
+        if (lastSyncBlock !== reason) log("sync waiting: " + reason)
+        lastSyncBlock = reason
+    }
     property bool captureSuppressed: false
     property bool wasOffline: false
     property bool authBlocked: false
@@ -819,6 +842,8 @@ Item {
         syncInFlight = true
         syncStatus = "syncing"
         let xhr = new XMLHttpRequest()
+        changesetRequest = xhr
+        changesetStartedAtMs = Date.now()
         let url = absoluteUrl(changesetUrl)
         log("POST changeset count=" + payload.changes.length + " url=" + url)
         xhr.open("POST", url)
@@ -827,6 +852,8 @@ Item {
         xhr.setRequestHeader("Authorization", "Bearer " + bearerToken)
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (changesetRequest !== xhr) return
+            changesetRequest = null
             syncInFlight = false
 
             if (xhr.status >= 200 && xhr.status < 300) {
@@ -916,7 +943,7 @@ Item {
     }
 
     function syncNow(manual, acceptedEdit) {
-        if (syncInFlight || authBlocked) return
+        if (syncInFlight || authBlocked) { reportSyncBlock(syncInFlight ? "request in flight" : "authentication"); return }
         if (!manual && nextRetryAtMs > 0 && Date.now() < nextRetryAtMs) return
         if (!configReady && !reloadProjectConfig()) {
             if (manual) toast("GeoFlow 프로젝트 연결 정보가 없습니다")
@@ -924,6 +951,7 @@ Item {
         }
         if (layerBindings.length === 0 && managedLayerDescriptors.length > 0) bindLayers()
         if (hasUncommittedEdits() && !acceptedEdit) {
+            reportSyncBlock("uncommitted edits")
             if (manual) toast("현재 편집을 저장한 뒤 동기화하세요")
             return
         }
@@ -931,10 +959,12 @@ Item {
         let state = projectState()
         updateUnsyncedCount(state)
         if (state.conflict) {
+            reportSyncBlock("conflict requires review")
             syncStatus = "conflict"
             if (manual) toast("GeoFlow 충돌이 보류 중입니다 · 새 프로젝트 패키지에서 서버 상태를 확인하세요")
             return
         }
+        lastSyncBlock = ""
         let payload = state.outbox
         if (!payload) payload = makeOutbox(state)
         if (!payload) {

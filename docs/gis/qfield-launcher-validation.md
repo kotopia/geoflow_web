@@ -85,3 +85,40 @@ programmatically. Actual installed-version behavior still needs device testing.
 0.1.2 dismisses the welcome screen for an already-current registered project,
 without reloading it. Other project screens and cold-start action timing remain
 subject to device validation.
+
+## Field runtime 0.9.9: stalled changeset recovery
+
+Launcher and per-project Field runtime are separate components. Launcher updates
+never replace the Field runtime. 0.9.9 adds a 30-second changeset watchdog,
+retaining the original outbox/changeset ID for idempotent retry and ignoring late
+callbacks from aborted requests. It logs sync guards for outstanding requests,
+uncommitted edits and conflicts. The supplied 17:15 log shows authentication but
+no POST or delta request; it does not prove which guard prevented progress.
+The watchdog fixes a verified missing timeout, not a proven diagnosis of that
+specific phone session. WebGIS also reloads the current extent on WebSocket
+connection, because events missed while disconnected are not replayed.
+
+Save QField edits and stop the app, then update the project runtime from the
+checked-out repository (no Django server/database connection is used to render):
+
+```powershell
+adb shell am force-stop ch.opengis.qfield
+.\.venv\Scripts\python.exe .\scripts\dev\update_qfield_runtime.py `
+  --project-dir "/storage/emulated/0/Android/data/ch.opengis.qfield/files/Imported Projects/geoflow-qfield-GIS-DEV-001" `
+  --backup-dir "C:\GeoFlow\logs\qfield-recovery"
+```
+
+This backs up the whole project, verifies that the existing QML is recognizable
+and unchanged before writing, updates only the QML and reads it back. No QGS,
+GeoPackage, credential or outbox mutation is performed. QField's plugin-file
+security boundary is not bypassed; this is an explicit PC/ADB maintenance tool.
+
+Restart the development server after pulling. Start fresh log capture before
+opening QField. Open the same existing project and confirm Field 0.9.9 in logs.
+Open it from the phone's GeoFlow browser, keeping the PC WebGIS map open. Wait
+40 seconds for any existing queue, then save one road vertex edit and verify
+POST changesets=200, changeset applied, WebGIS feature batch request, and visible
+geometry change without refresh. If a guard/conflict is logged, preserve data
+and diagnose that guard; do not delete the queue or reimport the project.
+Tests cover Python regressions and extracted JavaScript timeout state behavior;
+actual QML/Android behavior and live PostGIS/WebSocket end-to-end remain unverified.

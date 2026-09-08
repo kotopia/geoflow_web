@@ -217,7 +217,14 @@
       if (!url || typeof WebSocket === "undefined" || !websocketStarted) return;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       socket = new WebSocket(url);
-      socket.onopen = function () { reconnectDelay = 1000; setStatus("실시간 연결됨"); };
+      socket.onopen = function () {
+        reconnectDelay = 1000;
+        setStatus("실시간 연결됨 · 현재 영역 확인 중…");
+        // Events during a disconnect are not replayed by the channel layer.
+        loadAll({ bbox: bboxString(map), fit: false }).then(function () {
+          setStatus("실시간 연결됨");
+        }).catch(function () { setStatus("재연결 후 지도 갱신 실패 · 새로고침해주세요"); });
+      };
       socket.onmessage = function (event) {
         try { applyRealtimeEvent(JSON.parse(event.data)); } catch (error) { /* ignore malformed event */ }
       };
