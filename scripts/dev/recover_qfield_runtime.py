@@ -10,6 +10,15 @@ def adb(*args, check=True):
     return subprocess.run(['adb', *args], check=check, capture_output=True).stdout
 
 
+def read_device_file(remote):
+    # Use ADB's file-transfer protocol, not shell output: diagnostics must never
+    # be mistaken for file bytes, and spaces must not need shell quoting.
+    with tempfile.TemporaryDirectory(prefix='qfield-verify-') as directory:
+        local = Path(directory) / 'runtime.qml'
+        adb('pull', remote, str(local))
+        return local.read_bytes()
+
+
 def validate_restore(current, backup):
     if current != b'':
         raise ValueError('Runtime is not empty; refusing to overwrite it.')
@@ -52,9 +61,9 @@ def main():
     # Recheck immediately before overwrite: never replace a recovered/nonempty file.
     if adb('shell', 'pidof', 'ch.opengis.qfield', check=False).strip():
         raise RuntimeError('QField restarted; recovery stopped.')
-    validate_restore(adb('exec-out', 'cat', "'" + remote + "'"), backup.read_bytes())
+    validate_restore(read_device_file(remote), backup.read_bytes())
     adb('push', str(backup), remote)
-    restored = adb('exec-out', 'cat', "'" + remote + "'")
+    restored = read_device_file(remote)
     if hashlib.sha256(restored).digest() != hashlib.sha256(backup.read_bytes()).digest():
         raise RuntimeError('Restore verification failed; retain the PC backup and report this error.')
     print('Restored and verified only geoflow-field.qml; original backup retained.')
