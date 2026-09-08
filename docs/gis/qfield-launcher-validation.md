@@ -412,3 +412,34 @@ Next device batch, after one in-place runtime update to 0.9.16:
 4. Keep both logs throughout. Stop on rejection and preserve objects/queue; do not
    delete/reimport. Existing delete sync is disabled. Reverse-direction attribute
    verification needs another authorized editor; the project dashboard is read-only.
+
+## Field 0.9.17: JSON creation payload and retained-request recovery
+
+The device log confirms three new local UUIDs (two valves, one survey), retained
+across restart (baseline 11 vs 8), but the first outbox repeatedly receives HTTP
+400 `ext_data: invalid JSON`. Its blocked outbox delays subsequent work. The
+log does not contain the raw ext_data value; do not claim a particular malformed
+representation is proven from this trace alone.
+
+Server coercion now maps blank/whitespace ext_data to the existing empty-object
+default, as it already did for NULL. Other JSON fields keep their null/validation
+semantics. Malformed nonempty JSON remains rejected. QML normalization now keeps
+JSON-compatible objects/arrays structured instead of String(value), which could
+produce the lossy literal [object Object]. Dates retain ISO conversion.
+
+For already-frozen outboxes containing exactly the known lossy ext_data marker,
+recover only from a readable actual local object's ext_data. Archive the original
+request, issue a new changeset ID, and preserve geometry, other attributes and
+pending edits. This malformed original cannot pass server JSON validation.
+Unreadable local values are not replaced with guessed empty objects. Blank legacy
+requests can retry unchanged against server coercion. No queue clearing, object
+recreation, or live DB/schema updates are involved.
+
+Validation: 10 focused Python tests and 4 Node suites pass (JSON recovery,
+successor versions, timeout, owner guard). Device repair remains to be verified.
+Update server and the existing project's runtime to 0.9.17 once, preserve the
+three created features, open from GeoFlow and wait for transmission. Manual sync
+may be used once. Expect no invalid JSON rejection and eventual new PC features;
+compare UUID/counts and latest attribute values, not just a 200 response. If still
+rejected, retain the data and capture the new exact error; do not create more
+objects or repeatedly import projects.

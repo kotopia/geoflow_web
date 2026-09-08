@@ -84,6 +84,8 @@ def _normalize(value: Any) -> Any:
 
 def _coerce_for_pg(value: Any, field: PackageField) -> Any:
     kind = str(field.data_type or "").lower()
+    if field.name == "ext_data" and kind in {"json", "jsonb"} and isinstance(value, str) and not value.strip():
+        return Json({})
     if value is None:
         # GeoFlow GIS feature tables define ext_data as
         # JSONB NOT NULL DEFAULT '{}'. QGIS/OGR represents an untouched JSON

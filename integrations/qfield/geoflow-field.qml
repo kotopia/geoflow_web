@@ -379,6 +379,9 @@ Item {
         let type = typeof value
         if (type === "string" || type === "number" || type === "boolean") return value
         try { if (value.toISOString) return value.toISOString() } catch (err) {}
+        if (type === "object") {
+            try { return JSON.parse(JSON.stringify(value)) } catch (err) {}
+        }
         return String(value)
     }
 
@@ -969,7 +972,41 @@ Item {
         }
     }
 
+    function recoverLegacyJsonPayload(payload) {
+        let repaired = JSON.parse(JSON.stringify(payload))
+        let changed = false
+        for (let change of repaired.changes || []) {
+            if (!change.attributes || change.attributes.ext_data !== "[object Object]") continue
+            let binding = null
+            for (let candidate of layerBindings) {
+                if (candidate.standard === change.layer) { binding = candidate; break }
+            }
+            if (!binding) continue
+            let feature = featureByObjectId(binding.layer, change.id)
+            if (!feature) continue
+            let value = normalizedValue(feature.attribute("ext_data"))
+            if (typeof value === "string") {
+                try { value = JSON.parse(value) } catch (err) { continue }
+            }
+            // Never replace an unreadable old value with guessed empty data.
+            if (!value || typeof value !== "object" || Array.isArray(value)) continue
+            change.attributes.ext_data = value
+            changed = true
+        }
+        if (!changed) return payload
+        let state = projectState()
+        if (!state.outbox || state.outbox.changeset_id !== payload.changeset_id) return payload
+        state.recovery_archive = state.recovery_archive || []
+        state.recovery_archive.push({ reason: "legacy_json_serialization", original_outbox: payload })
+        repaired.changeset_id = uuidV4()
+        state.outbox = repaired
+        saveProjectState(state)
+        log("legacy JSON payload recovered from local feature; original request archived")
+        return repaired
+    }
+
     function postOutbox(payload, manual) {
+        payload = recoverLegacyJsonPayload(payload)
         syncInFlight = true
         syncStatus = "syncing"
         let xhr = new XMLHttpRequest()
