@@ -5,7 +5,7 @@ from typing import Any
 from .events import realtime_runtime_enabled
 
 
-QGIS_MANIFEST_VERSION = "0.7"
+QGIS_MANIFEST_VERSION = "0.8"
 QGIS_TRANSPORT_MODE = "server_gpkg_editable_snapshot"
 
 
@@ -24,6 +24,7 @@ def build_qgis_manifest(
     changeset_supported: bool = False,
     current_revision: int = 0,
     realtime_supported: bool | None = None,
+    reference_catalog_url: str = "",
 ) -> dict[str, Any]:
     """Build the server-authoritative QGIS GeoPackage manifest."""
 
@@ -82,12 +83,17 @@ def build_qgis_manifest(
             "preferred_sync_protocol": (
                 "changeset_v1" if effective_changeset else "gpkg_diff_fallback"
             ),
+            "reference_catalog_url": reference_catalog_url,
+            "reference_catalog_source": "gis",
+            "reference_values_embedded": False,
             "write_authorized": bool(can_write),
             "note": (
                 "The v1 operating model is field-level Changeset write + revision Delta read. "
                 "When development realtime is enabled, WebSocket messages are hints only and QGIS "
                 "pulls authoritative changes through the Delta API. Whole-GeoPackage diff sync "
-                "remains a gated fallback while the client transition is completed."
+                "remains a gated fallback while the client transition is completed. GIS reference "
+                "values are fetched at runtime from the project reference catalog and are never "
+                "sourced from ops.settings_nodes."
             ),
         },
         "project": {
