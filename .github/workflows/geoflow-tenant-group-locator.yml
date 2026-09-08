@@ -1,0 +1,114 @@
+name: GeoFlow GIS project readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: Exact prj.projects UUID to inspect read-only
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-gis-project:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      PROJECT_ID: ${{ inputs.project_id }}
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s' "$PROJECT_ID" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+          echo 'gis_project_readiness_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Upload reviewed read-only diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          scp \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            scripts/ops/diagnose_gis_project_readiness.py \
+            "$SSH_USER@$SSH_HOST:/tmp/geoflow-gis-project-readiness-$GITHUB_RUN_ID.py"
+
+      - name: Inspect project and GIS state read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" \
+            "bash -s -- '$PROJECT_ID' '$GITHUB_RUN_ID'" <<'REMOTE'
+          set -euo pipefail
+          project_id="$1"
+          run_id="$2"
+          diagnostic="/tmp/geoflow-gis-project-readiness-$run_id.py"
+          trap 'rm -f "$diagnostic"' EXIT
+
+          service='geoflow-stabilized.service'
+          fail() {
+            echo "gis_project_readiness_blocker=$1"
+            exit 2
+          }
+
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -f "$repo/manage.py" ] || fail 'service_repo_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'venv_python_missing'
+          [ -f "$diagnostic" ] || fail 'diagnostic_upload_missing'
+
+          cd "$repo"
+          PYTHONPATH="$repo" "$python" "$diagnostic" --project-id "$project_id"
+          REMOTE
