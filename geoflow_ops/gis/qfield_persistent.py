@@ -466,7 +466,8 @@ def _inject_qml_persistent_session(text: str) -> str:
             }
 
             let attrs2 = row.attributes || {}
-            let names = layer.fields.names || []
+            let fields = layer.fields()
+            let currentFid = typeof current.id === "function" ? current.id() : current.id
             if (Object.keys(attrs2).length > 0) {
                 if (!layer.startEditing()) {
                     log("delta attribute edit start failed " + objectId)
@@ -474,9 +475,12 @@ def _inject_qml_persistent_session(text: str) -> str:
                 }
                 for (let name2 in attrs2) {
                     if (!Object.prototype.hasOwnProperty.call(attrs2, name2) || protectedField(name2)) continue
-                    let idx = names.indexOf(name2)
-                    if (idx < 0) continue
-                    layer.changeAttributeValue(current.id, idx, attrs2[name2])
+                    let idx = fields.indexOf(name2)
+                    if (idx < 0 || !layer.changeAttributeValue(currentFid, idx, attrs2[name2])) {
+                        layer.rollBack()
+                        log("delta attribute unavailable or rejected " + name2)
+                        return false
+                    }
                 }
                 if (!layer.commitChanges(true)) {
                     log("delta attribute commit failed " + objectId)

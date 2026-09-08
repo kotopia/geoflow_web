@@ -634,6 +634,21 @@ Item {
                     let signature = featureSignature(binding.layer, feature)
                     let old = pollingBaseline[key]
                     if (!old) {
+                        let state = projectState()
+                        let alreadyQueued = (state.pending || {})[key] ||
+                            (state.outbox && (state.outbox.changes || []).some(function(change) { return pendingKey(change) === key }))
+                        let version = featureBaseUpdatedAt(binding, feature, objectId)
+                        if (!alreadyQueued && !version && canonicalUuid(feature.attribute("project_id")) === projectId) {
+                            if (hasUncommittedEdits()) continue
+                            let wkt = featureGeometryWkt(feature)
+                            if (!wkt) continue
+                            if (wkt) {
+                                queueChange({ action: "create", layer: binding.standard, id: objectId,
+                                    attributes: collectAttributes(binding.layer, feature), geometry_wkt: wkt })
+                                changed = true
+                                log("poll detected create " + binding.standard + " " + objectId)
+                            }
+                        }
                         pollingBaseline[key] = {
                             signature: signature,
                             base_updated_at: featureBaseUpdatedAt(binding, feature, objectId)
@@ -942,6 +957,10 @@ Item {
                         if (pendingKey(String(sent.layer || ""), String(sent.id || "")) === key &&
                             String(pending.base_updated_at || "") === String(sent.base_updated_at || "") &&
                             String(sent.base_updated_at || "") !== "") {
+                            pending.base_updated_at = String(row.updated_at)
+                        }
+                        if (pendingKey(String(sent.layer || ""), String(sent.id || "")) === key &&
+                            sent.action === "create" && pending.action === "update" && !pending.base_updated_at) {
                             pending.base_updated_at = String(row.updated_at)
                         }
                     }

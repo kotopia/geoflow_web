@@ -366,3 +366,49 @@ long-press the GeoFlow sync button to review the DORO recovery dialog. Confirm
 only if the phone's retained geometry is the intended result. Original request
 and pending edits are archived; the server still rejects a new concurrent change.
 Then retest online-save -> offline-save -> app restart -> Wi-Fi reconnect once.
+
+## Field 0.9.16: create and attribute transport increment
+
+The previous device test verified conflict recovery revision 68, online edit 69,
+and offline edit retained across a process restart then applied as revision 70.
+Subsequent idle delta checks were approximately 62 seconds apart. Launcher still
+reported 0.1.2; automatic registration remains a separate unverified device gate.
+
+This increment advances a pending UPDATE from our exact CREATE receipt, keeping
+its latest attributes/geometry and frozen outbox intact. Polling can capture a
+new committed UUID/project-matching feature absent from a completed baseline,
+when it has no server version or existing queue entry; unsaved edits are not
+seeded prematurely. Initial project baseline and server-delta rebasing retain
+their existing behavior. This is not a full crash-recovery scan of arbitrary
+untracked GeoPackage files.
+
+Received attribute updates now use layer.fields().indexOf and callable feature
+id where applicable, consistent with the local capture API. Unknown/rejected
+fields roll back the attribute edit and stop cursor advance. Tests execute the
+rendered JS for missing create signals, no duplicate create on another poll,
+create acknowledgement plus follow-up update, remote attribute application and
+schema-mismatch rejection. 27 Python tests and 7 Node suites passed. Actual device
+create and reverse-direction attribute behavior still need acceptance testing.
+
+Scope boundary: survey points are regular SURVEY features, but gis.survey_link
+exists only in schema/seed/preflight in the current code. No QField relationship
+form or link changeset path exists yet. Do not equate creating a survey point
+with attaching it to a pipe/valve. A subsequent relationship implementation must:
+- Use the existing gis.survey_link model; no domain-specific survey tables.
+- Resolve feature_type_id from permitted metadata/plan, never a raw table name.
+- Verify survey and target both belong to the same authorized project/tenant.
+- Preserve UUIDs offline and create parent features before link operations.
+- Include link receipt/replay, lineage events, and review of manual confirmation
+  identity; never forge confirmed_by from an unrelated central user identifier.
+- Export the relationship and receive changes so QGIS/QField share its meaning.
+No live schema/data changes were performed in this increment.
+
+Next device batch, after one in-place runtime update to 0.9.16:
+1. Create one WTL_VALV_PS point using current form defaults and required fields;
+   save and verify PC count/map. Edit one ordinary editable attribute and save.
+2. Create one SURVEY point; verify PC count/map. It is not yet linked to a facility.
+3. Offline, create one additional valve, change its attribute before transmission,
+   save, restart QField, reconnect and verify one object with the latest attribute.
+4. Keep both logs throughout. Stop on rejection and preserve objects/queue; do not
+   delete/reimport. Existing delete sync is disabled. Reverse-direction attribute
+   verification needs another authorized editor; the project dashboard is read-only.

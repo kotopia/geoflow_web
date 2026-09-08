@@ -24,3 +24,8 @@ assert.equal(ctx.layerBindings[1].versionMap[1],'survey-version');
 ctx.applyServerVersions(state,{version_receipt:false,applied:[{layer:'DORO',id:'id',updated_at:'unverified'}]},{changes:[]});
 assert.equal(ctx.layerBindings[0].versionMap[1],'ack');
 console.log('Next offline capture uses the acknowledged version without a delta round trip.');
+const created={feature_versions:{},pending:{'DORO|new':{action:'update',geometry_wkt:'latest',attributes:{name:'after-create'}}},outbox:{changeset_id:'frozen'}};
+ctx.applyServerVersions(created,{version_receipt:true,applied:[{layer:'DORO',id:'new',updated_at:'created-version'}]},{changes:[{action:'create',layer:'DORO',id:'new'}]});
+assert.equal(created.pending['DORO|new'].base_updated_at,'created-version');
+assert.equal(created.pending['DORO|new'].geometry_wkt,'latest');assert.equal(created.outbox.changeset_id,'frozen');
+console.log('Create acknowledgement advances a pending update without replacing its contents.');
