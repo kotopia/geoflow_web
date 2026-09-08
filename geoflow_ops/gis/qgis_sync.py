@@ -94,6 +94,18 @@ def _coerce_for_pg(value: Any, field: PackageField) -> Any:
         if field.name == "ext_data" and kind in {"json", "jsonb"}:
             return Json({})
         return None
+    if kind == "uuid":
+        # UUID references can arrive as empty strings from GIS form widgets.
+        # Normalize absence; database NOT NULL/FK constraints remain authoritative.
+        if isinstance(value, str) and not value.strip():
+            return None
+        try:
+            return str(uuid.UUID(str(value).strip()))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise SyncRejected(
+                f"{field.name}: invalid UUID",
+                details=[{"field": field.name, "reason": "invalid_uuid"}],
+            ) from exc
     if kind == "boolean":
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "t", "yes", "y"}
