@@ -103,15 +103,13 @@ def _fresh_install_url(request, alias, project, policy) -> str:
 
 
 def _launcher_intent_url() -> str:
-    """Launch QField with Android MAIN instead of a qfield:// VIEW action."""
+    """Resume QField through its browser-supported VIEW scheme.
 
-    return (
-        "intent:#Intent;"
-        "package=ch.opengis.qfield;"
-        "action=android.intent.action.MAIN;"
-        "category=android.intent.category.LAUNCHER;"
-        "end"
-    )
+    No import parameter: keep the installed project and its pending edits.
+    The foreground plugin claims the handoff staged by install-status.
+    MAIN/LAUNCHER intents are not browser deep links and can open Play Store.
+    """
+    return "qfield://local"
 
 
 def _package_response(request, alias, project, policy, plan):

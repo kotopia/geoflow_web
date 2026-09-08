@@ -494,8 +494,8 @@ def _inject_qml_persistent_session(text: str) -> str:
 '''
     text = text.replace(auth_get_marker, runtime + auth_get_marker, 1)
 
-    # No qfield:// handoff action. QField is launched with Android MAIN so its
-    # recent project loads first; that project claims the server-staged handoff.
+    # The browser resumes QField without an import parameter. The active
+    # project claims the server-staged handoff on foreground/config load.
     text = text.replace("        syncNow(true, true)\n        scheduleRoaming(true)", "        syncNow(true, true)", 1)
 
     sync_guard_old = '''        if (!configReady && !reloadProjectConfig()) {
