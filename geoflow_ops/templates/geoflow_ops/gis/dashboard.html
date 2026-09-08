@@ -12,6 +12,11 @@
 <div class="alert alert-info">
   아래 프로젝트는 현재 로그인 사용자가 조회할 수 있고, 프로젝트 업무범위에 활성 GIS Capability가 연결된 프로젝트만 표시됩니다.
 </div>
+{% else %}
+<div class="alert alert-danger" role="alert">
+  <strong>GIS 공통기반이 이 tenant에 적용되지 않았습니다.</strong>
+  전체 프로젝트나 전체 시설물 레지스트리로 대체하지 않습니다. 운영 관리자가 GIS Metadata·Profile·Capability를 적용한 뒤 사용할 수 있습니다.
+</div>
 {% endif %}
 
 <div class="row g-3 mb-4">
@@ -74,7 +79,7 @@
 
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <h5 class="card-title mb-0">GIS Feature Registry</h5>
+    <h5 class="card-title mb-0">허용 GIS Feature</h5>
     <span class="text-muted small">전체 {{ feature_count }}개</span>
   </div>
   <div class="table-responsive">
@@ -96,6 +101,8 @@
             {% endif %}
           </td>
         </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4">현재 접근 가능한 프로젝트에 적용된 GIS Feature가 없습니다.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.http import Http404, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET
 
@@ -13,7 +13,7 @@ from geoflow_ops.services.project_access import project_access_policy
 
 from .changeset import changeset_runtime_enabled
 from .events import realtime_runtime_enabled
-from .layer_plan import project_layer_plan
+from .layer_plan import project_layer_plan, require_enabled_layer_plan
 from .realtime_auth import TICKET_MAX_AGE_SECONDS, issue_realtime_ticket
 
 
@@ -39,8 +39,7 @@ def qgis_project_realtime_ticket_api(request, project_id):
         raise PermissionDenied("Permission denied")
 
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     if not realtime_runtime_enabled() or not changeset_runtime_enabled(alias):
         return JsonResponse(
             {"ok": False, "error": "realtime_not_enabled"},

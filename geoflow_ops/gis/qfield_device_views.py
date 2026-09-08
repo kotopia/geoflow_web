@@ -6,7 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.gis.geos import GEOSGeometry
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
-from django.http import Http404, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
@@ -26,7 +26,7 @@ from .changeset import (
 )
 from .events import publish_project_change_event
 from .gpkg_snapshot_v2 import _layer_specs, project_geopackage_layer_manifest
-from .layer_plan import project_layer_plan
+from .layer_plan import project_layer_plan, require_enabled_layer_plan
 from .qfield_auth import (
     QFIELD_TICKET_MAX_AGE_SECONDS,
     issue_qfield_ticket,
@@ -55,8 +55,7 @@ def _project_and_plan(request, alias, project_id, *, require_write: bool = False
     if require_write and not policy.can_webgis_write(project.id):
         raise PermissionDenied("Permission denied")
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     return project, policy, plan
 
 

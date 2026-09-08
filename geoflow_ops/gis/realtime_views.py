@@ -14,7 +14,7 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
-from .layer_plan import allowed_standard_names, project_layer_plan
+from .layer_plan import allowed_standard_names, project_layer_plan, require_enabled_layer_plan
 from .views import _geojson_property_columns, _parse_bbox, _registry_feature
 
 
@@ -50,8 +50,7 @@ def _require_project(request, alias, project_id):
     if not policy.can_webgis_read(project.id):
         raise PermissionDenied("Permission denied")
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     return project, plan
 
 
@@ -66,7 +65,7 @@ def project_feature_batch_api(request, project_id):
     feature_type = _registry_feature(request.GET.get("layer"))
     if feature_type is None:
         return JsonResponse({"error": "Unknown or missing GIS layer."}, status=400)
-    if plan.get("ready") and feature_type.standard_name.upper() not in allowed_standard_names(plan):
+    if feature_type.standard_name.upper() not in allowed_standard_names(plan):
         raise Http404("GIS layer is not enabled by this project's business scope/profile.")
 
     try:

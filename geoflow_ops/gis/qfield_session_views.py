@@ -72,7 +72,11 @@ def _issue_session_response(request, project_id, payload: dict, body: dict):
     alias = require_tenant_context(request)
     project = get_object_or_404(Project.objects.using(alias), id=project_id)
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
+    if not plan.get("ready"):
+        return JsonResponse(
+            {"ok": False, "error": "qfield_gis_foundation_unavailable"}, status=503
+        )
+    if not plan.get("gis_enabled"):
         return JsonResponse({"ok": False, "error": "qfield_project_not_gis_enabled"}, status=404)
 
     write_authorized = bool(payload.get("write_authorized"))

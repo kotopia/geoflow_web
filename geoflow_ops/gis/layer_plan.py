@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db import DatabaseError, connections
+from django.http import Http404
 
 
 DEFAULT_PROFILE_CODE = "GEOFLOW_DEV_BASE"
@@ -34,18 +35,49 @@ def scope_capability_ready(alias: str) -> bool:
 
 
 def gis_enabled_project_ids(alias: str) -> set[str] | None:
-    """Return projects having at least one active GIS scope binding.
+    """Return projects whose scope/profile intersection has an active layer.
 
-    None means the capability layer is not applied yet, allowing staged rollout
-    without making the existing GIS registry page unavailable.
+    None means the capability layer is not applied. Callers must fail closed and
+    must not substitute the process-wide feature registry for project metadata.
     """
     if not scope_capability_ready(alias):
         return None
     with connections[alias].cursor() as cursor:
         cursor.execute(
             """
+            WITH candidate_projects AS (
+                SELECT DISTINCT s.project_id
+                  FROM prj.scope_item s
+                  JOIN gis.scope_binding b
+                    ON b.active
+                   AND (
+                        (b.catalog_level=2 AND b.catalog_item_id=s.lv2_id) OR
+                        (b.catalog_level=3 AND b.catalog_item_id=s.lv3_id) OR
+                        (b.catalog_level=4 AND b.catalog_item_id=s.lv4_id)
+                   )
+                  JOIN gis.capability c ON c.id=b.capability_id AND c.active
+            ), selected_profiles AS (
+                SELECT cp.project_id,
+                       COALESCE(
+                           (
+                               SELECT pp.profile_id
+                                 FROM gis.project_profile pp
+                                 JOIN gis.profile p ON p.id=pp.profile_id AND p.active
+                                WHERE pp.project_id=cp.project_id AND pp.status='active'
+                                LIMIT 1
+                           ),
+                           (
+                               SELECT p.id
+                                 FROM gis.profile p
+                                WHERE p.code=%s AND p.active
+                                LIMIT 1
+                           )
+                       ) AS profile_id
+                  FROM candidate_projects cp
+            )
             SELECT DISTINCT s.project_id::text
               FROM prj.scope_item s
+              JOIN selected_profiles sp ON sp.project_id=s.project_id
               JOIN gis.scope_binding b
                 ON b.active
                AND (
@@ -54,7 +86,17 @@ def gis_enabled_project_ids(alias: str) -> set[str] | None:
                     (b.catalog_level=4 AND b.catalog_item_id=s.lv4_id)
                )
               JOIN gis.capability c ON c.id=b.capability_id AND c.active
+              JOIN gis.capability_feature cf
+                ON cf.capability_id=c.id AND cf.enabled
+              JOIN gis.profile_feature pf
+                ON pf.profile_id=sp.profile_id
+               AND pf.feature_type_id=cf.feature_type_id
+               AND pf.enabled
+              JOIN gis.meta_feature_type ft
+                ON ft.id=cf.feature_type_id AND ft.active
             """
+            ,
+            [DEFAULT_PROFILE_CODE],
         )
         return {row[0] for row in cursor.fetchall()}
 
@@ -217,3 +259,67 @@ def project_layer_plan(alias: str, project_id) -> dict[str, Any]:
 
 def allowed_standard_names(plan: dict[str, Any]) -> set[str]:
     return {str(row["standard_name"]).upper() for row in plan.get("layers") or []}
+
+
+def allowed_standard_names_for_projects(alias: str, project_ids) -> set[str]:
+    """Resolve the authorized project set's Layer Plan union in one query."""
+    scoped_ids = [str(value) for value in project_ids]
+    if not scoped_ids or not scope_capability_ready(alias):
+        return set()
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            """
+            WITH requested_projects AS (
+                SELECT unnest(%s::uuid[]) AS project_id
+            ), selected_profiles AS (
+                SELECT rp.project_id,
+                       COALESCE(
+                           (
+                               SELECT pp.profile_id
+                                 FROM gis.project_profile pp
+                                 JOIN gis.profile p ON p.id=pp.profile_id AND p.active
+                                WHERE pp.project_id=rp.project_id AND pp.status='active'
+                                LIMIT 1
+                           ),
+                           (
+                               SELECT p.id
+                                 FROM gis.profile p
+                                WHERE p.code=%s AND p.active
+                                LIMIT 1
+                           )
+                       ) AS profile_id
+                  FROM requested_projects rp
+            )
+            SELECT DISTINCT upper(ft.standard_name)
+              FROM prj.scope_item s
+              JOIN selected_profiles sp ON sp.project_id=s.project_id
+              JOIN gis.scope_binding b
+                ON b.active
+               AND (
+                    (b.catalog_level=2 AND b.catalog_item_id=s.lv2_id) OR
+                    (b.catalog_level=3 AND b.catalog_item_id=s.lv3_id) OR
+                    (b.catalog_level=4 AND b.catalog_item_id=s.lv4_id)
+               )
+              JOIN gis.capability c ON c.id=b.capability_id AND c.active
+              JOIN gis.capability_feature cf
+                ON cf.capability_id=c.id AND cf.enabled
+              JOIN gis.profile_feature pf
+                ON pf.profile_id=sp.profile_id
+               AND pf.feature_type_id=cf.feature_type_id
+               AND pf.enabled
+              JOIN gis.meta_feature_type ft
+                ON ft.id=cf.feature_type_id AND ft.active
+             WHERE s.project_id=ANY(%s::uuid[])
+            """,
+            [scoped_ids, DEFAULT_PROFILE_CODE, scoped_ids],
+        )
+        return {str(row[0]).upper() for row in cursor.fetchall()}
+
+
+def require_enabled_layer_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Fail closed when project GIS metadata or business scope is unavailable."""
+    if not plan.get("ready"):
+        raise Http404("GIS foundation metadata is not available for this tenant.")
+    if not plan.get("gis_enabled"):
+        raise Http404("GIS is not enabled by this project's business scope.")
+    return plan

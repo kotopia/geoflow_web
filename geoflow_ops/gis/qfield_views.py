@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
-from django.http import Http404, JsonResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -20,7 +20,7 @@ from geoflow_ops.services.project_access import project_access_policy
 
 from .changeset import changeset_runtime_enabled, project_current_revision
 from .gpkg_snapshot_v2 import project_geopackage_layer_manifest
-from .layer_plan import project_layer_plan
+from .layer_plan import project_layer_plan, require_enabled_layer_plan
 from .qfield_auth import qfield_session_or_ticket_required
 from .qfield_roaming import (
     DEFAULT_ACTIVE_RADIUS_M,
@@ -46,8 +46,7 @@ def _require_project(request, alias, project_id):
     if not policy.can_webgis_read(project.id):
         raise PermissionDenied("Permission denied")
     plan = project_layer_plan(alias, project.id)
-    if plan.get("ready") and not plan.get("gis_enabled"):
-        raise Http404("GIS is not enabled by this project's business scope.")
+    require_enabled_layer_plan(plan)
     return project, policy, plan
 
 
