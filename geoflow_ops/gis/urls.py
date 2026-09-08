@@ -10,6 +10,7 @@ from . import (
     qgis_views,
     realtime_ticket_views,
     realtime_views,
+    reference_views,
     sync_views,
     views,
 )
@@ -24,6 +25,7 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/features/", realtime_views.project_feature_batch_api, name="project_feature_batch_api"),
     path("projects/<uuid:project_id>/api/changesets/", sync_views.project_changeset_api, name="project_changeset_api"),
     path("projects/<uuid:project_id>/api/delta/", sync_views.project_delta_api, name="project_delta_api"),
+    path("projects/<uuid:project_id>/api/reference-catalog/", reference_views.qgis_reference_catalog_api, name="project_reference_catalog_api"),
     path("projects/<uuid:project_id>/api/qfield/bootstrap/", qfield_device_views.qfield_bootstrap_api, name="qfield_bootstrap_api"),
     path("projects/<uuid:project_id>/api/qfield/install-status/", qfield_package_views.qfield_install_status_api, name="qfield_install_status_api"),
     path("projects/<uuid:project_id>/api/qfield/package/", qfield_package_views.qfield_package_api, name="qfield_package_api"),
@@ -32,6 +34,7 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/qfield/session-claim/", qfield_session_views.qfield_session_claim_api, name="qfield_session_claim_api"),
     path("projects/<uuid:project_id>/api/qfield/roaming-plan/", qfield_views.qfield_roaming_plan_api, name="qfield_roaming_plan_api"),
     path("projects/<uuid:project_id>/api/qfield/roaming-cell/", qfield_ticket_roaming_views.qfield_ticket_roaming_cell_api, name="qfield_roaming_cell_api"),
+    path("projects/<uuid:project_id>/api/qfield/reference-catalog/", reference_views.qfield_reference_catalog_api, name="qfield_reference_catalog_api"),
     path("projects/<uuid:project_id>/api/qfield/delta/", qfield_device_views.qfield_device_delta_api, name="qfield_device_delta_api"),
     path("projects/<uuid:project_id>/api/qfield/changesets/", qfield_sync_views.qfield_device_changeset_api, name="qfield_device_changeset_api"),
     path("projects/<uuid:project_id>/api/qgis-manifest/", qgis_views.qgis_project_manifest_api, name="qgis_project_manifest_api"),
