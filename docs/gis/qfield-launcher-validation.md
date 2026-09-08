@@ -339,3 +339,30 @@ Consolidated device session (one update and one capture, preserve existing data)
 6. Upload logs covering the same times and report online sync, offline retention,
    and reconnect result together. Historical conflict states are preserved; do
    not silently clear them to get a passing test.
+
+## Field 0.9.15: acknowledged cache before the next offline edit
+
+The offline test confirms online revision 67 applied, offline changes were queued,
+and reopening the project retried them automatically. The server then returned
+409 server_object_changed at 19:40:16 and again on manual retry. The submitted log
+does not expose the exact base timestamp. Code inspection identifies a matching
+failure path: applyServerVersions updated durable feature_versions but not the
+per-binding versionMap, which captureGeometry/captureAttribute prefer. Before a
+successful delta/rebind, the next edit could therefore use the pre-ack version.
+The new bounded receive interval makes that existing dependency more visible.
+
+Advance only matching layer/UUID entries in the signal capture cache when the
+server supplies a version_receipt. Do not rebase existing frozen requests or
+silently clear conflicts. Regression tests cover a subsequent offline capture
+without an intervening delta, unrelated layer/object isolation, and unverified
+receipt protection. Existing offline queued changes survive this code update.
+
+Reconnect sequence: restore Wi-Fi to the development server's LAN, open the same
+project containing offline edits, and leave its map visible (not only QField's
+home screen). Automatic retry requires no manual sync if auth remains valid.
+A conflict halts retries and requires review; waiting or repeatedly pressing sync
+cannot resolve it. For this retained test edit, after backup/runtime update,
+long-press the GeoFlow sync button to review the DORO recovery dialog. Confirm
+only if the phone's retained geometry is the intended result. Original request
+and pending edits are archived; the server still rejects a new concurrent change.
+Then retest online-save -> offline-save -> app restart -> Wi-Fi reconnect once.

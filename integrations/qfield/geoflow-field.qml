@@ -923,6 +923,17 @@ Item {
                 delete state.feature_versions[key]
             } else if (row.updated_at) {
                 state.feature_versions[key] = String(row.updated_at)
+                // The next edit may happen offline before any delta is received.
+                // Keep signal capture's per-FID cache aligned with our own receipt.
+                if (response.version_receipt === true) {
+                    for (let binding of layerBindings) {
+                        for (let fid of Object.keys(binding.fidMap || {})) {
+                            if (pendingKey(String(binding.standard || ""), String(binding.fidMap[fid])) === key) {
+                                binding.versionMap[fid] = String(row.updated_at)
+                            }
+                        }
+                    }
+                }
                 // Advance only a successor based on this exact acknowledged edit.
                 // Never change a frozen outbox or adopt a later server version.
                 let pending = (state.pending || {})[key]
