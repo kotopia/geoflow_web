@@ -443,3 +443,24 @@ may be used once. Expect no invalid JSON rejection and eventual new PC features;
 compare UUID/counts and latest attribute values, not just a 200 response. If still
 rejected, retain the data and capture the new exact error; do not create more
 objects or repeatedly import projects.
+
+## Server typed-scalar validation after JSON recovery
+
+The 20:37 device run uses Field 0.9.17 and retains 11 local features. JSON
+validation no longer rejects the first creation, but INSERT fails with PostgreSQL
+22007 InvalidDatetimeFormat. The exact input field/value is absent from the log.
+Do not claim that an empty date is proven; it is one supported missing-value case.
+
+Server coercion now normalizes blank typed dates/times/numbers/booleans to NULL,
+parses valid ISO temporal values, preserves numeric decimal precision, and rejects
+invalid nonempty values with field/type details before INSERT. Text emptiness,
+JSON semantics, UUID validation, DB constraints, and tenancy remain separate.
+QField's ISO datetime representation is accepted for date fields as a date.
+No fake dates, zeros, or arbitrary replacements for malformed data are introduced.
+
+14 focused tests cover typed blanks, temporal/numeric/boolean validation, UUID and
+JSON behavior, and existing changeset replay ordering. These are isolated tests,
+not a successful PostGIS/device insertion claim. Update/restart SERVER ONLY; keep
+Field 0.9.17 and existing project/outbox. Retry the same retained three features.
+If input is truly malformed nonempty data, expect a field-specific validation
+error rather than repeated generic database 503; preserve the queue for review.

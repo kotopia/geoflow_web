@@ -8,7 +8,7 @@ import sqlite3
 import tempfile
 import uuid
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -82,8 +82,64 @@ def _normalize(value: Any) -> Any:
     return value
 
 
+_DATE_TYPES = {"date"}
+_DATETIME_TYPES = {"timestamp", "timestamptz", "timestamp with time zone", "timestamp without time zone"}
+_TIME_TYPES = {"time", "timetz", "time with time zone", "time without time zone"}
+_INTEGER_TYPES = {"smallint", "integer", "bigint", "int", "int2", "int4", "int8"}
+_NUMBER_TYPES = {"numeric", "decimal", "real", "double precision", "float", "float4", "float8"}
+
+
+def _coerce_typed_scalar(value: Any, field: PackageField, kind: str) -> Any:
+    # GIS form widgets use empty strings for unfilled typed fields. SQL NULL
+    # preserves absence; database NOT NULL, FK and range constraints still apply.
+    if isinstance(value, str) and not value.strip():
+        return None
+    try:
+        if kind in _DATE_TYPES:
+            if isinstance(value, dt.datetime):
+                return value.date()
+            if isinstance(value, dt.date):
+                return value
+            text = str(value).strip()
+            if "T" in text or " " in text:
+                return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+            return dt.date.fromisoformat(text)
+        if kind in _DATETIME_TYPES:
+            if isinstance(value, dt.datetime):
+                return value
+            return dt.datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        if kind in _TIME_TYPES:
+            if isinstance(value, dt.time):
+                return value
+            return dt.time.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        if kind in _INTEGER_TYPES | _NUMBER_TYPES:
+            if isinstance(value, bool):
+                raise ValueError()
+            number = Decimal(str(value).strip())
+            if not number.is_finite():
+                raise ValueError()
+            if kind in _INTEGER_TYPES:
+                if number != number.to_integral_value():
+                    raise ValueError()
+                return int(number)
+            return number
+        if kind in {"boolean", "bool"}:
+            if isinstance(value, bool):
+                return value
+            token = str(value).strip().lower()
+            if token in {"1", "true", "t", "yes", "y"}: return True
+            if token in {"0", "false", "f", "no", "n"}: return False
+            raise ValueError()
+    except (ValueError, TypeError, InvalidOperation, OverflowError) as exc:
+        raise SyncRejected(
+            f"{field.name}: invalid {kind}",
+            details=[{"field": field.name, "reason": "invalid_typed_value", "data_type": kind}],
+        ) from exc
+    return value
+
+
 def _coerce_for_pg(value: Any, field: PackageField) -> Any:
-    kind = str(field.data_type or "").lower()
+    kind = re.sub(r"\(\d+(?:,\s*\d+)?\)", "", str(field.data_type or "").lower()).strip()
     if field.name == "ext_data" and kind in {"json", "jsonb"} and isinstance(value, str) and not value.strip():
         return Json({})
     if value is None:
@@ -108,10 +164,8 @@ def _coerce_for_pg(value: Any, field: PackageField) -> Any:
                 f"{field.name}: invalid UUID",
                 details=[{"field": field.name, "reason": "invalid_uuid"}],
             ) from exc
-    if kind == "boolean":
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "t", "yes", "y"}
-        return bool(value)
+    if kind in _DATE_TYPES | _DATETIME_TYPES | _TIME_TYPES | _INTEGER_TYPES | _NUMBER_TYPES | {"boolean", "bool"}:
+        return _coerce_typed_scalar(value, field, kind)
     if kind in {"json", "jsonb"}:
         if isinstance(value, str):
             try:
