@@ -56,6 +56,10 @@ def build_qgis_manifest(
         if effective_realtime
         else ""
     )
+    effective_reference_catalog_url = (
+        reference_catalog_url
+        or f"/gis/projects/{project_id}/api/reference-catalog/"
+    )
 
     return {
         "manifest_version": QGIS_MANIFEST_VERSION,
@@ -83,7 +87,7 @@ def build_qgis_manifest(
             "preferred_sync_protocol": (
                 "changeset_v1" if effective_changeset else "gpkg_diff_fallback"
             ),
-            "reference_catalog_url": reference_catalog_url,
+            "reference_catalog_url": effective_reference_catalog_url,
             "reference_catalog_source": "gis",
             "reference_values_embedded": False,
             "write_authorized": bool(can_write),
