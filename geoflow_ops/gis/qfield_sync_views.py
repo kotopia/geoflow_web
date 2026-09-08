@@ -293,7 +293,9 @@ def qfield_device_changeset_api(request, project_id):
             status=400,
             json_dumps_params={"ensure_ascii": False},
         )
-    except DatabaseError:
+    except DatabaseError as exc:
+        from .qfield_db_diagnostics import log_changeset_database_error
+        log_changeset_database_error(exc)
         return JsonResponse({"ok": False, "error": "changeset_failed"}, status=503)
 
     if not result.get("replayed"):

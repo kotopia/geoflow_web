@@ -26,7 +26,7 @@
             id="qfieldPersistentOpen"
             data-project-id="{{ project.id }}"
             data-status-url="{% url 'gis:qfield_install_status_api' project.id %}">QField에서 열기</button>
-    <button type="button" class="btn btn-outline-success" id="qfieldForceInstall">QField 플러그인 갱신 안내</button>
+    <button type="button" class="btn btn-outline-success" id="qfieldForceInstall">QField 프로젝트 등록 안내</button>
     <button type="button" class="btn btn-outline-danger" id="qfieldRemoveLocal">QField 로컬 제거</button>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qfield_package_api' project.id %}">ZIP 수동 다운로드</a>
   </div>
@@ -38,7 +38,7 @@
   <br><strong>QField 영구 프로젝트</strong>: 같은 프로젝트는 최초 1회만 설치하고 이후 기존 로컬 프로젝트를 재사용합니다.
   서버 인증은 발급 시점부터 최대 12시간이며 QField 실행·편집으로 자동 연장되지 않습니다.
   인증 만료 후에도 로컬 프로젝트 열기와 편집은 가능하지만 서버 송수신은 중지되며, GeoFlow에 다시 로그인한 뒤 <strong>QField에서 열기</strong>를 눌러야 새 인증이 발급됩니다.
-  GeoFlow Launcher는 QField 앱 플러그인으로 한 번 설치하고 사용할 기존 프로젝트를 등록합니다. 플러그인 갱신은 기존 파일에서 처리합니다. ZIP을 반복해서 가져오면 복사본이 생깁니다.
+  GeoFlow Launcher는 QField 앱 플러그인으로 한 번 설치하고 사용할 기존 프로젝트를 등록합니다. 런처 0.1.1 이상은 프로젝트 위치만 등록합니다. ZIP을 반복해서 가져오면 복사본이 생깁니다.
   <span class="d-block mt-1 small" id="qfieldPersistentStatus">QField 연결 상태 확인 전</span>
 </div>
 
@@ -182,7 +182,7 @@
       const current = markerMatches(marker, install);
 
       if (forceInstall && marker) {
-        statusNode.textContent = "기존 프로젝트를 열고 QField 설정 → 플러그인 → GeoFlow Launcher의 설정 버튼으로 등록·갱신하세요. 프로젝트를 다시 가져오지 않습니다.";
+        statusNode.textContent = "기존 프로젝트를 열고 QField 설정 → 플러그인 → GeoFlow Launcher의 설정 버튼으로 등록하세요 (런처 0.1.1 이상). 프로젝트를 다시 가져오지 않습니다.";
         launch(install.launch_url);
         return;
       }
