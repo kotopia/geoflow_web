@@ -35,9 +35,9 @@
 기본 작업은 `getBidPblancListInfoServc`이며 다음 보조 작업을 같은 기간으로
 조회해 공고번호와 공고차수로 결합한다.
 
-- `getBidPblancListInfoServcRegion`
-- `getBidPblancListInfoServcLicenseLimit`
-- `getBidPblancListInfoServcBasisAmount`
+- `getBidPblancListInfoPrtcptPsblRgn`
+- `getBidPblancListInfoLicenseLimit`
+- `getBidPblancListInfoServcBsisAmount`
 
 보조 작업 하나가 실패해도 기본 공고는 저장하며 sync run은 `partial`로 기록한다.
 기본 작업 실패 시 기존 공고를 삭제하거나 미매칭으로 바꾸지 않는다. 동기화는
