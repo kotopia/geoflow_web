@@ -415,6 +415,20 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 SITE_ORIGIN = os.getenv("SITE_ORIGIN", "http://192.168.0.19:8000")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@geoflow.local")
 
+# G2B credentials are host-owned secrets. Never put the service key in source,
+# templates, client-side JavaScript, URLs written to logs, or tenant tables.
+G2B_BID_API_ENDPOINT = os.getenv(
+    "G2B_BID_API_ENDPOINT",
+    "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
+)
+G2B_API_SERVICE_KEY = os.getenv("G2B_API_SERVICE_KEY", "")
+G2B_API_TIMEOUT_SECONDS = get_optional_env_int(
+    os.environ,
+    "G2B_API_TIMEOUT_SECONDS",
+    minimum=5,
+    maximum=120,
+) or 20
+
 # Signup verification remains disabled until all runtime values are configured.
 # Key material is supplied only through the environment and is never logged.
 SIGNUP_EMAIL_VERIFICATION_ACTIVE_KEY_ID = get_optional_env_text(

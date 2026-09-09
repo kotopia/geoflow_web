@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
 from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views, finance_attachment_views, finance_documents_views
+from .bids import security_views as bid_security_views
 from .views_home_security import tenant_home
 
 app_name = "tenant"
@@ -9,6 +10,13 @@ urlpatterns = [
     path('', tenant_home, name='home'),
     path('calendar/', views_calendar.calendar_page, name='calendar'),
     path('api/calendar/events/', views_calendar.calendar_events, name='calendar_events'),
+
+    path('bids/', bid_security_views.notice_list, name='bid_notice_list'),
+    path('bids/settings/', bid_security_views.settings_page, name='bid_settings'),
+    path('bids/settings/filter/save/', bid_security_views.filter_value_save, name='bid_filter_save'),
+    path('bids/settings/keyword/save/', bid_security_views.keyword_save, name='bid_keyword_save'),
+    path('bids/<uuid:notice_id>/review/', bid_security_views.review_save, name='bid_review_save'),
+    path('bids/sync/', bid_security_views.sync_now, name='bid_sync'),
 
     path('contracts/', security_views.contract_list, name='contract_list'),
     path("contracts/new/", security_views.contract_create, name="contract_create"),

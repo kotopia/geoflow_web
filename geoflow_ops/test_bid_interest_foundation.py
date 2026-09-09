@@ -1,0 +1,138 @@
+import json
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import TestCase, mock
+
+from django.core.exceptions import PermissionDenied
+from django.test import override_settings
+
+from geoflow_ops.bids.client import G2BClient, G2BError, NOTICE_OPERATION, parse_response
+from geoflow_ops.bids.matcher import evaluate_notice
+from geoflow_ops.bids import security_views
+
+
+class Response:
+    def __init__(self, payload):
+        self.payload = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self.payload
+
+
+class G2BClientTests(TestCase):
+    def test_parse_response_accepts_list_and_success_code(self):
+        page = parse_response({
+            "response": {"header": {"resultCode": "00"}, "body": {"totalCount": 1, "items": [{"bidNtceNo": "1"}]}}
+        }, page_no=1, rows=100)
+        self.assertEqual(page.items, [{"bidNtceNo": "1"}])
+        self.assertEqual(page.total_count, 1)
+
+    def test_parse_response_rejects_api_error_without_exposing_request(self):
+        with self.assertRaises(G2BError) as caught:
+            parse_response({"response": {"header": {"resultCode": "22", "resultMsg": "LIMIT"}}}, page_no=1, rows=100)
+        self.assertEqual(caught.exception.code, "22")
+
+    @override_settings(
+        G2B_BID_API_ENDPOINT="https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
+        G2B_API_SERVICE_KEY="abc%2Fdef%3D",
+        G2B_API_TIMEOUT_SECONDS=20,
+    )
+    def test_encoded_portal_key_is_not_double_encoded(self):
+        payload = {"response": {"header": {"resultCode": "00"}, "body": {"totalCount": 0, "items": []}}}
+        captured = {}
+
+        def fake_open(request, timeout):
+            captured["url"] = request.full_url
+            return Response(payload)
+
+        with mock.patch("geoflow_ops.bids.client.urlopen", side_effect=fake_open):
+            G2BClient().fetch_page(NOTICE_OPERATION, datetime(2026, 9, 1), datetime(2026, 9, 2))
+        self.assertIn("serviceKey=abc%2Fdef%3D", captured["url"])
+        self.assertNotIn("%252F", captured["url"])
+
+    @override_settings(
+        G2B_BID_API_ENDPOINT="http://example.com/api",
+        G2B_API_SERVICE_KEY="dummy",
+        G2B_API_TIMEOUT_SECONDS=20,
+    )
+    def test_endpoint_allowlist_is_fail_closed(self):
+        with self.assertRaises(G2BError) as caught:
+            G2BClient()
+        self.assertEqual(caught.exception.code, "INVALID_ENDPOINT")
+
+
+class BidMatcherTests(TestCase):
+    def test_same_kind_or_cross_kind_and_exclude_precedence(self):
+        filters = {
+            "region": [{"code": "30", "name": "대전광역시", "aliases": ["대전"]}],
+            "industry": [{"code": "SURVEY", "name": "측량업", "aliases": []}],
+            "include": [{"keyword": "지하시설물"}, {"keyword": "GIS"}],
+            "exclude": [{"keyword": "건축설계"}],
+        }
+        notice = {
+            "title": "대전 지하시설물 GIS DB 구축",
+            "region_text": "대전광역시",
+            "industry_text": "측량업",
+            "search_text": "대전 지하시설물 GIS DB 구축 측량업",
+        }
+        self.assertTrue(evaluate_notice(notice, filters).matched)
+        notice["search_text"] += " 건축설계"
+        self.assertFalse(evaluate_notice(notice, filters).matched)
+
+    def test_missing_structured_region_is_kept_for_review(self):
+        result = evaluate_notice(
+            {"title": "지하시설물 조사", "region_text": "", "industry_text": "", "search_text": "지하시설물 조사"},
+            {"region": [{"code": "30", "name": "대전광역시", "aliases": ["대전"]}], "include": [{"keyword": "지하시설물"}]},
+        )
+        self.assertTrue(result.matched)
+        self.assertTrue(result.needs_review)
+
+    def test_no_rows_for_filter_kind_means_no_restriction(self):
+        result = evaluate_notice(
+            {"title": "측량 용역", "region_text": "제주", "industry_text": "", "search_text": "측량 용역"},
+            {"include": [{"keyword": "측량"}]},
+        )
+        self.assertTrue(result.matched)
+
+    def test_no_positive_filter_does_not_match_every_notice(self):
+        result = evaluate_notice(
+            {"title": "아무 용역", "region_text": "", "industry_text": "", "search_text": "아무 용역"},
+            {"exclude": [{"keyword": "건축설계"}]},
+        )
+        self.assertFalse(result.matched)
+
+
+class BidSecurityTests(TestCase):
+    def request(self, perms=(), roles=()):
+        return SimpleNamespace(
+            session={"gf_perms": list(perms), "gf_roles": list(roles)},
+            _gf_perms_cache=set(perms),
+            _gf_roles_cache=set(roles),
+        )
+
+    @mock.patch("geoflow_ops.bids.security_views.require_tenant_context", return_value="tenant_a")
+    def test_list_requires_contract_read_permission(self, _tenant):
+        with self.assertRaises(PermissionDenied):
+            security_views._require_view(self.request())
+        self.assertEqual(security_views._require_view(self.request(["contracts.view"])), "tenant_a")
+
+    def test_manage_requires_write_permission_and_manager_role(self):
+        self.assertFalse(security_views._can_manage(self.request(["contracts.view"], ["tenant_admin"])))
+        self.assertFalse(security_views._can_manage(self.request(["contracts.create"], ["project_admin"])))
+        self.assertTrue(security_views._can_manage(self.request(["contracts.create"], ["manager"])))
+
+
+class BidSchemaContractTests(TestCase):
+    def test_schema_is_tenant_owned_and_does_not_mix_filter_rules_into_ops_registry(self):
+        migration = (Path(__file__).parent / "migrations" / "0036_bid_interest_foundation.py").read_text(encoding="utf-8")
+        for relation in ("bid.filter_values", "bid.keyword_rules", "bid.notices", "bid.notice_revisions", "bid.notice_matches", "bid.notice_reviews", "bid.sync_runs"):
+            self.assertIn(relation, migration)
+        self.assertNotIn("INSERT INTO ops.settings_nodes", migration)
+        self.assertNotIn("serviceKey", migration)
