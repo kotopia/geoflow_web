@@ -160,7 +160,7 @@ def reevaluate_all(alias: str) -> int:
     return changed
 
 
-def list_notices(alias: str, *, query: str = "", review_status: str = "", include_all: bool = False) -> list[dict[str, Any]]:
+def _notice_filters(*, query: str, review_status: str, include_all: bool) -> tuple[list[str], list[Any]]:
     where = ["(%s OR COALESCE(m.matched,false)=true OR COALESCE(m.needs_review,false)=true)"]
     params: list[Any] = [include_all]
     if query:
@@ -172,6 +172,35 @@ def list_notices(alias: str, *, query: str = "", review_status: str = "", includ
         params.append(review_status)
     else:
         where.append("COALESCE(r.status,'unreviewed')<>'excluded'")
+    return where, params
+
+
+def count_notices(alias: str, *, query: str = "", review_status: str = "", include_all: bool = False) -> int:
+    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all)
+    sql = f"""
+        SELECT count(*)
+          FROM bid.notices n
+          LEFT JOIN bid.notice_matches m ON m.notice_id=n.id
+          LEFT JOIN bid.notice_reviews r ON r.notice_id=n.id
+         WHERE {' AND '.join(where)}
+    """
+    with connections[alias].cursor() as cur:
+        cur.execute(sql, params)
+        return int(cur.fetchone()[0])
+
+
+def list_notices(
+    alias: str,
+    *,
+    query: str = "",
+    review_status: str = "",
+    include_all: bool = False,
+    limit: int = 15,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all)
+    limit = 30 if limit == 30 else 15
+    offset = max(int(offset), 0)
     sql = f"""
         SELECT n.id::text,n.bid_notice_no,n.bid_notice_ord,n.title,
                COALESCE(n.notice_agency_name,''),COALESCE(n.demand_agency_name,''),
@@ -186,8 +215,9 @@ def list_notices(alias: str, *, query: str = "", review_status: str = "", includ
           LEFT JOIN bid.notice_reviews r ON r.notice_id=n.id
          WHERE {' AND '.join(where)}
          ORDER BY n.bid_close_at NULLS LAST,n.posted_at DESC NULLS LAST
-         LIMIT 200
+         LIMIT %s OFFSET %s
     """
+    params.extend([limit, offset])
     with connections[alias].cursor() as cur:
         cur.execute(sql, params)
         rows = cur.fetchall()
