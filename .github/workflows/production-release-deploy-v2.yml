@@ -6,6 +6,10 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/production-release-deploy-v2.yml
+      - geoflow_ops/bids/**
+      - geoflow_ops/templates/geoflow_ops/bids/**
+      - geoflow_ops/migrations/0036_bid_interest_foundation.py
+      - geoflow_project/settings.py
   workflow_dispatch:
     inputs:
       ssh_port:

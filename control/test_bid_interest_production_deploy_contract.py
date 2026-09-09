@@ -19,6 +19,10 @@ class BidInterestProductionDeployContractTests(unittest.TestCase):
         self.assertNotIn("serviceKey=", self.workflow)
         self.assertIn("test -n \"$G2B_API_SERVICE_KEY\"", self.workflow)
 
+    def test_bid_code_changes_trigger_the_guarded_deploy(self):
+        self.assertIn("- geoflow_ops/bids/**", self.workflow)
+        self.assertIn("- geoflow_ops/templates/geoflow_ops/bids/**", self.workflow)
+
     def test_secret_transfer_is_file_scoped_and_cleaned(self):
         self.assertIn('umask 077', self.workflow)
         self.assertIn('remote_key="/tmp/geoflow-g2b-$run_id.key"', self.workflow)
