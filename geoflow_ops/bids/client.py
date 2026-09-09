@@ -12,9 +12,9 @@ from django.conf import settings
 
 
 NOTICE_OPERATION = "getBidPblancListInfoServc"
-LICENSE_OPERATION = "getBidPblancListInfoServcLicenseLimit"
-REGION_OPERATION = "getBidPblancListInfoServcRegion"
-BASIS_AMOUNT_OPERATION = "getBidPblancListInfoServcBasisAmount"
+LICENSE_OPERATION = "getBidPblancListInfoLicenseLimit"
+REGION_OPERATION = "getBidPblancListInfoPrtcptPsblRgn"
+BASIS_AMOUNT_OPERATION = "getBidPblancListInfoServcBsisAmount"
 
 
 class G2BError(RuntimeError):
