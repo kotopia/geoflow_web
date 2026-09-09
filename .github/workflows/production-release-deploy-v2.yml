@@ -371,7 +371,7 @@ jobs:
           done
           [ "$ready" = yes ] || fail 'service_failed_post_restart_healthcheck'
 
-          "$python" "$repo/manage.py" shell -c "from datetime import timedelta; from django.utils import timezone; from geoflow_ops.bids.client import G2BClient, NOTICE_OPERATION; end=timezone.now(); page=G2BClient().fetch_page(NOTICE_OPERATION, end-timedelta(hours=6), end, rows=1); print(f'production_deploy_v2_g2b_live_ok=yes total={page.total_count}')"
+          "$python" "$repo/manage.py" shell -c "from datetime import timedelta; from django.utils import timezone; from geoflow_ops.bids.client import BASIS_AMOUNT_OPERATION, G2BClient, LICENSE_OPERATION, NOTICE_OPERATION, REGION_OPERATION; end=timezone.now(); client=G2BClient(); operations=(NOTICE_OPERATION, REGION_OPERATION, LICENSE_OPERATION, BASIS_AMOUNT_OPERATION); [(lambda page, operation: print(f'production_deploy_v2_g2b_live_ok=yes operation={operation} total={page.total_count}'))(client.fetch_page(operation, end-timedelta(hours=6), end, rows=1), operation) for operation in operations]"
 
           public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
           echo "production_deploy_v2_public_login_status=$public_login"
