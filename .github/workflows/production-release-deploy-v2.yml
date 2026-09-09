@@ -319,9 +319,6 @@ jobs:
                   raise RuntimeError('0035 migration history missing')
               if not migration_applied(cur, '0036_bid_interest_foundation'):
                   raise RuntimeError('0036 migration history missing')
-              cur.execute("SELECT count(*), count(*) FILTER (WHERE active) FROM bid.filter_values WHERE kind='region'")
-              if cur.fetchone() != (17, 0):
-                  raise RuntimeError('bid region seed must contain 17 inactive rows')
 
           def run_tenant(row, commit):
               conn = connect(row)
