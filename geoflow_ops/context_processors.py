@@ -1,5 +1,6 @@
 from django.db import connections
 from control.middleware import current_db_alias
+from control.gf_authz.permissions import gf_has_perm, gf_has_role
 
 from .services.employee_access import employee_access_policy
 from .services.tenant_settings import settings_options
@@ -11,9 +12,16 @@ def _employee_access_context(request, alias=None):
         "employee_can_list": False,
         "employee_can_create": False,
         "employee_can_manage_settings": False,
+        "bid_can_view": False,
+        "bid_can_manage": False,
     }
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return base
+    bid_can_view = gf_has_perm(request, "contracts.view")
+    bid_can_manage = (
+        (gf_has_perm(request, "contracts.create") or gf_has_perm(request, "contracts.edit"))
+        and any(gf_has_role(request, role) for role in ("tenant_admin", "tenant_administrator", "manager", "tenant_manager", "super_admin"))
+    )
     try:
         alias = alias or current_db_alias()
         if not alias:
@@ -24,9 +32,11 @@ def _employee_access_context(request, alias=None):
             "employee_can_list": policy.can_list,
             "employee_can_create": policy.can_create,
             "employee_can_manage_settings": policy.can_manage_settings,
+            "bid_can_view": bid_can_view,
+            "bid_can_manage": bid_can_manage,
         }
     except Exception:
-        return base
+        return {**base, "bid_can_view": bid_can_view, "bid_can_manage": bid_can_manage}
 
 
 def _tenant_vocabulary_context():

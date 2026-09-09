@@ -7,6 +7,17 @@
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:home' %}"><i class="align-middle" data-feather="sliders"></i><span class="align-middle">대시보드</span></a></li>
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:calendar' %}"><i class="align-middle" data-feather="calendar"></i><span class="align-middle">캘린더</span></a></li>
 
+      {% if bid_can_view %}
+      <li class="sidebar-header">입찰</li>
+      <li class="sidebar-item">
+        <a data-bs-target="#bid-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="search"></i><span class="align-middle">입찰정보</span></a>
+        <ul id="bid-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:bid_notice_list' %}">관심 입찰</a></li>
+          {% if bid_can_manage %}<li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:bid_settings' %}">입찰 설정</a></li>{% endif %}
+        </ul>
+      </li>
+      {% endif %}
+
       <li class="sidebar-header">계약</li>
       <li class="sidebar-item">
         <a data-bs-target="#contract-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="file-text"></i><span class="align-middle">계약정보</span></a>
