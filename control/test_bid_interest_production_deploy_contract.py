@@ -57,7 +57,14 @@ class BidInterestProductionDeployContractTests(unittest.TestCase):
 
     def test_live_g2b_check_does_not_log_the_key(self):
         self.assertIn("production_deploy_v2_g2b_live_ok=yes", self.workflow)
-        self.assertIn("G2BClient().fetch_page", self.workflow)
+        self.assertIn("client.fetch_page", self.workflow)
+        for operation in (
+            "NOTICE_OPERATION",
+            "REGION_OPERATION",
+            "LICENSE_OPERATION",
+            "BASIS_AMOUNT_OPERATION",
+        ):
+            self.assertIn(operation, self.workflow)
         self.assertNotIn("print(key", self.workflow)
 
 

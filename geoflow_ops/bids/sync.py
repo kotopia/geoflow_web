@@ -65,7 +65,9 @@ def _money(value: object) -> Decimal | None:
 
 
 def _key(row: dict[str, Any]) -> tuple[str, str]:
-    return (_text(row, "bidNtceNo"), _text(row, "bidNtceOrd") or "00")
+    order = _text(row, "bidNtceOrd") or "00"
+    order_key = str(int(order)) if order.isdigit() else order.casefold()
+    return (_text(row, "bidNtceNo"), order_key)
 
 
 def _detail_url(value: object) -> str | None:
@@ -97,7 +99,24 @@ def _joined_values(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> str:
     return " / ".join(dict.fromkeys(value for value in values if value))
 
 
-def _normalized_notice(row: dict[str, Any], regions: list[dict[str, Any]], industries: list[dict[str, Any]], basis: list[dict[str, Any]]) -> dict[str, Any]:
+def _yn(row: dict[str, Any], *keys: str) -> bool | None:
+    value = _text(row, *keys).upper()
+    if value == "Y":
+        return True
+    if value == "N":
+        return False
+    return None
+
+
+def _normalized_notice(
+    row: dict[str, Any],
+    regions: list[dict[str, Any]],
+    industries: list[dict[str, Any]],
+    basis: list[dict[str, Any]],
+    *,
+    regions_complete: bool = False,
+    industries_complete: bool = False,
+) -> dict[str, Any]:
     merged_basis = basis[0] if basis else {}
     title = _text(row, "bidNtceNm")
     notice_kind = _text(row, "ntceKindNm")
@@ -108,18 +127,22 @@ def _normalized_notice(row: dict[str, Any], regions: list[dict[str, Any]], indus
     raw = {"notice": row, "regions": regions, "industries": industries, "basis_amount": basis}
     canonical = json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     region_text = _joined_values(regions, (
-        "prtcptPsblRgnNm", "prtcptLmtRgnNm", "rbidLmtRgnNm",
-        "rgnLmtBidLocplcJdgmBssNm", "regionNm",
-    )) or _text(
-        row, "prtcptPsblRgnNm", "prtcptLmtRgnNm", "rbidLmtRgnNm",
-        "rgnLmtBidLocplcJdgmBssNm",
-    )
+        "prtcptPsblRgnNm", "prtcptLmtRgnNm", "rbidLmtRgnNm", "regionNm",
+    )) or _text(row, "prtcptPsblRgnNm", "prtcptLmtRgnNm", "rbidLmtRgnNm", "regionNm")
     industry_text = _joined_values(industries, (
         "lcnsLmtNm", "licenseNm", "licenseKindNm", "indstrytyNm",
         "indstrytyLmtNm", "bidprcPsblIndstrytyNm", "permsnIndstrytyList",
     )) or _text(
         row, "bidprcPsblIndstrytyNm", "lcnsLmtNm", "indstrytyNm", "licenseNm",
     )
+    region_limited = _yn(row, "rgnLmtYn", "prtcptLmtYn")
+    industry_limited = _yn(row, "indstrytyLmtYn", "lcnsLmtYn")
+    if not region_text and (region_limited is False or (regions_complete and region_limited is not True)):
+        region_text = "전국(지역제한 없음)"
+    if not industry_text and (
+        industry_limited is False or (industries_complete and industry_limited is not True)
+    ):
+        industry_text = "업종제한 없음"
     return {
         "bid_notice_no": _text(row, "bidNtceNo"),
         "bid_notice_ord": _text(row, "bidNtceOrd") or "00",
@@ -127,8 +150,8 @@ def _normalized_notice(row: dict[str, Any], regions: list[dict[str, Any]], indus
         "notice_kind": notice_kind,
         "notice_agency_code": _text(row, "ntceInsttCd"),
         "notice_agency_name": _text(row, "ntceInsttNm"),
-        "demand_agency_code": _text(row, "dminsttCd"),
-        "demand_agency_name": _text(row, "dminsttNm"),
+        "demand_agency_code": _text(row, "dminsttCd", "dmndInsttCd"),
+        "demand_agency_name": _text(row, "dminsttNm", "dmndInsttNm"),
         "bid_method_name": _text(row, "bidMethdNm"),
         "contract_method_name": _text(row, "cntrctCnclsMthdNm"),
         "region_text": region_text,
@@ -188,7 +211,14 @@ def sync_service_notices(alias: str, start: datetime, end: datetime, *, client: 
                 key = _key(source)
                 if not key[0]:
                     continue
-                row = _normalized_notice(source, regions.get(key, []), industries.get(key, []), basis.get(key, []))
+                row = _normalized_notice(
+                    source,
+                    regions.get(key, []),
+                    industries.get(key, []),
+                    basis.get(key, []),
+                    regions_complete=region_error is None,
+                    industries_complete=industry_error is None,
+                )
                 cur.execute(
                     "SELECT payload_hash FROM bid.notices WHERE source='g2b' AND bid_notice_no=%s AND bid_notice_ord=%s",
                     [row["bid_notice_no"], row["bid_notice_ord"]],

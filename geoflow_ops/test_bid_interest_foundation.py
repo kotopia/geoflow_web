@@ -130,8 +130,49 @@ class BidMatcherTests(TestCase):
         self.assertTrue(result.matched)
         self.assertEqual(result.reasons[0]["values"], ["전국"])
 
+    def test_unrestricted_industry_matches_selected_industry(self):
+        result = evaluate_notice(
+            {
+                "title": "GIS 구축 용역",
+                "region_text": "전국(지역제한 없음)",
+                "industry_text": "업종제한 없음",
+                "search_text": "GIS 구축 용역 전국 업종제한 없음",
+            },
+            {
+                "region": [{"code": "30", "name": "대전광역시", "aliases": ["대전"]}],
+                "industry": [{"code": "5023", "name": "공공측량업", "aliases": []}],
+                "include": [{"keyword": "GIS"}],
+            },
+        )
+        self.assertTrue(result.matched)
+        self.assertFalse(result.needs_review)
+
+    def test_definitive_keyword_mismatch_is_not_kept_for_review(self):
+        result = evaluate_notice(
+            {
+                "title": "청사 정밀안전점검",
+                "region_text": "",
+                "industry_text": "",
+                "search_text": "청사 정밀안전점검",
+            },
+            {
+                "region": [{"code": "30", "name": "대전광역시", "aliases": ["대전"]}],
+                "include": [{"keyword": "GIS"}],
+            },
+        )
+        self.assertFalse(result.matched)
+        self.assertFalse(result.needs_review)
+
 
 class BidNormalizationTests(TestCase):
+    def test_notice_join_key_normalizes_numeric_order_padding(self):
+        from geoflow_ops.bids.sync import _key
+
+        self.assertEqual(
+            _key({"bidNtceNo": "R26BK01234567", "bidNtceOrd": "000"}),
+            _key({"bidNtceNo": "R26BK01234567", "bidNtceOrd": "00"}),
+        )
+
     def test_joined_values_uses_only_explicit_name_fields(self):
         from geoflow_ops.bids.sync import _joined_values
 
@@ -142,6 +183,63 @@ class BidNormalizationTests(TestCase):
         encoded = '[{"kind":"region","values":[]}]'
         self.assertEqual(_json_list(encoded), [{"kind": "region", "values": []}])
         self.assertEqual(_json_list({"kind": "region"}), [])
+
+    def test_normalization_joins_auxiliary_constraints_by_notice(self):
+        from geoflow_ops.bids.sync import _normalized_notice
+
+        row = {
+            "bidNtceNo": "R26BK01234567",
+            "bidNtceOrd": "00",
+            "bidNtceNm": "GIS DB 구축",
+            "rgnLmtBidLocplcJdgmBssNm": "본사또는참여지사소재지",
+            "dmndInsttCd": "DM001",
+            "dmndInsttNm": "수요기관",
+        }
+        normalized = _normalized_notice(
+            row,
+            [{"prtcptPsblRgnNm": "대전광역시"}],
+            [{"lcnsLmtNm": "공공측량업/5023", "permsnIndstrytyList": "수치지도제작업/5029"}],
+            [],
+            regions_complete=True,
+            industries_complete=True,
+        )
+        self.assertEqual(normalized["region_text"], "대전광역시")
+        self.assertNotIn("본사또는참여지사소재지", normalized["region_text"])
+        self.assertEqual(normalized["industry_text"], "공공측량업/5023 / 수치지도제작업/5029")
+        self.assertEqual(normalized["demand_agency_name"], "수요기관")
+
+    def test_successful_empty_auxiliary_results_mean_no_restriction(self):
+        from geoflow_ops.bids.sync import _normalized_notice
+
+        normalized = _normalized_notice(
+            {"bidNtceNo": "R26BK01234568", "bidNtceNm": "GIS 구축"},
+            [],
+            [],
+            [],
+            regions_complete=True,
+            industries_complete=True,
+        )
+        self.assertEqual(normalized["region_text"], "전국(지역제한 없음)")
+        self.assertEqual(normalized["industry_text"], "업종제한 없음")
+
+    def test_declared_restriction_without_auxiliary_row_stays_uncertain(self):
+        from geoflow_ops.bids.sync import _normalized_notice
+
+        normalized = _normalized_notice(
+            {
+                "bidNtceNo": "R26BK01234569",
+                "bidNtceNm": "GIS 구축",
+                "rgnLmtYn": "Y",
+                "indstrytyLmtYn": "Y",
+            },
+            [],
+            [],
+            [],
+            regions_complete=True,
+            industries_complete=True,
+        )
+        self.assertEqual(normalized["region_text"], "")
+        self.assertEqual(normalized["industry_text"], "")
 
 
 class BidSecurityTests(TestCase):
