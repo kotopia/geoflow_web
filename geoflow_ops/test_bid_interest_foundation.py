@@ -163,6 +163,29 @@ class BidMatcherTests(TestCase):
         self.assertFalse(result.matched)
         self.assertFalse(result.needs_review)
 
+    def test_ascii_keyword_does_not_match_inside_a_longer_ascii_word(self):
+        filters = {"include": [{"keyword": "GIS"}]}
+        false_positive = evaluate_notice(
+            {
+                "title": "2026년 GIST 실험실창업 프로그램 운영",
+                "region_text": "전국",
+                "industry_text": "업종제한 없음",
+                "search_text": "2026년 GIST 실험실창업 프로그램 운영",
+            },
+            filters,
+        )
+        actual_match = evaluate_notice(
+            {
+                "title": "하수도 GIS DB 구축 용역",
+                "region_text": "대전광역시",
+                "industry_text": "공공측량업/5023",
+                "search_text": "하수도 GIS DB 구축 용역",
+            },
+            filters,
+        )
+        self.assertFalse(false_positive.matched)
+        self.assertTrue(actual_match.matched)
+
 
 class BidNormalizationTests(TestCase):
     def test_notice_join_key_normalizes_numeric_order_padding(self):
@@ -269,3 +292,23 @@ class BidSchemaContractTests(TestCase):
             self.assertIn(relation, migration)
         self.assertNotIn("INSERT INTO ops.settings_nodes", migration)
         self.assertNotIn("serviceKey", migration)
+
+
+class BidListPaginationContractTests(TestCase):
+    def test_bid_list_uses_server_pagination_with_15_and_30_options(self):
+        root = Path(__file__).parent
+        repository = (root / "bids" / "repository.py").read_text(encoding="utf-8")
+        template = (root / "templates" / "geoflow_ops" / "bids" / "notice_list.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("LIMIT %s OFFSET %s", repository)
+        self.assertNotIn("LIMIT 200", repository)
+        self.assertIn('option value="15"', template)
+        self.assertIn('option value="30"', template)
+
+    def test_contract_and_project_lists_default_to_15_with_only_15_and_30_options(self):
+        root = Path(__file__).parent
+        source = (root / "static" / "geoflow_ops" / "js" / "gf-list-core.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("pageLength:15, lengthMenu:[15,30]", source)

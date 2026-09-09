@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import timedelta
 
 from django.contrib import messages
@@ -17,12 +18,53 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     query = str(request.GET.get("q") or "").strip()
     review_status = str(request.GET.get("status") or "").strip()
     include_all = str(request.GET.get("scope") or "") == "all"
-    notices = repository.list_notices(alias, query=query, review_status=review_status, include_all=include_all)
+    try:
+        per_page = int(request.GET.get("per_page") or 15)
+    except (TypeError, ValueError):
+        per_page = 15
+    per_page = 30 if per_page == 30 else 15
+    try:
+        page = max(int(request.GET.get("page") or 1), 1)
+    except (TypeError, ValueError):
+        page = 1
+    total_count = repository.count_notices(
+        alias, query=query, review_status=review_status, include_all=include_all
+    )
+    total_pages = max(math.ceil(total_count / per_page), 1)
+    page = min(page, total_pages)
+    notices = repository.list_notices(
+        alias,
+        query=query,
+        review_status=review_status,
+        include_all=include_all,
+        limit=per_page,
+        offset=(page - 1) * per_page,
+    )
+    query_params = request.GET.copy()
+    query_params["per_page"] = str(per_page)
+    query_params.pop("page", None)
+    previous_query = next_query = ""
+    if page > 1:
+        previous_params = query_params.copy()
+        previous_params["page"] = str(page - 1)
+        previous_query = previous_params.urlencode()
+    if page < total_pages:
+        next_params = query_params.copy()
+        next_params["page"] = str(page + 1)
+        next_query = next_params.urlencode()
     return render(request, "geoflow_ops/bids/notice_list.html", {
         "notices": notices,
         "query": query,
         "review_status": review_status,
         "include_all": include_all,
+        "per_page": per_page,
+        "page": page,
+        "total_pages": total_pages,
+        "total_count": total_count,
+        "page_start": ((page - 1) * per_page + 1) if total_count else 0,
+        "page_end": min(page * per_page, total_count),
+        "previous_query": previous_query,
+        "next_query": next_query,
         "can_review": can_review,
         "can_manage": can_manage,
         "latest_sync": repository.latest_sync(alias),

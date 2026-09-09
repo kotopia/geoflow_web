@@ -241,7 +241,7 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
     } else if (hasDT) {
       dt = $("#"+tableId).DataTable({
         responsive:true, paging:true, deferRender:true, stateSave:false,
-        order:[[0,'desc']], pageLength:100, lengthMenu:[15,30,50,100],
+        order:[[0,'desc']], pageLength:15, lengthMenu:[15,30],
         language: {
           lengthMenu: "_MENU_개씩 보기",
           info: "총 _TOTAL_개 중 _START_–_END_",
