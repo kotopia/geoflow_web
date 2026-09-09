@@ -12,6 +12,18 @@ def normalized(value: object) -> str:
     return SPACE.sub("", str(value or "")).casefold()
 
 
+def keyword_matches(keyword: object, value: object) -> bool:
+    needle = normalized(keyword)
+    if not needle:
+        return False
+    if re.fullmatch(r"[0-9a-z]+", needle):
+        return re.search(
+            rf"(?<![0-9a-z]){re.escape(needle)}(?![0-9a-z])",
+            str(value or "").casefold(),
+        ) is not None
+    return needle in normalized(value)
+
+
 def terms(row: dict[str, Any]) -> list[str]:
     values = [row.get("code"), row.get("name"), *(row.get("aliases") or [])]
     return [normalized(value) for value in values if normalized(value)]
@@ -33,8 +45,8 @@ class MatchResult:
 
 
 def evaluate_notice(notice: dict[str, Any], filters: dict[str, list[dict[str, Any]]]) -> MatchResult:
-    title = normalized(notice.get("title"))
-    raw_text = normalized(notice.get("search_text"))
+    title = notice.get("title")
+    raw_text = notice.get("search_text")
     region_text = normalized(notice.get("region_text"))
     industry_text = normalized(notice.get("industry_text"))
     agency_text = normalized(" ".join(filter(None, [notice.get("notice_agency_name"), notice.get("demand_agency_name")])))
@@ -45,7 +57,7 @@ def evaluate_notice(notice: dict[str, Any], filters: dict[str, list[dict[str, An
         return MatchResult(False, False, [{"kind": "configuration", "values": []}])
 
     excludes = [row for row in filters.get("exclude", []) if normalized(row.get("keyword"))]
-    excluded = [row["keyword"] for row in excludes if normalized(row["keyword"]) in raw_text]
+    excluded = [row["keyword"] for row in excludes if keyword_matches(row["keyword"], raw_text)]
     if excluded:
         return MatchResult(False, False, [{"kind": "exclude", "values": excluded}])
 
@@ -76,7 +88,7 @@ def evaluate_notice(notice: dict[str, Any], filters: dict[str, list[dict[str, An
 
     includes = [row for row in filters.get("include", []) if normalized(row.get("keyword"))]
     if includes:
-        matched_keywords = [row["keyword"] for row in includes if normalized(row["keyword"]) in title]
+        matched_keywords = [row["keyword"] for row in includes if keyword_matches(row["keyword"], title)]
         if not matched_keywords:
             return MatchResult(False, False, reasons + [{"kind": "include", "values": []}])
         reasons.append({"kind": "include", "values": matched_keywords})
