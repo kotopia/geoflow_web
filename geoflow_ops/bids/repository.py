@@ -15,6 +15,18 @@ KEYWORD_TYPES = {"include", "exclude"}
 REVIEW_STATUSES = {"unreviewed", "reviewing", "interested", "considering", "excluded"}
 
 
+def _json_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return decoded if isinstance(decoded, list) else []
+    return []
+
+
 def actor(request) -> str:
     user = getattr(request, "user", None)
     return str(getattr(user, "email", None) or getattr(user, "username", None) or getattr(user, "pk", ""))[:255]
@@ -185,7 +197,10 @@ def list_notices(alias: str, *, query: str = "", review_status: str = "", includ
         "industry_text","detail_url","notice_status","is_correction","matched","needs_review",
         "reasons","review_status","memo",
     ]
-    return [dict(zip(keys, row)) for row in rows]
+    notices = [dict(zip(keys, row)) for row in rows]
+    for notice in notices:
+        notice["reasons"] = _json_list(notice["reasons"])
+    return notices
 
 
 def save_review(alias: str, notice_id: UUID, *, status: str, memo: str, updated_by: str) -> None:
