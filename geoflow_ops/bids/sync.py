@@ -116,7 +116,7 @@ def _normalized_notice(row: dict[str, Any], regions: list[dict[str, Any]], indus
     )
     industry_text = _joined_values(industries, (
         "lcnsLmtNm", "licenseNm", "licenseKindNm", "indstrytyNm",
-        "indstrytyLmtNm", "bidprcPsblIndstrytyNm",
+        "indstrytyLmtNm", "bidprcPsblIndstrytyNm", "permsnIndstrytyList",
     )) or _text(
         row, "bidprcPsblIndstrytyNm", "lcnsLmtNm", "indstrytyNm", "licenseNm",
     )
