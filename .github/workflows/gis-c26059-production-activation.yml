@@ -1,0 +1,137 @@
+name: GIS C26059 production activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type ACTIVATE_C26059_GIS to create cheonan_db GIS foundation and enable C26059 WATER GIS
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  activate-c26059-gis:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CONFIRMATION: ${{ inputs.confirmation }}
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and one-time target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || {
+            echo 'gis_c26059_activation_blocker=release_advanced'
+            exit 2
+          }
+          test "$CONFIRMATION" = 'ACTIVATE_C26059_GIS' || {
+            echo 'gis_c26059_activation_blocker=confirmation_mismatch'
+            exit 2
+          }
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          echo 'gis_c26059_activation_exact_release=yes'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Upload reviewed one-time activation bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="/tmp/geoflow-gis-c26059-$GITHUB_RUN_ID.tar.gz"
+          tar -czf "$bundle" \
+            scripts/ops/activate_c26059_gis_foundation.py \
+            docs/architecture/gis-schema-foundation.sql \
+            docs/architecture/gis-initial-feature-tables-v0.1.sql \
+            docs/architecture/gis-metadata-seed-v0.1.sql \
+            docs/architecture/gis-scope-capability-v0.1.sql \
+            docs/architecture/gis-sync-revision-v1.sql
+          scp \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$bundle" "$SSH_USER@$SSH_HOST:/tmp/geoflow-gis-c26059-$GITHUB_RUN_ID.tar.gz"
+
+      - name: Rehearse with rollback then activate C26059 GIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" \
+            "bash -s -- '$GITHUB_RUN_ID' '$CONFIRMATION'" <<'REMOTE'
+          set -euo pipefail
+          run_id="$1"
+          confirmation="$2"
+          archive="/tmp/geoflow-gis-c26059-$run_id.tar.gz"
+          bundle="/tmp/geoflow-gis-c26059-$run_id"
+          trap 'rm -rf "$bundle" "$archive"' EXIT
+
+          fail() {
+            echo "gis_c26059_activation_blocker=$1"
+            exit 2
+          }
+
+          [ "$confirmation" = 'ACTIVATE_C26059_GIS' ] || fail 'remote_confirmation_mismatch'
+          [ -f "$archive" ] || fail 'activation_bundle_missing'
+          mkdir -m 700 "$bundle"
+          tar -xzf "$archive" -C "$bundle"
+
+          service='geoflow-stabilized.service'
+          command -v systemctl >/dev/null 2>&1 || fail 'systemctl_missing'
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = 'active' ] && [ "$sub" = 'running' ] || fail 'service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -f "$repo/manage.py" ] || fail 'service_repo_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'venv_python_missing'
+
+          cd "$repo"
+          PYTHONPATH="$repo" "$python" \
+            "$bundle/scripts/ops/activate_c26059_gis_foundation.py" \
+            --source-dir "$bundle/docs/architecture" \
+            --confirm "$confirmation"
+          REMOTE
