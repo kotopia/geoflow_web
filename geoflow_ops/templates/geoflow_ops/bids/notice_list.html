@@ -13,13 +13,21 @@
 {% if latest_sync %}<div class="alert alert-light border py-2 small">최근 수집: {{ latest_sync.started_at|date:'Y-m-d H:i' }} · {{ latest_sync.status }} · 조회 {{ latest_sync.fetched_count }}건 · 신규 {{ latest_sync.inserted_count }}건 · 변경 {{ latest_sync.updated_count }}건{% if latest_sync.error_message %}<span class="text-warning"> · {{ latest_sync.error_message }}</span>{% endif %}</div>{% endif %}
 
 <div class="card mb-3"><div class="card-body"><form method="get" class="row g-2 align-items-end">
-  <div class="col-md-5"><label class="form-label">공고명·공고번호·기관 검색</label><input class="form-control" name="q" value="{{ query }}"></div>
-  <div class="col-md-3"><label class="form-label">검토 상태</label><select class="form-select" name="status"><option value="">참여 안 함 제외</option>{% for code,label in review_choices %}<option value="{{ code }}" {% if review_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="col-md-4"><label class="form-label">공고명·공고번호·기관 검색</label><input class="form-control" name="q" value="{{ query }}"></div>
+  <div class="col-md-2"><label class="form-label">검토 상태</label><select class="form-select" name="status"><option value="">참여 안 함 제외</option>{% for code,label in review_choices %}<option value="{{ code }}" {% if review_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
   <div class="col-md-2"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="scope" value="all" id="bid-scope-all" {% if include_all %}checked{% endif %}><label class="form-check-label" for="bid-scope-all">전체 수집 공고</label></div></div>
+  <div class="col-md-2"><label class="form-label">표시 개수</label><select class="form-select" name="per_page"><option value="15" {% if per_page == 15 %}selected{% endif %}>15개</option><option value="30" {% if per_page == 30 %}selected{% endif %}>30개</option></select></div>
   <div class="col-md-2"><button class="btn btn-outline-primary w-100">검색</button></div>
 </form></div></div>
 
-<div class="small text-muted mb-2">응답 속도를 위해 검색 결과는 마감순 최대 200건을 표시합니다.</div>
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="small text-muted">총 {{ total_count }}건 중 {{ page_start }}–{{ page_end }}건</div>
+  <nav aria-label="입찰 목록 페이지"><ul class="pagination pagination-sm mb-0">
+    <li class="page-item{% if not previous_query %} disabled{% endif %}">{% if previous_query %}<a class="page-link" href="?{{ previous_query }}">이전</a>{% else %}<span class="page-link">이전</span>{% endif %}</li>
+    <li class="page-item disabled"><span class="page-link">{{ page }} / {{ total_pages }}</span></li>
+    <li class="page-item{% if not next_query %} disabled{% endif %}">{% if next_query %}<a class="page-link" href="?{{ next_query }}">다음</a>{% else %}<span class="page-link">다음</span>{% endif %}</li>
+  </ul></nav>
+</div>
 <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
   <thead><tr><th>마감</th><th>공고</th><th>기관</th><th>지역·업종</th><th>금액</th><th>매칭 이유</th><th style="min-width:190px">검토</th></tr></thead>
   <tbody>{% for n in notices %}<tr class="{% if n.review_status == 'excluded' %}text-muted{% endif %}">
