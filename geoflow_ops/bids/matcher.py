@@ -64,16 +64,21 @@ def evaluate_notice(notice: dict[str, Any], filters: dict[str, list[dict[str, An
         if kind == "region" and any(value in haystack for value in ("전국", "지역제한없음", "제한없음")):
             reasons.append({"kind": kind, "values": ["전국"]})
             continue
+        if kind == "industry" and any(
+            value in haystack for value in ("업종제한없음", "면허제한없음", "제한없음")
+        ):
+            reasons.append({"kind": kind, "values": ["업종제한 없음"]})
+            continue
         matched_values = any_term(haystack, rows)
         if not matched_values:
-            return MatchResult(False, needs_review, reasons + [{"kind": kind, "values": []}])
+            return MatchResult(False, False, reasons + [{"kind": kind, "values": []}])
         reasons.append({"kind": kind, "values": matched_values})
 
     includes = [row for row in filters.get("include", []) if normalized(row.get("keyword"))]
     if includes:
         matched_keywords = [row["keyword"] for row in includes if normalized(row["keyword"]) in title]
         if not matched_keywords:
-            return MatchResult(False, needs_review, reasons + [{"kind": "include", "values": []}])
+            return MatchResult(False, False, reasons + [{"kind": "include", "values": []}])
         reasons.append({"kind": "include", "values": matched_keywords})
 
     return MatchResult(True, needs_review, reasons)
