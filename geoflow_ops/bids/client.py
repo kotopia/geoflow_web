@@ -102,7 +102,7 @@ class G2BClient:
             raise G2BError("INVALID_JSON", "나라장터 API가 JSON이 아닌 응답을 반환했습니다.") from exc
         return parse_response(payload, page_no=page_no, rows=rows)
 
-    def fetch_all(self, operation: str, start: datetime, end: datetime, *, rows: int = 100) -> list[dict[str, Any]]:
+    def fetch_all(self, operation: str, start: datetime, end: datetime, *, rows: int = 999) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         page_no = 1
         while True:
