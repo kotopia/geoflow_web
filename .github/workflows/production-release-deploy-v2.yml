@@ -27,6 +27,7 @@ jobs:
       SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
       SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      G2B_API_SERVICE_KEY: ${{ secrets.G2B_API_SERVICE_KEY }}
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
 
     steps:
@@ -48,6 +49,7 @@ jobs:
           test -n "$SSH_USER"
           test -n "$SSH_KEY"
           test -n "$SSH_KNOWN_HOSTS"
+          test -n "$G2B_API_SERVICE_KEY"
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
 
       - name: Configure strict SSH trust
@@ -60,11 +62,23 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+          umask 077
+          printf '%s' "$G2B_API_SERVICE_KEY" > "$RUNNER_TEMP/geoflow_g2b_key"
 
       - name: Deploy current release and migrate tenant databases
         shell: bash
         run: |
           set -euo pipefail
+          remote_key="/tmp/geoflow-g2b-$GITHUB_RUN_ID.key"
+          trap 'rm -f "$RUNNER_TEMP/geoflow_g2b_key"' EXIT
+          scp \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$RUNNER_TEMP/geoflow_g2b_key" "$SSH_USER@$SSH_HOST:$remote_key"
           ssh \
             -i "$HOME/.ssh/geoflow_deploy_key" \
             -p "$SSH_PORT" \
@@ -72,12 +86,16 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA' '$GITHUB_RUN_ID'" <<'REMOTE'
           set -euo pipefail
 
           candidate_sha="$1"
+          run_id="$2"
           service='geoflow-stabilized.service'
           expected_branch='release/stabilized-deploy'
+          remote_key="/tmp/geoflow-g2b-$run_id.key"
+          env_backup="/tmp/geoflow-env-$run_id.bak"
+          env_changed=0
 
           fail() { echo "production_deploy_v2_blocker=$1"; exit 2; }
 
@@ -95,6 +113,7 @@ jobs:
           [ -f "$repo/manage.py" ] || fail 'manage_py_missing'
           [ -f "$repo/requirements.txt" ] || fail 'requirements_missing'
           [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+          [ -s "$remote_key" ] || fail 'g2b_secret_missing'
 
           origin="$(git -C "$repo" remote get-url origin 2>/dev/null || true)"
           case "$origin" in
@@ -118,6 +137,10 @@ jobs:
           rollback_needed=0
           rollback_code() {
             set +e
+            if [ "$env_changed" -eq 1 ] && [ -f "$env_backup" ]; then
+              cp -p "$env_backup" "$repo/.env"
+              echo 'production_deploy_v2_env_rollback_completed=yes'
+            fi
             if [ "$rollback_needed" -eq 1 ]; then
               echo 'production_deploy_v2_code_rollback_started=yes'
               if [ -n "$previous_branch" ]; then
@@ -131,7 +154,12 @@ jobs:
               echo 'production_deploy_v2_code_rollback_completed=yes'
             fi
           }
-          on_exit() { rc=$?; if [ "$rc" -ne 0 ]; then rollback_code; fi; exit "$rc"; }
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then rollback_code; fi
+            rm -f "$remote_key" "$env_backup"
+            exit "$rc"
+          }
           trap on_exit EXIT
 
           git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
@@ -139,6 +167,36 @@ jobs:
           [ "$fetched_sha" = "$candidate_sha" ] || fail 'candidate_not_current_release_head'
           git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
           rollback_needed=1
+
+          cp -p "$repo/.env" "$env_backup"
+          "$python" - "$repo/.env" "$remote_key" <<'PY'
+          import os
+          import stat
+          import sys
+          import tempfile
+
+          env_path, key_path = sys.argv[1:]
+          key = open(key_path, encoding='utf-8').read().strip()
+          if not key or '\n' in key or '\r' in key:
+              raise RuntimeError('invalid G2B secret shape')
+          with open(env_path, encoding='utf-8') as source:
+              lines = source.readlines()
+          kept = [line for line in lines if not line.lstrip().startswith('G2B_API_SERVICE_KEY=')]
+          kept.append(f'G2B_API_SERVICE_KEY={key}\n')
+          directory = os.path.dirname(env_path)
+          fd, temporary = tempfile.mkstemp(prefix='.geoflow-env-', dir=directory, text=True)
+          try:
+              with os.fdopen(fd, 'w', encoding='utf-8') as target:
+                  target.writelines(kept)
+                  target.flush()
+                  os.fsync(target.fileno())
+              os.chmod(temporary, stat.S_IMODE(os.stat(env_path).st_mode))
+              os.replace(temporary, env_path)
+          finally:
+              if os.path.exists(temporary):
+                  os.unlink(temporary)
+          PY
+          env_changed=1
 
           "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
           "$python" -m pip check
@@ -169,6 +227,7 @@ jobs:
               ('0033_finance_org_unit_cards', '0032_finance_edit_delete_import_v2'),
               ('0034_finance_account_card_trash', '0033_finance_org_unit_cards'),
               ('0035_employee_education_career_settings', '0034_finance_account_card_trash'),
+              ('0036_bid_interest_foundation', '0035_employee_education_career_settings'),
           ]
           TENANT_MARKERS = ('ctr.contracts', 'prj.projects', 'hr.employee_profile', 'ops.settings_nodes')
 
@@ -231,7 +290,11 @@ jobs:
               raise RuntimeError('no active tenant databases after schema classification')
 
           def validate(cur):
-              cur.execute("SELECT to_regclass('fin.accounts'), to_regclass('fin.cards'), to_regclass('hr.employee_career')")
+              cur.execute("""SELECT to_regclass('fin.accounts'), to_regclass('fin.cards'),
+                                    to_regclass('hr.employee_career'), to_regclass('bid.filter_values'),
+                                    to_regclass('bid.keyword_rules'), to_regclass('bid.notices'),
+                                    to_regclass('bid.notice_revisions'), to_regclass('bid.notice_matches'),
+                                    to_regclass('bid.notice_reviews'), to_regclass('bid.sync_runs')""")
               if not all(cur.fetchone()):
                   raise RuntimeError('required finance/employee relations missing')
               for table, cols in (
@@ -250,6 +313,11 @@ jobs:
                   raise RuntimeError('education settings categories missing')
               if not migration_applied(cur, '0035_employee_education_career_settings'):
                   raise RuntimeError('0035 migration history missing')
+              if not migration_applied(cur, '0036_bid_interest_foundation'):
+                  raise RuntimeError('0036 migration history missing')
+              cur.execute("SELECT count(*), count(*) FILTER (WHERE active) FROM bid.filter_values WHERE kind='region'")
+              if cur.fetchone() != (17, 0):
+                  raise RuntimeError('bid region seed must contain 17 inactive rows')
 
           def run_tenant(row, commit):
               conn = connect(row)
@@ -258,7 +326,7 @@ jobs:
                   with conn.cursor() as cur:
                       cur.execute("SET LOCAL lock_timeout='8s'")
                       cur.execute("SET LOCAL statement_timeout='120s'")
-                      cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ['geoflow:webgisapp:0030-0035'])
+                      cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ['geoflow:webgisapp:0030-0036'])
                       if not migration_applied(cur, '0029_unified_settings_registry'):
                           raise RuntimeError(f'{row.db_name}: dependency 0029 not applied')
                       for name, dependency in TARGETS:
@@ -302,12 +370,16 @@ jobs:
           done
           [ "$ready" = yes ] || fail 'service_failed_post_restart_healthcheck'
 
+          "$python" "$repo/manage.py" shell -c "from datetime import timedelta; from django.utils import timezone; from geoflow_ops.bids.client import G2BClient, NOTICE_OPERATION; end=timezone.now(); page=G2BClient().fetch_page(NOTICE_OPERATION, end-timedelta(hours=6), end, rows=1); print(f'production_deploy_v2_g2b_live_ok=yes total={page.total_count}')"
+
           public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
           echo "production_deploy_v2_public_login_status=$public_login"
           [ "$public_login" = 200 ] || fail 'public_login_not_200_after_deploy'
 
           rollback_needed=0
+          env_changed=0
           trap - EXIT
+          rm -f "$remote_key" "$env_backup"
           echo "production_deploy_v2_deployed_sha=$(git -C "$repo" rev-parse HEAD)"
           echo "production_deploy_v2_deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
           echo 'production_deploy_v2_complete=yes'
