@@ -7,8 +7,17 @@ from unittest import TestCase, mock
 from django.core.exceptions import PermissionDenied
 from django.test import override_settings
 
-from geoflow_ops.bids.client import G2BClient, G2BError, NOTICE_OPERATION, parse_response
+from geoflow_ops.bids.client import (
+    BASIS_AMOUNT_OPERATION,
+    G2BClient,
+    G2BError,
+    LICENSE_OPERATION,
+    NOTICE_OPERATION,
+    REGION_OPERATION,
+    parse_response,
+)
 from geoflow_ops.bids.matcher import evaluate_notice
+from geoflow_ops.bids.repository import _json_list
 from geoflow_ops.bids import security_views
 
 
@@ -27,6 +36,11 @@ class Response:
 
 
 class G2BClientTests(TestCase):
+    def test_auxiliary_operation_names_match_the_public_api(self):
+        self.assertEqual(LICENSE_OPERATION, "getBidPblancListInfoLicenseLimit")
+        self.assertEqual(REGION_OPERATION, "getBidPblancListInfoPrtcptPsblRgn")
+        self.assertEqual(BASIS_AMOUNT_OPERATION, "getBidPblancListInfoServcBsisAmount")
+
     def test_parse_response_accepts_list_and_success_code(self):
         page = parse_response({
             "response": {"header": {"resultCode": "00"}, "body": {"totalCount": 1, "items": [{"bidNtceNo": "1"}]}}
@@ -123,6 +137,11 @@ class BidNormalizationTests(TestCase):
 
         rows = [{"lmtSno": 1, "prtcptLmtYn": "Y", "lcnsLmtNm": "공공측량업/5023"}]
         self.assertEqual(_joined_values(rows, ("lcnsLmtNm",)), "공공측량업/5023")
+
+    def test_json_list_decodes_driver_text_without_iterating_characters(self):
+        encoded = '[{"kind":"region","values":[]}]'
+        self.assertEqual(_json_list(encoded), [{"kind": "region", "values": []}])
+        self.assertEqual(_json_list({"kind": "region"}), [])
 
 
 class BidSecurityTests(TestCase):
