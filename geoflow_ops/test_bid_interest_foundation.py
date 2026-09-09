@@ -108,6 +108,22 @@ class BidMatcherTests(TestCase):
         )
         self.assertFalse(result.matched)
 
+    def test_nationwide_notice_matches_selected_region(self):
+        result = evaluate_notice(
+            {"title": "전국 대상 측량 용역", "region_text": "전국", "industry_text": "", "search_text": "전국 대상 측량 용역"},
+            {"region": [{"code": "30", "name": "대전광역시", "aliases": ["대전"]}]},
+        )
+        self.assertTrue(result.matched)
+        self.assertEqual(result.reasons[0]["values"], ["전국"])
+
+
+class BidNormalizationTests(TestCase):
+    def test_joined_values_uses_only_explicit_name_fields(self):
+        from geoflow_ops.bids.sync import _joined_values
+
+        rows = [{"lmtSno": 1, "prtcptLmtYn": "Y", "lcnsLmtNm": "공공측량업/5023"}]
+        self.assertEqual(_joined_values(rows, ("lcnsLmtNm",)), "공공측량업/5023")
+
 
 class BidSecurityTests(TestCase):
     def request(self, perms=(), roles=()):

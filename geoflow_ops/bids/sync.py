@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -86,13 +87,13 @@ def _group(rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, A
     return result
 
 
-def _joined_values(rows: list[dict[str, Any]]) -> str:
+def _joined_values(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> str:
     values: list[str] = []
     for row in rows:
-        for key, value in row.items():
-            lowered = key.casefold()
-            if value not in (None, "") and any(token in lowered for token in ("rgn", "region", "indstry", "industry", "license", "lmt")):
-                values.append(str(value).strip())
+        for key in keys:
+            value = row.get(key)
+            if value not in (None, ""):
+                values.extend(part.strip() for part in str(value).split(",") if part.strip())
     return " / ".join(dict.fromkeys(value for value in values if value))
 
 
@@ -106,8 +107,19 @@ def _normalized_notice(row: dict[str, Any], regions: list[dict[str, Any]], indus
         status = "cancelled"
     raw = {"notice": row, "regions": regions, "industries": industries, "basis_amount": basis}
     canonical = json.dumps(raw, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    region_text = _joined_values(regions) or _text(row, "prtcptPsblRgnNm", "rgnLmtBidLocplcJdgmBssNm")
-    industry_text = _joined_values(industries) or _text(row, "indstrytyNm", "licenseNm")
+    region_text = _joined_values(regions, (
+        "prtcptPsblRgnNm", "prtcptLmtRgnNm", "rbidLmtRgnNm",
+        "rgnLmtBidLocplcJdgmBssNm", "regionNm",
+    )) or _text(
+        row, "prtcptPsblRgnNm", "prtcptLmtRgnNm", "rbidLmtRgnNm",
+        "rgnLmtBidLocplcJdgmBssNm",
+    )
+    industry_text = _joined_values(industries, (
+        "lcnsLmtNm", "licenseNm", "licenseKindNm", "indstrytyNm",
+        "indstrytyLmtNm", "bidprcPsblIndstrytyNm",
+    )) or _text(
+        row, "bidprcPsblIndstrytyNm", "lcnsLmtNm", "indstrytyNm", "licenseNm",
+    )
     return {
         "bid_notice_no": _text(row, "bidNtceNo"),
         "bid_notice_ord": _text(row, "bidNtceOrd") or "00",
@@ -160,9 +172,13 @@ def sync_service_notices(alias: str, start: datetime, end: datetime, *, client: 
         run_id = cur.fetchone()[0]
     try:
         notices = client.fetch_all(NOTICE_OPERATION, start, end)
-        region_rows, region_error = _optional(client, REGION_OPERATION, start, end)
-        industry_rows, industry_error = _optional(client, LICENSE_OPERATION, start, end)
-        basis_rows, basis_error = _optional(client, BASIS_AMOUNT_OPERATION, start, end)
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="g2b-aux") as pool:
+            region_future = pool.submit(_optional, client, REGION_OPERATION, start, end)
+            industry_future = pool.submit(_optional, client, LICENSE_OPERATION, start, end)
+            basis_future = pool.submit(_optional, client, BASIS_AMOUNT_OPERATION, start, end)
+            region_rows, region_error = region_future.result()
+            industry_rows, industry_error = industry_future.result()
+            basis_rows, basis_error = basis_future.result()
         regions = _group(region_rows)
         industries = _group(industry_rows)
         basis = _group(basis_rows)

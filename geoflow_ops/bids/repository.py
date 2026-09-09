@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -127,7 +125,7 @@ def reevaluate_all(alias: str) -> int:
     with connections[alias].cursor() as cur:
         cur.execute(
             "SELECT id::text,title,COALESCE(region_text,''),COALESCE(industry_text,''),"
-            "COALESCE(notice_agency_name,''),COALESCE(demand_agency_name,''),raw_payload "
+            "COALESCE(notice_agency_name,''),COALESCE(demand_agency_name,'') "
             "FROM bid.notices"
         )
         rows = cur.fetchall()
@@ -136,7 +134,7 @@ def reevaluate_all(alias: str) -> int:
             notice = {
                 "title": row[1], "region_text": row[2], "industry_text": row[3],
                 "notice_agency_name": row[4], "demand_agency_name": row[5],
-                "search_text": " ".join([row[1] or "", row[2], row[3], row[4], row[5], json.dumps(row[6] or {}, ensure_ascii=False)]),
+                "search_text": " ".join([row[1] or "", row[2], row[3], row[4], row[5]]),
             }
             result = evaluate_notice(notice, filters)
             cur.execute(
@@ -176,7 +174,7 @@ def list_notices(alias: str, *, query: str = "", review_status: str = "", includ
           LEFT JOIN bid.notice_reviews r ON r.notice_id=n.id
          WHERE {' AND '.join(where)}
          ORDER BY n.bid_close_at NULLS LAST,n.posted_at DESC NULLS LAST
-         LIMIT 1000
+         LIMIT 200
     """
     with connections[alias].cursor() as cur:
         cur.execute(sql, params)

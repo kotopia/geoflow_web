@@ -61,6 +61,9 @@ def evaluate_notice(notice: dict[str, Any], filters: dict[str, list[dict[str, An
             needs_review = True
             reasons.append({"kind": kind, "values": [], "uncertain": True})
             continue
+        if kind == "region" and any(value in haystack for value in ("전국", "지역제한없음", "제한없음")):
+            reasons.append({"kind": kind, "values": ["전국"]})
+            continue
         matched_values = any_term(haystack, rows)
         if not matched_values:
             return MatchResult(False, needs_review, reasons + [{"kind": kind, "values": []}])

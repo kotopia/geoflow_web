@@ -77,9 +77,9 @@ def review_save(request, alias: str, notice_id):
 
 def sync_now(request, alias: str):
     try:
-        days = min(max(int(request.POST.get("days") or 2), 1), 7)
+        days = min(max(int(request.POST.get("days") or 7), 1), 30)
     except (TypeError, ValueError):
-        days = 2
+        days = 7
     end = timezone.now()
     start = end - timedelta(days=days)
     try:

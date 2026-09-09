@@ -6,7 +6,7 @@
   <div><h1 class="h3 mb-1">관심 입찰</h1><div class="text-muted">나라장터 용역 공고 중 등록한 지역·업종·키워드 조건과 일치하는 공고입니다.</div></div>
   <div class="d-flex gap-2">
     {% if can_manage %}<a class="btn btn-outline-secondary" href="{% url 'tenant:bid_settings' %}">입찰 설정</a>
-    <form method="post" action="{% url 'tenant:bid_sync' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="days" value="2"><button class="btn btn-primary">최근 2일 가져오기</button></form>{% endif %}
+    <form method="post" action="{% url 'tenant:bid_sync' %}" class="d-flex gap-1">{% csrf_token %}<select class="form-select" name="days" aria-label="수집 기간"><option value="2">2일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select><button class="btn btn-primary text-nowrap">공고 가져오기</button></form>{% endif %}
   </div>
 </div>
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
@@ -19,6 +19,7 @@
   <div class="col-md-2"><button class="btn btn-outline-primary w-100">검색</button></div>
 </form></div></div>
 
+<div class="small text-muted mb-2">응답 속도를 위해 검색 결과는 마감순 최대 200건을 표시합니다.</div>
 <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
   <thead><tr><th>마감</th><th>공고</th><th>기관</th><th>지역·업종</th><th>금액</th><th>매칭 이유</th><th style="min-width:190px">검토</th></tr></thead>
   <tbody>{% for n in notices %}<tr class="{% if n.review_status == 'excluded' %}text-muted{% endif %}">
