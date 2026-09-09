@@ -35,7 +35,7 @@ class BidInterestProductionDeployContractTests(unittest.TestCase):
         self.assertIn('cp -p "$env_backup" "$repo/.env"', self.workflow)
         self.assertIn("production_deploy_v2_env_rollback_completed=yes", self.workflow)
 
-    def test_migration_0036_is_dependency_ordered_and_validated(self):
+    def test_migration_0036_is_dependency_ordered_and_schema_validated(self):
         self.assertIn(
             "('0036_bid_interest_foundation', '0035_employee_education_career_settings')",
             self.workflow,
@@ -50,7 +50,10 @@ class BidInterestProductionDeployContractTests(unittest.TestCase):
             "bid.sync_runs",
         ):
             self.assertIn(relation, self.workflow)
-        self.assertIn("bid region seed must contain 17 inactive rows", self.workflow)
+
+    def test_deploy_validation_does_not_reject_mutable_bid_settings(self):
+        self.assertNotIn("count(*) FILTER (WHERE active)", self.workflow)
+        self.assertNotIn("bid region seed must contain 17 inactive rows", self.workflow)
 
     def test_live_g2b_check_does_not_log_the_key(self):
         self.assertIn("production_deploy_v2_g2b_live_ok=yes", self.workflow)
