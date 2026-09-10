@@ -48,7 +48,7 @@ class GeoFlowConnectorDialog(QDialog):
 
         settings = QSettings()
         self.server_edit = QLineEdit(
-            settings.value("GeoFlowConnector/serverUrl", "http://127.0.0.1:8000", type=str)
+            settings.value("GeoFlowConnector/serverUrl", "https://geoflow.co.kr", type=str)
         )
         self.email_edit = QLineEdit(
             settings.value("GeoFlowConnector/email", "", type=str)

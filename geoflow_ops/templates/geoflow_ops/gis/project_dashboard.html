@@ -23,6 +23,10 @@
   <div class="d-flex flex-wrap gap-2">
     {% if layer_plan.ready and layer_plan.gis_enabled %}
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
+    <button type="button"
+            class="btn btn-outline-dark"
+            data-bs-toggle="modal"
+            data-bs-target="#qgisPluginInstallModal">QGIS 플러그인 설치</button>
     <a class="btn btn-outline-secondary" href="{% url 'gis:qgis_project_manifest_api' project.id %}" target="_blank" rel="noopener">QGIS Manifest</a>
     {% else %}
     <span class="btn btn-outline-primary disabled" aria-disabled="true">WebGIS 지도</span>
@@ -41,6 +45,42 @@
     {% else %}
     <span class="btn btn-outline-secondary disabled" aria-disabled="true">ZIP 수동 다운로드</span>
     {% endif %}
+  </div>
+</div>
+
+<div class="modal fade" id="qgisPluginInstallModal" tabindex="-1" aria-labelledby="qgisPluginInstallTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qgisPluginInstallTitle">GeoFlow QGIS 플러그인 설치</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">QGIS에서 <strong>플러그인 → 플러그인 관리 및 설치 → 설정 → 추가</strong>를 선택하세요.</p>
+        <label for="qgisPluginRepositoryUrl" class="form-label">테스트 저장소 주소</label>
+        <div class="input-group mb-3">
+          <input id="qgisPluginRepositoryUrl"
+                 type="text"
+                 class="form-control"
+                 readonly
+                 value="https://geoflow.co.kr{% url 'gis:qgis_plugin_repository_xml' 'test' %}">
+          <button type="button" class="btn btn-outline-secondary" id="copyQgisPluginRepositoryUrl">주소 복사</button>
+        </div>
+        <ol class="mb-3">
+          <li>저장소 이름을 <strong>GeoFlow Test</strong>로 입력하고 위 주소를 등록합니다.</li>
+          <li>설정에서 <strong>실험적 플러그인도 표시</strong>를 켭니다.</li>
+          <li>목록에서 <strong>GeoFlow Connector</strong>를 찾아 설치합니다.</li>
+        </ol>
+        <div class="alert alert-warning mb-0">
+          현재 0.7.4는 사용자 검증용 테스트 버전입니다. 운영 안정화 후 stable 저장소로 승격합니다.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-outline-primary"
+           href="{% url 'gis:qgis_plugin_package' qgis_plugin_test_package %}">ZIP 직접 다운로드</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -142,6 +182,22 @@
 <script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260908-3"></script>
 <script>
 (() => {
+  const repositoryInput = document.getElementById("qgisPluginRepositoryUrl");
+  const repositoryCopy = document.getElementById("copyQgisPluginRepositoryUrl");
+  if (repositoryInput && repositoryCopy) {
+    repositoryCopy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(repositoryInput.value);
+        repositoryCopy.textContent = "복사됨";
+      } catch (_error) {
+        repositoryInput.select();
+        document.execCommand("copy");
+        repositoryCopy.textContent = "복사됨";
+      }
+      window.setTimeout(() => { repositoryCopy.textContent = "주소 복사"; }, 1200);
+    });
+  }
+
   const openButton = document.getElementById("qfieldPersistentOpen");
   const forceButton = document.getElementById("qfieldForceInstall");
   const removeButton = document.getElementById("qfieldRemoveLocal");
