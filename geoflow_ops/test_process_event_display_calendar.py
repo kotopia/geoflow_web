@@ -50,16 +50,30 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         self.assertIn("workflow.event_group.complete", migration)
         self.assertNotIn("('workflow.event_group.complete',", migration)
 
-    def test_event_modal_uses_occurred_and_end_dates_only(self):
+    def test_event_modal_uses_occurred_end_and_open_ended_controls(self):
         modal = source("templates/geoflow_ops/events/_event_modal.html")
         self.assertIn("event-occurred-at", modal)
         self.assertIn("event-end-at", modal)
+        self.assertIn("event-until-closed", modal)
+        self.assertIn("종료일 미정", modal)
+        self.assertIn("btn-close-period-event", modal)
+        self.assertIn("중지 종료", modal)
         self.assertIn("캘린더에 추가", modal)
         self.assertNotIn("완료 예정일", modal)
         self.assertNotIn("event-due-at", modal)
         self.assertNotIn("event-highlight-enabled", modal)
         self.assertNotIn("event-highlight-days", modal)
-        self.assertNotIn("event-until-closed", modal)
+
+    def test_suspend_period_controls_do_not_create_resume_event(self):
+        js = source("static/geoflow_ops/js/process-event-display-calendar.js")
+        self.assertIn("var PERIOD_EVENT_TYPES", js)
+        self.assertIn("suspend: { closeLabel: '중지 종료' }", js)
+        self.assertIn("end.disabled=openEnded||readOnly", js)
+        self.assertIn("body.until_closed=isPeriod?openEnded:false", js)
+        self.assertIn("editingOpenPeriodEvent(eventType)", js)
+        self.assertIn("if(saveButton&&!saveButton.disabled)saveButton.click()", js)
+        self.assertNotIn("event_type: 'resume'", js)
+        self.assertNotIn('event_type: "resume"', js)
 
     def test_legacy_due_at_is_migrated_to_end_at(self):
         migration = source("migrations/0028_move_due_at_to_event_end_at.py")
@@ -113,6 +127,6 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         self.assertIn("__GEOFLOW_EVENT_DISPLAY_CALENDAR_LOADED__", js)
         self.assertIn("if(label.textContent!==nextLabel)label.textContent=nextLabel;", js)
 
-    def test_event_display_script_is_cache_busted_after_freeze_fix(self):
+    def test_event_display_script_is_cache_busted_after_period_control_change(self):
         base = source("templates/geoflow_ops/base_tenant.html")
-        self.assertIn("process-event-display-calendar.js' %}?v=20260901-2", base)
+        self.assertIn("process-event-display-calendar.js' %}?v=20260910-1", base)
