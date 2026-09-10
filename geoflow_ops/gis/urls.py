@@ -10,6 +10,7 @@ from . import (
     qfield_ticket_roaming_views,
     qfield_views,
     qgis_views,
+    qgis_plugin_repository_views,
     realtime_ticket_views,
     realtime_views,
     reference_views,
@@ -21,6 +22,16 @@ from . import (
 app_name = "gis"
 
 urlpatterns = [
+    path(
+        "qgis/plugins/<str:channel>/plugins.xml",
+        qgis_plugin_repository_views.qgis_plugin_repository_xml,
+        name="qgis_plugin_repository_xml",
+    ),
+    path(
+        "qgis/plugins/releases/<str:filename>",
+        qgis_plugin_repository_views.qgis_plugin_package,
+        name="qgis_plugin_package",
+    ),
     path("projects/<uuid:project_id>/api/qfield/connection-recovery/", qfield_connection_views.qfield_connection_recovery_api, name="qfield_connection_recovery_api"),
     path("qfield/launcher.zip", qfield_launcher.launcher_download, name="qfield_launcher_download"),
     path("", views.dashboard, name="dashboard"),
