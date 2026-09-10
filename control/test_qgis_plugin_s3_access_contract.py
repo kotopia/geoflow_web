@@ -54,6 +54,16 @@ class QgisPluginS3AccessContractTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             module.principal_target("arn:aws:iam::123456789012:root")
 
+    def test_repository_bucket_is_independent_from_attachment_bucket_setting(self):
+        module = load_module()
+        with patch.dict(os.environ, {"AWS_S3_BUCKET": "another-private-bucket"}):
+            module.validate_inputs(module.CONFIRMATION)
+        self.assertEqual(module.BUCKET, "geoflow-upload")
+        self.assertEqual(
+            module.policy_document()["Statement"][0]["Resource"],
+            ["arn:aws:s3:::geoflow-upload/qgis-plugins/*"],
+        )
+
     def test_workflow_applies_before_publish_and_rolls_back_on_failure(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("apply_qgis_plugin_s3_access.py", text)
