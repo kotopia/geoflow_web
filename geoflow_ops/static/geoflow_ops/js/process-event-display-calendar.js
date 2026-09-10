@@ -15,9 +15,25 @@
     closeout_submitted:'준공계', closeout_inspection:'준공검사', closeout_approved:'준공승인',
     advance_payment:'선급금', progress_payment:'기성금', final_payment:'준공금'
   };
+  // Period-event behavior is kept in one registry so another event type can opt in
+  // later without changing the shared event API or creating a separate table.
+  // `resume` is deliberately not a follow-up action here: closing a suspension
+  // only closes the suspend display period and never creates/updates another event.
+  var PERIOD_EVENT_TYPES = {
+    suspend: { closeLabel: '중지 종료' }
+  };
+
   function byId(id){return document.getElementById(id);}
   function bool(id){var el=byId(id);return !!(el&&el.checked);}
   function value(id){var el=byId(id);return el?el.value:'';}
+  function periodConfig(eventType){return PERIOD_EVENT_TYPES[String(eventType||'')]||null;}
+
+  function showModalAlert(message){
+    var alert=byId('event-alert');
+    if(!alert)return;
+    alert.textContent=message;
+    alert.classList.remove('d-none');
+  }
 
   function syncCalendar(){
     var calendar=byId('event-calendar-enabled'),label=byId('event-calendar-label'),button=byId('btn-event-calendar-toggle');
@@ -28,6 +44,98 @@
       button.classList.toggle('btn-outline-primary',!calendar.checked);
     }
   }
+
+  function editingOpenPeriodEvent(eventType){
+    var ev=lastEditingEvent||null;
+    if(!ev||!ev.id||String(ev.event_type||'')!==String(eventType||''))return false;
+    return !!ev.until_closed||!ev.end_at;
+  }
+
+  function syncPeriodControls(){
+    var eventType=value('event-type');
+    var cfg=periodConfig(eventType);
+    var wrap=byId('event-until-closed-wrap');
+    var indefinite=byId('event-until-closed');
+    var end=byId('event-end-at');
+    var closeButton=byId('btn-close-period-event');
+    var saveButton=byId('btn-save-event');
+    var readOnly=!!(saveButton&&(saveButton.disabled||saveButton.classList.contains('d-none')));
+
+    if(wrap)wrap.classList.toggle('d-none',!cfg);
+    if(!cfg){
+      if(end)end.disabled=readOnly;
+      if(closeButton){closeButton.classList.add('d-none');closeButton.disabled=true;}
+      return;
+    }
+
+    var openEnded=!!(indefinite&&indefinite.checked);
+    if(end)end.disabled=openEnded||readOnly;
+    if(closeButton){
+      closeButton.textContent=cfg.closeLabel;
+      var showClose=editingOpenPeriodEvent(eventType)&&!openEnded&&!!(end&&end.value)&&!readOnly;
+      closeButton.classList.toggle('d-none',!showClose);
+      closeButton.disabled=!showClose;
+    }
+  }
+
+  function applyNewPeriodDefault(){
+    var eventType=value('event-type');
+    var indefinite=byId('event-until-closed');
+    var end=byId('event-end-at');
+    if(periodConfig(eventType)&&!lastEditingEvent&&indefinite&&!(end&&end.value))indefinite.checked=true;
+    syncPeriodControls();
+  }
+
+  function validatePeriodEvent(e){
+    var eventType=value('event-type');
+    if(!periodConfig(eventType))return true;
+    if(bool('event-until-closed')||value('event-end-at'))return true;
+    if(e){e.preventDefault();e.stopImmediatePropagation();}
+    showModalAlert('중지 이벤트는 종료일을 입력하거나 종료일 미정을 체크하세요.');
+    return false;
+  }
+
+  function bindPeriodControls(){
+    var indefinite=byId('event-until-closed');
+    var end=byId('event-end-at');
+    var type=byId('event-type');
+    var stage=byId('event-stage');
+    var save=byId('btn-save-event');
+    var closeButton=byId('btn-close-period-event');
+
+    if(indefinite&&indefinite.dataset.gfPeriodBound!=='1'){
+      indefinite.dataset.gfPeriodBound='1';
+      indefinite.addEventListener('change',syncPeriodControls);
+    }
+    if(end&&end.dataset.gfPeriodBound!=='1'){
+      end.dataset.gfPeriodBound='1';
+      end.addEventListener('input',syncPeriodControls);
+      end.addEventListener('change',syncPeriodControls);
+    }
+    if(type&&type.dataset.gfPeriodBound!=='1'){
+      type.dataset.gfPeriodBound='1';
+      type.addEventListener('change',applyNewPeriodDefault);
+    }
+    if(stage&&stage.dataset.gfPeriodBound!=='1'){
+      stage.dataset.gfPeriodBound='1';
+      stage.addEventListener('change',function(){window.setTimeout(applyNewPeriodDefault,0);});
+    }
+    if(save&&save.dataset.gfPeriodValidationBound!=='1'){
+      save.dataset.gfPeriodValidationBound='1';
+      save.addEventListener('click',function(e){validatePeriodEvent(e);},true);
+    }
+    if(closeButton&&closeButton.dataset.gfPeriodBound!=='1'){
+      closeButton.dataset.gfPeriodBound='1';
+      closeButton.addEventListener('click',function(e){
+        e.preventDefault();
+        if(!validatePeriodEvent(e))return;
+        var saveButton=byId('btn-save-event');
+        if(saveButton&&!saveButton.disabled)saveButton.click();
+      });
+    }
+    syncPeriodControls();
+  }
+
   function installModalControls(){
     var button=byId('btn-event-calendar-toggle'),calendar=byId('event-calendar-enabled');
     if(button&&calendar&&button.dataset.gfBound!=='1'){
@@ -38,8 +146,11 @@
         syncCalendar();
       });
     }
+    bindPeriodControls();
     syncCalendar();
+    syncPeriodControls();
   }
+
   function scheduleModalControls(){
     // The event modal is fetched asynchronously. Two bounded callbacks are enough
     // for both a warm modal and its first AJAX insertion; unlike MutationObserver
@@ -47,14 +158,24 @@
     window.setTimeout(installModalControls,80);
     window.setTimeout(installModalControls,240);
   }
+
   function fillDisplay(ev){
     installModalControls();
-    var p=ev||{},end=byId('event-end-at'),calendar=byId('event-calendar-enabled');
+    var p=ev||{},end=byId('event-end-at'),calendar=byId('event-calendar-enabled'),indefinite=byId('event-until-closed');
     if(end)end.value=p.end_at||'';
     if(calendar)calendar.checked=!!p.calendar_enabled;
+    if(indefinite){
+      var eventType=String(p.event_type||value('event-type')||'');
+      indefinite.checked=!!p.until_closed||(!!periodConfig(eventType)&&!p.end_at&&!!p.id);
+    }
     syncCalendar();
+    syncPeriodControls();
   }
-  function resetDisplay(){fillDisplay({end_at:null,calendar_enabled:false});}
+
+  function resetDisplay(){
+    var eventType=value('event-type');
+    fillDisplay({event_type:eventType,end_at:null,until_closed:!!periodConfig(eventType),calendar_enabled:false});
+  }
 
   function augmentBody(url,options){
     if(!options||String(options.method||'GET').toUpperCase()!=='POST'||!options.body)return options;
@@ -64,13 +185,15 @@
       var body=JSON.parse(options.body);
       if(!body||typeof body!=='object'||!byId('event-end-at'))return options;
       var eventType=String(body.event_type||'');
+      var isPeriod=!!periodConfig(eventType);
+      var openEnded=isPeriod&&bool('event-until-closed');
       var endAt=value('event-end-at')||null;
       var existing=lastEditingEvent||{};
-      body.end_at=endAt;
+      body.end_at=openEnded?null:endAt;
       body.calendar_enabled=bool('event-calendar-enabled');
       body.highlight_enabled=(typeof existing.highlight_enabled==='boolean')?existing.highlight_enabled:true;
       body.highlight_days=parseInt(existing.highlight_days||'7',10)||7;
-      body.until_closed=(eventType==='suspend'&&!endAt);
+      body.until_closed=isPeriod?openEnded:false;
       body.due_at=null;
       return Object.assign({},options,{body:JSON.stringify(body)});
     }catch(e){return options;}
