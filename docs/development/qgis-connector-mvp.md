@@ -82,6 +82,23 @@ Restart QGIS (or reload plugins), then enable:
 
 `Plugins > Manage and Install Plugins > Installed > GeoFlow Connector`
 
+## Managed test repository
+
+The PowerShell installer above remains a development-only convenience. User
+testing and releases use a QGIS plugin repository backed by the private
+`geoflow-upload` bucket:
+
+- repository object: `qgis-plugins/test/plugins.xml`
+- immutable packages: `qgis-plugins/releases/geoflow_connector-<version>.zip`
+- QGIS repository URL: `https://geoflow.co.kr/gis/qgis/plugins/test/plugins.xml`
+
+The `tenants/` prefix is outside this repository and must never be read,
+written, listed, or reused by plugin publication. GeoFlow exposes only the two
+validated plugin artifact routes, so the bucket and tenant uploads stay
+private. The test channel contains experimental builds; promotion to
+`qgis-plugins/stable/plugins.xml` requires a separate reviewed release after
+user validation.
+
 ## Test flow
 
 1. Start the isolated GeoFlow development server with `scripts/dev/start_geoflow_dev.ps1`.
