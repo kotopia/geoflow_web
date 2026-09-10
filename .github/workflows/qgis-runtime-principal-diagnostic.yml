@@ -1,0 +1,88 @@
+name: GeoFlow AWS runtime principal diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - scripts/ops/diagnose_qgis_runtime_principal.py
+      - control/test_qgis_runtime_principal_diagnostic_contract.py
+      - .github/workflows/qgis-runtime-principal-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-runtime-principal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Run read-only principal diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_file="/tmp/geoflow-qgis-principal-$GITHUB_RUN_ID.py"
+          cleanup() {
+            ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" "rm -f '$remote_file'" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          scp -i "$HOME/.ssh/geoflow_deploy_key" -P "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            scripts/ops/diagnose_qgis_runtime_principal.py \
+            "$SSH_USER@$SSH_HOST:$remote_file"
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "bash -s -- '$remote_file'" <<'REMOTE'
+          set -euo pipefail
+          diagnostic="$1"
+          service='geoflow-stabilized.service'
+          [ "$(systemctl is-active "$service" 2>/dev/null || true)" = active ] || exit 2
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || exit 2
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -f "$repo/manage.py" ] || exit 2
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || exit 2
+          [ -f "$diagnostic" ] || exit 2
+          cd "$repo"
+          PYTHONPATH="$repo" "$python" "$diagnostic"
+          REMOTE
