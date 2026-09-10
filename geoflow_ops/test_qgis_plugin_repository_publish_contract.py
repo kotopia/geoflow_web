@@ -28,6 +28,8 @@ class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
         self.assertIn("release/stabilized-deploy", workflow)
         self.assertNotIn("tenants/", workflow)
         self.assertNotIn("aws s3 sync", workflow)
+        self.assertNotIn("apply_qgis_plugin_s3_access.py", workflow)
+        self.assertNotIn("iam:", workflow.lower())
 
 
 if __name__ == "__main__":
