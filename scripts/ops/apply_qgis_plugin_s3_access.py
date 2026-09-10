@@ -121,8 +121,6 @@ def clients():
 def validate_inputs(confirmation: str) -> None:
     if confirmation != CONFIRMATION:
         fail("confirmation_mismatch")
-    if str(os.environ.get("AWS_S3_BUCKET") or "").strip() != BUCKET:
-        fail("bucket_mismatch")
 
 
 def apply(marker: Path, confirmation: str) -> None:
