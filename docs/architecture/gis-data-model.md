@@ -70,6 +70,29 @@ GeoFlow는 중앙 Control DB + tenant별 독립 tenant DB 구조다. 따라서 t
 
 프로젝트 귀속 데이터에는 `project_id`를 사용한다.
 
+### Catalog 기반 GIS 자동 등록
+
+프로젝트의 GIS 사용 여부를 별도 수동 등록 플래그로 중복 저장하지 않는다. 활성
+`prj.scope_item`이 tenant의 `gis.scope_binding`을 통해 활성 Capability에 연결되고,
+해당 Capability와 Profile의 교집합에 하나 이상의 레이어가 있으면 GIS 프로젝트로
+실시간 판정한다.
+
+- 중앙 Catalog의 L2 `WATER`는 tenant Capability `WATER`에 연결한다.
+- 중앙 Catalog의 L2 `SEWERAGE`는 tenant Capability `SEWER`에 연결한다.
+- 운영 tenant는 Catalog UUID가 tenant마다 복제되지 않도록 초기화 시 이 두 binding을
+  중앙 Catalog에서 정확히 조회해 동기화한다.
+- 프로젝트별 활성 Profile이 있으면 그것을 우선한다.
+- 별도 Profile이 없는 프로젝트는 `GEOFLOW_BASE_V1`을 사용하며, 기존 개발 환경에
+  한해 `GEOFLOW_DEV_BASE`를 호환 fallback으로 허용한다.
+- 업무범위 추가·삭제 결과는 다음 GIS 조회부터 즉시 Layer Plan에 반영한다. 업무범위를
+  삭제해 레이어가 숨겨져도 기존 GIS 객체를 삭제하지 않는다.
+- 상수와 하수가 모두 있으면 두 Capability의 합집합을 Profile로 제한한 Layer Plan을
+  사용한다. 둘 다 없으면 GIS 목록과 데이터 API에서 fail-closed 한다.
+
+따라서 Catalog 편집은 업무 사실의 원본이고, `scope_binding`은 그 업무가 어떤 GIS
+기능을 활성화하는지 정의하는 tenant metadata다. WebGIS, QGIS, QField는 동일한
+Layer Plan을 사용한다.
+
 QGIS가 향후 PostGIS에 직접 접근하는 경우에는 project-scoped View/RLS/short-lived role/proxy 중 검토된 방식을 사용해야 한다. 현재 단계에서 특정 방식을 데이터 모델에 강제하지 않는다.
 
 ## 7. 식별자와 감사 필드

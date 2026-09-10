@@ -7,7 +7,12 @@ from django.db import DatabaseError, connections
 from django.http import Http404
 
 
-DEFAULT_PROFILE_CODE = "GEOFLOW_DEV_BASE"
+# An explicit active project_profile always wins.  Unassigned projects use the
+# first active profile in this ordered list so production tenants can discover
+# GIS projects from Catalog scope alone while development tenants keep their
+# legacy seed profile.
+DEFAULT_PROFILE_CODES = ("GEOFLOW_BASE_V1", "GEOFLOW_DEV_BASE")
+DEFAULT_PROFILE_CODE = DEFAULT_PROFILE_CODES[0]
 _REQUIRED_TABLES = (
     "prj.scope_item",
     "gis.capability",
@@ -69,7 +74,8 @@ def gis_enabled_project_ids(alias: str) -> set[str] | None:
                            (
                                SELECT p.id
                                  FROM gis.profile p
-                                WHERE p.code=%s AND p.active
+                                WHERE p.code=ANY(%s::text[]) AND p.active
+                                ORDER BY array_position(%s::text[], p.code)
                                 LIMIT 1
                            )
                        ) AS profile_id
@@ -96,7 +102,7 @@ def gis_enabled_project_ids(alias: str) -> set[str] | None:
                 ON ft.id=cf.feature_type_id AND ft.active
             """
             ,
-            [DEFAULT_PROFILE_CODE],
+            [list(DEFAULT_PROFILE_CODES), list(DEFAULT_PROFILE_CODES)],
         )
         return {row[0] for row in cursor.fetchall()}
 
@@ -119,10 +125,11 @@ def _profile_row(alias: str, project_id) -> dict[str, Any] | None:
                 """
                 SELECT p.id::text,p.code,p.name,'active',true,'fallback' AS source
                   FROM gis.profile p
-                 WHERE p.code=%s AND p.active
+                 WHERE p.code=ANY(%s::text[]) AND p.active
+                 ORDER BY array_position(%s::text[], p.code)
                  LIMIT 1
                 """,
-                [DEFAULT_PROFILE_CODE],
+                [list(DEFAULT_PROFILE_CODES), list(DEFAULT_PROFILE_CODES)],
             )
             row = cursor.fetchone()
     if not row:
@@ -284,7 +291,8 @@ def allowed_standard_names_for_projects(alias: str, project_ids) -> set[str]:
                            (
                                SELECT p.id
                                  FROM gis.profile p
-                                WHERE p.code=%s AND p.active
+                                WHERE p.code=ANY(%s::text[]) AND p.active
+                                ORDER BY array_position(%s::text[], p.code)
                                 LIMIT 1
                            )
                        ) AS profile_id
@@ -311,7 +319,12 @@ def allowed_standard_names_for_projects(alias: str, project_ids) -> set[str]:
                 ON ft.id=cf.feature_type_id AND ft.active
              WHERE s.project_id=ANY(%s::uuid[])
             """,
-            [scoped_ids, DEFAULT_PROFILE_CODE, scoped_ids],
+            [
+                scoped_ids,
+                list(DEFAULT_PROFILE_CODES),
+                list(DEFAULT_PROFILE_CODES),
+                scoped_ids,
+            ],
         )
         return {str(row[0]).upper() for row in cursor.fetchall()}
 

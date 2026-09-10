@@ -18,7 +18,11 @@ from . import (
     sync_views,
     views,
 )
-from .layer_plan import allowed_standard_names_for_projects, require_enabled_layer_plan
+from .layer_plan import (
+    DEFAULT_PROFILE_CODES,
+    allowed_standard_names_for_projects,
+    require_enabled_layer_plan,
+)
 from .registry import domain_counts_for_rows
 
 
@@ -69,9 +73,16 @@ class LayerPlanFailClosedTests(SimpleTestCase):
         source = inspect.getsource(allowed_standard_names_for_projects)
         self.assertIn("s.project_id=ANY(%s::uuid[])", source)
         self.assertIn("pp.project_id=rp.project_id", source)
-        self.assertIn("p.code=%s", source)
+        self.assertIn("p.code=ANY(%s::text[])", source)
+        self.assertIn("array_position(%s::text[], p.code)", source)
         self.assertIn("pf.profile_id=sp.profile_id", source)
         self.assertIn("cf.capability_id=c.id", source)
+
+    def test_unassigned_project_prefers_production_profile_then_dev_compatibility(self):
+        self.assertEqual(
+            DEFAULT_PROFILE_CODES,
+            ("GEOFLOW_BASE_V1", "GEOFLOW_DEV_BASE"),
+        )
 
     def test_domain_summary_contains_only_authorized_rows(self):
         counts = domain_counts_for_rows(
