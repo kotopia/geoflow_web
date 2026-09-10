@@ -7,6 +7,7 @@ on:
     paths:
       - integrations/qgis/geoflow_connector/**
       - scripts/qgis/build_plugin_repository.py
+      - scripts/ops/apply_qgis_plugin_s3_access.py
       - scripts/ops/publish_qgis_plugin_repository.py
       - .github/workflows/qgis-plugin-test-repository-publish.yml
   workflow_dispatch:
@@ -83,6 +84,7 @@ jobs:
             "$SSH_USER@$SSH_HOST" "mkdir -m 700 '$remote_dir'"
           scp -i "$HOME/.ssh/geoflow_deploy_key" -P "$SSH_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            scripts/ops/apply_qgis_plugin_s3_access.py \
             scripts/ops/publish_qgis_plugin_repository.py \
             "$RUNNER_TEMP/qgis-plugin-repository/plugins.xml" \
             "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-0.7.4.zip" \
@@ -116,11 +118,25 @@ jobs:
           [ -n "$repo" ] && [ -f "$repo/manage.py" ] || fail 'service_repo_missing'
           python="$repo/.venv/bin/python"
           [ -x "$python" ] || fail 'venv_python_missing'
+          [ -f "$remote_dir/apply_qgis_plugin_s3_access.py" ] || fail 'access_applier_missing'
           [ -f "$remote_dir/publish_qgis_plugin_repository.py" ] || fail 'publisher_missing'
           [ -f "$remote_dir/plugins.xml" ] || fail 'repository_missing'
           [ -f "$remote_dir/geoflow_connector-0.7.4.zip" ] || fail 'package_missing'
 
           cd "$repo"
+          qgis_access_created="$remote_dir/qgis_access_created"
+          rollback_qgis_access() {
+            if [ -f "$qgis_access_created" ]; then
+              PYTHONPATH="$repo" "$python" "$remote_dir/apply_qgis_plugin_s3_access.py" rollback \
+                --marker "$qgis_access_created" \
+                --confirm 'GRANT_QGIS_PLUGIN_S3:geoflow-upload:qgis-plugins' || true
+            fi
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then rollback_qgis_access; fi; find "$remote_dir" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null || true; rmdir "$remote_dir" 2>/dev/null || true; exit "$status"' EXIT
+
+          PYTHONPATH="$repo" "$python" "$remote_dir/apply_qgis_plugin_s3_access.py" apply \
+            --marker "$qgis_access_created" \
+            --confirm 'GRANT_QGIS_PLUGIN_S3:geoflow-upload:qgis-plugins'
           PYTHONPATH="$repo" "$python" "$remote_dir/publish_qgis_plugin_repository.py" \
             --channel test \
             --repository "$remote_dir/plugins.xml" \
