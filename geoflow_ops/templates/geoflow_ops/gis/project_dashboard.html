@@ -72,7 +72,7 @@
           <li>목록에서 <strong>GeoFlow Connector</strong>를 찾아 설치합니다.</li>
         </ol>
         <div class="alert alert-warning mb-0">
-          현재 0.7.6은 사용자 검증용 테스트 버전입니다. 운영 안정화 후 stable 저장소로 승격합니다.
+          현재 0.8.0은 사용자 검증용 테스트 버전입니다. 운영 안정화 후 stable 저장소로 승격합니다.
         </div>
       </div>
       <div class="modal-footer">
@@ -125,7 +125,9 @@
              aria-label="프로젝트 GIS 지도"
              data-geojson-url="{% url 'gis:project_layer_geojson_api' project.id %}"
              data-feature-url="{% url 'gis:project_feature_batch_api' project.id %}"
-             data-websocket-path="/ws/gis/projects/{{ project.id }}/"></div>
+             data-delta-url="{% if webgis_delta_enabled %}{% url 'gis:project_delta_api' project.id %}{% endif %}"
+             data-current-revision="{{ webgis_revision|default:0 }}"
+             data-websocket-path="{% if webgis_realtime_enabled %}/ws/gis/projects/{{ project.id }}/{% endif %}"></div>
       </div>
     </div>
     {% else %}
@@ -179,7 +181,7 @@
     document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
   }
 </script>
-<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260908-3"></script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260911-1"></script>
 <script>
 (() => {
   const repositoryInput = document.getElementById("qgisPluginRepositoryUrl");
