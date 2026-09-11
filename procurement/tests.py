@@ -111,13 +111,13 @@ class PolicyTests(SimpleTestCase):
 
 
 class LiveProbeTests(SimpleTestCase):
-    def test_probe_checks_seven_endpoints_without_printing_notice_data(self):
+    def test_probe_checks_nine_requests_without_undocumented_region_flags(self):
         from .live_probe import run_probe
         client = Mock()
-        client.page.return_value = SimpleNamespace(total_count=1, items=[dict(ROW, rgnLmtYn="Y", prtcptPsblRgnNm="대전광역시")])
+        client.page.return_value = SimpleNamespace(total_count=1, items=[dict(ROW, bsnsDivNm="용역", prtcptPsblRgnNm="대전광역시")])
         lines = []
         self.assertTrue(run_probe(NOW, lines.append, client))
-        self.assertEqual(client.page.call_count, 7)
+        self.assertEqual(client.page.call_count, 9)
         self.assertNotIn(ROW["bidNtceNo"], "".join(lines))
         first = client.page.call_args_list[0].kwargs
         self.assertEqual(first["inqryBgnDt"], "202609100000")
@@ -172,15 +172,41 @@ class LiveProbeTests(SimpleTestCase):
 
     def test_regional_probe_rejects_empty_or_wrong_details(self):
         from .live_probe import run_probe
-        regional = dict(ROW, rgnLmtYn="Y", prtcptPsblRgnNm="충청남도")
+        regional = dict(ROW, bsnsDivNm="용역", prtcptPsblRgnNm="충청남도")
         page = SimpleNamespace(total_count=1, items=[regional])
         for detail in ([], [dict(regional, bidNtceNo="another-notice")], [ROW]):
             client = Mock()
-            client.page.side_effect = [page] * 6 + [SimpleNamespace(total_count=len(detail), items=detail)]
+            client.page.side_effect = [page] * 8 + [SimpleNamespace(total_count=len(detail), items=detail)]
+            lines = []
+            self.assertFalse(run_probe(NOW, lines.append, client))
+            self.assertEqual(client.page.call_count, 9)
+            self.assertFalse(json.loads(lines[-1])["ok"])
+
+    def test_regional_sample_requires_service_business_and_official_region_name(self):
+        from .live_probe import run_probe
+        page = SimpleNamespace(total_count=1, items=[ROW])
+        for row in (dict(ROW, bsnsDivNm="공사", prtcptPsblRgnNm="대전광역시"),
+                    dict(ROW, bsnsDivNm="용역", rgnLmtYn="Y"),
+                    dict(ROW, bsnsDivNm="용역", prtcptPsblRgnNm="대전광역시", bidNtceOrd="")):
+            client = Mock()
+            client.page.side_effect = [page] * 6 + [SimpleNamespace(total_count=1, items=[row])]
             lines = []
             self.assertFalse(run_probe(NOW, lines.append, client))
             self.assertEqual(client.page.call_count, 7)
-            self.assertFalse(json.loads(lines[-1])["ok"])
+            self.assertEqual(json.loads(lines[-1])["code"], "NO_RESTRICTED_REGION_SAMPLE")
+
+    def test_regional_sample_must_link_to_service_notice_before_final_check(self):
+        from .live_probe import run_probe
+        page = SimpleNamespace(total_count=1, items=[ROW])
+        regional = SimpleNamespace(total_count=1, items=[dict(
+            ROW, bsnsDivNm="용역", prtcptPsblRgnNm="충청남도")])
+        wrong = SimpleNamespace(total_count=1, items=[dict(ROW, bidNtceOrd="099")])
+        client = Mock()
+        client.page.side_effect = [page] * 6 + [regional, wrong]
+        lines = []
+        self.assertFalse(run_probe(NOW, lines.append, client))
+        self.assertEqual(client.page.call_count, 8)
+        self.assertFalse(json.loads(lines[-1])["notice_key_matches"])
 
 
 class RolloutTests(TestCase):
