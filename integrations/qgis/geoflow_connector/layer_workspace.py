@@ -14,13 +14,20 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qgis.core import QgsEditorWidgetSetup, QgsProject, Qgis
+from qgis.core import (
+    QgsEditFormConfig,
+    QgsEditorWidgetSetup,
+    QgsFieldConstraints,
+    QgsProject,
+    Qgis,
+)
 
 from .layer_workspace_model import (
     domain_label,
+    editor_widget_spec,
+    form_field_label,
     grouped_layer_rows,
     layer_reference_bindings,
-    qgis_value_map,
     reference_groups,
     setting_enabled,
 )
@@ -40,7 +47,7 @@ _RIGHT_DOCK = _qt_value("DockWidgetArea", "RightDockWidgetArea", "RightDockWidge
 
 
 class GeoFlowLayerWorkspace(QDockWidget):
-    """Metadata-driven layer workspace; no per-layer tabs or forms."""
+    """Metadata-driven layer workspace with one reusable native form."""
 
     def __init__(self, plugin, parent=None):
         super().__init__("GeoFlow 레이어", parent)
@@ -65,21 +72,33 @@ class GeoFlowLayerWorkspace(QDockWidget):
 
         self.activate_button = QPushButton("활성화")
         self.add_button = QPushButton("객체 추가")
+        self.edit_button = QPushButton("선택 속성 입력·수정")
         self.zoom_button = QPushButton("범위 이동")
         self.table_button = QPushButton("속성표")
-        buttons = QHBoxLayout()
+        edit_buttons = QHBoxLayout()
         for button in (
             self.activate_button,
             self.add_button,
+            self.edit_button,
+        ):
+            edit_buttons.addWidget(button)
+        view_buttons = QHBoxLayout()
+        for button in (
             self.zoom_button,
             self.table_button,
         ):
-            buttons.addWidget(button)
+            view_buttons.addWidget(button)
+        self.form_help = QLabel(
+            "신규 객체는 도형 작성 후 속성 폼이 열립니다. 기존 객체는 지도에서 하나를 선택해 수정하세요."
+        )
+        self.form_help.setWordWrap(True)
 
         layout.addWidget(self.summary)
         layout.addWidget(self.search)
         layout.addWidget(self.tree, 1)
-        layout.addLayout(buttons)
+        layout.addWidget(self.form_help)
+        layout.addLayout(edit_buttons)
+        layout.addLayout(view_buttons)
         self.setWidget(body)
 
         self.search.textChanged.connect(self._rebuild)
@@ -88,6 +107,7 @@ class GeoFlowLayerWorkspace(QDockWidget):
         self.tree.itemDoubleClicked.connect(lambda *_args: self._activate())
         self.activate_button.clicked.connect(self._activate)
         self.add_button.clicked.connect(self._add_feature)
+        self.edit_button.clicked.connect(self._edit_selected_feature)
         self.zoom_button.clicked.connect(self._zoom)
         self.table_button.clicked.connect(self._show_table)
         self._update_actions()
@@ -163,6 +183,11 @@ class GeoFlowLayerWorkspace(QDockWidget):
             ready
             and setting_enabled(layer.customProperty("geoflow/local_editing"))
         )
+        self.edit_button.setEnabled(
+            ready
+            and layer.featureCount() > 0
+            and setting_enabled(layer.customProperty("geoflow/local_editing"))
+        )
 
     def _visibility_changed(self, item, _column) -> None:
         if self._building:
@@ -197,6 +222,36 @@ class GeoFlowLayerWorkspace(QDockWidget):
         action = getattr(self.plugin.iface, "actionAddFeature", lambda: None)()
         if action is not None:
             action.trigger()
+
+    def _edit_selected_feature(self) -> None:
+        layer = self._layer_for_item()
+        if layer is None or not setting_enabled(
+            layer.customProperty("geoflow/local_editing")
+        ):
+            return
+        selected = list(layer.selectedFeatures())
+        if len(selected) != 1:
+            self.plugin.iface.messageBar().pushMessage(
+                "GeoFlow",
+                "지도에서 수정할 객체 하나를 선택하세요.",
+                level=Qgis.Info,
+                duration=5,
+            )
+            return
+        self.plugin.iface.setActiveLayer(layer)
+        if not layer.isEditable() and not layer.startEditing():
+            self.plugin.iface.messageBar().pushMessage(
+                "GeoFlow",
+                "레이어 편집을 시작하지 못했습니다.",
+                level=Qgis.Warning,
+                duration=5,
+            )
+            return
+        opener = getattr(self.plugin.iface, "openFeatureForm", None)
+        if callable(opener):
+            opener(layer, selected[0], False)
+        else:
+            self.plugin.iface.showAttributeTable(layer)
 
     def _zoom(self) -> None:
         layer = self._layer_for_item()
@@ -271,27 +326,87 @@ class LayerWorkspaceMixin:
     ) -> None:
         super()._configure_layer_fields(layer, layer_def, project_id, can_write)
         standard_name = str(layer_def.get("standard_name") or "")
+        groups = reference_groups(self._reference_catalog)
+        bindings = {
+            str(row.get("field_name") or ""): row
+            for row in layer_reference_bindings(
+                self._reference_catalog,
+                standard_name,
+            )
+        }
         for field in layer_def.get("fields") or []:
-            idx = self._field_index(layer, str(field.get("name") or ""))
-            label = str(field.get("label") or "")
+            field_name = str(field.get("name") or "")
+            idx = self._field_index(layer, field_name)
+            label = form_field_label(field)
             if idx >= 0 and label and hasattr(layer, "setFieldAlias"):
                 layer.setFieldAlias(idx, label)
-        groups = reference_groups(self._reference_catalog)
-        for binding in layer_reference_bindings(self._reference_catalog, standard_name):
-            field_name = str(binding.get("field_name") or "")
-            idx = self._field_index(layer, field_name)
             if idx < 0:
                 continue
-            label = str(binding.get("field_label") or "")
-            if label and hasattr(layer, "setFieldAlias"):
-                layer.setFieldAlias(idx, label)
+            binding = bindings.get(field_name) or {}
+            binding_label = str(binding.get("field_label") or "")
+            if binding_label and hasattr(layer, "setFieldAlias"):
+                layer.setFieldAlias(
+                    idx,
+                    form_field_label({**field, "label": binding_label}),
+                )
             values = groups.get(str(binding.get("code_group_key") or ""), [])
-            value_map = qgis_value_map(values)
-            if can_write and value_map and hasattr(layer, "setEditorWidgetSetup"):
+            widget_name, widget_config = editor_widget_spec(field, values)
+            if widget_name and hasattr(layer, "setEditorWidgetSetup"):
                 layer.setEditorWidgetSetup(
                     idx,
-                    QgsEditorWidgetSetup("ValueMap", {"map": value_map}),
+                    QgsEditorWidgetSetup(widget_name, widget_config),
                 )
+            if can_write and bool(field.get("required")):
+                self._set_not_null_constraint(layer, idx)
+        if can_write:
+            self._force_attribute_form_on_add(layer)
+
+    @staticmethod
+    def _set_not_null_constraint(layer, field_index: int) -> None:
+        constraint_enum = getattr(QgsFieldConstraints, "Constraint", None)
+        constraint = (
+            getattr(constraint_enum, "ConstraintNotNull", None)
+            if constraint_enum is not None
+            else None
+        ) or getattr(QgsFieldConstraints, "ConstraintNotNull", None)
+        strength_enum = getattr(QgsFieldConstraints, "ConstraintStrength", None)
+        strength = (
+            getattr(strength_enum, "ConstraintStrengthHard", None)
+            if strength_enum is not None
+            else None
+        ) or getattr(QgsFieldConstraints, "ConstraintStrengthHard", None)
+        if constraint is None or not hasattr(layer, "setFieldConstraint"):
+            return
+        try:
+            if strength is None:
+                layer.setFieldConstraint(field_index, constraint)
+            else:
+                layer.setFieldConstraint(field_index, constraint, strength)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _force_attribute_form_on_add(layer) -> None:
+        try:
+            config = layer.editFormConfig()
+            suppress_enum = getattr(Qgis, "FeatureFormSuppress", None)
+            suppress_off = (
+                getattr(suppress_enum, "SuppressOff", None)
+                if suppress_enum is not None
+                else None
+            )
+            if suppress_off is None:
+                legacy_enum = getattr(QgsEditFormConfig, "Suppress", None)
+                suppress_off = (
+                    getattr(legacy_enum, "SuppressOff", None)
+                    if legacy_enum is not None
+                    else None
+                ) or getattr(QgsEditFormConfig, "SuppressOff", None)
+            if suppress_off is not None and hasattr(config, "setSuppress"):
+                config.setSuppress(suppress_off)
+                layer.setEditFormConfig(config)
+        except Exception:
+            pass
 
     def _materialize_project(self, manifest: dict, client, **kwargs) -> dict:
         self._load_reference_catalog(manifest, client)

@@ -294,6 +294,92 @@ def acknowledge_outbox(package_path: str, changeset_id: str) -> None:
         conn.close()
 
 
+def repair_uuid_exists_outbox(
+    package_path: str,
+    changeset_id: str,
+    conflicts: list[dict[str, Any]],
+) -> tuple[str, dict[str, Any]] | None:
+    """Convert only confirmed duplicate creates to updates without dropping data.
+
+    This repairs legacy Snapshots whose baseline was not refreshed after a
+    successful create. Every server conflict must be ``uuid_already_exists``
+    and must point to a create in this exact outbox item. Any ambiguity leaves
+    the durable outbox untouched for manual diagnosis.
+    """
+
+    normalized = {
+        (str(row.get("layer") or "").upper(), str(row.get("id") or ""))
+        for row in conflicts
+        if isinstance(row, dict) and row.get("reason") == "uuid_already_exists"
+    }
+    if not conflicts or len(normalized) != len(conflicts):
+        return None
+
+    conn = sqlite3.connect(package_path, timeout=30)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT payload_json FROM _geoflow_outbox WHERE changeset_id=?",
+            (str(changeset_id),),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        payload = json.loads(row[0])
+        matched: set[tuple[str, str]] = set()
+        repaired_changes = []
+        for change in payload.get("changes") or []:
+            copied = dict(change)
+            key = (
+                str(copied.get("layer") or "").upper(),
+                str(copied.get("id") or ""),
+            )
+            if key in normalized:
+                if copied.get("action") != "create":
+                    conn.rollback()
+                    return None
+                copied["action"] = "update"
+                matched.add(key)
+            repaired_changes.append(copied)
+        if matched != normalized:
+            conn.rollback()
+            return None
+
+        new_changeset_id = str(uuid.uuid4())
+        revision_row = conn.execute(
+            "SELECT value FROM _geoflow_package WHERE key='last_applied_revision'"
+        ).fetchone()
+        base_revision = int(revision_row[0]) if revision_row and revision_row[0] else 0
+        repaired_payload = {
+            **payload,
+            "changeset_id": new_changeset_id,
+            "base_revision": base_revision,
+            "changes": repaired_changes,
+        }
+        conn.execute(
+            """
+            UPDATE _geoflow_outbox
+               SET changeset_id=?, base_revision=?, payload_json=?, created_at=?
+             WHERE changeset_id=?
+            """,
+            (
+                new_changeset_id,
+                base_revision,
+                json.dumps(repaired_payload, ensure_ascii=False, separators=(",", ":")),
+                dt.datetime.now(dt.timezone.utc).isoformat(),
+                str(changeset_id),
+            ),
+        )
+        conn.commit()
+        return new_changeset_id, repaired_payload
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def outbox_count(package_path: str) -> int:
     ensure_changeset_tables(package_path)
     conn = sqlite3.connect(package_path, timeout=30)
