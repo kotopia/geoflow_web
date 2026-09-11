@@ -22,7 +22,7 @@ def main():
         DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
         CENTRAL_DB_ALIAS="default", USE_TZ=True, TIME_ZONE="Asia/Seoul",
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
-        G2B_API_SERVICE_KEY=key, G2B_CENTRAL_DAILY_BUDGET=7,
+        G2B_API_SERVICE_KEY=key, G2B_CENTRAL_DAILY_BUDGET=9,
     )
     import django
     django.setup()
