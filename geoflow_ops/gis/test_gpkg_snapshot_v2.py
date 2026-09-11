@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import sqlite3
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -12,6 +13,7 @@ from .gpkg_snapshot_v2 import (
     _create_feature_table,
     _init_gpkg,
     _install_rtree_triggers,
+    _profile_layer_fields,
     _rtree_name,
 )
 from .gpkg import _is_spatial_data_type
@@ -98,3 +100,36 @@ class GeoPackageSnapshotV2Tests(SimpleTestCase):
         from . import gpkg, gpkg_snapshot_v2
         self.assertIn("_is_spatial_data_type(data_type)", inspect.getsource(gpkg._profile_layer_fields))
         self.assertIn("_is_spatial_data_type(data_type)", inspect.getsource(gpkg_snapshot_v2._profile_layer_fields))
+
+    def test_profile_field_contract_carries_native_form_metadata(self):
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchall.return_value = [
+            (
+                "saa_cde",
+                "character varying(50)",
+                True,
+                True,
+                10,
+                "상수관 용도",
+                "SAA_CDE",
+                "",
+                "SAA_CDE",
+                "text",
+                True,
+                "관로 용도 코드",
+            )
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+        with patch(
+            "geoflow_ops.gis.gpkg_snapshot_v2.connections",
+            {"tenant": connection},
+        ):
+            fields = _profile_layer_fields("tenant", "profile", "wtl_pipe_lm")
+        field = next(row for row in fields if row.name == "saa_cde")
+        self.assertEqual(field.standard_name, "SAA_CDE")
+        self.assertEqual(field.label, "상수관 용도")
+        self.assertEqual(field.code_group_key, "SAA_CDE")
+        self.assertEqual(field.widget_type, "text")
+        self.assertTrue(field.required)

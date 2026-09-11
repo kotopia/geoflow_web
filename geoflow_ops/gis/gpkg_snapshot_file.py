@@ -90,6 +90,12 @@ def build_project_geopackage_file(
                                 "visible": field.visible,
                                 "sort_order": field.sort_order,
                                 "label": field.label,
+                                "standard_name": field.standard_name,
+                                "unit": field.unit,
+                                "code_group_key": field.code_group_key,
+                                "widget_type": field.widget_type,
+                                "required": field.required,
+                                "description": field.description,
                             }
                             for field in layer.fields
                         ],
