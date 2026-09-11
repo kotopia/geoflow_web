@@ -89,6 +89,7 @@ def build_project_geopackage_file(
                                 "editable": field.editable,
                                 "visible": field.visible,
                                 "sort_order": field.sort_order,
+                                "label": field.label,
                             }
                             for field in layer.fields
                         ],
