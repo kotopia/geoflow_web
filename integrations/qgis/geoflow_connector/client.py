@@ -23,6 +23,24 @@ class GeoFlowClientError(RuntimeError):
     pass
 
 
+class GeoFlowChangesetConflict(GeoFlowClientError):
+    """Structured server conflict; callers may repair only known-safe cases."""
+
+    def __init__(self, message: str, *, conflicts: list[dict], payload: dict):
+        self.conflicts = [dict(row) for row in conflicts if isinstance(row, dict)]
+        self.payload = dict(payload)
+        details = []
+        for row in self.conflicts[:3]:
+            layer = str(row.get("layer") or "?")
+            object_id = str(row.get("id") or "?")
+            reason = str(row.get("reason") or "unknown")
+            details.append(f"{layer}/{object_id}: {reason}")
+        suffix = f" (충돌 {len(self.conflicts)}건)"
+        if details:
+            suffix += " · " + "; ".join(details)
+        super().__init__(f"GeoFlow Changeset failed: {message}{suffix}")
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -176,7 +194,13 @@ class GeoFlowHttpClient:
                 )
                 conflicts = response_payload.get("conflicts") or []
                 if conflicts:
-                    message += f" (충돌 {len(conflicts)}건)"
+                    raise GeoFlowChangesetConflict(
+                        str(message),
+                        conflicts=conflicts,
+                        payload=response_payload,
+                    )
+            except GeoFlowChangesetConflict:
+                raise
             except Exception:
                 message = raw.decode("utf-8", errors="replace")[:300]
             raise GeoFlowClientError(f"GeoFlow Changeset failed: {message}") from None

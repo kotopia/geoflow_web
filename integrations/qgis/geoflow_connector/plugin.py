@@ -24,11 +24,15 @@ from qgis.core import (
 from .changeset_queue import (
     acknowledge_outbox,
     ensure_changeset_tables,
+    outbox_count,
+    pending_count,
     prepare_outbox,
     queue_change,
     read_last_applied_revision,
+    repair_uuid_exists_outbox,
     write_last_applied_revision,
 )
+from .client import GeoFlowChangesetConflict
 from .dialog import GeoFlowConnectorDialog
 
 
@@ -837,7 +841,24 @@ class GeoFlowConnectorPlugin:
             if prepared is None:
                 break
             changeset_id, payload = prepared
-            result = client.post_json(changeset_url, payload)
+            try:
+                result = client.post_json(changeset_url, payload)
+            except GeoFlowChangesetConflict as exc:
+                repaired = repair_uuid_exists_outbox(
+                    package_path,
+                    changeset_id,
+                    exc.conflicts,
+                )
+                if repaired is None:
+                    raise
+                changeset_id, payload = repaired
+                self.iface.messageBar().pushMessage(
+                    "GeoFlow",
+                    "기존 서버 객체와 충돌한 로컬 관로를 수정 작업으로 안전 복구합니다.",
+                    level=Qgis.Info,
+                    duration=6,
+                )
+                result = client.post_json(changeset_url, payload)
             acknowledge_outbox(package_path, changeset_id)
             totals["created"] += int(result.get("created") or 0)
             totals["updated"] += int(result.get("updated") or 0)
@@ -845,6 +866,11 @@ class GeoFlowConnectorPlugin:
             totals["total"] += int(result.get("total") or 0)
 
         received = self._pull_and_apply_delta(client)
+        if pending_count(package_path) == 0 and outbox_count(package_path) == 0:
+            self._refresh_local_baseline(
+                package_path,
+                context.get("manifest") or {},
+            )
         return {"ok": True, **totals, "delta_received": received}
 
     def _sync_active_project(self, client, automatic: bool = False) -> dict:

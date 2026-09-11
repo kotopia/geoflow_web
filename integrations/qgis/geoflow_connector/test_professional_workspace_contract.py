@@ -23,6 +23,14 @@ class ProfessionalWorkspaceContractTests(unittest.TestCase):
         for legacy_module in ("WtlPipeLmQuickEdit", "WtlValvPsQuickEdit", "Yeoju_Swater"):
             self.assertNotIn(legacy_module, source)
 
+    def test_workspace_opens_one_native_form_for_add_and_edit(self):
+        source = (ROOT / "layer_workspace.py").read_text(encoding="utf-8")
+        self.assertIn('QPushButton("선택 속성 입력·수정")', source)
+        self.assertIn("openFeatureForm", source)
+        self.assertIn("config.setSuppress(suppress_off)", source)
+        self.assertIn("editor_widget_spec(field, values)", source)
+        self.assertIn("field.get(\"required\")", source)
+
     def test_production_delta_polling_does_not_require_websocket_runtime(self):
         source = (ROOT / "realtime_delta.py").read_text(encoding="utf-8")
         transport_method = source.split("def _realtime_transport_available", 1)[1].split(

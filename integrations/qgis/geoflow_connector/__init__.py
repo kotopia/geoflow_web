@@ -7,7 +7,7 @@ def classFactory(iface):
     from .realtime_session_guard import RealtimeSessionGuardMixin
     from .snapshot_reuse import SnapshotReuseMixin
 
-    class GeoFlowConnectorPluginV080(
+    class GeoFlowConnectorPluginV081(
         CacheLifecycleMixin,
         RealtimeSessionGuardMixin,
         RealtimeDeltaV3Mixin,
@@ -18,4 +18,4 @@ def classFactory(iface):
     ):
         pass
 
-    return GeoFlowConnectorPluginV080(iface)
+    return GeoFlowConnectorPluginV081(iface)
