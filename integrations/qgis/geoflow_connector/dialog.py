@@ -229,7 +229,11 @@ class GeoFlowConnectorDialog(QDialog):
             return
 
         self.project_opened = True
-        suffix = " · 서버 동기화 가능" if self.sync_ready else " · 로컬 저장만 가능"
+        suffix = (
+            " · 저장 즉시 서버 자동 동기화"
+            if self.sync_ready
+            else " · 서버 동기화 비활성 · 편집 불가"
+        )
         self.status_label.setText(f"QGIS GeoPackage 구성 완료 · 레이어 {loaded}개{suffix}")
         self._set_busy(False)
         self.refresh_cache_pin_state()

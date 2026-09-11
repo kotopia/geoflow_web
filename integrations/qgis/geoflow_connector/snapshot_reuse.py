@@ -10,6 +10,7 @@ from .changeset_queue import (
     outbox_count,
     pending_count,
 )
+from .local_change_recovery import recover_untracked_snapshot_changes
 from .snapshot_cache import select_reusable_snapshot, stamp_snapshot
 
 
@@ -48,23 +49,24 @@ class SnapshotReuseMixin:
         if not project_id:
             raise RuntimeError("GeoFlow project id가 없습니다.")
 
-        can_write = bool(
+        write_authorized = bool(
             transport.get("local_editing_supported")
             and transport.get("write_authorized")
         )
         changeset_supported = bool(
-            can_write
+            write_authorized
             and transport.get("changeset_supported")
             and transport.get("changeset_url")
             and transport.get("delta_url")
         )
         fallback_sync_supported = bool(
-            can_write
+            write_authorized
             and transport.get("sync_supported")
             and transport.get("sync_url")
             and not changeset_supported
         )
         sync_supported = bool(changeset_supported or fallback_sync_supported)
+        can_write = bool(write_authorized and sync_supported)
 
         app_root = self._app_data_location()
         project_dir = os.path.join(
@@ -118,6 +120,10 @@ class SnapshotReuseMixin:
             if changeset_supported:
                 ensure_changeset_tables(package_path)
             stamp_snapshot(package_path, manifest)
+
+        recovered = {"created": 0, "updated": 0, "deleted": 0, "total": 0}
+        if changeset_supported and cache_reused and outbox_count(package_path) == 0:
+            recovered = recover_untracked_snapshot_changes(package_path, manifest)
 
         group = root.addGroup(group_name)
         domain_groups = {}
@@ -231,7 +237,7 @@ class SnapshotReuseMixin:
 
         if changeset_supported:
             try:
-                if cache_reused and cache_candidate and cache_candidate.dirty:
+                if pending_count(package_path) or outbox_count(package_path):
                     self._sync_changesets(client)
                 else:
                     self._pull_and_apply_delta(client)
@@ -284,12 +290,17 @@ class SnapshotReuseMixin:
         else:
             sync_label = "서버 동기화 비활성"
         source_label = "로컬 Snapshot 재사용" if cache_reused else "서버 Snapshot"
+        recovery_label = (
+            f" · 미전송 변경 {recovered['total']}건 복구"
+            if recovered["total"]
+            else ""
+        )
         size_mb = package_size / (1024 * 1024)
         self.iface.messageBar().pushMessage(
             "GeoFlow",
             (
                 f"{project_code}: {source_label} · 레이어 {loaded}개 · "
-                f"{mode_label} · {sync_label} · {size_mb:.2f} MB"
+                f"{mode_label} · {sync_label}{recovery_label} · {size_mb:.2f} MB"
             ),
             level=Qgis.Success,
             duration=8,
@@ -298,4 +309,5 @@ class SnapshotReuseMixin:
             "loaded": loaded,
             "sync_supported": sync_supported,
             "cache_reused": cache_reused,
+            "recovered": recovered,
         }
