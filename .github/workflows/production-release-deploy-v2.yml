@@ -10,6 +10,9 @@ on:
       - geoflow_ops/templates/geoflow_ops/bids/**
       - geoflow_ops/migrations/0036_bid_interest_foundation.py
       - geoflow_project/settings.py
+      - procurement/**
+      - deploy/bids/initial-rules.json
+      - scripts/deploy/render_bid_collector_units.py
   workflow_dispatch:
     inputs:
       ssh_port:
@@ -56,6 +59,17 @@ jobs:
           test -n "$G2B_API_SERVICE_KEY"
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify industry and restricted-region API linkage before deployment
+        env:
+          G2B_PROBE_APPROVED: '1'
+        run: |
+          python -m pip install Django==5.2.16
+          python scripts/probe_central_g2b.py
+
       - name: Configure strict SSH trust
         shell: bash
         run: |
@@ -100,6 +114,10 @@ jobs:
           remote_key="/tmp/geoflow-g2b-$run_id.key"
           env_backup="/tmp/geoflow-env-$run_id.bak"
           env_changed=0
+          collector_touched=0
+          collector_backup=''
+          collector_was_active=no
+          collector_was_enabled=no
 
           fail() { echo "production_deploy_v2_blocker=$1"; exit 2; }
 
@@ -141,6 +159,10 @@ jobs:
           rollback_needed=0
           rollback_code() {
             set +e
+            if [ "$collector_touched" -eq 1 ]; then
+              sudo -n systemctl stop geoflow-bid-collector.timer geoflow-bid-collector.service
+              if [ "$collector_was_enabled" = no ]; then sudo -n systemctl disable geoflow-bid-collector.timer; fi
+            fi
             if [ "$env_changed" -eq 1 ] && [ -f "$env_backup" ]; then
               cp -p "$env_backup" "$repo/.env"
               echo 'production_deploy_v2_env_rollback_completed=yes'
@@ -157,14 +179,47 @@ jobs:
               sudo -n systemctl restart "$service"
               echo 'production_deploy_v2_code_rollback_completed=yes'
             fi
+            if [ "$collector_touched" -eq 1 ]; then
+              for unit in geoflow-bid-collector.service geoflow-bid-collector.timer; do
+                if [ -f "$collector_backup/$unit" ]; then
+                  sudo -n cp -p "$collector_backup/$unit" "/etc/systemd/system/$unit"
+                else
+                  sudo -n rm -f "/etc/systemd/system/$unit"
+                fi
+              done
+              sudo -n systemctl daemon-reload
+              if [ "$collector_was_enabled" = yes ]; then
+                sudo -n systemctl enable geoflow-bid-collector.timer
+              else
+                sudo -n systemctl disable geoflow-bid-collector.timer
+              fi
+              if [ "$collector_was_active" = yes ]; then sudo -n systemctl start geoflow-bid-collector.timer; fi
+            fi
           }
           on_exit() {
             rc=$?
             if [ "$rc" -ne 0 ]; then rollback_code; fi
             rm -f "$remote_key" "$env_backup"
+            if [ -n "$collector_backup" ]; then
+              sudo -n rm -f "$collector_backup/geoflow-bid-collector.service" "$collector_backup/geoflow-bid-collector.timer"
+              rmdir "$collector_backup" || true
+            fi
             exit "$rc"
           }
           trap on_exit EXIT
+
+          collector_backup="$(mktemp -d /tmp/geoflow-bid-units.XXXXXX)"
+          systemctl is-active --quiet geoflow-bid-collector.timer && collector_was_active=yes || true
+          systemctl is-enabled --quiet geoflow-bid-collector.timer && collector_was_enabled=yes || true
+          for unit in geoflow-bid-collector.service geoflow-bid-collector.timer; do
+            if [ -f "/etc/systemd/system/$unit" ]; then
+              sudo -n cp -p "/etc/systemd/system/$unit" "$collector_backup/$unit"
+            fi
+          done
+          collector_touched=1
+          if systemctl cat geoflow-bid-collector.timer >/dev/null 2>&1; then
+            sudo -n systemctl stop geoflow-bid-collector.timer geoflow-bid-collector.service
+          fi
 
           git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
           fetched_sha="$(git -C "$repo" rev-parse FETCH_HEAD)"
@@ -205,6 +260,10 @@ jobs:
           "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
           "$python" -m pip check
           "$python" "$repo/manage.py" check
+          "$python" "$repo/manage.py" migrate procurement --database=default --noinput
+          "$python" "$repo/manage.py" migrate procurement --database=default --check
+          "$python" "$repo/manage.py" seed_central_bid_rules --file "$repo/deploy/bids/initial-rules.json" --execute
+          "$python" "$repo/manage.py" shell -c "from procurement.dashboard import snapshot; s=snapshot(); print('central_bids_schema_ok=yes active_rules=' + str(s['active']))"
 
           "$python" - "$repo" <<'PY'
           import importlib.util
@@ -377,8 +436,27 @@ jobs:
           echo "production_deploy_v2_public_login_status=$public_login"
           [ "$public_login" = 200 ] || fail 'public_login_not_200_after_deploy'
 
+          collector_user="$(systemctl show "$service" -p User --value)"
+          collector_group="$(systemctl show "$service" -p Group --value)"
+          [ -n "$collector_group" ] || collector_group="$(id -gn "$collector_user")"
+          collector_staging="$(mktemp -d /tmp/geoflow-bid-staging.XXXXXX)"
+          "$python" "$repo/scripts/deploy/render_bid_collector_units.py" "$repo" "$python" "$collector_user" "$collector_group" "$collector_staging"
+          sudo -n systemd-analyze verify "$collector_staging/geoflow-bid-collector.service" "$collector_staging/geoflow-bid-collector.timer"
+          for unit in geoflow-bid-collector.service geoflow-bid-collector.timer; do
+            sudo -n install -m 0644 "$collector_staging/$unit" "/etc/systemd/system/$unit"
+            rm -f "$collector_staging/$unit"
+          done
+          rmdir "$collector_staging"
+          sudo -n systemctl daemon-reload
+          sudo -n systemctl enable --now geoflow-bid-collector.timer
+          sudo -n systemctl is-active --quiet geoflow-bid-collector.timer
+          echo 'central_bids_collector_timer_active=yes'
+
           rollback_needed=0
           env_changed=0
+          collector_touched=0
+          sudo -n rm -f "$collector_backup/geoflow-bid-collector.service" "$collector_backup/geoflow-bid-collector.timer"
+          rmdir "$collector_backup"
           trap - EXIT
           rm -f "$remote_key" "$env_backup"
           echo "production_deploy_v2_deployed_sha=$(git -C "$repo" rev-parse HEAD)"

@@ -11,6 +11,9 @@ on:
       - '.github/workflows/central-bids-tests.yml'
       - '.github/workflows/central-bids-live-diagnostic.yml'
       - 'scripts/probe_central_g2b.py'
+      - '.github/workflows/production-release-deploy-v2.yml'
+      - 'deploy/bids/**'
+      - 'scripts/deploy/render_bid_collector_units.py'
 permissions:
   contents: read
 jobs:
