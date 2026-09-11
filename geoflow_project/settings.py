@@ -97,9 +97,16 @@ INSTALLED_APPS = [
     'control',
     'control.gf_authz',
     'control.catalog',
+    'procurement.apps.ProcurementConfig',
     'geoflow_ops.apps.GeoflowOpsConfig',
     'django.contrib.humanize',
 ]
+
+# Empty by default: each tenant is switched only after review migration/verification.
+G2B_CENTRAL_TENANT_ALIASES = tuple(
+    value.strip() for value in os.getenv("G2B_CENTRAL_TENANT_ALIASES", "").split(",") if value.strip()
+)
+G2B_CENTRAL_DAILY_BUDGET = int(os.getenv("G2B_CENTRAL_DAILY_BUDGET", "500"))
 
 # -------------------------------------------------------------------
 # GeoDjango native library paths (optional, primarily for Windows)

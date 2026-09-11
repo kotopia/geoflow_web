@@ -1,0 +1,10 @@
+[Unit]
+Description=Process central bid queue; live refresh is limited to once per hour
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+Unit=geoflow-bid-collector.service
+
+[Install]
+WantedBy=timers.target

@@ -3,10 +3,10 @@
 {% block title %}관심 입찰 | GeoFlow{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <div><h1 class="h3 mb-1">관심 입찰</h1><div class="text-muted">나라장터 용역 공고 중 등록한 지역·업종·키워드 조건과 일치하는 공고입니다.</div></div>
+  <div><h1 class="h3 mb-1">관심 입찰</h1><div class="text-muted">{% if central_mode %}중앙에서 수집한 최근 2년 용역 공고의 검토 후보입니다. 참가자격과 첨부파일은 나라장터 원문에서 확인하세요.{% else %}나라장터 용역 공고 중 등록한 지역·업종·키워드 조건과 일치하는 공고입니다.{% endif %}</div></div>
   <div class="d-flex gap-2">
     {% if can_manage %}<a class="btn btn-outline-secondary" href="{% url 'tenant:bid_settings' %}">입찰 설정</a>
-    <form method="post" action="{% url 'tenant:bid_sync' %}" class="d-flex gap-1">{% csrf_token %}<select class="form-select" name="days" aria-label="수집 기간"><option value="2">2일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select><button class="btn btn-primary text-nowrap">공고 가져오기</button></form>{% endif %}
+    <form method="post" action="{% url 'tenant:bid_sync' %}" class="d-flex gap-1">{% csrf_token %}{% if not central_mode %}<select class="form-select" name="days" aria-label="수집 기간"><option value="2">2일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select>{% endif %}<button class="btn btn-primary text-nowrap">{% if central_mode %}지금 동기화{% else %}공고 가져오기{% endif %}</button></form>{% endif %}
   </div>
 </div>
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}

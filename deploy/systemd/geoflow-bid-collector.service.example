@@ -1,0 +1,15 @@
+[Unit]
+Description=GeoFlow central procurement collection
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=geoflow
+Group=geoflow
+WorkingDirectory=/srv/geoflow/current
+EnvironmentFile=/etc/geoflow/geoflow.env
+ExecStart=/srv/geoflow/venv/bin/python manage.py collect_central_bids --request-budget 100 --max-steps 10
+TimeoutStartSec=900
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true

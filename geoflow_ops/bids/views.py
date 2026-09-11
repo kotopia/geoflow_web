@@ -12,9 +12,12 @@ from django.utils import timezone
 from . import repository
 from .client import G2BError
 from .sync import sync_service_notices
+from procurement.service import enabled as central_enabled, request_sync
+from procurement import tenant as central_repository
 
 
 def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
+    repo = central_repository if central_enabled(alias) else repository
     query = str(request.GET.get("q") or "").strip()
     review_status = str(request.GET.get("status") or "").strip()
     include_all = str(request.GET.get("scope") or "") == "all"
@@ -27,12 +30,12 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         page = max(int(request.GET.get("page") or 1), 1)
     except (TypeError, ValueError):
         page = 1
-    total_count = repository.count_notices(
+    total_count = repo.count_notices(
         alias, query=query, review_status=review_status, include_all=include_all
     )
     total_pages = max(math.ceil(total_count / per_page), 1)
     page = min(page, total_pages)
-    notices = repository.list_notices(
+    notices = repo.list_notices(
         alias,
         query=query,
         review_status=review_status,
@@ -67,7 +70,8 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         "next_query": next_query,
         "can_review": can_review,
         "can_manage": can_manage,
-        "latest_sync": repository.latest_sync(alias),
+        "latest_sync": repo.latest_sync(alias),
+        "central_mode": central_enabled(alias),
         "review_choices": [
             ("unreviewed", "미검토"), ("reviewing", "검토 중"),
             ("interested", "관심"), ("considering", "참여 검토"), ("excluded", "참여 안 함"),
@@ -76,16 +80,18 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
 
 
 def settings_page(request, alias: str):
+    repo = central_repository if central_enabled(alias) else repository
     return render(request, "geoflow_ops/bids/settings.html", {
         "settings": repository.list_settings(alias),
-        "latest_sync": repository.latest_sync(alias),
+        "latest_sync": repo.latest_sync(alias),
     })
 
 
 def filter_value_save(request, alias: str):
     try:
         repository.save_filter_value(alias, request.POST)
-        repository.reevaluate_all(alias)
+        if not central_enabled(alias):
+            repository.reevaluate_all(alias)
     except (ValueError, IntegrityError) as exc:
         return HttpResponseBadRequest(str(exc) if isinstance(exc, ValueError) else "같은 구분과 코드가 이미 등록되어 있습니다.")
     messages.success(request, "입찰 기준 항목을 저장했습니다.")
@@ -95,7 +101,8 @@ def filter_value_save(request, alias: str):
 def keyword_save(request, alias: str):
     try:
         repository.save_keyword(alias, request.POST)
-        repository.reevaluate_all(alias)
+        if not central_enabled(alias):
+            repository.reevaluate_all(alias)
     except (ValueError, IntegrityError) as exc:
         return HttpResponseBadRequest(str(exc) if isinstance(exc, ValueError) else "같은 유형의 키워드가 이미 등록되어 있습니다.")
     messages.success(request, "입찰 키워드를 저장했습니다.")
@@ -103,8 +110,9 @@ def keyword_save(request, alias: str):
 
 
 def review_save(request, alias: str, notice_id):
+    repo = central_repository if central_enabled(alias) else repository
     try:
-        repository.save_review(
+        repo.save_review(
             alias,
             notice_id,
             status=str(request.POST.get("status") or ""),
@@ -118,6 +126,10 @@ def review_save(request, alias: str, notice_id):
 
 
 def sync_now(request, alias: str):
+    if central_enabled(alias):
+        count = request_sync()
+        messages.success(request, f"중앙 수집조건 {count}개의 갱신을 요청했습니다. 수집은 백그라운드에서 진행합니다.")
+        return redirect("tenant:bid_notice_list")
     try:
         days = min(max(int(request.POST.get("days") or 7), 1), 30)
     except (TypeError, ValueError):
