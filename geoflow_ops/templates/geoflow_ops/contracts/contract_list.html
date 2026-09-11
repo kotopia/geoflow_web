@@ -45,7 +45,7 @@
             <td data-col="name" class="text-truncate">{{ c.name }}</td>
             <td data-col="workflow" class="text-center">
               <span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
-              {% for event_label in wf.active_event_labels %}<span class="badge bg-warning-subtle text-warning-emphasis border ms-1">{{ event_label }}</span>{% endfor %}
+              {% for event_label in wf.active_event_labels %}<span class="badge {% if event_label == '중지' %}bg-danger text-white{% else %}bg-warning-subtle text-warning-emphasis border{% endif %} ms-1">{{ event_label }}</span>{% endfor %}
             </td>
             <td data-col="start">{{ c.start_date|date:"Y-m-d" }}</td>
             <td data-col="end">{{ c.end_date|date:"Y-m-d" }}</td>
