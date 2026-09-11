@@ -1,0 +1,33 @@
+name: Central bids live diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: central-bids-live-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  inspect-api:
+    if: github.ref_name == 'release/stabilized-deploy'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install Django==5.2.16
+      - name: Probe at most seven API requests in disposable memory DB
+        env:
+          G2B_PROBE_APPROVED: '1'
+          G2B_API_SERVICE_KEY: ${{ secrets.G2B_API_SERVICE_KEY }}
+        run: python scripts/probe_central_g2b.py
