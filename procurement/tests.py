@@ -122,7 +122,8 @@ class LiveProbeTests(SimpleTestCase):
         first = client.page.call_args_list[0].kwargs
         self.assertEqual(first["inqryBgnDt"], "202609100000")
         self.assertEqual(first["inqryEndDt"], "202609102359")
-        self.assertTrue(all(call.kwargs["rows"] == 1 for call in client.page.call_args_list))
+        self.assertEqual(client.page.call_args_list[2].kwargs["inqryBgnDt"], "202609040000")
+        self.assertEqual(client.page.call_args_list[5].kwargs["rows"], 999)
 
     def test_auth_or_quota_failure_stops_further_calls(self):
         from .live_probe import run_probe
@@ -141,7 +142,32 @@ class LiveProbeTests(SimpleTestCase):
         lines = []
         self.assertFalse(run_probe(NOW, lines.append, client))
         self.assertEqual(client.page.call_count, 4)
-        self.assertEqual(json.loads(lines[-1])["code"], "NO_SAMPLE")
+        self.assertEqual(json.loads(lines[-1])["code"], "NO_INDUSTRY_SAMPLE")
+
+    def test_probe_uses_industry_notice_and_rejects_missing_license(self):
+        from .live_probe import run_probe
+        national = SimpleNamespace(total_count=1, items=[ROW])
+        industry_row = dict(ROW, bidNtceNo="industry-selected")
+        industry = SimpleNamespace(total_count=1, items=[industry_row])
+        empty = SimpleNamespace(total_count=0, items=[])
+        client = Mock()
+        client.page.side_effect = [national, national, industry, empty, empty, empty, empty]
+        lines = []
+        self.assertFalse(run_probe(NOW, lines.append, client))
+        self.assertEqual(client.page.call_args_list[4].kwargs["bidNtceNo"], "industry-selected")
+        license_result = json.loads(lines[5])
+        self.assertFalse(license_result["ok"])
+        self.assertEqual(license_result["code"], "DETAILS_REQUIRE_REVIEW")
+
+    def test_probe_rejects_wrong_notice_order(self):
+        from .live_probe import run_probe
+        page = SimpleNamespace(total_count=1, items=[ROW])
+        wrong = SimpleNamespace(total_count=1, items=[dict(ROW, bidNtceOrd="099")])
+        client = Mock()
+        client.page.side_effect = [page, page, page, page, page, wrong, page]
+        lines = []
+        self.assertFalse(run_probe(NOW, lines.append, client))
+        self.assertFalse(json.loads(lines[5])["notice_key_matches"])
 
 
 class FakeClient:
