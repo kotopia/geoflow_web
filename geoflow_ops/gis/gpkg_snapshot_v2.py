@@ -29,6 +29,7 @@ class PackageField:
     editable: bool
     visible: bool
     sort_order: int
+    label: str = ""
 
 
 @dataclass(frozen=True)
@@ -177,7 +178,8 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
     with connections[alias].cursor() as cursor:
         cursor.execute(
             """
-            SELECT fd.physical_name, fd.data_type, pf.editable, pf.visible, pf.sort_order
+            SELECT fd.physical_name, fd.data_type, pf.editable, pf.visible, pf.sort_order,
+                   fd.label
               FROM gis.profile_field pf
               JOIN gis.meta_field_def fd ON fd.id=pf.field_def_id
               JOIN gis.meta_feature_type ft ON ft.id=fd.feature_type_id
@@ -190,7 +192,7 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
         )
         rows = cursor.fetchall()
     fields = []
-    for name, data_type, editable, visible, sort_order in rows:
+    for name, data_type, editable, visible, sort_order, label in rows:
         # Only the canonical geom column belongs in this feature table. Other
         # PostGIS columns (currently survey.raw_geom) are server lineage fields,
         # not QField scalar attributes.
@@ -205,6 +207,7 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
                 editable=bool(editable),
                 visible=bool(visible),
                 sort_order=int(sort_order or 0),
+                label=str(label or ""),
             )
         )
     by_name = {field.name: field for field in fields}
@@ -252,6 +255,7 @@ def project_geopackage_layer_manifest(alias: str, plan: dict[str, Any]) -> list[
                     "editable": field.editable,
                     "visible": field.visible,
                     "sort_order": field.sort_order,
+                    "label": field.label,
                 }
                 for field in layer.fields
             ],
@@ -509,6 +513,7 @@ def build_project_geopackage(alias: str, *, project_id: str, plan: dict[str, Any
                                 "editable": field.editable,
                                 "visible": field.visible,
                                 "sort_order": field.sort_order,
+                                "label": field.label,
                             }
                             for field in layer.fields
                         ],
