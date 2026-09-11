@@ -7,7 +7,12 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 
-from scripts.qgis.build_plugin_repository import build_xml, build_zip, metadata
+from scripts.qgis.build_plugin_repository import (
+    PACKAGE_DIR,
+    build_xml,
+    build_zip,
+    metadata,
+)
 
 
 class BuildPluginRepositoryTests(unittest.TestCase):
@@ -55,7 +60,30 @@ class BuildPluginRepositoryTests(unittest.TestCase):
         self.assertIsNotNone(plugin)
         self.assertEqual(plugin.attrib["experimental"], "true")
         self.assertEqual(plugin.findtext("version"), "1.2.3")
+        self.assertEqual(plugin.findtext("file_name"), "geoflow_connector.zip")
+        self.assertEqual(
+            plugin.findtext("file_name").partition(".")[0],
+            PACKAGE_DIR,
+        )
+        self.assertEqual(plugin.findtext("experimental"), "true")
+        self.assertEqual(plugin.findtext("deprecated"), "false")
+        self.assertEqual(plugin.findtext("trusted"), "false")
+        self.assertTrue(
+            plugin.findtext("download_url").endswith(
+                "/geoflow_connector-1.2.3.zip"
+            )
+        )
         self.assertEqual(plugin.findtext("sha256_sum"), hashlib.sha256(package.read_bytes()).hexdigest())
+
+    def test_xml_rejects_download_url_filename_mismatch(self):
+        values = metadata(self.source)
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            build_xml(
+                values,
+                "https://geoflow.co.kr/gis/qgis/plugins/releases/other.zip",
+                "geoflow_connector-1.2.3.zip",
+                "0" * 64,
+            )
 
 
 if __name__ == "__main__":

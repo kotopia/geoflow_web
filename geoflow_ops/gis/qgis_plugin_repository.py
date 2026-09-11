@@ -6,7 +6,7 @@ import re
 QGIS_PLUGIN_BUCKET = "geoflow-upload"
 QGIS_PLUGIN_PREFIX = "qgis-plugins"
 QGIS_PLUGIN_CHANNELS = frozenset({"test", "stable"})
-QGIS_PLUGIN_TEST_PACKAGE = "geoflow_connector-0.7.4.zip"
+QGIS_PLUGIN_TEST_PACKAGE = "geoflow_connector-0.7.5.zip"
 QGIS_PLUGIN_PACKAGE_RE = re.compile(
     r"\Ageoflow_connector-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z"
 )

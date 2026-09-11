@@ -12,6 +12,7 @@ import zipfile
 
 
 PACKAGE_DIR = "geoflow_connector"
+QGIS_REPOSITORY_FILE_NAME = f"{PACKAGE_DIR}.zip"
 VERSION_RE = re.compile(r"\A[0-9]+\.[0-9]+\.[0-9]+\Z")
 EXCLUDED_NAMES = {"__pycache__", ".DS_Store"}
 
@@ -55,6 +56,8 @@ def build_zip(source: Path, destination: Path) -> str:
 
 def build_xml(values: dict[str, str], download_url: str, filename: str, digest: str) -> bytes:
     experimental = values.get("experimental", "false").strip().lower()
+    if download_url.rsplit("/", 1)[-1] != filename:
+        raise ValueError("QGIS package filename does not match download URL")
     root = ET.Element("plugins")
     plugin = ET.SubElement(
         root,
@@ -76,8 +79,14 @@ def build_xml(values: dict[str, str], download_url: str, filename: str, digest: 
         ("tracker", values.get("tracker", "")),
         ("tags", values.get("tags", "")),
         ("downloads", "0"),
-        ("file_name", filename),
+        # QGIS derives the plugin id from everything before the first dot in
+        # file_name.  Keep this logical name stable while download_url points
+        # at the immutable, versioned S3 object.
+        ("file_name", QGIS_REPOSITORY_FILE_NAME),
         ("download_url", download_url),
+        ("experimental", experimental),
+        ("deprecated", "false"),
+        ("trusted", "false"),
         ("sha256_sum", digest),
     )
     for name, value in fields:

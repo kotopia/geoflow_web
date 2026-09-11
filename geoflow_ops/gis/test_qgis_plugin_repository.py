@@ -93,5 +93,5 @@ class QgisPluginRepositoryTests(SimpleTestCase):
         self.assertIn("QGIS 플러그인 설치", source)
         self.assertIn("실험적 플러그인도 표시", source)
         self.assertIn("qgis_plugin_test_package", source)
-        self.assertEqual(QGIS_PLUGIN_TEST_PACKAGE, "geoflow_connector-0.7.4.zip")
+        self.assertEqual(QGIS_PLUGIN_TEST_PACKAGE, "geoflow_connector-0.7.5.zip")
         get_template("geoflow_ops/gis/project_dashboard.html")

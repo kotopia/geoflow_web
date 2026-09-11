@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import re
 import xml.etree.ElementTree as ET
+from urllib.parse import unquote, urlsplit
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
 
@@ -24,6 +25,7 @@ QGIS_PLUGIN_PREFIX = "qgis-plugins"
 QGIS_PLUGIN_PACKAGE_RE = re.compile(
     r"\Ageoflow_connector-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z"
 )
+QGIS_PLUGIN_REPOSITORY_FILE_NAME = "geoflow_connector.zip"
 
 
 def repository_object_key(channel: str) -> str:
@@ -53,7 +55,17 @@ def repository_package(repository: Path) -> tuple[str, str]:
         fail("repository_xml_invalid")
     if plugin is None or plugin.attrib.get("name") != "GeoFlow Connector":
         fail("repository_plugin_invalid")
-    filename = str(plugin.findtext("file_name") or "").strip()
+    repository_filename = str(plugin.findtext("file_name") or "").strip()
+    if repository_filename != QGIS_PLUGIN_REPOSITORY_FILE_NAME:
+        fail("repository_plugin_id_invalid")
+    download_url = str(plugin.findtext("download_url") or "").strip()
+    parsed_url = urlsplit(download_url)
+    if parsed_url.scheme != "https" or parsed_url.netloc != "geoflow.co.kr":
+        fail("repository_download_url_invalid")
+    filename = unquote(parsed_url.path.rsplit("/", 1)[-1])
+    version = str(plugin.attrib.get("version") or "").strip()
+    if filename != f"geoflow_connector-{version}.zip":
+        fail("repository_package_version_mismatch")
     expected_hash = str(plugin.findtext("sha256_sum") or "").strip().lower()
     package_object_key(filename)
     if len(expected_hash) != 64:

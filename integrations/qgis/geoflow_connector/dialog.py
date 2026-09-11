@@ -14,6 +14,10 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from .client import GeoFlowClientError, GeoFlowHttpClient
+from .connection_defaults import (
+    PRODUCTION_SERVER_URL,
+    migrate_legacy_connection_defaults,
+)
 
 
 def _password_echo_mode():
@@ -47,12 +51,20 @@ class GeoFlowConnectorDialog(QDialog):
         self.project_opened = False
 
         settings = QSettings()
-        self.server_edit = QLineEdit(
-            settings.value("GeoFlowConnector/serverUrl", "https://geoflow.co.kr", type=str)
+        stored_server = settings.value(
+            "GeoFlowConnector/serverUrl", PRODUCTION_SERVER_URL, type=str
         )
-        self.email_edit = QLineEdit(
-            settings.value("GeoFlowConnector/email", "", type=str)
+        stored_email = settings.value("GeoFlowConnector/email", "", type=str)
+        server_url, email = migrate_legacy_connection_defaults(
+            stored_server,
+            stored_email,
         )
+        if server_url != stored_server:
+            settings.setValue("GeoFlowConnector/serverUrl", server_url)
+        if email != stored_email:
+            settings.setValue("GeoFlowConnector/email", email)
+        self.server_edit = QLineEdit(server_url)
+        self.email_edit = QLineEdit(email)
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(_password_echo_mode())
         self.password_edit.setPlaceholderText("저장하지 않습니다")
