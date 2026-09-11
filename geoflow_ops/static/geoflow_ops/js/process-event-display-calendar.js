@@ -47,8 +47,14 @@
 
   function editingOpenPeriodEvent(eventType){
     var ev=lastEditingEvent||null;
-    if(!ev||!ev.id||String(ev.event_type||'')!==String(eventType||''))return false;
-    return !!ev.until_closed||!ev.end_at;
+    var currentId=value('event-id');
+    if(ev&&ev.id){
+      if(String(ev.event_type||'')!==String(eventType||''))return false;
+      return !!ev.until_closed||!ev.end_at;
+    }
+    // After a newly created period event is saved the workboard assigns event-id
+    // before the modal is closed. Treat that saved record as editable/open too.
+    return !!currentId;
   }
 
   function syncPeriodControls(){
@@ -82,7 +88,7 @@
     var eventType=value('event-type');
     var indefinite=byId('event-until-closed');
     var end=byId('event-end-at');
-    if(periodConfig(eventType)&&!lastEditingEvent&&indefinite&&!(end&&end.value))indefinite.checked=true;
+    if(periodConfig(eventType)&&!lastEditingEvent&&!value('event-id')&&indefinite&&!(end&&end.value))indefinite.checked=true;
     syncPeriodControls();
   }
 
@@ -248,12 +254,46 @@
       container.appendChild(stageBadge);
       labels.forEach(function(label){
         var badge=document.createElement('span');
-        badge.className='badge bg-warning-subtle text-warning-emphasis border me-1';
+        badge.className=label==='중지'?'badge bg-danger text-white me-1':'badge bg-warning-subtle text-warning-emphasis border me-1';
         badge.textContent=label;
         container.appendChild(badge);
       });
     });
   }
+
+  function eventTimelineTitle(ev){
+    return String(ev.title||EVENT_LABELS[ev.event_type]||ev.event_type||'업무 이벤트').trim();
+  }
+  function eventTimelineDate(ev){
+    return String(ev.occurred_at||ev.created_at||'').slice(0,10);
+  }
+  function decorateClosedSuspensions(events){
+    var closed=(events||[]).filter(function(ev){
+      return ev.event_type==='suspend'&&!ev.until_closed&&!!ev.end_at&&ev.status!=='void';
+    }).map(function(ev){
+      return {title:eventTimelineTitle(ev),date:eventTimelineDate(ev),used:false};
+    });
+    if(!closed.length)return;
+    document.querySelectorAll('#contractTimelineList > li, #projectTimelineList > li').forEach(function(item){
+      if(item.querySelector('.gf-period-closed-badge'))return;
+      var title=item.querySelector('strong');
+      if(!title)return;
+      var titleText=String(title.textContent||'').trim();
+      var text=String(item.textContent||'');
+      var match=closed.find(function(row){return !row.used&&row.title===titleText&&(!row.date||text.indexOf(row.date)!==-1);});
+      if(!match)return;
+      match.used=true;
+      var badge=document.createElement('span');
+      badge.className='badge bg-secondary-subtle text-secondary-emphasis ms-2 gf-period-closed-badge';
+      badge.textContent='종료';
+      item.insertBefore(badge,title.nextSibling);
+    });
+  }
+  function scheduleClosedSuspensionBadges(events){
+    window.setTimeout(function(){decorateClosedSuspensions(events);},120);
+    window.setTimeout(function(){decorateClosedSuspensions(events);},420);
+  }
+
   function loadCurrentStageBadges(){
     var mount=byId('eventModalMount');
     if(!mount)return;
@@ -262,7 +302,11 @@
     if(!url||!scopeType||!scopeId)return;
     originalFetch(url+'?scope_type='+encodeURIComponent(scopeType)+'&scope_id='+encodeURIComponent(scopeId),{credentials:'same-origin'})
       .then(function(r){if(!r.ok)throw new Error();return r.json();})
-      .then(function(data){renderStageBadges((data.events||[]).filter(function(ev){return !!ev.highlight_active;}));})
+      .then(function(data){
+        var events=data.events||[];
+        renderStageBadges(events.filter(function(ev){return !!ev.highlight_active;}));
+        scheduleClosedSuspensionBadges(events);
+      })
       .catch(function(){renderStageBadges([]);});
   }
   function fixSettingsCopy(){
@@ -280,6 +324,9 @@
     if(add)add.addEventListener('click',function(){scheduleModalControls();window.setTimeout(resetDisplay,90);window.setTimeout(resetDisplay,250);});
     var timeline=byId('timelineList');
     if(timeline)timeline.addEventListener('click',function(){scheduleModalControls();});
+  });
+  document.addEventListener('hidden.bs.modal',function(event){
+    if(event.target&&event.target.id==='eventModal')window.setTimeout(loadCurrentStageBadges,320);
   });
 
   var attempts=0,timer=window.setInterval(function(){
