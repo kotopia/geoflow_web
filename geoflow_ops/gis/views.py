@@ -14,7 +14,8 @@ from geoflow_ops.models import Project
 from geoflow_ops.services.entity_access import require_tenant_context
 from geoflow_ops.services.project_access import project_access_policy
 
-from .changeset import changeset_runtime_enabled
+from .changeset import changeset_runtime_enabled, project_current_revision
+from .events import realtime_runtime_enabled
 from .layer_plan import (
     allowed_standard_names,
     allowed_standard_names_for_projects,
@@ -264,8 +265,20 @@ def project_dashboard(request, project_id):
             "row_count": row["row_count"] or 0,
         }
         for row in rows
-        if row["physical_status"] == "READY" and (row["row_count"] or 0) > 0
+        if row["physical_status"] == "READY"
     ]
+    try:
+        webgis_delta_enabled = changeset_runtime_enabled(alias)
+    except DatabaseError:
+        webgis_delta_enabled = False
+    webgis_revision = 0
+    if webgis_delta_enabled:
+        try:
+            webgis_revision = project_current_revision(alias, str(project.id))
+        except DatabaseError:
+            # The map remains usable even if revision metadata is temporarily
+            # unavailable. The browser Delta poll retries from revision zero.
+            webgis_revision = 0
     return render(
         request,
         "geoflow_ops/gis/project_dashboard.html",
@@ -273,6 +286,9 @@ def project_dashboard(request, project_id):
             "project": project,
             "features": rows,
             "map_layers": map_layers,
+            "webgis_revision": webgis_revision,
+            "webgis_delta_enabled": webgis_delta_enabled,
+            "webgis_realtime_enabled": realtime_runtime_enabled(),
             "layer_plan": plan,
             "domain_counts": domain_counts_for_rows(rows),
             "feature_count": len(rows),
