@@ -1,0 +1,22 @@
+{% extends "control/base_central.html" %}
+{% load static %}
+{% block title %}입찰 수집 관리 | GeoFlow{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <div><h1 class="h3 mb-1">입찰 수집 관리</h1><p class="text-muted mb-0">등록된 업종 또는 키워드에 해당하는 전국 용역 공고를 중앙에서 수집합니다.</p></div>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="sync_all"><button class="btn btn-primary">활성 조건 모두 동기화</button></form>
+</div>
+<p class="text-muted">새 조건은 최근 2년 수집을 예약합니다. 동기화 버튼은 마지막 진행 지점부터 작업을 요청하며, 백그라운드 수집기가 실행되어야 처리됩니다.</p>
+<div id="bid-status" data-status-url="{% url 'control:central_bids_status' %}">{% include "procurement/central_status.html" %}</div>
+<p id="bid-refresh-status" class="small text-muted" role="status">진행 상태는 10초마다 갱신됩니다.</p>
+<div class="card"><div class="card-body">
+  <h2 class="h4">수집조건 추가</h2>
+  <p class="text-muted">업종은 나라장터 업종코드, 키워드는 공고명 검색어입니다. 등록된 코드·검색어를 바꾸려면 기존 조건을 비활성화하고 새로 추가하세요.</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="create">
+    {{ form.non_field_errors }}
+    <div class="row g-3">{% for field in form %}<div class="col-md-4"><label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}</div>
+    <button class="btn btn-primary mt-3">조건 추가 · 2년 수집 예약</button>
+  </form>
+</div></div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'procurement/central_dashboard.js' %}" defer></script>{% endblock %}

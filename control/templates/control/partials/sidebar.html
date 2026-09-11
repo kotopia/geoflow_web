@@ -29,6 +29,9 @@
       </li>
       {% if central_is_staff %}
       <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'control:central_bids' %}">입찰 수집 관리</a>
+      </li>
+      <li class="sidebar-item">
         <a class="sidebar-link" href="{% url 'control:signup_reviews_admin' %}">Signup Reviews</a>
       </li>
       {% endif %}
@@ -52,4 +55,3 @@
     </ul>
   </div>
 </nav>
-

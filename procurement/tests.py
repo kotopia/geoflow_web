@@ -9,6 +9,8 @@ from django.test import TestCase, SimpleTestCase, override_settings
 from django.db import connections
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import RequestFactory
+from django.middleware.csrf import get_token
 
 from geoflow_ops.bids.client import G2BError
 from .models import CollectionRule, CollectionJob, Notice, NoticeRevision, ApiBudget
@@ -191,6 +193,100 @@ class CollectionTests(TestCase):
     def test_missing_date_fails_instead_of_false_complete(self):
         with self.assertRaises(G2BError):
             store_notice(dict(ROW, bidNtceDt=""), DETAILS, self.rule, NOW)
+
+    def test_progress_visible_before_details_finish_and_preserved_on_failure(self):
+        def fail(row):
+            job = CollectionJob.objects.get(pk=self.job.pk)
+            self.assertEqual(job.status, "running")
+            self.assertEqual(job.progress["total"], 1)
+            self.assertEqual(job.progress["processed"], 0)
+            raise G2BError("API_10", "error")
+        with patch.object(FakeClient, "details", side_effect=fail):
+            with self.assertRaises(G2BError):
+                run_step(self.job, FakeClient(), NOW)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.progress["total"], 1)
+        self.assertEqual(self.job.progress["stored"], 0)
+
+    def test_progress_counts_processed_and_stored_separately(self):
+        client = FakeClient()
+        client.changes = lambda *args: [dict(ROW, bidNtceNo="unrelated", bidNtceNm="급식")]
+        run_step(self.job, client, NOW)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.progress["processed"], 2)
+        self.assertEqual(self.job.progress["stored"], 1)
+        self.assertEqual(self.job.progress["total"], 2)
+
+
+class CentralDashboardTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        with connections["default"].cursor() as cur:
+            cur.execute("CREATE TABLE users (id varchar(40) PRIMARY KEY, is_staff boolean NOT NULL)")
+            cur.execute("INSERT INTO users VALUES (%s,%s)", ["central-admin", True])
+            cur.execute("INSERT INTO users VALUES (%s,%s)", ["tenant-admin", False])
+
+    def request(self, method="get", data=None, csrf=True):
+        factory = RequestFactory()
+        if method == "get":
+            return factory.get("/control/central/bids/")
+        initial = factory.get("/")
+        token = get_token(initial)
+        request = factory.post("/control/central/bids/", dict(data or {}, csrfmiddlewaretoken=token) if csrf else data)
+        request.COOKIES["csrftoken"] = initial.META["CSRF_COOKIE"]
+        return request
+
+    def test_authorization_is_checked_for_html_status_and_mutations(self):
+        from .views_central import dashboard, status
+        for uid in (None, "tenant-admin"):
+            with patch("control.decorators.lookup_user_id_from_request", return_value=uid):
+                self.assertEqual(dashboard(self.request()).status_code, 403)
+                self.assertEqual(status(self.request()).status_code, 403)
+                self.assertEqual(dashboard(self.request("post", {"action": "sync_all"})).status_code, 403)
+        self.assertFalse(CollectionRule.objects.exists())
+
+    def test_sync_requires_csrf_and_never_calls_external_api(self):
+        from .views_central import dashboard
+        rule = CollectionRule.objects.create(kind="keyword", value="GIS", name="GIS")
+        job = enqueue_rule(rule, NOW)
+        with patch("control.decorators.lookup_user_id_from_request", return_value="central-admin"), patch("procurement.client.urlopen") as external:
+            self.assertEqual(dashboard(self.request("post", {"action": "sync_all"}, csrf=False)).status_code, 403)
+            self.assertEqual(dashboard(self.request("post", {"action": "sync_all"})).status_code, 302)
+            self.assertEqual(dashboard(self.request()).status_code, 200)
+        external.assert_not_called()
+        job.refresh_from_db()
+        self.assertTrue(job.requested)
+        self.assertEqual(job.backfill_cursor, retention_start(minute(NOW)))
+
+    def test_condition_create_duplicate_and_disable(self):
+        from .views_central import dashboard
+        data = dict(action="create", kind="industry", value="5031", name="지하시설물측량업")
+        with patch("control.decorators.lookup_user_id_from_request", return_value="central-admin"):
+            self.assertEqual(dashboard(self.request("post", data)).status_code, 302)
+            self.assertEqual(dashboard(self.request("post", data)).status_code, 200)
+            rule = CollectionRule.objects.get()
+            self.assertEqual(CollectionJob.objects.count(), 1)
+            self.assertEqual(dashboard(self.request("post", {"action": "disable", "rule_id": str(rule.pk)})).status_code, 302)
+            rule.refresh_from_db()
+            self.assertFalse(rule.active)
+            self.assertEqual(dashboard(self.request("post", {"action": "sync", "rule_id": "bad"})).status_code, 400)
+
+    def test_unique_total_and_escaped_status_markup(self):
+        from .dashboard import snapshot
+        from .views_central import status
+        one = CollectionRule.objects.create(kind="keyword", value="GIS", name="<script>alert(1)</script>")
+        two = CollectionRule.objects.create(kind="industry", value="5031", name="측량")
+        store_notice(ROW, DETAILS, one, NOW)
+        store_notice(ROW, DETAILS, two, NOW)
+        data = snapshot()
+        self.assertEqual(data["total"], 1)
+        self.assertEqual([row["rule"].stored_count for row in data["rows"]], [1, 1])
+        with patch("control.decorators.lookup_user_id_from_request", return_value="central-admin"), patch("procurement.client.urlopen") as external:
+            response = status(self.request())
+        html = json.loads(response.content)["html"]
+        self.assertIn("&lt;script&gt;", html)
+        self.assertNotIn("<script>", html)
+        external.assert_not_called()
 
 
 class TenantIsolationTests(TestCase):

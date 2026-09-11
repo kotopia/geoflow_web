@@ -33,6 +33,7 @@ class CollectionJob(models.Model):
     last_success_at = models.DateTimeField(null=True, blank=True)
     error_code = models.CharField(max_length=100, blank=True)
     fetched_count = models.PositiveIntegerField(default=0)
+    progress = models.JSONField(default=dict, blank=True)
 
     class Meta:
         verbose_name = "수집 진행상태"

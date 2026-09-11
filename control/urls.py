@@ -23,10 +23,13 @@ from .views_signup_admin import (
     signup_review_decide_admin,
 )
 from .views_categories import categories_page, category_options
+from procurement import views_central as central_bids
 
 app_name = "control"
 
 urlpatterns = [
+    path("central/bids/", central_bids.dashboard, name="central_bids"),
+    path("central/bids/status/", central_bids.status, name="central_bids_status"),
     path('', dashboard, name='dashboard'),  # /control/ 진입점
     # 로그인 후 최초 이동
     # path("after-login/", post_login_redirect, name="post_login_redirect"),

@@ -95,6 +95,7 @@ def store_notice(row, details, rule, now):
         )
         notice.rules.add(rule)
         NoticeRevision.objects.using(alias).get_or_create(notice=notice, payload_hash=digest, defaults={"raw": raw})
+    return True
 
 
 def run_step(job, client, now=None):
@@ -111,7 +112,10 @@ def run_step(job, client, now=None):
         return False
     if live:
         start -= timedelta(hours=2)
-    CollectionJob.objects.using(alias).filter(pk=job.pk).update(status="running", requested=False)
+    progress = dict(mode="live" if live else "backfill", start=start.isoformat(), end=end.isoformat(),
+                    total=None, processed=0, stored=0, updated_at=timezone.now().isoformat())
+    job_query = CollectionJob.objects.using(alias).filter(pk=job.pk)
+    job_query.update(status="running", requested=False, error_code="", progress=progress)
     try:
         rows = client.search(job.rule, start, end)
         selected = {(r.get("bidNtceNo"), canonical_order(r.get("bidNtceOrd"))): r for r in rows}
@@ -120,6 +124,8 @@ def run_step(job, client, now=None):
         for row in changes:
             selected[(row.get("bidNtceNo"), canonical_order(row.get("bidNtceOrd")))] = row
         search_keys = {(r.get("bidNtceNo"), canonical_order(r.get("bidNtceOrd"))) for r in rows}
+        progress.update(total=len(selected), updated_at=timezone.now().isoformat())
+        job_query.update(progress=progress)
         for key, row in selected.items():
             if not key[0]:
                 raise G2BError("MISSING_NOTICE_KEY", "공고 식별자가 없습니다.")
@@ -131,7 +137,11 @@ def run_step(job, client, now=None):
             known = Notice.objects.using(alias).filter(number=key[0], order=key[1], rules=job.rule).exists()
             selected_by_industry = job.rule.kind == "industry" and key in search_keys
             if selected_by_industry or known or rule_matches(job.rule, row, details):
-                store_notice(row, details, job.rule, now)
+                if store_notice(row, details, job.rule, now):
+                    progress["stored"] += 1
+            progress["processed"] += 1
+            progress["updated_at"] = timezone.now().isoformat()
+            job_query.update(progress=progress)
         updates = dict(status="success", error_code="", last_success_at=now, fetched_count=len(selected))
         if live:
             updates.update(live_cursor=end, due_at=now + timedelta(hours=1))

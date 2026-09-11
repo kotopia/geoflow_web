@@ -1,5 +1,6 @@
 """Isolated test runtime; never reads production env files or tenant secrets."""
 import os
+from pathlib import Path
 
 SECRET_KEY = "isolated-procurement-tests-only"
 INSTALLED_APPS = ["django.contrib.contenttypes", "procurement"]
@@ -15,3 +16,8 @@ USE_TZ = True
 TIME_ZONE = "Asia/Seoul"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 G2B_API_SERVICE_KEY = "test-key-never-used-on-network"
+ROOT_URLCONF = "procurement.test_urls"
+STATIC_URL = "/static/"
+TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True,
+              "DIRS": [Path(__file__).resolve().parent.parent / "control" / "templates"],
+              "OPTIONS": {"libraries": {"acl_tags": "control.templatetags.acl_tags"}}}]
