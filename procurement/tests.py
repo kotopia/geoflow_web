@@ -4,6 +4,8 @@ from io import BytesIO, StringIO
 import json
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 from django.db import connections
@@ -106,6 +108,40 @@ class PolicyTests(SimpleTestCase):
             with self.assertRaises(ValueError):
                 enabled(alias)
         self.assertFalse(enabled("company_a"))
+
+
+class LiveProbeTests(SimpleTestCase):
+    def test_probe_checks_seven_endpoints_without_printing_notice_data(self):
+        from .live_probe import run_probe
+        client = Mock()
+        client.page.return_value = SimpleNamespace(total_count=1, items=[ROW])
+        lines = []
+        self.assertTrue(run_probe(NOW, lines.append, client))
+        self.assertEqual(client.page.call_count, 7)
+        self.assertNotIn(ROW["bidNtceNo"], "".join(lines))
+        first = client.page.call_args_list[0].kwargs
+        self.assertEqual(first["inqryBgnDt"], "202609100000")
+        self.assertEqual(first["inqryEndDt"], "202609102359")
+        self.assertTrue(all(call.kwargs["rows"] == 1 for call in client.page.call_args_list))
+
+    def test_auth_or_quota_failure_stops_further_calls(self):
+        from .live_probe import run_probe
+        for code in ("API_20", "API_22", "API_23", "MISSING_SERVICE_KEY"):
+            client = Mock()
+            client.page.side_effect = G2BError(code, "secret-provider-message")
+            lines = []
+            self.assertFalse(run_probe(NOW, lines.append, client))
+            self.assertEqual(client.page.call_count, 1)
+            self.assertNotIn("secret-provider-message", "".join(lines))
+
+    def test_no_sample_cannot_be_reported_as_complete_validation(self):
+        from .live_probe import run_probe
+        client = Mock()
+        client.page.return_value = SimpleNamespace(total_count=0, items=[])
+        lines = []
+        self.assertFalse(run_probe(NOW, lines.append, client))
+        self.assertEqual(client.page.call_count, 4)
+        self.assertEqual(json.loads(lines[-1])["code"], "NO_SAMPLE")
 
 
 class FakeClient:

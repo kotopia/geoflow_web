@@ -9,6 +9,8 @@ on:
       - 'control/urls.py'
       - 'control/templates/control/partials/sidebar.html'
       - '.github/workflows/central-bids-tests.yml'
+      - '.github/workflows/central-bids-live-diagnostic.yml'
+      - 'scripts/probe_central_g2b.py'
 permissions:
   contents: read
 jobs:

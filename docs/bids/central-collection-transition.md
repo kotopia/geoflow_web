@@ -86,6 +86,27 @@ PR #310 최초 업로드 CI에서 PostgreSQL 16의 격리 테스트 14건 및 mi
 
 ## API 건수 진단 사용법
 
+### 보호된 GitHub 진단
+
+`Central bids live diagnostic`은 자동 실행하지 않는 workflow_dispatch 전용이다.
+검토된 release/stabilized-deploy에서만 실행하며 기존 production Environment 승인을 그대로 적용한다.
+API 인증키만 해당 단계의 환경변수로 전달한다. SSH, 운영 DB 접속, 서버 설정 변경, 재시작은 없다.
+scripts/probe_central_g2b.py는 운영 설정 로딩을 거부하고 메모리 SQLite에서만 수집 예산 테이블 등을 생성한다.
+이 임시 DB는 프로세스 종료 시 사라지며 실제 중앙/테넌트 migration을 실행하지 않는다.
+
+어제 한국시각 하루에 대해 일반 게시일 조회, 검색 게시일 조회, 업종5031 검색, 변경일시 조회,
+그리고 실제 표본 1건의 지역·면허·물품 정보를 numOfRows=1로 검증한다. 최대 7회 호출하며
+인증/호출한도 오류에는 조기 중단한다. 키워드 및 모든 업종별 의미 검증을 대체하지는 않는다.
+출력은 점검 이름·성공여부·건수·오류코드만 포함하고 인증키, URL, 공고 원문, 첨부파일을 남기지 않는다.
+이 7회는 같은 인증키의 실제 호출 한도에서 소비되지만 임시 예산은 운영 ApiBudget에 합산되지 않는다.
+공고가 없는 날은 상세검증 미완료(NO_SAMPLE)로 표시하며 성공으로 간주하지 않는다.
+
+실행 순서는 PR 검토/병합 → 해당 워크플로 Run workflow → production 환경 승인 → 로그 확인이다.
+현재 GitHub 연결은 workflow_dispatch 최초 실행 도구를 제공하지 않아 사용자 실행이 필요하다.
+이 워크플로 실행을 배포, 운영 migration, 수집 timer 활성화의 승인으로 해석하지 않는다.
+
+### 기존 진단 명령
+
 `inspect_g2b_bids --start 202609100000 --end 202609102359 --industry 5031`
 은 한국시각 하루의 용역 업종 검색을 단 1회, numOfRows=1로 호출하고 totalCount만 보고한다.
 키워드는 `--keyword GIS`, 전국 용역 건수는 업종/키워드를 생략한다.
