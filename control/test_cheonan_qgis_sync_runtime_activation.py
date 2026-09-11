@@ -57,4 +57,8 @@ class CheonanQgisSyncRuntimeActivationTests(TestCase):
         self.assertIn("connection.set_session(readonly=True", workflow)
         self.assertIn("GIS Changeset support tables are incomplete", workflow)
         self.assertIn("qgis_sync_activation_rollback_completed=yes", workflow)
+        self.assertIn("for _ in $(seq 1 30)", workflow)
+        self.assertIn('ActiveState --value', workflow)
+        self.assertIn('SubState --value', workflow)
+        self.assertIn('[ "$ready" = yes ]', workflow)
         self.assertNotIn("print(password", workflow)
