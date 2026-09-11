@@ -1,0 +1,218 @@
+name: Cheonan QGIS sync production activation
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/cheonan-qgis-sync-production-activation.yml
+      - scripts/ops/activate_cheonan_qgis_sync_runtime.py
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type ACTIVATE_QGIS_SYNC:cheonan_db:26003
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  activate-cheonan-qgis-sync:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      CONFIRMATION: ${{ inputs.confirmation || 'ACTIVATE_QGIS_SYNC:cheonan_db:26003' }}
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact target and confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || { echo 'qgis_sync_activation_blocker=release_advanced'; exit 2; }
+          test "$CONFIRMATION" = 'ACTIVATE_QGIS_SYNC:cheonan_db:26003'
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Diagnose, deploy, activate exact runtime and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" \
+            "bash -s -- '$GITHUB_SHA' '$CONFIRMATION' '$GITHUB_RUN_ID'" <<'REMOTE'
+          set -euo pipefail
+
+          candidate_sha="$1"
+          confirmation="$2"
+          run_id="$3"
+          service='geoflow-stabilized.service'
+          expected_branch='release/stabilized-deploy'
+          project_id='86f52715-3cca-4124-9cc6-cb7c6a7e9c4e'
+          target_db='cheonan_db'
+          env_backup="/tmp/geoflow-qgis-sync-env-$run_id.bak"
+
+          fail() { echo "qgis_sync_activation_blocker=$1"; exit 2; }
+          [ "$confirmation" = 'ACTIVATE_QGIS_SYNC:cheonan_db:26003' ] || fail 'confirmation_mismatch'
+          for cmd in git systemctl curl sudo; do
+            command -v "$cmd" >/dev/null 2>&1 || fail "${cmd}_missing"
+          done
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+          [ "$(systemctl is-active "$service" 2>/dev/null || true)" = active ] || fail 'service_not_running'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -f "$repo/manage.py" ] || fail 'service_repo_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+          [ "$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')" = 0 ] || fail 'production_worktree_dirty'
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'python_missing'
+
+          previous_sha="$(git -C "$repo" rev-parse HEAD)"
+          previous_branch="$(git -C "$repo" symbolic-ref --short -q HEAD || true)"
+          cp -p "$repo/.env" "$env_backup"
+          rollback_needed=0
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ] && [ "$rollback_needed" -eq 1 ]; then
+              cp -p "$env_backup" "$repo/.env"
+              if [ -n "$previous_branch" ]; then
+                git -C "$repo" checkout -B "$previous_branch" "$previous_sha" >/dev/null 2>&1 || true
+              else
+                git -C "$repo" checkout --detach "$previous_sha" >/dev/null 2>&1 || true
+              fi
+              "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt" >/dev/null 2>&1 || true
+              "$python" "$repo/manage.py" collectstatic --noinput >/dev/null 2>&1 || true
+              sudo -n systemctl restart "$service" || true
+              echo 'qgis_sync_activation_rollback_completed=yes'
+            fi
+            rm -f "$env_backup"
+            exit "$rc"
+          }
+          trap on_exit EXIT
+
+          cd "$repo"
+          PROJECT_ID="$project_id" TARGET_DB="$target_db" PYTHONPATH="$repo" "$python" - <<'PY'
+          import os
+          import psycopg2
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+          import django
+          django.setup()
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import is_tenant_db_secret_reference, resolve_tenant_db_password
+
+          target_db = os.environ["TARGET_DB"]
+          project_id = os.environ["PROJECT_ID"]
+          rows = list(GroupDBConfig.objects.using("default").select_related("group").filter(db_name=target_db, group__status="active"))
+          if len(rows) != 1:
+              raise RuntimeError("target tenant must resolve exactly once")
+          row = rows[0]
+          raw = str(row.db_password or "").strip()
+          password = resolve_tenant_db_password(raw) if is_tenant_db_secret_reference(raw) else raw
+          connection = psycopg2.connect(dbname=row.db_name, user=row.db_user, password=password, host=row.db_host, port=row.db_port, sslmode="require", connect_timeout=10)
+          try:
+              connection.set_session(readonly=True, autocommit=False)
+              with connection.cursor() as cursor:
+                  cursor.execute("SET LOCAL statement_timeout = '15s'")
+                  cursor.execute("SELECT code FROM prj.projects WHERE id=%s", [project_id])
+                  project = cursor.fetchone()
+                  if not project or str(project[0]) != "26003":
+                      raise RuntimeError("exact project 26003 was not found")
+                  cursor.execute("SELECT to_regclass('gis.project_sync_state') IS NOT NULL, to_regclass('gis.changeset_receipt') IS NOT NULL, to_regclass('gis.feature_change_log') IS NOT NULL")
+                  if not all(cursor.fetchone()):
+                      raise RuntimeError("GIS Changeset support tables are incomplete")
+                  cursor.execute("SELECT count(*) FROM gis.wtl_pipe_lm WHERE project_id=%s", [project_id])
+                  print(f"qgis_sync_activation_preflight_server_pipe_count={int(cursor.fetchone()[0])}")
+              connection.rollback()
+          finally:
+              connection.close()
+          print("RESULT qgis_sync_activation_preflight=READ_ONLY_COMPLETE")
+          PY
+
+          git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
+          [ "$(git -C "$repo" rev-parse FETCH_HEAD)" = "$candidate_sha" ] || fail 'candidate_not_current_release_head'
+          git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
+          rollback_needed=1
+
+          "$python" "$repo/scripts/ops/activate_cheonan_qgis_sync_runtime.py" \
+            --env-file "$repo/.env" \
+            --confirm "$confirmation"
+          "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
+          "$python" -m pip check
+          "$python" "$repo/manage.py" check
+          "$python" "$repo/manage.py" collectstatic --noinput
+          sudo -n systemctl restart "$service"
+
+          code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 http://127.0.0.1:8011/login/ || true)"
+          case "$code" in 2??|3??) ;; *) fail 'local_login_unhealthy_after_restart' ;; esac
+
+          TARGET_DB="$target_db" PYTHONPATH="$repo" "$python" - <<'PY'
+          import os
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
+          import django
+          django.setup()
+          from django.conf import settings
+          from django.db import connections
+          from control.models import GroupDBConfig
+          from control.services.tenant_db_secret_resolver import is_tenant_db_secret_reference, resolve_tenant_db_password
+          from geoflow_ops.gis.changeset import changeset_runtime_enabled
+          from geoflow_ops.gis.qgis_sync import sync_runtime_enabled
+
+          target_db = os.environ["TARGET_DB"]
+          row = GroupDBConfig.objects.using("default").select_related("group").get(db_name=target_db, group__status="active")
+          raw = str(row.db_password or "").strip()
+          password = resolve_tenant_db_password(raw) if is_tenant_db_secret_reference(raw) else raw
+          alias = "qgis_sync_activation_probe"
+          config = dict(settings.DATABASES["default"])
+          config.update({"ENGINE": "django.contrib.gis.db.backends.postgis", "NAME": row.db_name, "USER": row.db_user, "PASSWORD": password, "HOST": row.db_host, "PORT": row.db_port, "CONN_MAX_AGE": 0})
+          connections.databases[alias] = config
+          settings.DATABASES[alias] = config
+          if not sync_runtime_enabled(alias):
+              raise RuntimeError("exact database runtime allow-list is not active")
+          if not changeset_runtime_enabled(alias):
+              raise RuntimeError("Changeset runtime is not active")
+          connections[alias].close()
+          print("qgis_sync_runtime_enabled=true")
+          print("qgis_changeset_runtime_enabled=true")
+          print("RESULT qgis_sync_activation=SUCCESS")
+          PY
+
+          rollback_needed=0
+          echo "qgis_sync_activation_deployed_sha=$candidate_sha"
+          REMOTE
