@@ -510,20 +510,24 @@ class GeoFlowConnectorPlugin:
         if not project_id:
             raise RuntimeError("GeoFlow project id가 없습니다.")
 
-        can_write = bool(transport.get("local_editing_supported") and transport.get("write_authorized"))
+        write_authorized = bool(
+            transport.get("local_editing_supported")
+            and transport.get("write_authorized")
+        )
         changeset_supported = bool(
-            can_write
+            write_authorized
             and transport.get("changeset_supported")
             and transport.get("changeset_url")
             and transport.get("delta_url")
         )
         fallback_sync_supported = bool(
-            can_write
+            write_authorized
             and transport.get("sync_supported")
             and transport.get("sync_url")
             and not changeset_supported
         )
         sync_supported = bool(changeset_supported or fallback_sync_supported)
+        can_write = bool(write_authorized and sync_supported)
 
         app_root = self._app_data_location()
         project_dir = os.path.join(app_root, "GeoFlowConnector", "projects", self._safe_name(project_id))
