@@ -49,6 +49,32 @@ QGIS native attribute forms remain the editing surface. GeoFlow field labels
 become QGIS aliases, and fields with an active reference binding become dynamic
 Value Map widgets. No WTL/SWL code list is hardcoded in the plugin.
 
+## v0.8.1 input and recovery increment
+
+- `객체 추가` forces the QGIS native attribute form to open after geometry
+  capture. `선택 속성 입력·수정` opens the same form for exactly one selected
+  feature from the layer workspace.
+- The Manifest now carries field standard name, label, unit, required state,
+  widget type, code-group key, and description. Hidden/system fields, dates,
+  datetimes, JSON, required values, and reference selections are configured from
+  this contract without a layer-specific `.ui` file.
+- The same engine applies first to `WTL_PIPE_LM` (상수관로), `WTL_PIPE_PS`
+  (상수심도), `WTL_VALV_PS` (밸브), and `WTL_FIRE_PS` (소화전), and also works
+  for every later Manifest layer.
+- A legacy Snapshot may contain a successful server create that was never added
+  to `_geoflow_baseline`. If the server reports only `uuid_already_exists` for
+  that queued create, the durable outbox entry is assigned a new Changeset ID
+  and retried as an update with the original local attributes and geometry.
+  Other conflict reasons remain queued and require diagnosis.
+- After all Changesets and Delta pages succeed and both durable queues are empty,
+  the local baseline is refreshed. This prevents a server-created object from
+  being misclassified as a new local create on the next open.
+
+Legacy fields such as `saacde` are not used directly. The GeoFlow physical field
+is `saa_cde`, while `SAA_CDE` is retained as its standard/UI name in metadata.
+The supplied workbook and plugins are reference inputs only; field and code
+values continue to come from GeoFlow metadata and the GIS reference catalog.
+
 ### Synchronization
 
 - QGIS save queues a field-level Changeset and automatically sends it after the
