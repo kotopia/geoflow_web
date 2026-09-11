@@ -60,7 +60,7 @@ jobs:
             --source integrations/qgis/geoflow_connector \
             --output "$RUNNER_TEMP/qgis-plugin-repository"
           test -f "$RUNNER_TEMP/qgis-plugin-repository/plugins.xml"
-          test -f "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-0.8.0.zip"
+          test -f "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-0.8.1.zip"
 
       - name: Configure strict SSH trust
         shell: bash
@@ -85,7 +85,7 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             scripts/ops/publish_qgis_plugin_repository.py \
             "$RUNNER_TEMP/qgis-plugin-repository/plugins.xml" \
-            "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-0.8.0.zip" \
+            "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-0.8.1.zip" \
             "$SSH_USER@$SSH_HOST:$remote_dir/"
 
       - name: Publish exact test repository prefix
@@ -118,12 +118,12 @@ jobs:
           [ -x "$python" ] || fail 'venv_python_missing'
           [ -f "$remote_dir/publish_qgis_plugin_repository.py" ] || fail 'publisher_missing'
           [ -f "$remote_dir/plugins.xml" ] || fail 'repository_missing'
-          [ -f "$remote_dir/geoflow_connector-0.8.0.zip" ] || fail 'package_missing'
+          [ -f "$remote_dir/geoflow_connector-0.8.1.zip" ] || fail 'package_missing'
 
           cd "$repo"
           PYTHONPATH="$repo" "$python" "$remote_dir/publish_qgis_plugin_repository.py" \
             --channel test \
             --repository "$remote_dir/plugins.xml" \
-            --package "$remote_dir/geoflow_connector-0.8.0.zip" \
+            --package "$remote_dir/geoflow_connector-0.8.1.zip" \
             --confirm "$confirmation"
           REMOTE
