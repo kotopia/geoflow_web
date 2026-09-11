@@ -15,7 +15,7 @@ class QgisManifestTests(SimpleTestCase):
                 "fields": [
                     {"name": "id", "data_type": "uuid", "editable": False, "visible": True, "sort_order": 1},
                     {"name": "project_id", "data_type": "uuid", "editable": False, "visible": True, "sort_order": 2},
-                    {"name": "description", "data_type": "text", "editable": True, "visible": True, "sort_order": 3},
+                    {"name": "description", "data_type": "text", "editable": True, "visible": True, "sort_order": 3, "label": "비고"},
                 ],
             }
         ]
@@ -93,6 +93,7 @@ class QgisManifestTests(SimpleTestCase):
         self.assertEqual(layer["primary_key"], "id")
         self.assertEqual(layer["local_fid"], "fid")
         self.assertEqual(layer["fields"][2]["name"], "description")
+        self.assertEqual(layer["fields"][2]["label"], "비고")
         serialized = repr(manifest).lower()
         self.assertNotIn("password", serialized)
         self.assertNotIn("db_host", serialized)
