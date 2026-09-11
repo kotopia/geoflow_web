@@ -1,20 +1,96 @@
 from datetime import datetime, timedelta, timezone as tz
 from unittest.mock import patch
+from io import BytesIO, StringIO
+import json
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
 
 from django.test import TestCase, SimpleTestCase, override_settings
 from django.db import connections
+from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from geoflow_ops.bids.client import G2BError
 from .models import CollectionRule, CollectionJob, Notice, NoticeRevision, ApiBudget
 from .policy import retention_start, minute, canonical_order
 from .service import enqueue_rule, run_step, store_notice, enabled, central_alias
-from .client import Client
+from .client import Client, SEARCH
 
 NOW = datetime(2026, 9, 11, 3, 0, tzinfo=tz.utc)
 ROW = dict(bidNtceNo="test-001", bidNtceOrd="000", bidNtceNm="GIS DB 구축",
            bidNtceDt="2026-09-10 09:00:00", bidClseDt="2026-10-01 10:00:00",
            bidNtceDtlUrl="https://www.g2b.go.kr/test")
 DETAILS = {"regions": [], "industries": [], "products": []}
+
+
+@override_settings(G2B_API_SERVICE_KEY="test%2Bkey%2Fvalue%3D")
+class ClientProtocolTests(TestCase):
+    def payload(self, total=42, items=None):
+        return json.dumps({"response": {"header": {"resultCode": "00"},
+                           "body": {"totalCount": total, "items": [ROW] if items is None else items}}}).encode()
+
+    def test_count_uses_single_row_request_and_does_not_store_notices(self):
+        output = StringIO()
+        with patch("procurement.client.urlopen", return_value=BytesIO(self.payload())) as request:
+            call_command("inspect_g2b_bids", start="202609100000", end="202609102359",
+                         industry="5031", stdout=output)
+        query = parse_qs(urlparse(request.call_args.args[0].full_url).query)
+        self.assertEqual(query["serviceKey"], ["test+key/value="])
+        self.assertEqual(query["numOfRows"], ["1"])
+        self.assertEqual(query["indstrytyCd"], ["5031"])
+        self.assertEqual(json.loads(output.getvalue())["totalCount"], 42)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(ApiBudget.objects.get().used, 1)
+        self.assertFalse(Notice.objects.exists())
+        self.assertFalse(CollectionJob.objects.exists())
+
+    def test_http_gateway_code_retained_without_echoed_secret(self):
+        raw = b"<OpenAPI_ServiceResponse><cmmMsgHeader><returnReasonCode>10</returnReasonCode><returnAuthMsg>secret-request-url</returnAuthMsg></cmmMsgHeader></OpenAPI_ServiceResponse>"
+        error = HTTPError("https://example.invalid/?serviceKey=secret", 400, "secret", {}, BytesIO(raw))
+        with patch("procurement.client.urlopen", side_effect=error):
+            with self.assertRaises(G2BError) as caught:
+                Client().page(SEARCH)
+        self.assertEqual(caught.exception.code, "API_10")
+        self.assertNotIn("secret", str(caught.exception))
+        self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_json_quota_error_is_distinct_and_sanitized(self):
+        raw = b'{"response":{"header":{"resultCode":"22","resultMsg":"secret"}}}'
+        with patch("procurement.client.urlopen", return_value=BytesIO(raw)):
+            with self.assertRaises(G2BError) as caught:
+                Client().page(SEARCH)
+        self.assertEqual(caught.exception.code, "API_22")
+        self.assertNotIn("secret", str(caught.exception))
+
+    def test_html_error_does_not_become_empty_success(self):
+        with patch("procurement.client.urlopen", return_value=BytesIO(b"<html>secret</html>")):
+            with self.assertRaises(G2BError) as caught:
+                Client().page(SEARCH)
+        self.assertEqual(caught.exception.code, "INVALID_RESPONSE")
+
+    def test_invalid_totals_fail_closed(self):
+        for total in (None, -1, 1.5, True, "abc"):
+            with self.subTest(total=total), patch("procurement.client.urlopen", return_value=BytesIO(self.payload(total))):
+                with self.assertRaises(G2BError) as caught:
+                    Client().page(SEARCH)
+                self.assertEqual(caught.exception.code, "INVALID_TOTAL")
+
+    def test_invalid_diagnostic_options_make_no_request(self):
+        with patch("procurement.client.urlopen") as request:
+            for options in ({"end": "202609120001"}, {"mode": "changed", "industry": "5031"}):
+                args = dict(start="202609100000", end="202609102359")
+                args.update(options)
+                with self.assertRaises(CommandError):
+                    call_command("inspect_g2b_bids", **args)
+        request.assert_not_called()
+
+    def test_all_pages_still_collected_and_missing_page_fails(self):
+        with patch("procurement.client.urlopen", side_effect=[BytesIO(self.payload(2)), BytesIO(self.payload(2))]):
+            self.assertEqual(len(Client().all(SEARCH)), 2)
+        with patch("procurement.client.urlopen", side_effect=[BytesIO(self.payload(2)), BytesIO(self.payload(2, []))]):
+            with self.assertRaises(G2BError) as caught:
+                Client().all(SEARCH)
+        self.assertEqual(caught.exception.code, "INCOMPLETE_RESPONSE")
 
 
 class PolicyTests(SimpleTestCase):
