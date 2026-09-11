@@ -114,7 +114,7 @@ class LiveProbeTests(SimpleTestCase):
     def test_probe_checks_seven_endpoints_without_printing_notice_data(self):
         from .live_probe import run_probe
         client = Mock()
-        client.page.return_value = SimpleNamespace(total_count=1, items=[ROW])
+        client.page.return_value = SimpleNamespace(total_count=1, items=[dict(ROW, rgnLmtYn="Y", prtcptPsblRgnNm="대전광역시")])
         lines = []
         self.assertTrue(run_probe(NOW, lines.append, client))
         self.assertEqual(client.page.call_count, 7)
@@ -124,6 +124,7 @@ class LiveProbeTests(SimpleTestCase):
         self.assertEqual(first["inqryEndDt"], "202609102359")
         self.assertEqual(client.page.call_args_list[2].kwargs["inqryBgnDt"], "202609040000")
         self.assertEqual(client.page.call_args_list[5].kwargs["rows"], 999)
+        self.assertTrue(json.loads(lines[-1])["region_name_present"])
 
     def test_auth_or_quota_failure_stops_further_calls(self):
         from .live_probe import run_probe
@@ -168,6 +169,47 @@ class LiveProbeTests(SimpleTestCase):
         lines = []
         self.assertFalse(run_probe(NOW, lines.append, client))
         self.assertFalse(json.loads(lines[5])["notice_key_matches"])
+
+    def test_regional_probe_rejects_empty_or_wrong_details(self):
+        from .live_probe import run_probe
+        regional = dict(ROW, rgnLmtYn="Y", prtcptPsblRgnNm="충청남도")
+        page = SimpleNamespace(total_count=1, items=[regional])
+        for detail in ([], [dict(regional, bidNtceNo="another-notice")], [ROW]):
+            client = Mock()
+            client.page.side_effect = [page] * 6 + [SimpleNamespace(total_count=len(detail), items=detail)]
+            lines = []
+            self.assertFalse(run_probe(NOW, lines.append, client))
+            self.assertEqual(client.page.call_count, 7)
+            self.assertFalse(json.loads(lines[-1])["ok"])
+
+
+class RolloutTests(TestCase):
+    def test_seed_preserves_existing_disabled_rules_and_is_idempotent(self):
+        from pathlib import Path
+        existing = CollectionRule.objects.create(kind="industry", value="5031", name="기존 이름", active=False)
+        path = Path(__file__).resolve().parent.parent / "deploy/bids/initial-rules.json"
+        output = StringIO()
+        call_command("seed_central_bid_rules", file=str(path), stdout=output)
+        self.assertEqual(CollectionRule.objects.count(), 1)
+        self.assertEqual(CollectionJob.objects.count(), 0)
+        call_command("seed_central_bid_rules", file=str(path), execute=True, stdout=output)
+        call_command("seed_central_bid_rules", file=str(path), execute=True, stdout=output)
+        existing.refresh_from_db()
+        self.assertFalse(existing.active)
+        self.assertEqual(existing.name, "기존 이름")
+        self.assertEqual(CollectionRule.objects.count(), 5)
+        self.assertEqual(CollectionJob.objects.count(), 4)
+
+    def test_collector_unit_rejects_shell_and_systemd_interpolation(self):
+        from scripts.deploy.render_bid_collector_units import render
+        service, timer = render("/srv/geoflow", "/srv/geoflow/.venv/bin/python", "ubuntu", "ubuntu")
+        self.assertIn("--request-budget 100", service)
+        self.assertIn("OnUnitInactiveSec=5min", timer)
+        for path in ("/srv/%i", "/srv/bad\nExecStart=/bin/sh", "/srv/a b"):
+            with self.assertRaises(ValueError):
+                render(path, "/usr/bin/python", "ubuntu", "ubuntu")
+        with self.assertRaises(ValueError):
+            render("/srv/geoflow", "/usr/bin/python", "root", "root")
 
 
 class FakeClient:

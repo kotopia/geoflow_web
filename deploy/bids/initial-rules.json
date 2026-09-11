@@ -1,0 +1,7 @@
+[
+  {"kind": "industry", "value": "5031", "name": "지하시설물측량업"},
+  {"kind": "industry", "value": "5023", "name": "공공측량업"},
+  {"kind": "industry", "value": "5029", "name": "수치지도제작업"},
+  {"kind": "industry", "value": "1468", "name": "소프트웨어사업자"},
+  {"kind": "keyword", "value": "GIS", "name": "GIS"}
+]
