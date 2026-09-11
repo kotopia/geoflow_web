@@ -84,7 +84,6 @@ class RealtimeDeltaMixin:
         return bool(
             self.active_client is not None
             and (self.active_context or {}).get("changeset_supported")
-            and transport.get("realtime_supported")
             and transport.get("delta_url")
         )
 
@@ -93,6 +92,7 @@ class RealtimeDeltaMixin:
         return bool(
             self._realtime_transport_available()
             and QWebSocket is not None
+            and transport.get("realtime_supported")
             and transport.get("realtime_url")
         )
 
@@ -148,8 +148,8 @@ class RealtimeDeltaMixin:
             self._realtime_fallback_announced = True
             self.iface.messageBar().pushMessage(
                 "GeoFlow",
-                "QGIS WebSocket 호환 경로를 사용할 수 없어 Delta 폴링으로 실시간 수신을 유지합니다.",
-                level=Qgis.Warning,
+                "GeoFlow 변경사항을 저빈도 Delta 확인으로 자동 수신합니다.",
+                level=Qgis.Info,
                 duration=6,
             )
         if not self._realtime_poll_timer.isActive():

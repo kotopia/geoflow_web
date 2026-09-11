@@ -72,6 +72,8 @@
 
     var endpoint = mapNode.getAttribute("data-geojson-url");
     var featureEndpoint = mapNode.getAttribute("data-feature-url");
+    var deltaEndpoint = mapNode.getAttribute("data-delta-url");
+    var currentRevision = Number(mapNode.getAttribute("data-current-revision") || 0);
     var websocketPath = mapNode.getAttribute("data-websocket-path");
     var layers = parseJsonScript("gis-map-layers", []).filter(function (row) {
       return !row.physical_status || row.physical_status === "READY";
@@ -90,6 +92,17 @@
     var reconnectTimer = null;
     var reconnectDelay = 1000;
     var websocketStarted = false;
+    var deltaPollTimer = null;
+    var deltaPollInFlight = false;
+    var deltaPollingStopped = false;
+
+    function pollDelay() { return document.hidden ? 15000 : 5000; }
+
+    function scheduleDeltaPoll(delay) {
+      if (!deltaEndpoint || deltaPollingStopped) return;
+      if (deltaPollTimer) clearTimeout(deltaPollTimer);
+      deltaPollTimer = setTimeout(pollDelta, delay === undefined ? pollDelay() : delay);
+    }
 
     function setStatus(text) { if (statusNode) statusNode.textContent = text; }
     function featureId(feature) { return feature ? String(feature.id || (feature.properties || {}).id || "") : ""; }
@@ -149,7 +162,9 @@
       options = options || {};
       var generation = ++loadingGeneration;
       var bbox = options.bbox || null;
-      var states = Object.keys(layerState).map(function (key) { return layerState[key]; });
+      var states = Object.keys(layerState).map(function (key) { return layerState[key]; }).filter(function (state) {
+        return Number(state.info.row_count || 0) > 0 || state.group.getLayers().length > 0;
+      });
       if (!states.length) { setStatus("표시할 GIS 객체가 없습니다."); return; }
       setStatus(bbox ? "현재 지도 영역의 GIS 객체를 불러오는 중…" : "프로젝트 GIS 객체를 불러오는 중…");
       var results = await Promise.allSettled(states.map(function (state) { return loadLayer(state, bbox); }));
@@ -181,6 +196,7 @@
       if (!response.ok) throw new Error(state.info.standard_name + " refresh HTTP " + response.status);
       var data = await response.json();
       state.group.addData(data); state.returned = state.group.getLayers().length;
+      state.info.row_count = state.returned;
       updateVisibleCount(); setStatus("실시간 변경 반영 · revision " + currentRevision);
     }
 
@@ -207,6 +223,42 @@
       }
     }
 
+    async function pollDelta() {
+      if (!deltaEndpoint || deltaPollingStopped || deltaPollInFlight) return;
+      if (!navigator.onLine) { scheduleDeltaPoll(15000); return; }
+      deltaPollInFlight = true;
+      try {
+        var params = new URLSearchParams({ since: String(Math.max(0, currentRevision)), limit: "1000" });
+        var response = await fetch(deltaEndpoint + "?" + params.toString(), {
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" }
+        });
+        if (response.status === 401 || response.status === 403) {
+          deltaPollingStopped = true;
+          setStatus("자동 갱신 인증이 만료되었습니다. 다시 로그인해 주세요.");
+          return;
+        }
+        if (!response.ok) throw new Error("Delta HTTP " + response.status);
+        var data = await response.json();
+        if (data.snapshot_required) {
+          await loadAll({ bbox: bboxString(map), fit: false });
+          currentRevision = Number(data.current_revision || currentRevision);
+        } else {
+          await applyRealtimeEvent({
+            type: "gis.project.change",
+            current_revision: Number(data.current_revision || currentRevision),
+            changes: data.changes || []
+          });
+          currentRevision = Number(data.next_revision || data.current_revision || currentRevision);
+        }
+        scheduleDeltaPoll(data.has_more ? 0 : pollDelay());
+      } catch (error) {
+        scheduleDeltaPoll(15000);
+      } finally {
+        deltaPollInFlight = false;
+      }
+    }
+
     function websocketUrl() {
       if (!websocketPath) return "";
       return (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host + websocketPath;
@@ -226,7 +278,12 @@
         }).catch(function () { setStatus("재연결 후 지도 갱신 실패 · 새로고침해주세요"); });
       };
       socket.onmessage = function (event) {
-        try { applyRealtimeEvent(JSON.parse(event.data)); } catch (error) { /* ignore malformed event */ }
+        try {
+          var payload = JSON.parse(event.data);
+          applyRealtimeEvent(payload).then(function () {
+            currentRevision = Math.max(currentRevision, Number(payload.current_revision || 0));
+          });
+        } catch (error) { /* ignore malformed event */ }
       };
       socket.onclose = function (event) {
         socket = null;
@@ -247,6 +304,7 @@
     loadAll({ fit: true }).then(function () {
       websocketStarted = true;
       connectWebSocket();
+      scheduleDeltaPoll(pollDelay());
       map.on("moveend", function () {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(function () {
@@ -257,8 +315,13 @@
 
     window.addEventListener("beforeunload", function () {
       websocketStarted = false;
+      deltaPollingStopped = true;
+      if (deltaPollTimer) { clearTimeout(deltaPollTimer); deltaPollTimer = null; }
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (socket) socket.close();
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) scheduleDeltaPoll(0);
     });
   }
 
