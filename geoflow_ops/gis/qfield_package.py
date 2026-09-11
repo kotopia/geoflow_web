@@ -264,7 +264,7 @@ def build_qfield_geopackage(alias: str, *, project_id: str, plan: dict[str, Any]
                     "geometry_kind": spec.geometry_kind,
                     "row_count": count,
                     "spatial_index": "rtree",
-                    "fields": [{"name": f.name, "data_type": f.data_type, "editable": f.editable, "visible": f.visible, "sort_order": f.sort_order} for f in spec.fields],
+                    "fields": [{"name": f.name, "data_type": f.data_type, "editable": f.editable, "visible": f.visible, "sort_order": f.sort_order, "label": f.label} for f in spec.fields],
                 })
             conn.commit()
         finally:
