@@ -179,8 +179,17 @@ jobs:
           "$python" "$repo/manage.py" collectstatic --noinput
           sudo -n systemctl restart "$service"
 
-          code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 http://127.0.0.1:8011/login/ || true)"
-          case "$code" in 2??|3??) ;; *) fail 'local_login_unhealthy_after_restart' ;; esac
+          ready=no
+          for _ in $(seq 1 30); do
+            active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+            sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+            code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
+            if [ "$active" = active ] && [ "$sub" = running ]; then
+              case "$code" in 2??|3??) ready=yes; break ;; esac
+            fi
+            sleep 2
+          done
+          [ "$ready" = yes ] || fail 'local_login_unhealthy_after_restart'
 
           TARGET_DB="$target_db" PYTHONPATH="$repo" "$python" - <<'PY'
           import os
