@@ -1,0 +1,21 @@
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted">총 저장 공고 · 중복 제외</div><strong class="h2">{{ total }}</strong> 건<div class="small text-muted">2년 초과 정리 대기 {{ expired }}건 포함</div></div></div></div>
+  <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted">활성 수집조건</div><strong class="h2">{{ active }}</strong> 개<div class="small text-muted">수집 중 {{ running }} · 추가 요청 {{ requested }}</div></div></div></div>
+  <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted">가장 최근 구간 성공</div><strong>{{ last_success|date:"Y-m-d H:i"|default:"아직 없음" }}</strong><div class="small text-muted">모든 조건의 완료 시각과는 다릅니다.</div></div></div></div>
+  <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted">오늘 중앙 API 호출</div><strong>{{ api_used }} / {{ api_budget }}</strong><div class="small text-muted">중앙 할당 예산 · 다른 사용처 제외</div></div></div></div>
+</div>
+<div class="card"><div class="card-body">
+  <h2 class="h4">조건별 수집 상태</h2>
+  <p class="small text-muted">조건별 저장 건수에는 같은 공고가 겹칠 수 있습니다. 처리 건수는 현재/최근 구간의 확인 건수이며, 저장·갱신에는 기존 공고도 포함됩니다.</p>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>수집조건</th><th>저장 건수</th><th>상태</th><th>현재/최근 구간</th><th>최근 2년 수집</th><th>최근 성공</th><th>작업</th></tr></thead><tbody>
+  {% for row in rows %}<tr>
+    <td><strong>{{ row.rule.name }}</strong><div class="small text-muted">{{ row.rule.get_kind_display }} · {{ row.rule.value }}</div>{% if not row.rule.active %}<span class="badge bg-secondary">비활성</span>{% endif %}</td>
+    <td>{{ row.rule.stored_count }} 건</td>
+    <td>{{ row.state }}{% if row.job.requested %}<div class="small">다음 동기화 요청됨</div>{% endif %}{% if row.job.error_code %}<div class="text-danger">{{ row.job.error_code }}</div>{% endif %}{% if row.stale %}<div class="text-warning">최근 갱신 지연 · 수집기 확인 필요</div>{% endif %}{% if not row.rule.active %}<div class="small">다음 작업부터 중단</div>{% endif %}</td>
+    <td>{% if row.progress %}<div>{% if row.progress.mode == "live" %}신규·변경{% else %}과거 수집{% endif %}</div><div>{{ row.progress.processed }} / {% if row.progress.total == None %}조회 중{% else %}{{ row.progress.total }}{% endif %} 건 처리</div><div class="small">저장·갱신 {{ row.progress.stored }} 건</div><div class="small text-muted">{{ row.window_start|date:"Y-m-d H:i" }}<br>~ {{ row.window_end|date:"Y-m-d H:i" }}</div>{% else %}실행 전{% endif %}</td>
+    <td>{% if row.backfill_complete %}완료{% elif row.job %}{{ row.job.backfill_cursor|date:"Y-m-d H:i" }}까지<br><span class="small text-muted">목표 {{ row.job.backfill_end|date:"Y-m-d H:i" }}</span>{% else %}미등록{% endif %}</td>
+    <td>{{ row.job.last_success_at|date:"Y-m-d H:i"|default:"아직 없음" }}</td>
+    <td><form method="post" action="{% url 'control:central_bids' %}" class="d-flex gap-1">{% csrf_token %}<input type="hidden" name="rule_id" value="{{ row.rule.pk }}">{% if row.rule.active %}<button name="action" value="sync" class="btn btn-sm btn-primary">동기화</button><button name="action" value="disable" class="btn btn-sm btn-outline-secondary">비활성화</button>{% else %}<button name="action" value="enable" class="btn btn-sm btn-outline-primary">활성화</button>{% endif %}</form></td>
+  </tr>{% empty %}<tr><td colspan="7" class="text-muted">등록된 수집조건이 없습니다. 아래에서 업종 또는 키워드를 추가하세요.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div></div>

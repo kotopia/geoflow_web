@@ -1,0 +1,39 @@
+name: Central bid collection tests
+on:
+  pull_request:
+    paths:
+      - 'procurement/**'
+      - 'geoflow_ops/bids/**'
+      - 'geoflow_ops/migrations/0037_central_bid_reviews.py'
+      - 'control/db_router.py'
+      - 'control/urls.py'
+      - 'control/templates/control/partials/sidebar.html'
+      - '.github/workflows/central-bids-tests.yml'
+      - '.github/workflows/central-bids-live-diagnostic.yml'
+      - 'scripts/probe_central_g2b.py'
+permissions:
+  contents: read
+jobs:
+  isolated-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: procurement_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      PROCUREMENT_TEST_POSTGRES: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install Django==5.2.16 psycopg2-binary
+      - run: python -m django test procurement --settings=procurement.test_settings
+      - run: python -m django makemigrations procurement --check --dry-run --settings=procurement.test_settings

@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TenantRouter:
-    CENTRAL_APPS = {"control", "catalog"}
+    CENTRAL_APPS = {"control", "catalog", "procurement"}
     TENANT_APPS = {"geoflow_ops", "webgisapp"}
 
     def _resolve_alias(self, model):

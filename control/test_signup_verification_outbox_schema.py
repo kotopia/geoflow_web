@@ -101,5 +101,5 @@ class SignupVerificationOutboxSchemaTests(TestCase):
     def test_control_router_keeps_migration_on_central_alias(self):
         router_source = (CONTROL_DIR / "db_router.py").read_text(encoding="utf-8")
 
-        self.assertIn('CENTRAL_APPS = {"control", "catalog"}', router_source)
+        self.assertIn('CENTRAL_APPS = {"control", "catalog", "procurement"}', router_source)
         self.assertIn("return db == settings.CENTRAL_DB_ALIAS", router_source)
