@@ -64,13 +64,17 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         self.assertNotIn("event-highlight-enabled", modal)
         self.assertNotIn("event-highlight-days", modal)
 
-    def test_suspend_period_controls_do_not_create_resume_event(self):
+    def test_suspend_period_controls_require_explicit_close(self):
         js = source("static/geoflow_ops/js/process-event-display-calendar.js")
         self.assertIn("var PERIOD_EVENT_TYPES", js)
         self.assertIn("suspend: { closeLabel: '중지 종료' }", js)
-        self.assertIn("end.disabled=openEnded||readOnly", js)
-        self.assertIn("body.until_closed=isPeriod?openEnded:false", js)
-        self.assertIn("editingOpenPeriodEvent(eventType)", js)
+        self.assertIn("closingPeriodEvent=true", js)
+        self.assertIn("payload.period_end_at=endAt", js)
+        self.assertIn("payload.period_closed=true", js)
+        self.assertIn("body.status='done'", js)
+        self.assertIn("body.until_closed=true", js)
+        self.assertIn("body.highlight_enabled=true", js)
+        self.assertIn("body.end_at=null", js)
         self.assertIn("if(saveButton&&!saveButton.disabled)saveButton.click()", js)
         self.assertNotIn("event_type: 'resume'", js)
         self.assertNotIn('event_type: "resume"', js)
@@ -93,6 +97,8 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         self.assertNotIn("용역 재개", js)
         self.assertIn("wf.active_event_labels", contract_list)
         self.assertIn("wf.active_event_labels", project_list)
+        self.assertIn("badge bg-danger text-white", js)
+        self.assertIn("gf-period-closed-badge", js)
         self.assertNotIn("insertAdjacentElement('afterend'", js)
 
     def test_calendar_page_and_feed_are_wired(self):
@@ -129,4 +135,4 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
 
     def test_event_display_script_is_cache_busted_after_period_control_change(self):
         base = source("templates/geoflow_ops/base_tenant.html")
-        self.assertIn("process-event-display-calendar.js' %}?v=20260910-1", base)
+        self.assertIn("process-event-display-calendar.js' %}?v=20260911-2", base)
