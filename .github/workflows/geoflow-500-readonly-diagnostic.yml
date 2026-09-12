@@ -1,0 +1,116 @@
+name: GeoFlow 500 read-only diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_port:
+        description: SSH port for the reviewed GeoFlow host
+        required: false
+        default: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: ${{ inputs.ssh_port }}
+
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate exact release and inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "release/stabilized-deploy"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+          echo "diagnostic_candidate_sha=$GITHUB_SHA"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_diagnostic_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_diagnostic_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_diagnostic_key" >/dev/null
+
+      - name: Read-only application and 500 diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_diagnostic_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -u
+          service='geoflow-stabilized.service'
+
+          redact() {
+            sed -E \
+              -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/***@***/g' \
+              -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/***-uuid-***/g'
+          }
+
+          echo 'readonly_500_diagnostic_started=yes'
+          echo "service_active=$(systemctl is-active "$service" 2>/dev/null || true)"
+          echo "service_substate=$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          echo "service_restarts=$(systemctl show "$service" -p NRestarts --value 2>/dev/null || true)"
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+            repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+            if [ -n "$repo" ]; then
+              echo "deployed_sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
+              echo "deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+              echo "worktree_dirty_count=$(git -C "$repo" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+            fi
+          fi
+
+          echo '--- local route status ---'
+          for path in / /login/ /terms/ /privacy/; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 -H 'Host: geoflow.co.kr' "http://127.0.0.1:8011${path}" || true)"
+            echo "local_${path//\//_}_status=${code:-connection_failed}"
+          done
+
+          echo '--- public route status ---'
+          for path in / /login/ /terms/ /privacy/; do
+            code="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "https://geoflow.co.kr${path}" || true)"
+            echo "public_${path//\//_}_status=${code:-connection_failed}"
+          done
+
+          echo '--- recent sanitized application errors ---'
+          if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+            sudo -n journalctl -u "$service" --since '-60 min' --no-pager -n 500 2>/dev/null \
+              | grep -Ei 'Traceback|Internal Server Error|ERROR|Exception|OperationalError|ProgrammingError|DatabaseError|Template(Syntax|DoesNotExist)?Error|NoReverseMatch|KeyError|AttributeError|TypeError' \
+              | redact \
+              | tail -n 160 || true
+          else
+            journalctl -u "$service" --since '-60 min' --no-pager -n 500 2>/dev/null \
+              | grep -Ei 'Traceback|Internal Server Error|ERROR|Exception|OperationalError|ProgrammingError|DatabaseError|Template(Syntax|DoesNotExist)?Error|NoReverseMatch|KeyError|AttributeError|TypeError' \
+              | redact \
+              | tail -n 160 || true
+          fi
+
+          echo 'readonly_500_diagnostic_completed=yes'
+          REMOTE
