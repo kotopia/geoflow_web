@@ -284,6 +284,56 @@ class CollectionTests(TestCase):
         self.assertEqual(self.job.backfill_cursor, retention_start(minute(NOW)))
         self.assertIsNone(self.job.last_success_at)
 
+    def test_retry_freezes_live_window_and_skips_already_rejected_rows(self):
+        client = FakeClient()
+        rejected = dict(ROW, bidNtceNo="rejected", bidNtceNm="급식")
+        client.search = lambda *a: []
+        client.changes = lambda *a: [rejected, ROW]
+        client.details = Mock(side_effect=[DETAILS, G2BError("BUDGET_EXHAUSTED", "stop")])
+        with self.assertRaises(G2BError):
+            run_step(self.job, client, NOW)
+        self.job.refresh_from_db()
+        frozen = self.job.progress.copy()
+        self.assertEqual(len(frozen["completed_keys"]), 1)
+        self.assertFalse(Notice.objects.exists())
+        client.details = Mock(return_value=DETAILS)
+        client.search = Mock(return_value=[])
+        run_step(self.job, client, NOW + timedelta(hours=2))
+        self.job.refresh_from_db()
+        self.assertEqual(client.details.call_count, 1)
+        self.assertEqual(client.details.call_args.args[0]["bidNtceNo"], ROW["bidNtceNo"])
+        self.assertEqual(client.search.call_args.args[2].isoformat(), frozen["end"])
+        self.assertEqual(self.job.live_cursor, minute(NOW))
+        self.assertEqual(Notice.objects.count(), 1)
+        self.assertNotIn("completed_keys", self.job.progress)
+
+    def test_audit_counts_database_without_api_or_writes(self):
+        store_notice(ROW, DETAILS, self.rule, NOW)
+        before = self.job.progress.copy()
+        output = StringIO()
+        with patch("procurement.client.Client.page", side_effect=AssertionError("external call")):
+            call_command("report_central_bids", stdout=output)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["total"], 1)
+        self.assertIsNone(result["display_limit"])
+        self.assertEqual(result["rules"][0]["stored"], 1)
+        self.assertFalse(result["rules"][0]["backfill_complete"])
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.progress, before)
+
+    def test_one_rule_api_error_does_not_block_other_rules(self):
+        from contextlib import nullcontext
+        from .service import run_worker
+        other = CollectionRule.objects.create(kind="industry", value="5031", name="측량")
+        enqueue_rule(other, NOW)
+        def step(job, client):
+            if job.rule_id == self.rule.pk:
+                raise G2BError("API_10", "invalid notice")
+            return True
+        with patch("procurement.service.worker_lock", return_value=nullcontext(True)), \
+             patch("procurement.service.run_step", side_effect=step):
+            self.assertEqual(run_worker(max_steps=1), 1)
+
     def test_backfill_and_live_checkpoints_independent(self):
         run_step(self.job, FakeClient(), NOW)
         self.job.refresh_from_db()

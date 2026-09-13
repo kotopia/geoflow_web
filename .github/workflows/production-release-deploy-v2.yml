@@ -258,6 +258,9 @@ jobs:
           env_changed=1
 
           "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
+          echo 'central_bids_audit_before_resume_fix'
+          "$python" "$repo/manage.py" report_central_bids
+          systemctl show geoflow-bid-collector.service -p ActiveState -p SubState -p Result -p ExecMainStatus -p ExecMainExitTimestamp
           "$python" -m pip check
           "$python" "$repo/manage.py" check
           "$python" "$repo/manage.py" migrate procurement --database=default --noinput
@@ -451,6 +454,8 @@ jobs:
           sudo -n systemctl enable --now geoflow-bid-collector.timer
           sudo -n systemctl is-active --quiet geoflow-bid-collector.timer
           echo 'central_bids_collector_timer_active=yes'
+          echo 'central_bids_audit_after_resume_fix'
+          "$python" "$repo/manage.py" report_central_bids
 
           rollback_needed=0
           env_changed=0

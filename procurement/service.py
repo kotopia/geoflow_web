@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import connections, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from geoflow_ops.bids.client import G2BError
 from geoflow_ops.bids.sync import _normalized_notice
@@ -112,8 +113,18 @@ def run_step(job, client, now=None):
         return False
     if live:
         start -= timedelta(hours=2)
+    previous = job.progress or {}
+    # Freeze an incomplete window, including its rejected rows, across retries.
+    # Advancing the live end on every retry can repeatedly exhaust the budget.
+    resume = job.status in {"failed", "running"} and previous.get("checkpoint_version") == 1
+    if resume:
+        live = previous["mode"] == "live"
+        start, end = parse_datetime(previous["start"]), parse_datetime(previous["end"])
+    completed_keys = set(previous.get("completed_keys", [])) if resume else set()
     progress = dict(mode="live" if live else "backfill", start=start.isoformat(), end=end.isoformat(),
-                    total=None, processed=0, stored=0, updated_at=timezone.now().isoformat())
+                    checkpoint_version=1, completed_keys=sorted(completed_keys),
+                    total=None, processed=len(completed_keys), stored=previous.get("stored", 0) if resume else 0,
+                    updated_at=timezone.now().isoformat())
     job_query = CollectionJob.objects.using(alias).filter(pk=job.pk)
     job_query.update(status="running", requested=False, error_code="", progress=progress)
     try:
@@ -129,6 +140,11 @@ def run_step(job, client, now=None):
         for key, row in selected.items():
             if not key[0]:
                 raise G2BError("MISSING_NOTICE_KEY", "공고 식별자가 없습니다.")
+            # Include source content so a notice changed during a retry is rechecked.
+            import hashlib
+            checkpoint_key = hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            if checkpoint_key in completed_keys:
+                continue
             existing = Notice.objects.using(alias).filter(number=key[0], order=key[1]).first()
             if existing and existing.raw.get("notice") == row:
                 details = {name: existing.raw.get(name, []) for name in ("regions", "industries", "products")}
@@ -140,9 +156,12 @@ def run_step(job, client, now=None):
                 if store_notice(row, details, job.rule, now):
                     progress["stored"] += 1
             progress["processed"] += 1
+            completed_keys.add(checkpoint_key)
+            progress["completed_keys"] = sorted(completed_keys)
             progress["updated_at"] = timezone.now().isoformat()
             job_query.update(progress=progress)
-        updates = dict(status="success", error_code="", last_success_at=now, fetched_count=len(selected))
+        progress.pop("completed_keys", None)
+        updates = dict(status="success", error_code="", last_success_at=now, fetched_count=len(selected), progress=progress)
         if live:
             updates.update(live_cursor=end, due_at=now + timedelta(hours=1))
         else:
@@ -171,8 +190,12 @@ def run_worker(budget=100, max_steps=10):
                     changed = run_step(job, client)
                     completed += int(changed)
                     progress |= changed
-                except G2BError:
-                    return completed
+                except G2BError as exc:
+                    if exc.code in {"BUDGET_EXHAUSTED", "DAILY_BUDGET_EXHAUSTED", "API_20", "API_22",
+                                    "API_23", "API_29", "API_30", "API_31", "MISSING_SERVICE_KEY", "NETWORK_ERROR"}:
+                        return completed
+                    # One malformed notice/rule must not prevent other rules running.
+                    continue
             if not progress:
                 break
         return completed
