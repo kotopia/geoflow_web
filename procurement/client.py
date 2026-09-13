@@ -1,5 +1,6 @@
 """Read-only G2B requests. No file downloads and no secret-bearing error strings."""
 import json
+import hashlib
 from xml.etree import ElementTree
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, unquote
@@ -56,6 +57,17 @@ def response_error(raw, fallback):
 class Client:
     def __init__(self, budget=100):
         self.budget = budget
+        self.checkpoint = None
+        self.save_checkpoint = None
+
+    def bind_checkpoint(self, progress, save):
+        self.checkpoint = progress
+        self.save_checkpoint = save
+
+    def _save(self):
+        if self.save_checkpoint:
+            self.checkpoint["updated_at"] = timezone.now().isoformat()
+            self.save_checkpoint()
 
     def reserve(self):
         alias = getattr(settings, "CENTRAL_DB_ALIAS", "default")
@@ -112,18 +124,47 @@ class Client:
             raise G2BError("INVALID_TOTAL", "전체 결과 건수를 확인할 수 없습니다.") from None
         if len(page.items) > rows or len(page.items) > page.total_count:
             raise G2BError("INVALID_TOTAL", "응답 건수가 전체 결과 건수와 일치하지 않습니다.")
+        body = payload["response"]["body"]
+        for field, expected in (("pageNo", page_no), ("numOfRows", rows)):
+            if field in body and str(body[field]) != str(expected):
+                raise G2BError("PAGE_METADATA_MISMATCH", "응답 페이지 정보가 요청과 다릅니다.")
         return page
 
     def all(self, operation, **query):
-        result = []
-        page_no = 1
+        rows = 999
+        query_key = hashlib.sha256(json.dumps([operation, query, rows], sort_keys=True).encode()).hexdigest()
+        cache = self.checkpoint.setdefault("api_page_cache", {}) if self.checkpoint is not None else {}
+        state = cache.setdefault(query_key, dict(operation=operation, query=query, numOfRows=rows,
+                                                 totalCount=None, pages=[], complete=False))
+        result = [item for page in state["pages"] for item in page["items"]]
+        if state["complete"]:
+            return result
+        page_no = len(state["pages"]) + 1
         while True:
-            page = self.page(operation, page_no=page_no, **query)
+            if page_no > 1000:
+                raise G2BError("PAGE_LIMIT_EXCEEDED", "구간 분할 또는 페이지 검토가 필요합니다.")
+            page = self.page(operation, page_no=page_no, rows=rows, **query)
+            digest = hashlib.sha256(json.dumps(page.items, sort_keys=True).encode()).hexdigest()
+            code = None
+            if state["totalCount"] is not None and state["totalCount"] != page.total_count:
+                code = "TOTAL_CHANGED"
+            elif page.items and any(p["digest"] == digest for p in state["pages"]):
+                code = "REPEATED_PAGE"
+            elif len(result) + len(page.items) > page.total_count:
+                code = "INVALID_TOTAL"
+            elif not page.items and len(result) < page.total_count:
+                code = "INCOMPLETE_RESPONSE"
+            if code:
+                cache.pop(query_key, None)
+                self._save()
+                raise G2BError(code, "페이지 수량이 일치하지 않아 해당 조회를 다시 확인합니다.")
             result.extend(page.items)
-            if len(result) >= page.total_count:
+            state["totalCount"] = page.total_count
+            state["pages"].append(dict(pageNo=page_no, received=len(page.items), digest=digest, items=page.items))
+            state["complete"] = len(result) == page.total_count
+            self._save()
+            if state["complete"]:
                 return result
-            if not page.items or page_no >= 1000:
-                raise G2BError("INCOMPLETE_RESPONSE", "전체 페이지를 받지 못했습니다.")
             page_no += 1
 
     def search(self, rule, start, end):

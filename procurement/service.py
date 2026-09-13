@@ -124,9 +124,12 @@ def run_step(job, client, now=None):
     progress = dict(mode="live" if live else "backfill", start=start.isoformat(), end=end.isoformat(),
                     checkpoint_version=1, completed_keys=sorted(completed_keys),
                     total=None, processed=len(completed_keys), stored=previous.get("stored", 0) if resume else 0,
+                    api_page_cache=previous.get("api_page_cache", {}) if resume else {},
                     updated_at=timezone.now().isoformat())
     job_query = CollectionJob.objects.using(alias).filter(pk=job.pk)
     job_query.update(status="running", requested=False, error_code="", progress=progress)
+    if isinstance(client, Client):
+        client.bind_checkpoint(progress, lambda: job_query.update(progress=progress))
     try:
         rows = client.search(job.rule, start, end)
         selected = {(r.get("bidNtceNo"), canonical_order(r.get("bidNtceOrd"))): r for r in rows}
@@ -136,6 +139,9 @@ def run_step(job, client, now=None):
             selected[(row.get("bidNtceNo"), canonical_order(row.get("bidNtceOrd")))] = row
         search_keys = {(r.get("bidNtceNo"), canonical_order(r.get("bidNtceOrd"))) for r in rows}
         progress.update(total=len(selected), updated_at=timezone.now().isoformat())
+        progress.update(search_received=len(rows), changes_received=len(changes),
+                        search_unique=len(search_keys), search_duplicates=len(rows)-len(search_keys),
+                        merged_duplicates=len(rows)+len(changes)-len(selected))
         job_query.update(progress=progress)
         for key, row in selected.items():
             if not key[0]:
@@ -161,6 +167,12 @@ def run_step(job, client, now=None):
             progress["updated_at"] = timezone.now().isoformat()
             job_query.update(progress=progress)
         progress.pop("completed_keys", None)
+        progress["api_queries"] = [dict(operation=q["operation"], query=q["query"], numOfRows=q["numOfRows"],
+                                       totalCount=q["totalCount"], complete=q["complete"],
+                                       received=sum(p["received"] for p in q["pages"]),
+                                       pages=[dict(pageNo=p["pageNo"], received=p["received"]) for p in q["pages"]])
+                                   for q in progress.pop("api_page_cache", {}).values()
+                                   if q["operation"] in {"getBidPblancListInfoServcPPSSrch", "getBidPblancListInfoServc"}]
         updates = dict(status="success", error_code="", last_success_at=now, fetched_count=len(selected), progress=progress)
         if live:
             updates.update(live_cursor=end, due_at=now + timedelta(hours=1))

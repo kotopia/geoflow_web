@@ -29,6 +29,8 @@ class Command(BaseCommand):
             rules = CollectionRule.objects.using(alias).annotate(
                 stored=Count("notices"), oldest=Min("notices__posted_at"), newest=Max("notices__posted_at"))
             result = dict(captured_at=now, source="central_database", display_limit=None,
+                          retention_start=retention_start(now), retention_end=now, timezone="Asia/Seoul",
+                          provider_key_daily_quota="unverified", historical_api_counts="not_recorded",
                           total=Notice.objects.using(alias).count(),
                           retained_total=Notice.objects.using(alias).filter(posted_at__gte=retention_start(now)).count(),
                           daily_budget=getattr(settings, "G2B_CENTRAL_DAILY_BUDGET", 500),
@@ -36,7 +38,8 @@ class Command(BaseCommand):
                                         .order_by("day").values("day", "used")), rules=[])
             for rule in rules:
                 job = jobs.get(rule.pk)
-                row = dict(kind=rule.kind, value=rule.value, active=rule.active, stored=rule.stored,
+                row = dict(kind=rule.kind, value=rule.value, name=rule.name, active=rule.active, stored=rule.stored,
+                           retained_stored=Notice.objects.using(alias).filter(rules=rule, posted_at__gte=retention_start(now)).count(),
                            oldest_stored=rule.oldest, newest_stored=rule.newest)
                 if job:
                     row.update(status=job.status, error_code=job.error_code, last_success_at=job.last_success_at,
@@ -44,6 +47,11 @@ class Command(BaseCommand):
                                backfill_complete=job.backfill_cursor >= job.backfill_end,
                                remaining_from=max(job.backfill_cursor, retention_start(now)),
                                live_cursor=job.live_cursor, due_at=job.due_at, requested=job.requested,
-                               progress={k: v for k, v in job.progress.items() if k != "completed_keys"})
+                               progress={k: v for k, v in job.progress.items() if k not in {"completed_keys", "api_page_cache"}},
+                               pending_api_queries=[dict(operation=q["operation"], numOfRows=q["numOfRows"],
+                                                         totalCount=q["totalCount"], complete=q["complete"],
+                                                         next_page=len(q["pages"])+1,
+                                                         received=sum(p["received"] for p in q["pages"]))
+                                                    for q in job.progress.get("api_page_cache", {}).values()])
                 result["rules"].append(row)
         self.stdout.write(json.dumps(result, cls=DjangoJSONEncoder, ensure_ascii=False))
