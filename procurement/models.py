@@ -34,6 +34,15 @@ class CollectionJob(models.Model):
     error_code = models.CharField(max_length=100, blank=True)
     fetched_count = models.PositiveIntegerField(default=0)
     progress = models.JSONField(default=dict, blank=True)
+    backfill_start = models.DateTimeField(null=True)
+    backfill_status = models.CharField(max_length=32, default="BACKFILL_PENDING")
+    generation = models.UUIDField(default=uuid.uuid4)
+    backfill_progress = models.JSONField(default=dict, blank=True)
+    incremental_progress = models.JSONField(default=dict, blank=True)
+    local_match_complete = models.BooleanField(default=False)
+    local_match_cursor = models.UUIDField(null=True)
+    local_matched = models.PositiveIntegerField(default=0)
+    last_incremental_success = models.DateTimeField(null=True)
 
     class Meta:
         verbose_name = "수집 진행상태"
@@ -79,3 +88,22 @@ class NoticeRevision(models.Model):
 class ApiBudget(models.Model):
     day = models.DateField(primary_key=True)
     used = models.PositiveIntegerField(default=0)
+    received = models.PositiveIntegerField(default=0)
+    inserted = models.PositiveIntegerField(default=0)
+    updated = models.PositiveIntegerField(default=0)
+
+
+class CollectionWindow(models.Model):
+    job = models.ForeignKey(CollectionJob, on_delete=models.PROTECT, related_name="windows")
+    generation = models.UUIDField()
+    mode = models.CharField(max_length=16)
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    metrics = models.JSONField(default=dict)
+    verified = models.BooleanField(default=False)
+    completed_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["job", "generation", "mode", "start", "end"],
+                                               name="procurement_window_unique")]
+        indexes = [models.Index(fields=["job", "generation", "mode", "start"], name="procurement_coverage_idx")]

@@ -89,12 +89,58 @@ class ClientProtocolTests(TestCase):
         request.assert_not_called()
 
     def test_all_pages_still_collected_and_missing_page_fails(self):
-        with patch("procurement.client.urlopen", side_effect=[BytesIO(self.payload(2)), BytesIO(self.payload(2))]):
+        other = dict(ROW, bidNtceNo="other")
+        with patch("procurement.client.urlopen", side_effect=[BytesIO(self.payload(2)), BytesIO(self.payload(2, [other]))]):
             self.assertEqual(len(Client().all(SEARCH)), 2)
         with patch("procurement.client.urlopen", side_effect=[BytesIO(self.payload(2)), BytesIO(self.payload(2, []))]):
             with self.assertRaises(G2BError) as caught:
                 Client().all(SEARCH)
         self.assertEqual(caught.exception.code, "INCOMPLETE_RESPONSE")
+
+    def test_page_checkpoint_survives_budget_stop_and_resumes_next_page(self):
+        rule = CollectionRule.objects.create(kind="keyword", value="GIS", name="GIS")
+        job = enqueue_rule(rule, NOW)
+        progress = {}
+        def save():
+            CollectionJob.objects.filter(pk=job.pk).update(progress=progress)
+        client = Client(budget=1)
+        client.bind_checkpoint(progress, save)
+        first = [dict(ROW, bidNtceNo=str(n)) for n in range(999)]
+        last = [dict(ROW, bidNtceNo=str(n)) for n in range(999, 1200)]
+        with patch("procurement.client.urlopen", return_value=BytesIO(self.payload(1200, first))):
+            with self.assertRaises(G2BError) as caught:
+                client.all(SEARCH, inqryDiv="1")
+        self.assertEqual(caught.exception.code, "BUDGET_EXHAUSTED")
+        job.refresh_from_db()
+        progress = job.progress
+        client = Client(budget=1)
+        client.bind_checkpoint(progress, save)
+        with patch("procurement.client.urlopen", return_value=BytesIO(self.payload(1200, last))) as request:
+            self.assertEqual(len(client.all(SEARCH, inqryDiv="1")), 1200)
+        query = parse_qs(urlparse(request.call_args.args[0].full_url).query)
+        self.assertEqual(query["pageNo"], ["2"])
+        self.assertEqual(query["numOfRows"], ["999"])
+        self.assertEqual(ApiBudget.objects.get().used, 2)
+
+    def test_repeated_page_or_changed_total_cannot_mark_complete(self):
+        for second, expected in ((self.payload(2), "REPEATED_PAGE"),
+                                 (self.payload(3, [dict(ROW, bidNtceNo="other")]), "TOTAL_CHANGED")):
+            progress = {}
+            client = Client()
+            client.bind_checkpoint(progress, lambda: None)
+            with patch("procurement.client.urlopen", side_effect=[BytesIO(self.payload(2)), BytesIO(second)]):
+                with self.assertRaises(G2BError) as caught:
+                    client.all(SEARCH)
+            self.assertEqual(caught.exception.code, expected)
+            self.assertEqual(progress["api_page_cache"], {})
+
+    def test_provider_page_metadata_must_match_request(self):
+        payload = json.loads(self.payload(1))
+        payload["response"]["body"].update(pageNo=1, numOfRows=999)
+        with patch("procurement.client.urlopen", return_value=BytesIO(json.dumps(payload).encode())):
+            with self.assertRaises(G2BError) as caught:
+                Client().page(SEARCH, page_no=2)
+        self.assertEqual(caught.exception.code, "PAGE_METADATA_MISMATCH")
 
 
 class PolicyTests(SimpleTestCase):
@@ -229,7 +275,7 @@ class RolloutTests(TestCase):
     def test_collector_unit_rejects_shell_and_systemd_interpolation(self):
         from scripts.deploy.render_bid_collector_units import render
         service, timer = render("/srv/geoflow", "/srv/geoflow/.venv/bin/python", "ubuntu", "ubuntu")
-        self.assertIn("--request-budget 100", service)
+        self.assertIn("manage.py collect_central_bids\n", service)
         self.assertIn("OnUnitInactiveSec=5min", timer)
         for path in ("/srv/%i", "/srv/bad\nExecStart=/bin/sh", "/srv/a b"):
             with self.assertRaises(ValueError):
@@ -326,7 +372,7 @@ class CollectionTests(TestCase):
         from .service import run_worker
         other = CollectionRule.objects.create(kind="industry", value="5031", name="측량")
         enqueue_rule(other, NOW)
-        def step(job, client):
+        def step(job, client, now=None, mode=None):
             if job.rule_id == self.rule.pk:
                 raise G2BError("API_10", "invalid notice")
             return True
