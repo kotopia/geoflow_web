@@ -51,9 +51,14 @@ class RuleAdmin(CentralAdmin):
         # Changed search semantics require a new rule; old provenance stays intact.
         from django.db import transaction
         with transaction.atomic(using=central_alias()):
+            was_active = CollectionRule.objects.using(central_alias()).filter(pk=obj.pk, active=True).exists()
             obj.save(using=central_alias())
             if obj.active:
-                enqueue_rule(obj)
+                if change and not was_active:
+                    from .lifecycle import reactivate
+                    reactivate(obj)
+                else:
+                    enqueue_rule(obj)
 
 
 @admin.register(CollectionJob)

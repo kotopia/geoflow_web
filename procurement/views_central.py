@@ -62,11 +62,16 @@ def dashboard(request):
                     except forms.ValidationError:
                         return HttpResponseBadRequest("수집조건을 확인하세요.")
                     rule = get_object_or_404(rules, pk=rule_id)
+                    was_active = rule.active
                     if action in {"enable", "disable"}:
                         rule.active = action == "enable"
                         rule.save(using=alias, update_fields=["active"])
                     if rule.active:
-                        enqueue_rule(rule)
+                        if action == "enable" and not was_active:
+                            from .lifecycle import reactivate
+                            reactivate(rule)
+                        else:
+                            enqueue_rule(rule)
             return redirect("control:central_bids")
         else:
             return HttpResponseBadRequest("지원하지 않는 작업입니다.")

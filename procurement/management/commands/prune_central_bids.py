@@ -12,16 +12,11 @@ class Command(BaseCommand):
         parser.add_argument("--execute", action="store_true")
 
     def handle(self, **options):
+        if options["execute"]:
+            raise CommandError("업무기록 참조 보존정책 검증 전에는 원본을 물리 삭제하지 않습니다. --execute 없이 만료 건수를 확인하세요.")
         cutoff = retention_start(timezone.now())
         with worker_lock() as acquired:
             if not acquired:
                 raise CommandError("수집작업 진행 중입니다.")
             rows = Notice.objects.using(central_alias()).filter(posted_at__lt=cutoff)
             self.stdout.write(f"Expired notices: {rows.count()}; cutoff={cutoff.isoformat()}")
-            if options["execute"]:
-                # Tenant reviews hold independent references and are never cascaded.
-                while True:
-                    ids = list(rows.values_list("pk", flat=True)[:500])
-                    if not ids:
-                        break
-                    Notice.objects.using(central_alias()).filter(pk__in=ids).delete()

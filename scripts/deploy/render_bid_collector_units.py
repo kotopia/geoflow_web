@@ -20,7 +20,7 @@ Type=oneshot
 User={user}
 Group={group}
 WorkingDirectory={repo}
-ExecStart={python} {repo}/manage.py collect_central_bids --request-budget 100 --max-steps 10
+ExecStart={python} {repo}/manage.py collect_central_bids
 Environment=PYTHONUNBUFFERED=1
 TimeoutStartSec=900
 Nice=10

@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from geoflow_ops.bids.client import G2BError, parse_response
@@ -128,6 +129,8 @@ class Client:
         for field, expected in (("pageNo", page_no), ("numOfRows", rows)):
             if field in body and str(body[field]) != str(expected):
                 raise G2BError("PAGE_METADATA_MISMATCH", "응답 페이지 정보가 요청과 다릅니다.")
+        ApiBudget.objects.using(getattr(settings, "CENTRAL_DB_ALIAS", "default")).filter(
+            day=minute(timezone.now()).date()).update(received=F("received") + len(page.items))
         return page
 
     def all(self, operation, **query):

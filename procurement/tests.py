@@ -275,7 +275,7 @@ class RolloutTests(TestCase):
     def test_collector_unit_rejects_shell_and_systemd_interpolation(self):
         from scripts.deploy.render_bid_collector_units import render
         service, timer = render("/srv/geoflow", "/srv/geoflow/.venv/bin/python", "ubuntu", "ubuntu")
-        self.assertIn("--request-budget 100", service)
+        self.assertIn("manage.py collect_central_bids\n", service)
         self.assertIn("OnUnitInactiveSec=5min", timer)
         for path in ("/srv/%i", "/srv/bad\nExecStart=/bin/sh", "/srv/a b"):
             with self.assertRaises(ValueError):
@@ -372,7 +372,7 @@ class CollectionTests(TestCase):
         from .service import run_worker
         other = CollectionRule.objects.create(kind="industry", value="5031", name="측량")
         enqueue_rule(other, NOW)
-        def step(job, client):
+        def step(job, client, now=None, mode=None):
             if job.rule_id == self.rule.pk:
                 raise G2BError("API_10", "invalid notice")
             return True
