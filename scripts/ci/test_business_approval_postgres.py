@@ -175,4 +175,53 @@ class ApprovalGuardTests(unittest.TestCase):
         self.assertIn('original --messages-file',result.stderr)
 
 
+class BackupCredentialTests(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import Mock
+        self.Mock = Mock
+        sys.path.insert(0,str(ROOT/'scripts/ops'))
+        spec=importlib.util.spec_from_file_location('backup_cli',ROOT/'scripts/ops/reconcile_gis_business_fields.py')
+        self.cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.cli)
+
+    def test_masked_dsn_uses_resolver_only_in_child_environment(self):
+        from types import SimpleNamespace
+        resolver=self.Mock()
+        resolver.is_tenant_db_secret_reference.return_value=True
+        resolver.resolve_tenant_db_password.return_value='test-only-resolved-password'
+        connection=SimpleNamespace(dsn='dbname=testdb host=testhost port=5433 user=testuser password=xxx sslmode=require')
+        before=dict(os.environ)
+        with patch.dict(sys.modules,{'control.services.tenant_db_secret_resolver':resolver}):
+            env=self.cli._backup_environment(SimpleNamespace(db_password='test-secret-reference'),connection)
+        self.assertEqual(env['PGPASSWORD'],'test-only-resolved-password')
+        self.assertEqual({k:env[k] for k in ('PGDATABASE','PGHOST','PGPORT','PGUSER','PGSSLMODE')},
+                         dict(PGDATABASE='testdb',PGHOST='testhost',PGPORT='5433',PGUSER='testuser',PGSSLMODE='require'))
+        resolver.resolve_tenant_db_password.assert_called_once_with('test-secret-reference')
+        self.assertEqual(dict(os.environ),before)
+
+    def test_failed_backup_never_calls_guard_or_commits(self):
+        from contextlib import ExitStack,redirect_stdout
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        import io
+        conn=MagicMock()
+        args=['tool','--group-code','fixture','--db-alias','fixture','--project-id',
+              '86f52715-3cca-4124-9cc6-cb7c6a7e9c4e','--apply','--approval-file','fixture.json','--approval-sha256','0'*64]
+        with tempfile.TemporaryDirectory() as tmp,ExitStack() as stack:
+            stack.enter_context(patch.object(sys,'argv',args+['--backup-dir',tmp]))
+            stack.enter_context(patch.object(self.cli,'_locate',return_value=SimpleNamespace(db_name='fixture')))
+            stack.enter_context(patch.object(self.cli,'_connect_tenant',return_value=conn))
+            stack.enter_context(patch.object(self.cli,'_backup_environment',return_value={'PGPASSWORD':'test-only-child-password'}))
+            stack.enter_context(patch.object(guard,'load_approval',return_value={'evidence':{'verified':True}}))
+            stack.enter_context(patch('geoflow_ops.gis.business_fields.inspect_contract',return_value={'profile':'fixture'}))
+            stack.enter_context(patch('geoflow_ops.gis.business_fields.plan_contract',return_value=[('fixture',[])]))
+            apply=stack.enter_context(patch.object(guard,'guarded_reconcile'))
+            run=stack.enter_context(patch.object(self.cli.subprocess,'run',return_value=SimpleNamespace(returncode=1,stderr=b'failure')))
+            output=io.StringIO()
+            with redirect_stdout(output),self.assertRaisesRegex(RuntimeError,'Backup failed'):
+                self.cli.main()
+            apply.assert_not_called();conn.commit.assert_not_called();conn.close.assert_called_once()
+            self.assertNotIn('test-only-child-password',output.getvalue())
+            self.assertNotIn('test-only-child-password',str(run.call_args.args))
+
+
 if __name__=='__main__':unittest.main()

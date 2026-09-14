@@ -7,6 +7,26 @@ from pathlib import Path
 from uuid import UUID
 from sync_gis_catalog_capability_bindings import _connect_tenant, _one
 
+
+def _backup_environment(config, connection):
+    from psycopg2.extensions import parse_dsn
+    from control.services.tenant_db_secret_resolver import (
+        is_tenant_db_secret_reference, resolve_tenant_db_password,
+    )
+    # connection.dsn masks passwords. Preserve its target/SSL, resolve the
+    # credential through the same tenant resolver used for the connection.
+    dsn = parse_dsn(connection.dsn)
+    env = dict(os.environ)
+    for key, variable in [('dbname','PGDATABASE'),('host','PGHOST'),('port','PGPORT'),('user','PGUSER'),('sslmode','PGSSLMODE')]:
+        if key in dsn:
+            env[variable] = dsn[key]
+    reference = str(config.db_password or '').strip()
+    password = resolve_tenant_db_password(reference) if is_tenant_db_secret_reference(reference) else reference
+    if not password:
+        raise RuntimeError('Target tenant database password is empty')
+    env['PGPASSWORD'] = password
+    return env
+
 def _locate(group_code, db_alias):
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
     import django
@@ -84,11 +104,7 @@ def main():
         if archive.exists():
             raise RuntimeError('Backup already exists; use a fresh backup directory')
         # libpq connection details stay in subprocess environment, never argv/logs.
-        from psycopg2.extensions import parse_dsn
-        dsn = parse_dsn(conn.dsn)
-        env = dict(os.environ)
-        for key, variable in [('dbname','PGDATABASE'),('host','PGHOST'),('port','PGPORT'),('user','PGUSER'),('password','PGPASSWORD'),('sslmode','PGSSLMODE')]:
-            if key in dsn: env[variable]=dsn[key]
+        env = _backup_environment(config, conn)
         backup_tables = (*TABLES, 'meta_field_def', 'profile_field')
         result = subprocess.run(['pg_dump','--format=custom',
                                  *['--table=gis.' + table for table in backup_tables],
