@@ -168,12 +168,16 @@ def plan_contract(state):
     return operations
 
 
-def reconcile(cur, project_id):
+def lock_contract(cur):
     cur.execute("SELECT pg_advisory_xact_lock(hashtext('geoflow:business-form-contract:v1'))")
     # Recheck under locks; no partially applied plan or concurrent profile edit.
-    cur.execute('LOCK TABLE gis.meta_field_def,gis.profile_field,gis.ref_code_group,gis.ref_code_value,gis.project_profile,gis.profile IN SHARE ROW EXCLUSIVE MODE')
+    cur.execute('LOCK TABLE gis.meta_feature_type,gis.meta_field_def,gis.profile_field,gis.ref_code_group,gis.ref_code_value,gis.project_profile,gis.profile IN SHARE ROW EXCLUSIVE MODE')
     for table in TABLES:
         cur.execute(f'LOCK TABLE gis."{table}" IN ACCESS EXCLUSIVE MODE')
+
+
+def reconcile(cur, project_id):
+    lock_contract(cur)
     state = inspect_contract(cur, project_id)
     operations = plan_contract(state)
     for sql, params in operations:
