@@ -382,6 +382,7 @@ def qfield_device_changeset_api(request, project_id):
             plan=plan,
             payload=payload,
             actor_ref=_actor_ref(request),
+            request=request,
         )
     except SyncConflict as exc:
         return JsonResponse(

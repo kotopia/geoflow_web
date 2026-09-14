@@ -24,6 +24,7 @@ from .gpkg import project_geopackage_layer_manifest
 from .gpkg_syncable import build_syncable_project_geopackage
 from .layer_plan import gis_enabled_project_ids, project_layer_plan, require_enabled_layer_plan
 from .qgis_manifest import build_qgis_manifest
+from .workers import current_user_context
 from .qgis_sync import SyncConflict, SyncRejected, sync_runtime_enabled
 from .qgis_sync_v2 import sync_project_geopackage_v2
 from .server_snapshot_cache import get_or_build_server_snapshot
@@ -163,7 +164,8 @@ def qgis_projects_api(request):
         )
 
     return JsonResponse(
-        {"results": results, "count": len(results), "scope": policy.mode},
+        {"results": results, "count": len(results), "scope": policy.mode,
+         "current_user": current_user_context(request, alias)},
         json_dumps_params={"ensure_ascii": False},
     )
 
@@ -352,6 +354,7 @@ def qgis_project_sync_api(request, project_id):
             project_id=str(project.id),
             plan=plan,
             package_bytes=payload,
+            request=request,
         )
     except SyncConflict as exc:
         _dev_sync_diag(

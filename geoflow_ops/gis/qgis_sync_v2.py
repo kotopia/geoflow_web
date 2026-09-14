@@ -238,6 +238,7 @@ def sync_project_geopackage_v2(
     project_id: str,
     plan: dict[str, Any],
     package_bytes: bytes,
+    request=None,
 ) -> dict[str, Any]:
     if not sync_runtime_enabled(alias):
         raise SyncRejected(
@@ -274,7 +275,7 @@ def sync_project_geopackage_v2(
                 if conflicts:
                     raise SyncConflict(conflicts)
                 for operation in operations:
-                    _apply_operation(alias, project_id, operation)
+                    _apply_operation(alias, project_id, operation, request=request)
         finally:
             package.close()
     finally:

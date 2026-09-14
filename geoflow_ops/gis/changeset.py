@@ -273,6 +273,7 @@ def apply_project_changeset(
     payload: dict[str, Any],
     actor_ref: str | None = None,
     validate_before_apply=None,
+    request=None,
 ) -> dict[str, Any]:
     if not changeset_runtime_enabled(alias):
         raise ChangesetUnavailable(
@@ -393,6 +394,7 @@ def apply_project_changeset(
                         attributes,
                         geometry,
                     ),
+                    request=request,
                 )
                 after = _source_row(
                     alias,
@@ -450,6 +452,7 @@ def apply_project_changeset(
                         {},
                         None,
                     ),
+                    request=request,
                 )
                 events.append(
                     {
@@ -507,6 +510,7 @@ def apply_project_changeset(
                     update_attributes,
                     geometry if geometry_changed else None,
                 ),
+                request=request,
             )
             after = _source_row(
                 alias,

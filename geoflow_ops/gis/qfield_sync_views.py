@@ -241,6 +241,7 @@ def qfield_device_changeset_api(request, project_id):
                 validate_before_apply=lambda: _validate_qfield_concurrency(
                     alias, project_id=str(project.id), plan=plan, payload=payload,
                 ),
+                request=request,
             )
             result = _enrich_applied_versions(
                 alias,
