@@ -11,13 +11,16 @@ from .qfield_auth import qfield_ticket_required
 from .qfield_ticket_roaming_views import _ticket_project_and_plan
 from .qgis_views import _require_project, _require_qgis_context
 from .reference_catalog import project_reference_catalog
+from .workers import project_workers
 
 
-def _catalog_response(alias: str, plan: dict) -> JsonResponse:
+def _catalog_response(alias: str, plan: dict, request=None, project_id=None) -> JsonResponse:
     payload = project_reference_catalog(
         using=alias,
         standard_names=allowed_standard_names(plan),
     )
+    if request is not None:
+        payload["current_user"], payload["workers"] = project_workers(request, alias, project_id, plan)
     response = JsonResponse(payload, json_dumps_params={"ensure_ascii": False})
     response["Cache-Control"] = "private, no-store"
     return response
@@ -30,7 +33,7 @@ def qgis_reference_catalog_api(request, project_id):
 
     alias = _require_qgis_context(request)
     _project, _policy, plan = _require_project(request, alias, project_id)
-    return _catalog_response(alias, plan)
+    return _catalog_response(alias, plan, request, project_id)
 
 
 @qfield_ticket_required(write=False)

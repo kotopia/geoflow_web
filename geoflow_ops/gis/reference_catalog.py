@@ -35,6 +35,10 @@ def project_reference_catalog(
     """
 
     names = _standard_names(standard_names)
+    if standard_names is not None and not names:
+        return {"ok": True, "version": REFERENCE_CATALOG_VERSION,
+                "reference_store": REFERENCE_STORE, "runtime_source": "gis",
+                "bindings": [], "groups": [], "binding_count": 0, "group_count": 0}
     where = [
         "ft.active",
         "NULLIF(BTRIM(fd.code_group_key), '') IS NOT NULL",

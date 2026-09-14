@@ -509,7 +509,11 @@ def _collect_operations(
     return operations, conflicts
 
 
-def _apply_operation(alias: str, project_id: str, op: SyncOperation) -> None:
+def _apply_operation(alias: str, project_id: str, op: SyncOperation, *, request=None) -> None:
+    from .workers import validate_worker_assignment
+    # Validate the table before using it in the assignment read.
+    _quote_ident(op.table)
+    validate_worker_assignment(alias, project_id, op, request)
     table = _quote_ident(op.table)
 
     if op.action == "delete":
@@ -586,6 +590,7 @@ def sync_project_geopackage(
     project_id: str,
     plan: dict[str, Any],
     package_bytes: bytes,
+    request=None,
 ) -> dict[str, Any]:
     if not sync_runtime_enabled(alias):
         raise SyncRejected("QGIS sync is enabled only in the strict development runtime")
@@ -614,7 +619,7 @@ def sync_project_geopackage(
                 if conflicts:
                     raise SyncConflict(conflicts)
                 for operation in operations:
-                    _apply_operation(alias, project_id, operation)
+                    _apply_operation(alias, project_id, operation, request=request)
         finally:
             package.close()
     finally:
