@@ -64,7 +64,7 @@ class GisReferenceCatalogTests(SimpleTestCase):
                 ),
             ]
         )
-        with patch.object(reference_catalog, "connections", {"tenant": connection}):
+        with patch.object(reference_catalog, "connections", {"tenant": connection}), patch("geoflow_ops.gis.central_definitions.central_snapshot",return_value=None):
             payload = reference_catalog.project_reference_catalog(
                 using="tenant",
                 standard_names={"wtl_valv_ps"},
@@ -87,7 +87,7 @@ class GisReferenceCatalogTests(SimpleTestCase):
 
     def test_empty_reference_catalog_is_valid(self):
         connection = _FakeConnection([])
-        with patch.object(reference_catalog, "connections", {"tenant": connection}):
+        with patch.object(reference_catalog, "connections", {"tenant": connection}), patch("geoflow_ops.gis.central_definitions.central_snapshot",return_value=None):
             payload = reference_catalog.project_reference_catalog(
                 using="tenant",
                 standard_names={"DORO"},

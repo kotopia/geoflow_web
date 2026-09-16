@@ -335,3 +335,27 @@ GIS schema 또는 데이터 모델을 변경할 때는 이 문서를 기준으�
 
 ## 최종 설계 문장
 **GeoFlow GIS는 tenant DB의 단일 `gis` schema 안에서 기존 공공 GIS 테이블/필드 의미를 최대한 유지하고, 부족한 구조만 확장한다. 프로젝트·직원·계약·권한은 기존 GeoFlow를 참조하며, 사업별 차이는 Metadata/Profile과 제한적 확장 저장으로 흡수한다. 공통 survey는 단일 모델로 유지하되 `survey_link`로 시설물 lineage를 명시적으로 보존하고, GeoFlow metadata/profile을 WebGIS 및 생성된 QGIS/QField 구성의 Source of Truth로 사용한다.**
+
+## 22. 중앙 공통 업무정의 v2 (2026-09-16 확정 변경)
+
+지자체 업무 규칙은 테넌트별로 복제하지 않는다. 중앙 DB의 `gis.definition_*`가 그룹,
+추가 필드, 필드별 참조코드와 조건 규칙의 원본이다. 중앙 catalog L2와 레이어 연결은
+기존 tenant scope_binding/capability_feature에서 검증해 초기화한다. 이후 업무정의
+화면은 tenant 선택 없이 중앙만 수정한다. 공간 객체·사진·직원·프로젝트는 tenant에 남는다.
+
+그룹명만 생성한 뒤 catalog 업무범위 → 기존 레이어 → 기존/추가 필드를 연결한다.
+표준 물리 필드는 layer+physical_name으로 식별하고 임의 삭제/재타이핑을 금지한다.
+추가 필드는 여러 레이어에 동일 UUID로 연결한다. 기본 순서와 그룹별 순서를 구분한다.
+참조코드는 필드 선택 후 등록한다. '유형없음/레이어없음'은 미연결 상태의 UI 분류다.
+조건 규칙은 별도 연결표로 관리하며 코드 FK와 순환 검증을 적용한다.
+
+기존 tenant의 meta/profile/ref 테이블은 Layer Plan, snapshot, business approval 등에서
+여전히 참조하므로 삭제하지 않는다. 기존 reference API는 중앙 적용 이후 중앙 코드를
+기존 wire shape로 제공한다. 추가항목 API는 v2 정의/순서/조건을 반환한다. 새 추가항목의
+클라이언트 입력, 관계형 하위 기록 저장, 조건에 따른 클라이언트 선택 UI는 후속 통합이다.
+기존 저장 경로에 새 완료필수/조건 규칙을 강제로 적용하지 않는다.
+
+기존 미사용 form_item/profile_form_item/project_form_item DDL은 폐기한다. cheonan_db에서
+실제 존재하는 경우 비어 있고 외부 의존관계가 없을 때만 DROP한다. CASCADE는 금지한다.
+프로젝트 선택·추가·전용 항목은 tenant gis.project_definition 한 테이블로 통합한다.
+프로젝트마다 공통 정의를 복제하지 않으며 프로젝트 전용 항목만 해당 행에 보관한다.
