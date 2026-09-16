@@ -22,7 +22,7 @@ class FormAdminAuthorizationTests(unittest.TestCase):
         return request
 
     def test_no_identity_cannot_access_tenant_catalog(self):
-        with patch("control.decorators.lookup_user_id_from_request",return_value=None), patch.object(views_gis_admin,"tenant_cursor") as tenant:
+        with patch("control.decorators.lookup_user_id_from_request",return_value=None), patch.object(views_gis_admin,"connections") as tenant:
             response=views_gis_admin.dashboard(self.request())
         self.assertEqual(response.status_code,403)
         tenant.assert_not_called()
@@ -30,7 +30,7 @@ class FormAdminAuthorizationTests(unittest.TestCase):
     def test_nonstaff_cannot_write(self):
         central=MagicMock()
         central.__getitem__.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value=(False,)
-        with patch("control.decorators.lookup_user_id_from_request",return_value=str(uuid4())), patch("control.decorators.connections",central), patch.object(views_gis_admin,"tenant_cursor") as tenant:
+        with patch("control.decorators.lookup_user_id_from_request",return_value=str(uuid4())), patch("control.decorators.connections",central), patch.object(views_gis_admin,"connections") as tenant:
             response=views_gis_admin.dashboard(self.request("post"))
         self.assertEqual(response.status_code,403)
         tenant.assert_not_called()
@@ -51,9 +51,8 @@ class FormAdminAuthorizationTests(unittest.TestCase):
 
     def test_unrecognized_write_is_rejected(self):
         cur=MagicMock()
-        with patch.object(views_gis_admin.definitions,"ready",return_value=True):
-            with self.assertRaises(views_gis_admin.definitions.DefinitionError):
-                views_gis_admin._mutate(cur,{"action":"delete_all"})
+        with self.assertRaises(views_gis_admin.definitions.DefinitionError):
+            views_gis_admin.definitions.mutate(cur,{"action":"delete_all"})
         cur.execute.assert_not_called()
 
     def config(self):

@@ -1,4 +1,4 @@
-name: GIS definition administration code deploy
+name: GIS central definition deploy
 
 on:
   push:
@@ -70,7 +70,7 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
 
-      - name: Deploy reviewed GIS code only with code rollback
+      - name: Deploy central GIS definitions with guarded schema transition
         shell: bash
         run: |
           set -euo pipefail
@@ -163,7 +163,7 @@ jobs:
           changed_paths="$(git -C "$repo" diff --name-only "$previous_sha" "$candidate_sha")"
           while IFS= read -r changed_path; do
             case "$changed_path" in
-              ''|control/views_gis_admin.py|control/services/gis_admin.py|control/templates/control/gis/definitions.html|control/urls.py|control/templates/control/partials/sidebar.html|geoflow_ops/gis/form_definitions.py|geoflow_ops/gis/form_definition_views.py|geoflow_ops/gis/urls.py|geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html|geoflow_ops/templates/geoflow_ops/gis/form_configuration.html|geoflow_ops/gis/test_form_definitions.py|geoflow_ops/gis/test_form_admin_authorization.py|docs/architecture/gis-form-definitions-v1.sql|docs/operations/gis-definition-admin-release.md|.github/workflows/gis-form-definition-tests.yml|.github/workflows/gis-definition-code-deploy.yml) ;;
+              ''|control/views_gis_admin.py|control/services/gis_admin.py|control/templates/control/gis/definitions.html|control/urls.py|control/templates/control/partials/sidebar.html|geoflow_ops/gis/form_definitions.py|geoflow_ops/gis/form_definition_views.py|geoflow_ops/gis/urls.py|geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html|geoflow_ops/templates/geoflow_ops/gis/form_configuration.html|geoflow_ops/gis/test_form_definitions.py|geoflow_ops/gis/test_form_admin_authorization.py|docs/architecture/gis-form-definitions-v1.sql|docs/operations/gis-definition-admin-release.md|.github/workflows/gis-form-definition-tests.yml|control/services/gis_definitions.py|control/services/gis_definition_transition.py|control/management/commands/deploy_gis_central_definitions.py|geoflow_ops/gis/central_definitions.py|geoflow_ops/gis/reference_catalog.py|geoflow_ops/gis/test_central_definitions.py|geoflow_ops/test_gis_reference_catalog.py|docs/architecture/gis-central-definitions.sql|docs/architecture/gis-data-model.md|.github/workflows/gis-definition-code-deploy.yml) ;;
               *) fail 'changed_path_outside_gis_code_contract' ;;
             esac
           done <<< "$changed_paths"
@@ -173,6 +173,8 @@ jobs:
           "$python" -m pip check
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" check
 
+
+          "$python" "$repo/manage.py" deploy_gis_central_definitions --apply --backup-dir "$repo/../gis-definition-backups/$candidate_sha"
 
           sudo -n systemctl restart "$service"
 

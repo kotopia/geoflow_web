@@ -39,6 +39,11 @@ def project_reference_catalog(
         return {"ok": True, "version": REFERENCE_CATALOG_VERSION,
                 "reference_store": REFERENCE_STORE, "runtime_source": "gis",
                 "bindings": [], "groups": [], "binding_count": 0, "group_count": 0}
+    from .central_definitions import central_snapshot, reference_payload
+    central = central_snapshot()
+    if central is not None:
+        return reference_payload(central, names if standard_names is not None else [l['standard_name'] for l in central['layers']])
+
     where = [
         "ft.active",
         "NULLIF(BTRIM(fd.code_group_key), '') IS NOT NULL",
