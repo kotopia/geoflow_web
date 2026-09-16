@@ -1,6 +1,7 @@
 """Read-only G2B requests. No file downloads and no secret-bearing error strings."""
 import json
 import hashlib
+import time
 from xml.etree import ElementTree
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, unquote
@@ -60,6 +61,17 @@ class Client:
         self.budget = budget
         self.checkpoint = None
         self.save_checkpoint = None
+        self.deadline = None
+        self.next_request_at = 0
+
+    def pace(self):
+        now = time.monotonic()
+        delay = max(0, self.next_request_at - now)
+        if self.deadline is not None and now + delay + 30 >= self.deadline:
+            raise G2BError("TIME_BUDGET_EXHAUSTED", "작업 시간 예산에 도달하여 다음 실행에서 이어갑니다.")
+        if delay:
+            time.sleep(delay)
+        self.next_request_at = time.monotonic() + max(0, min(10, getattr(settings, "G2B_REQUEST_INTERVAL_SECONDS", 1)))
 
     def bind_checkpoint(self, progress, save):
         self.checkpoint = progress
@@ -89,6 +101,7 @@ class Client:
             raise G2BError("MISSING_SERVICE_KEY", "나라장터 인증키 설정이 필요합니다.")
         if self.budget <= 0:
             raise G2BError("BUDGET_EXHAUSTED", "이번 작업의 호출 한도에 도달했습니다.")
+        self.pace()
         self.budget -= 1
         self.reserve()
         params = dict(query, serviceKey=unquote(key), type="json", pageNo=page_no, numOfRows=rows)

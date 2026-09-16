@@ -106,10 +106,12 @@ INSTALLED_APPS = [
 G2B_CENTRAL_TENANT_ALIASES = tuple(
     value.strip() for value in os.getenv("G2B_CENTRAL_TENANT_ALIASES", "").split(",") if value.strip()
 )
-G2B_CENTRAL_DAILY_BUDGET = int(os.getenv("G2B_CENTRAL_DAILY_BUDGET", "500"))
-G2B_JOB_REQUEST_BUDGET = int(os.getenv("G2B_JOB_REQUEST_BUDGET", "100"))
-G2B_JOB_MAX_STEPS = int(os.getenv("G2B_JOB_MAX_STEPS", "10"))
-G2B_INCREMENTAL_REQUEST_RESERVE = int(os.getenv("G2B_INCREMENTAL_REQUEST_RESERVE", "100"))
+G2B_CENTRAL_DAILY_BUDGET = int(os.getenv("G2B_CENTRAL_DAILY_BUDGET", "80000"))
+G2B_JOB_REQUEST_BUDGET = int(os.getenv("G2B_JOB_REQUEST_BUDGET", "500"))
+G2B_JOB_MAX_STEPS = int(os.getenv("G2B_JOB_MAX_STEPS", "50"))
+G2B_INCREMENTAL_REQUEST_RESERVE = int(os.getenv("G2B_INCREMENTAL_REQUEST_RESERVE", "5000"))
+G2B_REQUEST_INTERVAL_SECONDS = float(os.getenv("G2B_REQUEST_INTERVAL_SECONDS", "1"))
+G2B_JOB_TIME_BUDGET_SECONDS = int(os.getenv("G2B_JOB_TIME_BUDGET_SECONDS", "720"))
 
 # -------------------------------------------------------------------
 # GeoDjango native library paths (optional, primarily for Windows)

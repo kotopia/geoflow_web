@@ -1,5 +1,6 @@
 """Durable coverage and local source reuse; no provider requests."""
 import uuid
+from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 from .models import CollectionJob, CollectionWindow, Notice
@@ -17,6 +18,27 @@ def coverage_gap(job, now):
             return cursor, min(start, job.backfill_end)
         cursor = max(cursor, end)
     return (cursor, job.backfill_end) if cursor < job.backfill_end else None
+
+
+def recent_backfill_window(job, now):
+    """Newest uncovered day; receipts, not the legacy forward cursor, prove coverage."""
+    from .service import central_alias
+    lower = max(job.backfill_start or retention_start(job.backfill_end), retention_start(now))
+    cursor = job.backfill_end
+    if cursor <= lower:
+        return None
+    windows = CollectionWindow.objects.using(central_alias()).filter(
+        job=job, generation=job.generation, mode="backfill", verified=True
+    ).order_by("-end").values_list("start", "end")
+    for start, end in windows:
+        if start >= cursor:
+            continue
+        if end < cursor:
+            return max(lower, end, cursor - timedelta(days=1)), cursor
+        cursor = min(cursor, start)
+        if cursor <= lower:
+            return None
+    return (max(lower, cursor - timedelta(days=1)), cursor) if cursor > lower else None
 
 
 def match_existing(job, now, batch_size=500):
