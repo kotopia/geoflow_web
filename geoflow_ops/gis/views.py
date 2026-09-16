@@ -1,6 +1,7 @@
 import json
 from urllib.parse import quote, urlencode
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connections
@@ -286,6 +287,7 @@ def project_dashboard(request, project_id):
             "project": project,
             "features": rows,
             "map_layers": map_layers,
+            "vworld_map_config": {"key": getattr(settings, "VWORLD_API_KEY", "")},
             "webgis_revision": webgis_revision,
             "webgis_delta_enabled": webgis_delta_enabled,
             "webgis_realtime_enabled": realtime_runtime_enabled(),

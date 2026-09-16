@@ -32,6 +32,7 @@ jobs:
       SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
       SSH_PORT: "22"
+      VWORLD_API_KEY: ${{ secrets.VWORLD_API_KEY }}
 
     steps:
       - name: Checkout exact reviewed release
@@ -53,6 +54,7 @@ jobs:
             echo 'production_release_deploy_blocker=release_advanced'
             exit 2
           }
+          test -n "$VWORLD_API_KEY" || { echo "VWorld API key secret is required"; exit 2; }
           test -n "$SSH_HOST"
           test -n "$SSH_USER"
           test -n "$SSH_KEY"
@@ -81,7 +83,7 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" < <(printf 'export VWORLD_API_KEY=%q\n' "$VWORLD_API_KEY"; cat <<'REMOTE'
           set -euo pipefail
 
           candidate_sha="$1"
@@ -163,7 +165,7 @@ jobs:
           changed_paths="$(git -C "$repo" diff --name-only "$previous_sha" "$candidate_sha")"
           while IFS= read -r changed_path; do
             case "$changed_path" in
-              ''|control/views_gis_admin.py|control/services/gis_admin.py|control/templates/control/gis/definitions.html|control/urls.py|control/templates/control/partials/sidebar.html|geoflow_ops/gis/form_definitions.py|geoflow_ops/gis/form_definition_views.py|geoflow_ops/gis/urls.py|geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html|geoflow_ops/templates/geoflow_ops/gis/form_configuration.html|geoflow_ops/gis/test_form_definitions.py|geoflow_ops/gis/test_form_admin_authorization.py|docs/architecture/gis-form-definitions-v1.sql|docs/operations/gis-definition-admin-release.md|.github/workflows/gis-form-definition-tests.yml|control/services/gis_definitions.py|control/services/gis_definition_transition.py|control/management/commands/deploy_gis_central_definitions.py|geoflow_ops/gis/central_definitions.py|geoflow_ops/gis/reference_catalog.py|geoflow_ops/gis/test_central_definitions.py|geoflow_ops/test_gis_reference_catalog.py|docs/architecture/gis-central-definitions.sql|docs/architecture/gis-data-model.md|.github/workflows/gis-definition-code-deploy.yml) ;;
+              ''|control/views_gis_admin.py|control/services/gis_admin.py|control/templates/control/gis/definitions.html|control/urls.py|control/templates/control/partials/sidebar.html|geoflow_ops/gis/form_definitions.py|geoflow_ops/gis/form_definition_views.py|geoflow_ops/gis/urls.py|geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html|geoflow_ops/templates/geoflow_ops/gis/form_configuration.html|geoflow_ops/gis/test_form_definitions.py|geoflow_ops/gis/test_form_admin_authorization.py|docs/architecture/gis-form-definitions-v1.sql|docs/operations/gis-definition-admin-release.md|.github/workflows/gis-form-definition-tests.yml|control/services/gis_definitions.py|control/services/gis_definition_transition.py|control/management/commands/deploy_gis_central_definitions.py|geoflow_project/settings.py|geoflow_ops/gis/views.py|geoflow_ops/static/geoflow_ops/js/gis-project-map.js|geoflow_ops/gis/central_definitions.py|geoflow_ops/gis/reference_catalog.py|geoflow_ops/gis/test_central_definitions.py|geoflow_ops/test_gis_reference_catalog.py|docs/architecture/gis-central-definitions.sql|docs/architecture/gis-data-model.md|.github/workflows/gis-definition-code-deploy.yml) ;;
               *) fail 'changed_path_outside_gis_code_contract' ;;
             esac
           done <<< "$changed_paths"
@@ -174,8 +176,23 @@ jobs:
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" check
 
 
-          "$python" "$repo/manage.py" deploy_gis_central_definitions --apply --backup-dir "$repo/../gis-definition-backups/$candidate_sha"
+          # This correction needs no DB mutation; central definitions are already deployed.
+          # Persist only the supplied browser tile key; do not log its value.
+          "$python" - "$repo/.env" <<'PYKEY'
+          import os, pathlib, re, sys
+          path = pathlib.Path(sys.argv[1])
+          key = os.environ['VWORLD_API_KEY']
+          if not re.fullmatch(r'[A-Za-z0-9-]{16,128}', key):
+              raise SystemExit('Invalid VWorld key format')
+          lines = path.read_text().splitlines()
+          lines = [line for line in lines if not re.match(r'^\s*(?:export\s+)?VWORLD_API_KEY\s*=', line)]
+          lines.append('VWORLD_API_KEY=' + key)
+          with path.open('w') as output:
+              output.write('\n'.join(lines) + '\n')
+          print('vworld_runtime_key_configured=yes')
+          PYKEY
 
+          "$python" "$repo/manage.py" collectstatic --noinput
           sudo -n systemctl restart "$service"
 
           ready=no
@@ -200,3 +217,4 @@ jobs:
           echo "production_release_deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
           echo 'production_release_deploy_complete=yes'
           REMOTE
+          )

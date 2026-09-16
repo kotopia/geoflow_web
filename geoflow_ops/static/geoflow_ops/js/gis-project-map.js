@@ -82,7 +82,26 @@
     var countNode = document.getElementById("gisMapVisibleCount");
 
     var map = L.map(mapNode, { preferCanvas: true, zoomControl: true }).setView([36.5, 127.8], 7);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 20, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+    var vworldConfig = parseJsonScript("gis-vworld-config", {});
+    var basemapNotice = document.createElement("div");
+    basemapNotice.className = "alert alert-warning py-2";
+    basemapNotice.setAttribute("role", "status");
+    basemapNotice.hidden = true;
+    mapNode.parentNode.insertBefore(basemapNotice, mapNode);
+    if (vworldConfig.key) {
+      var background = L.tileLayer(
+        "https://api.vworld.kr/req/wmts/1.0.0/" + encodeURIComponent(vworldConfig.key) + "/Base/{z}/{y}/{x}.png",
+        { minZoom: 6, maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; <a href="https://www.vworld.kr/">VWorld</a>' }
+      ).addTo(map);
+      background.on("tileerror", function () {
+        basemapNotice.textContent = "VWorld 배경지도를 불러오지 못했습니다. 인증키와 서비스 도메인 설정을 확인해 주세요.";
+        basemapNotice.hidden = false;
+      });
+      background.on("tileload", function () { basemapNotice.hidden = true; });
+    } else {
+      basemapNotice.textContent = "VWorld 배경지도 인증키 등록 대기 중입니다.";
+      basemapNotice.hidden = false;
+    }
 
     var overlayMaps = {};
     var layerState = {};
