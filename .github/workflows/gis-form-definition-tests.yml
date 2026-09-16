@@ -30,3 +30,22 @@ jobs:
       - run: python -m unittest geoflow_ops.gis.test_form_definitions -v
         env:
           GEOFLOW_FORMS_ISOLATED_PG: '1'
+      - name: Validate remote deployment shell without executing it
+        run: |
+          python - <<'PYCODE'
+          from pathlib import Path
+          import subprocess
+          import textwrap
+          workflow = Path('.github/workflows/gis-definition-code-deploy.yml').read_text()
+          marker = "<<'REMOTE'\n"
+          assert workflow.count(marker) == 1
+          remote = workflow.split(marker, 1)[1].split('          REMOTE\n', 1)[0]
+          remote = textwrap.dedent(remote)
+          subprocess.run(['bash', '-n'], input=remote, text=True, check=True)
+          # Prove the validator catches the exact defect previously missed by outer bash -n.
+          broken = remote.replace('gis-definition-code-deploy.yml) ;;', 'gis-definition-code-deploy.yml ;;')
+          assert broken != remote
+          result = subprocess.run(['bash', '-n'], input=broken, text=True, capture_output=True)
+          assert result.returncode != 0, 'Missing case terminator must fail validation'
+          print('Remote deployment syntax OK; missing-terminator regression rejected')
+          PYCODE
