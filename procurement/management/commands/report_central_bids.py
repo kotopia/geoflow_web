@@ -14,6 +14,7 @@ from procurement.policy import minute, retention_start
 from procurement.service import central_alias
 from procurement.dashboard import snapshot, lane_stats
 from procurement.lifecycle import recent_backfill_window
+from procurement.period import selection
 
 
 class Command(BaseCommand):
@@ -31,6 +32,7 @@ class Command(BaseCommand):
             rules = CollectionRule.objects.using(alias).annotate(
                 stored=Count("notices"), oldest=Min("notices__posted_at"), newest=Max("notices__posted_at"))
             result = dict(captured_at=now, source="central_database", display_limit=None,
+                          collection_period=selection(now),
                           retention_start=retention_start(now), retention_end=now, timezone="Asia/Seoul",
                           provider_key_daily_quota="unverified", historical_api_counts="not_recorded",
                           total=Notice.objects.using(alias).count(),
@@ -60,7 +62,8 @@ class Command(BaseCommand):
                                incremental_error=job.incremental_progress.get("last_error", ""),
                                next_backfill_window=recent_backfill_window(job, now),
                                live_cursor=job.live_cursor, due_at=job.due_at, requested=job.requested,
-                               progress={k: v for k, v in job.progress.items() if k not in {"completed_keys", "api_page_cache", "outcomes"}},
+                               suspended_backfill_windows=len(job.backfill_progress.get("suspended_windows", [])),
+                               progress={k: v for k, v in job.progress.items() if k not in {"completed_keys", "api_page_cache", "outcomes", "suspended_windows"}},
                                pending_api_queries=[dict(operation=q["operation"], numOfRows=q["numOfRows"],
                                                          totalCount=q["totalCount"], complete=q["complete"],
                                                          next_page=len(q["pages"])+1,

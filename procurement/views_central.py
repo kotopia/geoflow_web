@@ -9,7 +9,8 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from control.decorators import require_central_admin
 from .dashboard import snapshot
-from .models import CollectionRule
+from .models import CollectionRule, CollectionPeriod
+from .period import selection, months_before
 from .service import central_alias, enqueue_rule
 
 
@@ -28,16 +29,46 @@ class RuleForm(forms.Form):
         return value
 
 
+class PeriodForm(forms.Form):
+    start_date = forms.DateField(label="수집 시작일", required=False,
+                                widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}, format="%Y-%m-%d"))
+    end_date = forms.DateField(label="수집 종료일", required=False,
+                              widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}, format="%Y-%m-%d"))
+    preset = forms.ChoiceField(required=False, choices=[("", "직접 지정")] + [(str(n), str(n)) for n in (1, 3, 6, 12, 24)], widget=forms.HiddenInput)
+
+    def clean(self):
+        data = super().clean()
+        scope = selection()
+        if data.get("preset"):
+            data["end_date"] = scope["maximum_date"]
+            data["start_date"] = months_before(data["end_date"], int(data["preset"]))
+        start, end = data.get("start_date"), data.get("end_date")
+        if not start or not end:
+            raise forms.ValidationError("시작일과 종료일을 입력하세요.")
+        if not scope["minimum_date"] <= start <= end <= scope["maximum_date"]:
+            raise forms.ValidationError("최근 2년 이내에서 시작일 ≤ 종료일 ≤ 오늘 순서로 입력하세요.")
+        return data
+
+
 @require_central_admin
 @never_cache
 @csrf_protect
 @require_http_methods(["GET", "POST"])
 def dashboard(request):
     form = RuleForm()
+    period_form = PeriodForm(initial=selection())
     alias = central_alias()
     if request.method == "POST":
         action = request.POST.get("action")
-        if action == "create":
+        if action == "set_period":
+            period_form = PeriodForm(request.POST)
+            if period_form.is_valid():
+                with transaction.atomic(using=alias):
+                    CollectionPeriod.objects.using(alias).update_or_create(pk=1, defaults={
+                        "start_date": period_form.cleaned_data["start_date"],
+                        "end_date": period_form.cleaned_data["end_date"]})
+                return redirect("control:central_bids")
+        elif action == "create":
             form = RuleForm(request.POST)
             if form.is_valid():
                 with transaction.atomic(using=alias):
@@ -75,7 +106,7 @@ def dashboard(request):
             return redirect("control:central_bids")
         else:
             return HttpResponseBadRequest("지원하지 않는 작업입니다.")
-    return render(request, "procurement/central_dashboard.html", {"form": form, **snapshot()})
+    return render(request, "procurement/central_dashboard.html", {"form": form, "period_form": period_form, **snapshot()})
 
 
 @require_central_admin

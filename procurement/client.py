@@ -63,8 +63,11 @@ class Client:
         self.save_checkpoint = None
         self.deadline = None
         self.next_request_at = 0
+        self.scope_check = None
 
     def pace(self):
+        if self.scope_check:
+            self.scope_check()
         now = time.monotonic()
         delay = max(0, self.next_request_at - now)
         if self.deadline is not None and now + delay + 30 >= self.deadline:

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 from django.test import TestCase, SimpleTestCase, override_settings
 from .tests import NOW, FakeClient
-from .models import CollectionRule, CollectionWindow, CollectionJob
+from .models import CollectionRule, CollectionWindow, CollectionJob, CollectionPeriod
 from .service import enqueue_rule, run_step, run_worker
 from .lifecycle import recent_backfill_window
 from .client import Client
@@ -15,6 +15,7 @@ class RecentBackfillTests(TestCase):
     def setUp(self):
         self.rule = CollectionRule.objects.create(kind='keyword', value='GIS', name='GIS')
         self.job = enqueue_rule(self.rule, NOW)
+        CollectionPeriod.objects.create(start_date=self.job.backfill_start.date(), end_date=minute(NOW).date())
 
     def test_newest_days_first_and_restart_uses_receipts(self):
         for days in range(3):
