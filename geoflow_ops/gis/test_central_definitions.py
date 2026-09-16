@@ -4,7 +4,9 @@ import unittest
 from uuid import uuid4
 from control.services import gis_definitions as defs
 from control.services import gis_definition_transition as transition
-from geoflow_ops.gis.central_definitions import resolve, reference_payload
+from geoflow_ops.gis.central_definitions import resolve, reference_payload, project_config
+from unittest.mock import MagicMock
+import json
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -25,6 +27,33 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(b['items'],[])
         self.assertEqual(resolve(data,{'group_id':'g'},[])['items'],[])
         self.assertEqual(resolve(data,{'group_id':'g'},[{'standard_name':'OTHER','id':'other'}])['items'],[])
+
+    def test_saved_json_text_roundtrip_and_group_import_all_layers(self):
+        cur=MagicMock()
+        cur.fetchone.side_effect=[('gis.project_definition',),('g','{}','{}')]
+        config=project_config(cur,'project')
+        data=self.data()
+        data['layers']=[{'standard_name':'MANHOLE'},{'standard_name':'PIPE'}]
+        data['group_fields'].append({'group_id':'g','layer_name':'PIPE','field_id':'f','sort_order':3,'required':False})
+        layers=[{'id':'m','standard_name':'MANHOLE'}]
+        items=resolve(data,config,layers,include_unavailable=True)['items']
+        self.assertEqual(len(items),2)
+        self.assertEqual([i['standard_name'] for i in items if not i['layer_available']],['PIPE'])
+        self.assertEqual(len(resolve(data,config,layers)['items']),1)
+
+    def test_individual_addition_survives_save_and_does_not_duplicate_group(self):
+        cur=MagicMock()
+        cur.fetchone.side_effect=[('gis.project_definition',),('g',json.dumps({'f':['MANHOLE']}),'{}')]
+        config=project_config(cur,'project')
+        layers=[{'id':'m','standard_name':'MANHOLE'}]
+        self.assertEqual(len(resolve(self.data(),config,layers)['items']),1)
+        config['group_id']=None
+        self.assertFalse(resolve(self.data(),config,layers)['items'][0]['inherited'])
+
+    def test_invalid_saved_json_reports_validation_error(self):
+        for raw in ('[]','not-json','{"f": "MANHOLE"}'):
+            cur=MagicMock();cur.fetchone.side_effect=[('gis.project_definition',),(None,raw,'{}')]
+            with self.assertRaises(defs.DefinitionError):project_config(cur,'project')
 
     def test_private_items_are_only_from_project_config(self):
         f=self.data()['fields'][0]|{'id':'p','source_layer':'MANHOLE'}
@@ -58,6 +87,21 @@ class CentralPostgresTests(unittest.TestCase):
     def save(self,action,**data):return defs.mutate(self.cur,{'action':action,**data})
     def field(self,label='추락방지시설',**kw):return self.save('field',label=label,kind='text',**kw)
     def code(self,field,code):return self.save('code',field=field,code=code,label=code)
+
+    def test_project_saved_json_with_django_postgres_decoder(self):
+        # Match Django's raw cursor decoder, not psycopg2's default dict conversion.
+        import psycopg2.extras
+        psycopg2.extras.register_default_jsonb(self.db, loads=lambda value:value)
+        self.cur.execute('CREATE SCHEMA prj; CREATE TABLE prj.projects(id uuid PRIMARY KEY)')
+        transition.retire_empty_legacy(self.cur)
+        project=str(uuid4());g=self.save('group',label='아산시청');f=self.field('FPD_STA')
+        self.cur.execute('INSERT INTO prj.projects VALUES (%s)',[project])
+        self.cur.execute("INSERT INTO gis.project_definition(project_id,group_id,additions) VALUES (%s,%s,%s::jsonb)",
+                         [project,g,json.dumps({f:['MANHOLE']})])
+        config=project_config(self.cur,project)
+        self.assertEqual(config['additions'],{f:['MANHOLE']})
+        items=resolve(defs.snapshot(self.cur),config,[{'id':'m','standard_name':'MANHOLE'}])['items']
+        self.assertEqual(items[0]['label'],'FPD_STA')
 
     def test_group_scope_layer_field_sequence(self):
         g=self.save('group',label='아산시');f=self.field()

@@ -495,3 +495,6 @@ LOGGING = {
     },
     "root": {"handlers": ["console"], "level": "WARNING"},
 }
+
+# Browser tile key: restrict the issued VWorld key to the production service domain.
+VWORLD_API_KEY = os.getenv("VWORLD_API_KEY", "").strip()
