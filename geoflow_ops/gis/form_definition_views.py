@@ -24,9 +24,10 @@ def definition_api(request, project_id):
     _project,_policy,plan=_require_project(request,alias,project_id)
     data=central.central_snapshot()
     if data is None: return JsonResponse({'ok':False,'error':'form_definition_schema_pending'},status=503)
-    with connections[alias].cursor() as cur:
-        config=central.project_config(cur,project_id)
-    try: payload=central.resolve(data,config,plan['layers'])
+    try:
+        with connections[alias].cursor() as cur:
+            config=central.project_config(cur,project_id)
+        payload=central.resolve(data,config,plan['layers'])
     except definitions.DefinitionError as exc: return JsonResponse({'ok':False,'error':str(exc)},status=409)
     response=JsonResponse({'ok':True,**payload})
     response['Cache-Control']='private, no-store'
@@ -45,7 +46,8 @@ def project_configuration(request,project_id):
         data=central.central_snapshot()
         context['ready']=data is not None
         if data is None: raise definitions.DefinitionError('중앙 업무정의 구조 적용 전입니다.')
-        names={str(l['standard_name']).upper() for l in plan['layers']}
+        names={l['standard_name'] for l in data['layers']}
+        context['features']=data['layers']
         context['groups']=data['groups']
         context['available']=[f for f in data['fields'] if not f['source_layer'] or f['source_layer'] in names]
         with transaction.atomic(using=alias),connections[alias].cursor() as cur:
@@ -85,7 +87,7 @@ def project_configuration(request,project_id):
                     VALUES (%s,%s,%s::jsonb,%s::jsonb) ON CONFLICT(project_id) DO UPDATE SET
                     group_id=EXCLUDED.group_id,additions=EXCLUDED.additions,private_items=EXCLUDED.private_items''',
                     [str(project_id),config['group_id'],json.dumps(config['additions']),json.dumps(config['private_items'])])
-            context['definition']=central.resolve(data,config,plan['layers'])
+            context['definition']=central.resolve(data,config,plan['layers'],include_unavailable=True)
             context['selected_group']=config['group_id']
         if request.method=='POST': return redirect('gis:project_form_configuration',project_id=project_id)
     except definitions.DefinitionError as exc: context['error']=str(exc)

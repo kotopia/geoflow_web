@@ -169,6 +169,7 @@
 </div>
 
 {{ features|json_script:"gis-map-layers" }}
+{{ vworld_map_config|json_script:"gis-vworld-config" }}
 {% endblock %}
 
 {% block scripts %}
@@ -182,7 +183,7 @@
     document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
   }
 </script>
-<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260911-1"></script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260916-2"></script>
 <script>
 (() => {
   const repositoryInput = document.getElementById("qgisPluginRepositoryUrl");

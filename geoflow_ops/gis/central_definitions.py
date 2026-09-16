@@ -17,12 +17,34 @@ def project_config(cur, project_id):
     if not cur.fetchone()[0]: return {'group_id':None,'additions':{},'private_items':{}}
     cur.execute('SELECT group_id::text,additions,private_items FROM gis.project_definition WHERE project_id=%s',[str(project_id)])
     r=cur.fetchone()
-    return dict(zip(('group_id','additions','private_items'),r)) if r else {'group_id':None,'additions':{},'private_items':{}}
+    config = dict(zip(('group_id','additions','private_items'),r)) if r else {'group_id':None,'additions':{},'private_items':{}}
+    # Django's raw PostgreSQL cursor returns jsonb as text (unlike psycopg2 directly).
+    for key in ('additions', 'private_items'):
+        value = config[key]
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, TypeError):
+                raise DefinitionError('프로젝트 구성 JSON이 올바르지 않습니다.') from None
+        if not isinstance(value, dict):
+            raise DefinitionError('프로젝트 구성은 항목별 객체여야 합니다.')
+        config[key] = value
+    if any(not isinstance(v, list) or any(not isinstance(n, str) for n in v)
+           for v in config['additions'].values()):
+        raise DefinitionError('프로젝트 추가 항목의 레이어 목록이 올바르지 않습니다.')
+    if any(not isinstance(v, dict) or not {'source_layer','sort_order','kind','label'} <= v.keys()
+           for v in config['private_items'].values()):
+        raise DefinitionError('프로젝트 전용 항목 구성이 올바르지 않습니다.')
+    return config
 
 
-def resolve(data, config, layers):
+def resolve(data, config, layers, *, include_unavailable=False):
     """Intersect central group definitions with the authoritative tenant Layer Plan."""
     names={str(l['standard_name']).upper():str(l['id']) for l in layers}
+    active_names=set(names)
+    if include_unavailable:
+        for layer in data.get('layers', []):
+            names.setdefault(layer['standard_name'], None)
     fields={f['id']:f for f in data['fields']}
     groups={g['id']:g for g in data['groups']}
     group=config.get('group_id')
@@ -46,6 +68,7 @@ def resolve(data, config, layers):
         if f.get('physical_name') and f['source_layer']!=name: continue
         kind=f['kind']; key='central:'+fid
         items.append({**f,'feature_type_id':names[name],'standard_name':name,
+            'layer_available':name in active_names,
             'kind':'photo' if kind=='photo' else 'relation' if kind=='relation' else 'scalar',
             'config':{'data_type':kind,'max_length':f.get('max_length'),'precision':f.get('precision'),'scale':f.get('scale')},
             'sort_order':link['sort_order'],'inherited':link['inherited'],
