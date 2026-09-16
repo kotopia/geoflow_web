@@ -106,6 +106,9 @@ INSTALLED_APPS = [
 G2B_CENTRAL_TENANT_ALIASES = tuple(
     value.strip() for value in os.getenv("G2B_CENTRAL_TENANT_ALIASES", "").split(",") if value.strip()
 )
+G2B_CENTRAL_TENANT_DATABASES = tuple(
+    value.strip() for value in os.getenv("G2B_CENTRAL_TENANT_DATABASES", "").split(",") if value.strip()
+)
 G2B_CENTRAL_DAILY_BUDGET = int(os.getenv("G2B_CENTRAL_DAILY_BUDGET", "80000"))
 G2B_JOB_REQUEST_BUDGET = int(os.getenv("G2B_JOB_REQUEST_BUDGET", "500"))
 G2B_JOB_MAX_STEPS = int(os.getenv("G2B_JOB_MAX_STEPS", "50"))

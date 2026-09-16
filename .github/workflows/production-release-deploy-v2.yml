@@ -242,6 +242,13 @@ jobs:
                      'G2B_INCREMENTAL_REQUEST_RESERVE', 'G2B_REQUEST_INTERVAL_SECONDS', 'G2B_JOB_TIME_BUDGET_SECONDS'}
           if set(collector_settings) != allowed or any(type(v) is not int or v <= 0 for v in collector_settings.values()):
               raise RuntimeError('invalid collector budget settings')
+          with open(os.path.join(os.path.dirname(env_path), 'deploy/bids/central-tenants.json'), encoding='utf-8') as source:
+              central_tenants = json.load(source)['databases']
+          import re
+          if not isinstance(central_tenants, list) or any(not isinstance(v, str) or not re.fullmatch(r'[a-zA-Z0-9_]+', v) for v in central_tenants):
+              raise RuntimeError('invalid central tenant database names')
+          allowed.add('G2B_CENTRAL_TENANT_DATABASES')
+          collector_settings['G2B_CENTRAL_TENANT_DATABASES'] = ','.join(central_tenants)
           key = open(key_path, encoding='utf-8').read().strip()
           if not key or '\n' in key or '\r' in key:
               raise RuntimeError('invalid G2B secret shape')
@@ -326,7 +333,12 @@ jobs:
                       raise RuntimeError(f'destructive migration rejected: {name}')
               return sql
 
-          MIGRATION_SQL = {name: load_sql(name) for name, _ in TARGETS}
+          BID_TARGETS = [('0037_central_bid_reviews', '0036_bid_interest_foundation'),
+                         ('0038_bid_central_preferences', '0037_central_bid_reviews')]
+          MIGRATION_SQL = {name: load_sql(name) for name, _ in TARGETS + BID_TARGETS}
+          from django.conf import settings
+          from procurement.cutover import prepare as prepare_bid_cutover
+          central_names = set(settings.G2B_CENTRAL_TENANT_DATABASES)
 
           with transaction.atomic(using='default'):
               rows = list(GroupDBConfig.objects.using('default').select_related('group').order_by('group_id'))
@@ -361,6 +373,8 @@ jobs:
                   conn.close()
 
           tenant_rows = [row for row in active_rows if is_real_tenant(row)]
+          if central_names - {row.db_name for row in tenant_rows}:
+              raise RuntimeError('central bid target is not an active verified tenant')
           if not tenant_rows:
               raise RuntimeError('no active tenant databases after schema classification')
 
@@ -401,7 +415,8 @@ jobs:
                       cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ['geoflow:webgisapp:0030-0036'])
                       if not migration_applied(cur, '0029_unified_settings_registry'):
                           raise RuntimeError(f'{row.db_name}: dependency 0029 not applied')
-                      for name, dependency in TARGETS:
+                      targets = TARGETS + (BID_TARGETS if row.db_name in central_names else [])
+                      for name, dependency in targets:
                           if migration_applied(cur, name):
                               continue
                           if not migration_applied(cur, dependency):
@@ -409,6 +424,9 @@ jobs:
                           cur.execute(MIGRATION_SQL[name])
                           cur.execute('INSERT INTO django_migrations(app,name,applied) SELECT %s,%s,NOW() WHERE NOT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)', [APP, name, APP, name])
                       validate(cur)
+                      if row.db_name in central_names:
+                          result = prepare_bid_cutover(cur)
+                          print(f'central_bid_cutover db={row.db_name} commit={commit} summary={result}')
                   conn.commit() if commit else conn.rollback()
               except Exception:
                   conn.rollback()

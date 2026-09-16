@@ -528,16 +528,22 @@ class TenantIsolationTests(TestCase):
                 if conn.vendor == "postgresql":
                     cur.execute("CREATE SCHEMA IF NOT EXISTS bid")
                     cur.execute(importlib.import_module("geoflow_ops.migrations.0037_central_bid_reviews").SQL)
+                    cur.execute(importlib.import_module("geoflow_ops.migrations.0038_bid_central_preferences").SQL)
                 else:
                     cur.execute("ATTACH DATABASE ':memory:' AS bid")
                     cur.execute("CREATE TABLE bid.central_reviews (central_notice_id text PRIMARY KEY, status text, memo text)")
+                    cur.execute("CREATE TABLE bid.central_preferences (id integer PRIMARY KEY,rule_ids text)")
 
     def setUp(self):
         self.rule = CollectionRule.objects.create(kind="keyword", value="GIS", name="GIS")
         store_notice(ROW, DETAILS, self.rule, datetime.now(tz.utc))
         self.notice = Notice.objects.get()
+        filters_patch = patch("procurement.tenant.load_filters", return_value={})
+        filters_patch.start()
+        self.addCleanup(filters_patch.stop)
         for alias, status in (("company_a", "interested"), ("company_b", "excluded")):
             with connections[alias].cursor() as cur:
+                cur.execute("INSERT INTO bid.central_preferences(id,rule_ids) VALUES (1,%s)", [json.dumps([str(self.rule.pk)])])
                 if connections[alias].vendor == "postgresql":
                     cur.execute("""INSERT INTO bid.central_reviews
                       (central_notice_id,notice_number,notice_order,title,status,memo)
@@ -560,3 +566,108 @@ class TenantIsolationTests(TestCase):
             self.assertEqual(count_notices("company_a"), 1)
             Notice.objects.update(title="GIST 프로그램")
             self.assertEqual(count_notices("company_a"), 0)
+
+    def test_rules_or_distinct_and_no_selection(self):
+        from .tenant import count_notices
+        other = CollectionRule.objects.create(kind='industry', value='5031', name='측량')
+        self.notice.rules.add(other)
+        with connections['company_a'].cursor() as cur:
+            cur.execute('UPDATE bid.central_preferences SET rule_ids=%s',
+                        [json.dumps([str(self.rule.pk), str(other.pk)])])
+        self.assertEqual(count_notices('company_a', include_all=True), 1)
+        with connections['company_a'].cursor() as cur:
+            cur.execute('UPDATE bid.central_preferences SET rule_ids=%s', ['[]'])
+        self.assertEqual(count_notices('company_a', include_all=True), 0)
+        self.assertEqual(count_notices('company_b', review_status='excluded'), 1)
+
+    def test_region_tabs_nationwide_unknown_and_keyword_intersection(self):
+        from .tenant import count_notices
+        filters = {'region': [{'id': 'daejeon', 'name': '대전광역시', 'aliases': ['대전']}],
+                   'include': [{'keyword': 'GIS'}]}
+        with patch('procurement.tenant.load_filters', return_value=filters):
+            for text, known, expected in [('대전광역시', True, 'daejeon'), ('전국', True, 'nationwide'),
+                                           ('', False, 'unknown'), ('서울특별시', True, None)]:
+                Notice.objects.update(region_text=text, region_known=known)
+                self.assertEqual(count_notices('company_a'), int(expected is not None))
+                for tab in ('daejeon', 'nationwide', 'unknown', 'forged'):
+                    self.assertEqual(count_notices('company_a', region=tab), int(tab == expected))
+            Notice.objects.update(region_text='전국', region_known=True, title='GIST')
+            self.assertEqual(count_notices('company_a'), 0)
+
+    @override_settings(G2B_CENTRAL_TENANT_ALIASES=('company_a',))
+    def test_invalid_and_disabled_condition_rejected(self):
+        from .preferences import save, selected_ids
+        for values in [['invalid'], ['00000000-0000-0000-0000-000000000000']]:
+            with self.assertRaises(ValueError):
+                save('company_a', values)
+        disabled = CollectionRule.objects.create(kind='keyword', value='disabled', name='중지', active=False)
+        with self.assertRaises(ValueError):
+            save('company_a', [str(disabled.pk)])
+        with self.assertRaises(ValueError):
+            save('company_b', [])
+        self.assertEqual(selected_ids('company_a'), [str(self.rule.pk)])
+
+    @override_settings(G2B_CENTRAL_TENANT_ALIASES=('company_a',))
+    def test_preferences_save_empty_and_isolation_postgres(self):
+        if connections['company_a'].vendor != 'postgresql':
+            self.skipTest('PostgreSQL JSONB integration')
+        from .preferences import save, selected_ids
+        save('company_a', [])
+        self.assertEqual(selected_ids('company_a'), [])
+        self.assertEqual(selected_ids('company_b'), [str(self.rule.pk)])
+        save('company_a', [str(self.rule.pk)])
+        self.assertEqual(selected_ids('company_a'), [str(self.rule.pk)])
+
+    @override_settings(G2B_CENTRAL_TENANT_DATABASES=('company_a',))
+    def test_resolved_database_gate_and_legacy_collector_block(self):
+        from geoflow_ops.bids.sync import sync_service_notices
+        # Test DB has a test_ prefix on PostgreSQL; the runtime name is authoritative.
+        with override_settings(G2B_CENTRAL_TENANT_DATABASES=(connections.databases['company_a']['NAME'],)):
+            self.assertTrue(enabled('company_a'))
+            if connections['company_a'].vendor == 'postgresql':
+                self.assertFalse(enabled('company_b'))
+            with patch('geoflow_ops.bids.sync.G2BClient') as external:
+                with self.assertRaises(ValueError):
+                    sync_service_notices('company_a', NOW, NOW + timedelta(days=1))
+                external.assert_not_called()
+        with self.assertRaises(ValueError):
+            enabled('default')
+
+    @override_settings(G2B_CENTRAL_TENANT_ALIASES=('company_a',))
+    def test_web_list_and_refresh_do_not_call_api(self):
+        from geoflow_ops.bids.views import notice_list, sync_now
+        request = RequestFactory().get('/bids/', {'region': 'nationwide', 'q': 'GIS', 'page': '3'})
+        with patch('geoflow_ops.bids.views.repository.load_filters', return_value={}), \
+             patch('geoflow_ops.bids.views.render', side_effect=lambda req, template, ctx: ctx), \
+             patch('geoflow_ops.bids.views.sync_service_notices') as legacy, \
+             patch('procurement.client.urlopen') as api:
+            context = notice_list(request, 'company_a', can_review=True, can_manage=True)
+            self.assertEqual(context['region'], 'nationwide')
+            self.assertTrue(all('page=' not in tab['query'] for tab in context['region_tabs']))
+            with patch('geoflow_ops.bids.views.messages.info'), patch('geoflow_ops.bids.views.redirect'):
+                sync_now(request, 'company_a')
+            legacy.assert_not_called()
+            api.assert_not_called()
+
+    def test_cutover_preserves_reviews_and_preferences_idempotently_postgres(self):
+        if connections['company_a'].vendor != 'postgresql':
+            self.skipTest('PostgreSQL legacy schema rehearsal')
+        import importlib
+        from .cutover import prepare
+        from .policy import notice_id
+        with connections['company_a'].cursor() as cur:
+            cur.execute(importlib.import_module('geoflow_ops.migrations.0036_bid_interest_foundation').FORWARD_SQL)
+            cur.execute("""INSERT INTO bid.notices(bid_notice_no,title,payload_hash,raw_payload)
+                           VALUES ('legacy-preserve','old title','hash','{}') RETURNING id""")
+            legacy_id = cur.fetchone()[0]
+            cur.execute("INSERT INTO bid.notice_reviews(notice_id,status,memo) VALUES (%s,'interested','keep memo')", [legacy_id])
+            first = prepare(cur)
+            second = prepare(cur)
+            self.assertEqual(first, second)
+            self.assertEqual(first['legacy_reviews_preserved'], 1)
+            cur.execute('SELECT memo FROM bid.central_reviews WHERE central_notice_id=%s', [str(notice_id('legacy-preserve','00'))])
+            self.assertEqual(cur.fetchone()[0], 'keep memo')
+            cur.execute('SELECT memo FROM bid.notice_reviews WHERE notice_id=%s', [legacy_id])
+            self.assertEqual(cur.fetchone()[0], 'keep memo')
+            cur.execute('SELECT rule_ids FROM bid.central_preferences WHERE id=1')
+            self.assertEqual(cur.fetchone()[0], [str(self.rule.pk)])

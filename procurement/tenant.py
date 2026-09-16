@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from geoflow_ops.bids.repository import load_filters, REVIEW_STATUSES
 from .models import Notice, CollectionJob
+from .preferences import selected_ids
 from .policy import retention_start
 from .service import central_alias, enabled
 
@@ -18,7 +19,21 @@ def review_rows(alias):
         return {str(row[0]): {"review_status": row[1], "memo": row[2]} for row in cur.fetchall()}
 
 
-def query_notices(alias, query="", review_status="", include_all=False):
+def nationwide_q():
+    # Only an explicit unrestricted value counts as nationwide; absent data does not.
+    return Q(region_known=True, region_text__regex=r"^\s*(전국|지역\s*제한\s*없음|제한\s*없음)\s*$")
+
+
+def region_q(items):
+    condition = Q(pk__in=[])
+    for item in items:
+        for term in [item["name"], *item.get("aliases", [])]:
+            if term:
+                condition |= Q(region_text__icontains=term)
+    return condition
+
+
+def query_notices(alias, query="", review_status="", include_all=False, region="all"):
     reviews = review_rows(alias)
     qs = Notice.objects.using(central_alias()).filter(posted_at__gte=retention_start(timezone.now()))
     if review_status in REVIEW_STATUSES:
@@ -31,35 +46,40 @@ def query_notices(alias, query="", review_status="", include_all=False):
     if query:
         qs = qs.filter(Q(title__icontains=query[:100]) | Q(number__icontains=query[:100]) |
                        Q(agency__icontains=query[:100]) | Q(demand_agency__icontains=query[:100]))
-    if not include_all:
-        filters = load_filters(alias)
-        if not any(filters.get(k) for k in ("region", "industry", "agency", "include")):
-            return qs.none(), reviews
-        for kind, field in (("region", "region_text"), ("industry", "industry_text"), ("agency", "agency")):
-            if not filters.get(kind):
-                continue
-            condition = Q()
-            for item in filters[kind]:
-                for term in [item["name"], *item.get("aliases", [])]:
-                    if term:
-                        condition |= Q(**{field + "__icontains": term})
-            if kind in ("region", "industry"):
-                # Discovery candidates, never a positive participation eligibility claim.
-                condition |= Q(**{kind + "_known": False})
-                condition |= Q(**{field + "__icontains": "제한 없음"})
-            qs = qs.filter(condition)
-        for rule_type in ("include", "exclude"):
-            condition = Q()
-            for rule in filters.get(rule_type, []):
-                import re
-                term = rule["keyword"].strip()
+    filters = load_filters(alias)
+    # The central rule relation is authoritative. Multiple selected rules are OR;
+    # distinct prevents double counting a notice belonging to several rules.
+    qs = qs.filter(rules__id__in=selected_ids(alias, filters)).distinct()
+    regions = filters.get("region", [])
+    unknown = Q(region_known=False) | Q(region_text="")
+    if region == "nationwide":
+        qs = qs.filter(nationwide_q())
+    elif region == "unknown":
+        qs = qs.filter(unknown)
+    elif region != "all":
+        chosen = [item for item in regions if item["id"] == region]
+        qs = qs.filter(region_q(chosen)).exclude(nationwide_q()).exclude(unknown)
+    elif regions:
+        qs = qs.filter(region_q(regions) | nationwide_q() | unknown)
+    if filters.get("agency"):
+        condition = Q(pk__in=[])
+        for item in filters["agency"]:
+            for term in [item["name"], *item.get("aliases", [])]:
                 if term:
-                    pattern = re.escape(term)
-                    if term.isascii() and term.isalnum():
-                        pattern = r"(?<![0-9a-z])" + pattern + r"(?![0-9a-z])"
-                    condition |= Q(title__iregex=pattern)
-            if condition:
-                qs = qs.exclude(condition) if rule_type == "exclude" else qs.filter(condition)
+                    condition |= Q(agency__icontains=term) | Q(demand_agency__icontains=term)
+        qs = qs.filter(condition)
+    for rule_type in ("include", "exclude"):
+        condition = Q()
+        for rule in filters.get(rule_type, []):
+            import re
+            term = rule["keyword"].strip()
+            if term:
+                pattern = re.escape(term)
+                if term.isascii() and term.isalnum():
+                    pattern = r"(?<![0-9a-z])" + pattern + r"(?![0-9a-z])"
+                condition |= Q(title__iregex=pattern)
+        if condition:
+            qs = qs.exclude(condition) if rule_type == "exclude" else qs.filter(condition)
     return qs, reviews
 
 

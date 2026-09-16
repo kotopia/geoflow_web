@@ -25,7 +25,11 @@ def central_alias():
 def enabled(alias):
     if not alias or alias == central_alias():
         raise ValueError("명시적인 회사 데이터베이스가 필요합니다.")
-    return alias in getattr(settings, "G2B_CENTRAL_TENANT_ALIASES", ())
+    if alias in getattr(settings, "G2B_CENTRAL_TENANT_ALIASES", ()):
+        return True
+    # Resolve the already-authorized runtime connection, not a browser-supplied name.
+    db = connections.databases.get(alias, {})
+    return db.get("NAME") in getattr(settings, "G2B_CENTRAL_TENANT_DATABASES", ())
 
 
 def enqueue_rule(rule, now=None):
