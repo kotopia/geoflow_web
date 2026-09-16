@@ -3,7 +3,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3"><div><h1 class="h3 mb-1">입찰 설정</h1><div class="text-muted">회사에 필요한 지역·업종·기관과 포함·제외 키워드만 등록합니다.</div></div><a class="btn btn-outline-secondary" href="{% url 'tenant:bid_notice_list' %}">관심 입찰로 돌아가기</a></div>
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
-<div class="alert alert-info">같은 종류 안에서는 OR, 서로 다른 종류 사이는 AND로 판정합니다. 제외 키워드는 다른 조건보다 우선합니다. 등록 항목이 없는 종류는 제한하지 않지만, 지역·업종·기관·포함 키워드 중 하나 이상은 사용으로 설정해야 관심 공고가 만들어집니다.</div>
+{% if not central_mode %}<div class="alert alert-info">같은 종류 안에서는 OR, 서로 다른 종류 사이는 AND로 판정합니다. 제외 키워드는 다른 조건보다 우선합니다. 등록 항목이 없는 종류는 제한하지 않지만, 지역·업종·기관·포함 키워드 중 하나 이상은 사용으로 설정해야 관심 공고가 만들어집니다.</div>{% endif %}
 
 {% if central_mode %}
 <div class="card mb-3"><div class="card-header"><h5 class="card-title mb-0">중앙 수집조건 선택</h5></div><div class="card-body">
