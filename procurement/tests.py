@@ -670,4 +670,5 @@ class TenantIsolationTests(TestCase):
             cur.execute('SELECT memo FROM bid.notice_reviews WHERE notice_id=%s', [legacy_id])
             self.assertEqual(cur.fetchone()[0], 'keep memo')
             cur.execute('SELECT rule_ids FROM bid.central_preferences WHERE id=1')
-            self.assertEqual(cur.fetchone()[0], [str(self.rule.pk)])
+            value = cur.fetchone()[0]
+            self.assertEqual(json.loads(value) if isinstance(value, str) else value, [str(self.rule.pk)])
