@@ -23,6 +23,7 @@
   <div class="d-flex flex-wrap gap-2">
     {% if layer_plan.ready and layer_plan.gis_enabled %}
     <a class="btn btn-outline-primary" href="#gisProjectMap">WebGIS 지도</a>
+    <a class="btn btn-outline-primary" href="{% url 'gis:project_form_configuration' project.id %}">폼 및 첨부 구성</a>
     <button type="button"
             class="btn btn-outline-dark"
             data-bs-toggle="modal"

@@ -1,0 +1,32 @@
+name: GIS form definition tests
+on:
+  pull_request:
+    branches: [release/stabilized-deploy]
+  push:
+    branches: [release/stabilized-deploy]
+permissions:
+  contents: read
+jobs:
+  form-definition-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: geoflow_test
+          POSTGRES_PASSWORD: geoflow_test
+          POSTGRES_DB: geoflow_forms_test
+        ports: [55440:5432]
+        options: >-
+          --health-cmd "pg_isready -U geoflow_test -d geoflow_forms_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - run: python -m pip install psycopg2-binary==2.9.10
+      - run: python -m unittest geoflow_ops.gis.test_form_definitions -v
+        env:
+          GEOFLOW_FORMS_ISOLATED_PG: '1'

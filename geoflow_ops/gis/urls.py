@@ -1,4 +1,5 @@
 from django.urls import path
+from . import form_definition_views
 
 from . import (
     qfield_connection_views,
@@ -22,6 +23,8 @@ from . import (
 app_name = "gis"
 
 urlpatterns = [
+    path("projects/<uuid:project_id>/form-configuration/", form_definition_views.project_configuration, name="project_form_configuration"),
+    path("projects/<uuid:project_id>/api/form-definition/", form_definition_views.definition_api, name="project_form_definition_api"),
     path(
         "qgis/plugins/<str:channel>/plugins.xml",
         qgis_plugin_repository_views.qgis_plugin_repository_xml,
