@@ -24,10 +24,12 @@ from .views_signup_admin import (
 )
 from .views_categories import categories_page, category_options
 from procurement import views_central as central_bids
+from . import views_gis_admin
 
 app_name = "control"
 
 urlpatterns = [
+    path("central/gis/definitions/", views_gis_admin.dashboard, name="gis_definitions"),
     path("central/bids/", central_bids.dashboard, name="central_bids"),
     path("central/bids/status/", central_bids.status, name="central_bids_status"),
     path('', dashboard, name='dashboard'),  # /control/ 진입점
