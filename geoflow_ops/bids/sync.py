@@ -184,6 +184,9 @@ def _optional(client: G2BClient, operation: str, start: datetime, end: datetime)
 def sync_service_notices(alias: str, start: datetime, end: datetime, *, client: G2BClient | None = None) -> dict[str, Any]:
     if not alias or alias == "default":
         raise ValueError("명시적인 테넌트 데이터베이스가 필요합니다.")
+    from procurement.service import enabled
+    if enabled(alias):
+        raise ValueError("중앙 조회로 전환된 회사는 외부 API를 직접 수집하지 않습니다.")
     if end <= start:
         raise ValueError("조회 종료시각은 시작시각보다 늦어야 합니다.")
     client = client or G2BClient()

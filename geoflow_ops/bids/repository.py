@@ -160,9 +160,11 @@ def reevaluate_all(alias: str) -> int:
     return changed
 
 
-def _notice_filters(*, query: str, review_status: str, include_all: bool) -> tuple[list[str], list[Any]]:
+def _notice_filters(*, query: str, review_status: str, include_all: bool, reviewed_only: bool = False) -> tuple[list[str], list[Any]]:
     where = ["(%s OR COALESCE(m.matched,false)=true OR COALESCE(m.needs_review,false)=true)"]
     params: list[Any] = [include_all]
+    if reviewed_only:
+        where.append("r.notice_id IS NOT NULL")
     if query:
         where.append("(n.title ILIKE %s OR n.bid_notice_no ILIKE %s OR n.notice_agency_name ILIKE %s OR n.demand_agency_name ILIKE %s)")
         like = f"%{query[:100]}%"
@@ -175,8 +177,8 @@ def _notice_filters(*, query: str, review_status: str, include_all: bool) -> tup
     return where, params
 
 
-def count_notices(alias: str, *, query: str = "", review_status: str = "", include_all: bool = False) -> int:
-    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all)
+def count_notices(alias: str, *, query: str = "", review_status: str = "", include_all: bool = False, reviewed_only: bool = False) -> int:
+    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only)
     sql = f"""
         SELECT count(*)
           FROM bid.notices n
@@ -195,10 +197,11 @@ def list_notices(
     query: str = "",
     review_status: str = "",
     include_all: bool = False,
+    reviewed_only: bool = False,
     limit: int = 15,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all)
+    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only)
     limit = 30 if limit == 30 else 15
     offset = max(int(offset), 0)
     sql = f"""

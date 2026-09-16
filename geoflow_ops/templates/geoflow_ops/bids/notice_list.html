@@ -3,19 +3,21 @@
 {% block title %}관심 입찰 | GeoFlow{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <div><h1 class="h3 mb-1">관심 입찰</h1><div class="text-muted">{% if central_mode %}중앙에서 수집한 최근 2년 용역 공고의 검토 후보입니다. 참가자격과 첨부파일은 나라장터 원문에서 확인하세요.{% else %}나라장터 용역 공고 중 등록한 지역·업종·키워드 조건과 일치하는 공고입니다.{% endif %}</div></div>
+  <div><h1 class="h3 mb-1">관심 입찰</h1><div class="text-muted">{% if central_mode %}중앙에 저장된 용역 공고 중 선택한 조건의 검토 후보입니다. 과거자료는 중앙 수집 진행에 따라 추가됩니다. 참가자격과 첨부파일은 나라장터 원문에서 확인하세요.{% else %}나라장터 용역 공고 중 등록한 지역·업종·키워드 조건과 일치하는 공고입니다.{% endif %}</div></div>
   <div class="d-flex gap-2">
     {% if can_manage %}<a class="btn btn-outline-secondary" href="{% url 'tenant:bid_settings' %}">입찰 설정</a>
-    <form method="post" action="{% url 'tenant:bid_sync' %}" class="d-flex gap-1">{% csrf_token %}{% if not central_mode %}<select class="form-select" name="days" aria-label="수집 기간"><option value="2">2일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select>{% endif %}<button class="btn btn-primary text-nowrap">{% if central_mode %}지금 동기화{% else %}공고 가져오기{% endif %}</button></form>{% endif %}
+    <form method="post" action="{% url 'tenant:bid_sync' %}" class="d-flex gap-1">{% csrf_token %}{% if not central_mode %}<select class="form-select" name="days" aria-label="수집 기간"><option value="2">2일</option><option value="7" selected>7일</option><option value="14">14일</option><option value="30">30일</option></select>{% endif %}<button class="btn btn-primary text-nowrap">{% if central_mode %}목록 새로고침{% else %}공고 가져오기{% endif %}</button></form>{% endif %}
   </div>
 </div>
+{% if central_mode %}<div class="mb-3">{% if legacy_history %}<div class="alert alert-info">전환 전 검토기록 보관 화면입니다. 기존 기록은 읽기 전용으로 유지되며, 이후 검토는 중앙 공고 목록에서 관리합니다.</div><a href="{% url 'tenant:bid_notice_list' %}">중앙 공고 목록으로 돌아가기</a>{% else %}<a href="?history=1">기존 검토기록 보기</a>{% endif %}</div>{% endif %}
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
 {% if latest_sync %}<div class="alert alert-light border py-2 small">최근 수집: {{ latest_sync.started_at|date:'Y-m-d H:i' }} · {{ latest_sync.status }} · 조회 {{ latest_sync.fetched_count }}건 · 신규 {{ latest_sync.inserted_count }}건 · 변경 {{ latest_sync.updated_count }}건{% if latest_sync.error_message %}<span class="text-warning"> · {{ latest_sync.error_message }}</span>{% endif %}</div>{% endif %}
 
-<div class="card mb-3"><div class="card-body"><form method="get" class="row g-2 align-items-end">
+{% if central_mode %}<nav class="nav nav-pills gap-2 mb-3" aria-label="입찰 지역">{% for tab in region_tabs %}<a class="nav-link{% if tab.active %} active{% endif %}" href="?{{ tab.query }}" {% if tab.active %}aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>{% endif %}
+<div class="card mb-3"><div class="card-body"><form method="get" class="row g-2 align-items-end">{% if legacy_history %}<input type="hidden" name="history" value="1">{% endif %}{% if central_mode %}<input type="hidden" name="region" value="{{ region }}">{% endif %}
   <div class="col-md-4"><label class="form-label">공고명·공고번호·기관 검색</label><input class="form-control" name="q" value="{{ query }}"></div>
   <div class="col-md-2"><label class="form-label">검토 상태</label><select class="form-select" name="status"><option value="">참여 안 함 제외</option>{% for code,label in review_choices %}<option value="{{ code }}" {% if review_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-  <div class="col-md-2"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="scope" value="all" id="bid-scope-all" {% if include_all %}checked{% endif %}><label class="form-check-label" for="bid-scope-all">전체 수집 공고</label></div></div>
+  {% if not central_mode %}<div class="col-md-2"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="scope" value="all" id="bid-scope-all" {% if include_all %}checked{% endif %}><label class="form-check-label" for="bid-scope-all">전체 수집 공고</label></div></div>{% endif %}
   <div class="col-md-2"><label class="form-label">표시 개수</label><select class="form-select" name="per_page"><option value="15" {% if per_page == 15 %}selected{% endif %}>15개</option><option value="30" {% if per_page == 30 %}selected{% endif %}>30개</option></select></div>
   <div class="col-md-2"><button class="btn btn-outline-primary w-100">검색</button></div>
 </form></div></div>
@@ -37,7 +39,7 @@
     <td><div>{{ n.region_text|default:'정보 없음'|truncatechars:80 }}</div><div class="small text-muted">{{ n.industry_text|default:'업종정보 없음'|truncatechars:100 }}</div></td>
     <td class="text-nowrap">{% if n.basic_amount %}{{ n.basic_amount|intcomma }}원{% elif n.estimated_price %}{{ n.estimated_price|intcomma }}원{% elif n.budget_amount %}{{ n.budget_amount|intcomma }}원{% else %}-{% endif %}</td>
     <td>{% if n.needs_review %}<span class="badge bg-warning text-dark">판정 필요</span>{% endif %}{% for reason in n.reasons %}<div class="small"><strong>{{ reason.kind }}</strong>: {% for value in reason.values %}{{ value }}{% if not forloop.last %}, {% endif %}{% empty %}일치 없음{% endfor %}</div>{% empty %}<span class="text-muted">-</span>{% endfor %}</td>
-    <td>{% if can_review %}<form method="post" action="{% url 'tenant:bid_review_save' n.id %}" class="d-flex flex-column gap-1">{% csrf_token %}<select class="form-select form-select-sm" name="status">{% for code,label in review_choices %}<option value="{{ code }}" {% if n.review_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><input class="form-control form-control-sm" name="memo" value="{{ n.memo }}" placeholder="검토 메모"><button class="btn btn-sm btn-outline-primary">저장</button></form>{% else %}<span class="badge bg-secondary">{{ n.review_status }}</span>{% endif %}</td>
-  </tr>{% empty %}<tr><td colspan="7" class="text-center text-muted py-5">조건에 맞는 입찰공고가 없습니다. 입찰 설정을 확인하거나 공고를 가져오세요.</td></tr>{% endfor %}</tbody>
+    <td>{% if can_review %}<form method="post" action="{% url 'tenant:bid_review_save' n.id %}" class="d-flex flex-column gap-1">{% csrf_token %}<select class="form-select form-select-sm" name="status">{% for code,label in review_choices %}<option value="{{ code }}" {% if n.review_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><input class="form-control form-control-sm" name="memo" value="{{ n.memo }}" placeholder="검토 메모"><button class="btn btn-sm btn-outline-primary">저장</button></form>{% else %}<span class="badge bg-secondary">{{ n.review_status }}</span><div class="small">{{ n.memo }}</div>{% endif %}</td>
+  </tr>{% empty %}<tr><td colspan="7" class="text-center text-muted py-5">조건에 맞는 입찰공고가 없습니다. 입찰 설정과 중앙 수집 진행상태를 확인하세요.</td></tr>{% endfor %}</tbody>
 </table></div></div>
 {% endblock %}
