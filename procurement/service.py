@@ -116,13 +116,20 @@ def run_step(job, client, now=None, mode=None):
     if not CollectionRule.objects.using(alias).filter(pk=job.rule_id, active=True).exists():
         return False
     live = (job.requested or job.due_at <= now) if mode is None else mode == "live"
+    from .period import selection, bounds, select_checkpoint
+    scope_signature = selection(now)["signature"] if not live else None
+    def check_scope():
+        if not live and selection(now)["signature"] != scope_signature:
+            raise G2BError("SCOPE_CHANGED", "수집 기간이 변경되어 다음 실행에서 새 범위를 적용합니다.")
     if live:
         start, end = next_window(max(job.live_cursor, retention_start(now)), now)
     else:
         from .lifecycle import recent_backfill_window
         gap = recent_backfill_window(job, now)
         if not gap:
-            CollectionJob.objects.using(alias).filter(pk=job.pk, generation=job.generation).update(backfill_status="BACKFILL_COMPLETE")
+            from .lifecycle import coverage_gap
+            state = "BACKFILL_COMPLETE" if coverage_gap(job, now) is None else "RANGE_COMPLETE"
+            CollectionJob.objects.using(alias).filter(pk=job.pk, generation=job.generation).update(backfill_status=state)
             return False
         start, end = gap
     if live:
@@ -131,6 +138,9 @@ def run_step(job, client, now=None, mode=None):
     previous = getattr(job, lane) or {}
     if not previous and job.status in {"failed", "running"} and job.progress.get("mode") == ("live" if live else "backfill"):
         previous = job.progress
+    suspended = []
+    if not live:
+        previous, suspended = select_checkpoint(previous, *bounds(job, now))
     # Freeze an incomplete window, including its rejected rows, across retries.
     # Advancing the live end on every retry can repeatedly exhaust the budget.
     resume = not previous.get("finished") and previous.get("checkpoint_version") == 1
@@ -144,6 +154,7 @@ def run_step(job, client, now=None, mode=None):
                     outcomes=outcomes,
                     total=None, processed=len(completed_keys), stored=previous.get("stored", 0) if resume else 0,
                     api_page_cache=previous.get("api_page_cache", {}) if resume else {},
+                    suspended_windows=suspended,
                     updated_at=timezone.now().isoformat())
     job_query = CollectionJob.objects.using(alias).filter(pk=job.pk, generation=job.generation)
     def save_progress(**extra):
@@ -152,6 +163,7 @@ def run_step(job, client, now=None, mode=None):
     save_progress(status="running", error_code="", **({"requested": False} if live else {"backfill_status": "BACKFILL_RUNNING"}))
     if isinstance(client, Client):
         client.bind_checkpoint(progress, save_progress)
+        client.scope_check = check_scope if not live else None
     try:
         rows = client.search(job.rule, start, end)
         selected = {(r.get("bidNtceNo"), canonical_order(r.get("bidNtceOrd"))): r for r in rows}
@@ -167,6 +179,7 @@ def run_step(job, client, now=None, mode=None):
         save_progress()
         active_hashes = []
         for key, row in selected.items():
+            check_scope()
             if not key[0]:
                 raise G2BError("MISSING_NOTICE_KEY", "공고 식별자가 없습니다.")
             # Include source content so a notice changed during a retry is rechecked.
@@ -230,6 +243,7 @@ def run_step(job, client, now=None, mode=None):
         else:
             updates.update(backfill_cursor=max(job.backfill_cursor, end), backfill_status="BACKFILL_PENDING")
         with transaction.atomic(using=alias):
+            check_scope()
             CollectionWindow.objects.using(alias).update_or_create(
                 job=job, generation=job.generation, mode="live" if live else "backfill", start=start, end=end,
                 defaults=dict(metrics=metrics, verified=True, completed_at=now))
@@ -239,13 +253,15 @@ def run_step(job, client, now=None, mode=None):
                 job.refresh_from_db(using=alias)
                 if coverage_gap(job, now) is None:
                     job_query.update(backfill_status="BACKFILL_COMPLETE")
+                elif recent_backfill_window(job, now) is None:
+                    job_query.update(backfill_status="RANGE_COMPLETE")
         return True
     except Exception as exc:
         code = exc.code if isinstance(exc, G2BError) else "COLLECTION_ERROR"
         saved = job_query.values_list(lane, flat=True).first() or {}
         saved["last_error"] = code
         job_query.update(status="failed", error_code=code, progress=saved, **{lane: saved}, **({} if live else {
-            "backfill_status": "PAUSED" if code in {"PAUSED", "BUDGET_EXHAUSTED", "TIME_BUDGET_EXHAUSTED", "DAILY_BUDGET_EXHAUSTED"} else "BACKFILL_FAILED"}))
+            "backfill_status": "PAUSED" if code in {"PAUSED", "SCOPE_CHANGED", "BUDGET_EXHAUSTED", "TIME_BUDGET_EXHAUSTED", "DAILY_BUDGET_EXHAUSTED"} else "BACKFILL_FAILED"}))
         raise
 
 
@@ -296,7 +312,7 @@ def run_worker(budget=100, max_steps=10):
                         progress |= changed
                     except G2BError as exc:
                         if exc.code in {"DAILY_BUDGET_EXHAUSTED", "API_20", "API_22", "API_23", "API_29",
-                                        "API_30", "API_31", "MISSING_SERVICE_KEY", "NETWORK_ERROR", "TIME_BUDGET_EXHAUSTED"}:
+                                        "API_30", "API_31", "MISSING_SERVICE_KEY", "NETWORK_ERROR", "TIME_BUDGET_EXHAUSTED", "SCOPE_CHANGED"}:
                             return completed
                         if exc.code == "BUDGET_EXHAUSTED":
                             progress = True

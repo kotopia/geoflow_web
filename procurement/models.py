@@ -3,6 +3,19 @@ import uuid
 from django.db import models
 
 
+class CollectionPeriod(models.Model):
+    """Central-only historical collection boundary; no tenant or notice ownership."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name="procurement_period_singleton"),
+                       models.CheckConstraint(condition=models.Q(start_date__lte=models.F("end_date")),
+                                              name="procurement_period_order")]
+
+
 class CollectionRule(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(max_length=16, choices=[("industry", "업종코드"), ("keyword", "공고명 키워드")])

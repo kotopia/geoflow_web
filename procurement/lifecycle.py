@@ -23,8 +23,8 @@ def coverage_gap(job, now):
 def recent_backfill_window(job, now):
     """Newest uncovered day; receipts, not the legacy forward cursor, prove coverage."""
     from .service import central_alias
-    lower = max(job.backfill_start or retention_start(job.backfill_end), retention_start(now))
-    cursor = job.backfill_end
+    from .period import bounds
+    lower, cursor = bounds(job, now)
     if cursor <= lower:
         return None
     windows = CollectionWindow.objects.using(central_alias()).filter(

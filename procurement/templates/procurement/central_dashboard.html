@@ -6,7 +6,17 @@
   <div><h1 class="h3 mb-1">입찰 수집 관리</h1><p class="text-muted mb-0">등록된 업종 또는 키워드에 해당하는 전국 용역 공고를 중앙에서 수집합니다.</p></div>
   <form method="post">{% csrf_token %}<input type="hidden" name="action" value="sync_all"><button class="btn btn-primary">활성 조건 모두 동기화</button></form>
 </div>
-<p class="text-muted">새 조건은 최근 2년 수집을 예약합니다. 동기화 버튼은 마지막 진행 지점부터 작업을 요청하며, 백그라운드 수집기가 실행되어야 처리됩니다.</p>
+<p class="text-muted">새 조건은 아래 지정 기간의 과거 수집을 예약합니다. 동기화 버튼은 마지막 진행 지점부터 작업을 요청하며, 백그라운드 수집기가 실행되어야 처리됩니다.</p>
+<div class="card mb-3"><div class="card-body">
+  <h2 class="h4">과거 공고 수집 기간</h2>
+  <p class="text-muted">모든 활성 조건에 공통 적용합니다. 최초 기본값은 최근 1개월입니다. 지정 기간을 채우면 과거 수집은 멈추고 신규·변경 공고 수집은 계속됩니다. 기간을 줄여도 기존 공고는 삭제되지 않습니다.</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="set_period">
+    {{ period_form.non_field_errors }}{{ period_form.preset.errors }}
+    <div class="row g-3"><div class="col-md-4"><label for="id_start_date">수집 시작일</label>{{ period_form.start_date }}{{ period_form.start_date.errors }}</div><div class="col-md-4"><label for="id_end_date">수집 종료일</label>{{ period_form.end_date }}{{ period_form.end_date.errors }}</div></div>
+    <div class="d-flex flex-wrap gap-2 mt-3"><button class="btn btn-primary">입력한 기간 적용</button><button name="preset" value="1" class="btn btn-outline-secondary">최근 1개월</button><button name="preset" value="3" class="btn btn-outline-secondary">최근 3개월</button><button name="preset" value="6" class="btn btn-outline-secondary">최근 6개월</button><button name="preset" value="12" class="btn btn-outline-secondary">최근 1년</button><button name="preset" value="24" class="btn btn-outline-secondary">최근 2년</button></div>
+    <div class="small text-muted mt-2">실행 중인 API 요청은 마칠 수 있으며 이후 요청부터 새 범위를 적용합니다. 범위 밖 중단 페이지는 보존했다가 기간을 넓히면 재개합니다.</div>
+  </form>
+</div></div>
 <div id="bid-status" data-status-url="{% url 'control:central_bids_status' %}">{% include "procurement/central_status.html" %}</div>
 <p id="bid-refresh-status" class="small text-muted" role="status">진행 상태는 10초마다 갱신됩니다.</p>
 <div class="card"><div class="card-body">
@@ -15,7 +25,7 @@
   <form method="post">{% csrf_token %}<input type="hidden" name="action" value="create">
     {{ form.non_field_errors }}
     <div class="row g-3">{% for field in form %}<div class="col-md-4"><label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}</div>
-    <button class="btn btn-primary mt-3">조건 추가 · 2년 수집 예약</button>
+    <button class="btn btn-primary mt-3">조건 추가 · 지정 기간 수집 예약</button>
   </form>
 </div></div>
 {% endblock %}
