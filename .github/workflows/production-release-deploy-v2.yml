@@ -235,12 +235,21 @@ jobs:
           import tempfile
 
           env_path, key_path = sys.argv[1:]
+          import json
+          with open(os.path.join(os.path.dirname(env_path), 'deploy/bids/collector-budget.json'), encoding='utf-8') as source:
+              collector_settings = json.load(source)
+          allowed = {'G2B_CENTRAL_DAILY_BUDGET', 'G2B_JOB_REQUEST_BUDGET', 'G2B_JOB_MAX_STEPS',
+                     'G2B_INCREMENTAL_REQUEST_RESERVE', 'G2B_REQUEST_INTERVAL_SECONDS', 'G2B_JOB_TIME_BUDGET_SECONDS'}
+          if set(collector_settings) != allowed or any(type(v) is not int or v <= 0 for v in collector_settings.values()):
+              raise RuntimeError('invalid collector budget settings')
           key = open(key_path, encoding='utf-8').read().strip()
           if not key or '\n' in key or '\r' in key:
               raise RuntimeError('invalid G2B secret shape')
           with open(env_path, encoding='utf-8') as source:
               lines = source.readlines()
-          kept = [line for line in lines if not line.lstrip().startswith('G2B_API_SERVICE_KEY=')]
+          managed = allowed | {'G2B_API_SERVICE_KEY'}
+          kept = [line for line in lines if line.strip().removeprefix('export ').split('=', 1)[0].strip() not in managed]
+          kept.extend(f'{name}={value}\n' for name, value in collector_settings.items())
           kept.append(f'G2B_API_SERVICE_KEY={key}\n')
           directory = os.path.dirname(env_path)
           fd, temporary = tempfile.mkstemp(prefix='.geoflow-env-', dir=directory, text=True)

@@ -387,7 +387,8 @@ class CollectionTests(TestCase):
         run_step(self.job, FakeClient(), NOW)
         self.job.refresh_from_db()
         self.assertEqual(self.job.live_cursor, initial_live)
-        self.assertEqual(self.job.backfill_cursor, retention_start(minute(NOW)) + timedelta(days=1))
+        self.assertEqual(datetime.fromisoformat(self.job.backfill_progress["end"]), minute(NOW))
+        self.assertEqual(datetime.fromisoformat(self.job.backfill_progress["start"]), minute(NOW) - timedelta(days=1))
 
     def test_changed_old_notice_updates_despite_not_in_posting_search(self):
         store_notice(ROW, DETAILS, self.rule, NOW)

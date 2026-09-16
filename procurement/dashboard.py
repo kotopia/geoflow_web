@@ -9,6 +9,7 @@ from django.utils.dateparse import parse_datetime
 from .models import ApiBudget, CollectionJob, CollectionRule, Notice, CollectionWindow
 from .policy import minute, retention_start
 from .service import central_alias
+from .lifecycle import recent_backfill_window
 
 
 def lane_stats(progress):
@@ -48,6 +49,7 @@ def snapshot():
         elif job and job.backfill_status == "BACKFILL_COMPLETE" and job.last_incremental_success:
             lifecycle = "INCREMENTAL"
         rows.append(dict(rule=rule, job=job, progress=progress, stale=stale,
+                         next_backfill=recent_backfill_window(job, now) if job else None,
                          lifecycle=lifecycle, totals=totals,
                          backfill_start=job.backfill_start or retention_start(job.backfill_end) if job else None,
                          backfill_page=lane_stats(job.backfill_progress) if job else {},

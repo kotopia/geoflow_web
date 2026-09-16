@@ -116,15 +116,15 @@ def run_step(job, client, now=None, mode=None):
     if not CollectionRule.objects.using(alias).filter(pk=job.rule_id, active=True).exists():
         return False
     live = (job.requested or job.due_at <= now) if mode is None else mode == "live"
-    start, end = next_window(max(job.live_cursor, retention_start(now)), now) if live else next_window(
-        max(job.backfill_cursor, retention_start(now)), job.backfill_end)
-    if not live and start >= end:
-        from .lifecycle import coverage_gap
-        gap = coverage_gap(job, now)
+    if live:
+        start, end = next_window(max(job.live_cursor, retention_start(now)), now)
+    else:
+        from .lifecycle import recent_backfill_window
+        gap = recent_backfill_window(job, now)
         if not gap:
-            CollectionJob.objects.using(alias).filter(pk=job.pk).update(backfill_status="BACKFILL_COMPLETE")
+            CollectionJob.objects.using(alias).filter(pk=job.pk, generation=job.generation).update(backfill_status="BACKFILL_COMPLETE")
             return False
-        start, end = next_window(*gap)
+        start, end = gap
     if live:
         start -= timedelta(hours=2)
     lane = "incremental_progress" if live else "backfill_progress"
@@ -245,11 +245,12 @@ def run_step(job, client, now=None, mode=None):
         saved = job_query.values_list(lane, flat=True).first() or {}
         saved["last_error"] = code
         job_query.update(status="failed", error_code=code, progress=saved, **{lane: saved}, **({} if live else {
-            "backfill_status": "PAUSED" if code in {"PAUSED", "BUDGET_EXHAUSTED", "DAILY_BUDGET_EXHAUSTED"} else "BACKFILL_FAILED"}))
+            "backfill_status": "PAUSED" if code in {"PAUSED", "BUDGET_EXHAUSTED", "TIME_BUDGET_EXHAUSTED", "DAILY_BUDGET_EXHAUSTED"} else "BACKFILL_FAILED"}))
         raise
 
 
 def run_worker(budget=100, max_steps=10):
+    import time
     from .lifecycle import match_existing
     with worker_lock() as acquired:
         if not acquired:
@@ -258,12 +259,19 @@ def run_worker(budget=100, max_steps=10):
         completed = 0
         live_allowance = max(1, budget // 2)
         remaining = budget
+        deadline = time.monotonic() + max(60, min(840, getattr(settings, "G2B_JOB_TIME_BUDGET_SECONDS", 720)))
+        next_request_at = 0
         for mode in ("live", "backfill"):
             client = Client(budget=min(remaining, live_allowance) if mode == "live" else remaining)
+            client.deadline = deadline
+            client.next_request_at = next_request_at
             initial_budget = client.budget
             for _ in range(max_steps):
                 progress = False
-                for job in jobs.all():
+                lane = "incremental_progress" if mode == "live" else "backfill_progress"
+                pending = sorted(jobs.all(), key=lambda job: (getattr(job, lane).get("updated_at", ""), str(job.pk)))
+                turn_budget = max(1, min(100, client.budget // max(1, len(pending))))
+                for job in pending:
                     now = minute(timezone.now())
                     if completed >= max_steps or client.budget <= 0:
                         break
@@ -279,17 +287,23 @@ def run_worker(budget=100, max_steps=10):
                     if not match_existing(job, now):
                         progress = True
                         continue
+                    phase_budget = client.budget
+                    allowance = min(phase_budget, turn_budget)
+                    client.budget = allowance
                     try:
                         changed = run_step(job, client, now, mode=mode)
                         completed += int(changed)
                         progress |= changed
                     except G2BError as exc:
                         if exc.code in {"DAILY_BUDGET_EXHAUSTED", "API_20", "API_22", "API_23", "API_29",
-                                        "API_30", "API_31", "MISSING_SERVICE_KEY", "NETWORK_ERROR"}:
+                                        "API_30", "API_31", "MISSING_SERVICE_KEY", "NETWORK_ERROR", "TIME_BUDGET_EXHAUSTED"}:
                             return completed
                         if exc.code == "BUDGET_EXHAUSTED":
-                            break
+                            progress = True
+                    finally:
+                        client.budget = phase_budget - (allowance - client.budget)
                 if not progress or client.budget <= 0 or completed >= max_steps:
                     break
             remaining -= initial_budget - client.budget
+            next_request_at = client.next_request_at
         return completed

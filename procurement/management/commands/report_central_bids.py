@@ -13,6 +13,7 @@ from procurement.models import CollectionRule, CollectionJob, Notice, ApiBudget
 from procurement.policy import minute, retention_start
 from procurement.service import central_alias
 from procurement.dashboard import snapshot, lane_stats
+from procurement.lifecycle import recent_backfill_window
 
 
 class Command(BaseCommand):
@@ -36,6 +37,9 @@ class Command(BaseCommand):
                           retained_total=Notice.objects.using(alias).filter(posted_at__gte=retention_start(now)).count(),
                           daily_budget=getattr(settings, "G2B_CENTRAL_DAILY_BUDGET", 500),
                           job_request_budget=getattr(settings, "G2B_JOB_REQUEST_BUDGET", 100),
+                          collection_order="newest_uncovered_day_first",
+                          incremental_reserve=getattr(settings, "G2B_INCREMENTAL_REQUEST_RESERVE", 100),
+                          request_interval_seconds=getattr(settings, "G2B_REQUEST_INTERVAL_SECONDS", 1),
                           api_days=list(ApiBudget.objects.using(alias).filter(day__gte=now.date()-timedelta(days=7))
                                         .order_by("day").values("day", "used", "received", "inserted", "updated")), rules=[])
             for rule in rules:
@@ -54,7 +58,7 @@ class Command(BaseCommand):
                                backfill_page=lane_stats(job.backfill_progress),
                                backfill_error=job.backfill_progress.get("last_error", ""),
                                incremental_error=job.incremental_progress.get("last_error", ""),
-                               remaining_from=max(job.backfill_cursor, retention_start(now)),
+                               next_backfill_window=recent_backfill_window(job, now),
                                live_cursor=job.live_cursor, due_at=job.due_at, requested=job.requested,
                                progress={k: v for k, v in job.progress.items() if k not in {"completed_keys", "api_page_cache", "outcomes"}},
                                pending_api_queries=[dict(operation=q["operation"], numOfRows=q["numOfRows"],
