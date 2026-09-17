@@ -1,9 +1,16 @@
 from django.test import SimpleTestCase
+from unittest.mock import patch
 
 from .views import _parse_bbox, _parse_limit, _registry_feature
 
 
 class GisGeoJsonHelperTests(SimpleTestCase):
+    def setUp(self):
+        self.central=patch('geoflow_ops.gis.central_definitions.central_snapshot',return_value={'layers':[
+            {'id':'layer','standard_name':'WTL_PIPE_LM','physical_name':'wtl_pipe_lm','label':'관로',
+             'domain_code':'WTL','geometry_kind':'LINE','feature_role':'ASSET','scope_type':'PROJECT','active':True}]})
+        self.central.start(); self.addCleanup(self.central.stop)
+
     def test_registry_accepts_standard_and_physical_names(self):
         standard = _registry_feature("WTL_PIPE_LM")
         physical = _registry_feature("wtl_pipe_lm")

@@ -57,25 +57,13 @@ def _feature_type_for_layer(
     standard = str(standard_name or "").strip().upper()
     if not standard or standard == "SURVEY" or standard not in allowed_standard_names(plan):
         raise SyncRejected("layer is outside the active Layer Plan or is not a facility layer")
-    with connections[alias].cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT id::text, standard_name, physical_name, feature_role
-              FROM gis.meta_feature_type
-             WHERE upper(standard_name)=upper(%s) AND active=true
-            """,
-            [standard],
-        )
-        row = cursor.fetchone()
-    if row is None:
-        raise SyncRejected("layer is not registered in GIS metadata")
-    if str(row[3] or "").upper() != "ASSET":
-        raise SyncRejected("layer is not an asset feature type")
-    physical_name = str(row[2])
+    row=next((layer for layer in plan.get("layers",[]) if str(layer.get("standard_name")).upper()==standard),None)
+    if row is None: raise SyncRejected("layer is not registered in the central Layer Plan")
+    physical_name = str(row["physical_name"])
     _quote_ident(physical_name)
     return {
-        "id": str(row[0]),
-        "standard_name": str(row[1]).upper(),
+        "id": str(row["id"]),
+        "standard_name": str(row["standard_name"]).upper(),
         "physical_name": physical_name,
     }
 
@@ -108,18 +96,16 @@ def _target_exists(
         return cursor.fetchone() is not None
 
 
-def _link_by_id(alias: str, *, project_id: str, link_id: str, lock: bool) -> dict[str, Any] | None:
+def _link_by_id(alias: str, *, project_id: str, plan: dict[str,Any], link_id: str, lock: bool) -> dict[str, Any] | None:
     suffix = " FOR UPDATE OF sl" if lock else ""
     with connections[alias].cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT sl.id::text, sl.survey_id::text, sl.feature_type_id::text,
-                   ft.standard_name, ft.physical_name, sl.target_id::text,
+            SELECT sl.id::text, sl.survey_id::text, sl.layer_id::text, sl.target_id::text,
                    sl.match_method, sl.match_distance, sl.match_confidence,
                    sl.confirmed_by::text, sl.confirmed_at, sl.created_at
               FROM gis.survey_link sl
               JOIN gis.survey s ON s.id=sl.survey_id
-              JOIN gis.meta_feature_type ft ON ft.id=sl.feature_type_id
              WHERE s.project_id=%s AND sl.id=%s{suffix}
             """,
             [project_id, link_id],
@@ -127,19 +113,19 @@ def _link_by_id(alias: str, *, project_id: str, link_id: str, lock: bool) -> dic
         row = cursor.fetchone()
     if row is None:
         return None
+    layer=next((item for item in plan.get('layers',[]) if str(item.get('id'))==str(row[2])),None)
+    if layer is None: raise SyncRejected('survey link layer is outside the active central Layer Plan')
     return {
         "id": str(row[0]),
         "survey_id": str(row[1]),
-        "feature_type_id": str(row[2]),
-        "layer": str(row[3]).upper(),
-        "physical_name": str(row[4]),
-        "target_id": str(row[5]),
-        "match_method": str(row[6]),
-        "match_distance": float(row[7]) if row[7] is not None else None,
-        "match_confidence": float(row[8]) if row[8] is not None else None,
-        "confirmed_by": str(row[9]) if row[9] is not None else None,
-        "confirmed_at": row[10].isoformat() if row[10] is not None else None,
-        "created_at": row[11].isoformat() if row[11] is not None else None,
+        "layer_id": str(row[2]),
+        "layer": str(layer['standard_name']).upper(), "physical_name": str(layer['physical_name']),
+        "target_id": str(row[3]), "match_method": str(row[4]),
+        "match_distance": float(row[5]) if row[5] is not None else None,
+        "match_confidence": float(row[6]) if row[6] is not None else None,
+        "confirmed_by": str(row[7]) if row[7] is not None else None,
+        "confirmed_at": row[8].isoformat() if row[8] is not None else None,
+        "created_at": row[9].isoformat() if row[9] is not None else None,
     }
 
 
@@ -148,7 +134,7 @@ def _relation_values(row: dict[str, Any]) -> dict[str, Any]:
         key: row.get(key)
         for key in (
             "survey_id",
-            "feature_type_id",
+            "layer_id",
             "layer",
             "physical_name",
             "target_id",
@@ -231,7 +217,7 @@ def apply_survey_link_changeset(
                 unexpected = set(raw) - {"action", "id"}
                 if unexpected:
                     raise SyncRejected(f"{label}: delete must contain only action and id")
-                before = _link_by_id(alias, project_id=project_id, link_id=link_id, lock=True)
+                before = _link_by_id(alias, project_id=project_id, plan=plan, link_id=link_id, lock=True)
                 if before is None:
                     raise SyncConflict(
                         [{"resource_kind": SURVEY_LINK_RESOURCE_KIND, "id": link_id, "reason": "server_link_missing"}]
@@ -294,7 +280,7 @@ def apply_survey_link_changeset(
             with connections[alias].cursor() as cursor:
                 cursor.execute(
                     "SELECT id::text FROM gis.survey_link WHERE id=%s OR "
-                    "(survey_id=%s AND feature_type_id=%s AND target_id=%s)",
+                    "(survey_id=%s AND layer_id=%s AND target_id=%s)",
                     [link_id, survey_id, feature_type["id"], target_id],
                 )
                 duplicate = cursor.fetchone()
@@ -313,7 +299,7 @@ def apply_survey_link_changeset(
                 cursor.execute(
                     """
                     INSERT INTO gis.survey_link(
-                        id, survey_id, feature_type_id, target_id, match_method,
+                        id, survey_id, layer_id, target_id, match_method,
                         match_distance, match_confidence, confirmed_by, confirmed_at
                     ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,now())
                     """,
@@ -322,7 +308,7 @@ def apply_survey_link_changeset(
                         match_distance, match_confidence, confirmed_by,
                     ],
                 )
-            after = _link_by_id(alias, project_id=project_id, link_id=link_id, lock=True)
+            after = _link_by_id(alias, project_id=project_id, plan=plan, link_id=link_id, lock=True)
             if after is None:
                 raise ChangesetUnavailable(f"{label}: created link could not be re-read")
             events.append({"action": action, "id": link_id, "old": {}, "new": _relation_values(after)})
@@ -423,15 +409,17 @@ def list_survey_links(
     if requested_layer and requested_layer not in permitted_layers:
         raise SyncRejected("layer is outside the active Layer Plan")
 
-    params: list[Any] = [project_id, permitted_layers]
+    permitted={str(layer['id']):layer for layer in plan.get('layers',[]) if str(layer['standard_name']).upper() in permitted_layers}
+    params: list[Any] = [project_id, list(permitted)]
     filters = ["s.project_id=%s"]
-    filters.append("upper(ft.standard_name)=ANY(%s)")
+    filters.append("sl.layer_id=ANY(%s::uuid[])")
     if survey_id:
         filters.append("sl.survey_id=%s")
         params.append(_uuid_text(survey_id, "survey_id"))
     if requested_layer:
-        filters.append("upper(ft.standard_name)=upper(%s)")
-        params.append(requested_layer)
+        requested_id=next(key for key,value in permitted.items() if str(value['standard_name']).upper()==requested_layer)
+        filters.append("sl.layer_id=%s::uuid")
+        params.append(requested_id)
     if target_id:
         filters.append("sl.target_id=%s")
         params.append(_uuid_text(target_id, "target_id"))
@@ -439,13 +427,11 @@ def list_survey_links(
     with connections[alias].cursor() as cursor:
         cursor.execute(
             f"""
-            SELECT sl.id::text, sl.survey_id::text, sl.feature_type_id::text,
-                   ft.standard_name, ft.physical_name, sl.target_id::text,
+            SELECT sl.id::text, sl.survey_id::text, sl.layer_id::text, sl.target_id::text,
                    sl.match_method, sl.match_distance, sl.match_confidence,
                    sl.confirmed_by::text, sl.confirmed_at, sl.created_at
               FROM gis.survey_link sl
               JOIN gis.survey s ON s.id=sl.survey_id
-              JOIN gis.meta_feature_type ft ON ft.id=sl.feature_type_id
              WHERE {' AND '.join(filters)}
              ORDER BY sl.created_at, sl.id
              LIMIT %s
@@ -455,16 +441,17 @@ def list_survey_links(
         rows = cursor.fetchall()
     result = []
     for row in rows:
+        layer=permitted[str(row[2])]
         result.append(
             {
-                "id": str(row[0]), "survey_id": str(row[1]), "feature_type_id": str(row[2]),
-                "layer": str(row[3]).upper(), "physical_name": str(row[4]), "target_id": str(row[5]),
-                "match_method": str(row[6]),
-                "match_distance": float(row[7]) if row[7] is not None else None,
-                "match_confidence": float(row[8]) if row[8] is not None else None,
-                "confirmed_by": str(row[9]) if row[9] is not None else None,
-                "confirmed_at": row[10].isoformat() if row[10] is not None else None,
-                "created_at": row[11].isoformat() if row[11] is not None else None,
+                "id": str(row[0]), "survey_id": str(row[1]), "layer_id": str(row[2]),
+                "layer": str(layer['standard_name']).upper(), "physical_name": str(layer['physical_name']),
+                "target_id": str(row[3]), "match_method": str(row[4]),
+                "match_distance": float(row[5]) if row[5] is not None else None,
+                "match_confidence": float(row[6]) if row[6] is not None else None,
+                "confirmed_by": str(row[7]) if row[7] is not None else None,
+                "confirmed_at": row[8].isoformat() if row[8] is not None else None,
+                "created_at": row[9].isoformat() if row[9] is not None else None,
             }
         )
     return result

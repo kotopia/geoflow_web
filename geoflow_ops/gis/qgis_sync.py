@@ -17,6 +17,8 @@ from django.db import connections, transaction
 from psycopg2.extras import Json
 
 from .gpkg import PackageField, _is_spatial_data_type, _layer_specs
+from .central_definitions import validate_attributes
+from .form_definitions import DefinitionError
 from .layer_plan import allowed_standard_names
 
 
@@ -35,6 +37,13 @@ class SyncConflict(RuntimeError):
     def __init__(self, conflicts: list[dict[str, Any]]):
         super().__init__("GeoFlow sync conflict")
         self.conflicts = conflicts
+
+
+def _validate_central_form(plan, standard_name, attrs):
+    try:
+        validate_attributes(plan, standard_name, attrs)
+    except DefinitionError as exc:
+        raise SyncRejected(str(exc)) from None
 
 
 @dataclass(frozen=True)
@@ -372,14 +381,14 @@ def _dependent_survey_link_count(alias: str, op: SyncOperation) -> int:
                 [op.object_id],
             )
         else:
+            from .central_definitions import central_snapshot
+            definition=central_snapshot() or {}
+            layer=next((row for row in definition.get('layers',[]) if row.get('physical_name')==op.table),None)
+            if layer is None:
+                raise SyncRejected('central layer mapping is unavailable')
             cursor.execute(
-                """
-                SELECT count(*)
-                  FROM gis.survey_link sl
-                  JOIN gis.meta_feature_type ft ON ft.id=sl.feature_type_id
-                 WHERE ft.physical_name=%s AND sl.target_id=%s
-                """,
-                [op.table, op.object_id],
+                "SELECT count(*) FROM gis.survey_link WHERE layer_id=%s AND target_id=%s",
+                [layer['id'], op.object_id],
             )
         return int(cursor.fetchone()[0])
 
@@ -447,6 +456,7 @@ def _collect_operations(
                     continue
 
                 package_attrs = package_row["attrs"]
+                _validate_central_form(plan, spec.standard_name, package_attrs)
                 if package_attrs.get("project_id") != project_id:
                     raise SyncRejected(f"{spec.standard_name} {object_id}: project_id mismatch")
 
@@ -487,6 +497,7 @@ def _collect_operations(
 
             assert package_row is not None
             package_attrs = package_row["attrs"]
+            _validate_central_form(plan, spec.standard_name, package_attrs)
             if package_attrs.get("project_id") != project_id:
                 raise SyncRejected(f"{spec.standard_name} {object_id}: project_id mismatch")
             if _uuid_exists(alias, spec.physical_name, object_id, lock=True):

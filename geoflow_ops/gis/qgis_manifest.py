@@ -96,8 +96,10 @@ def build_qgis_manifest(
                 "changeset_v1" if effective_changeset else "gpkg_diff_fallback"
             ),
             "reference_catalog_url": effective_reference_catalog_url,
-            "reference_catalog_source": "gis",
+            "reference_catalog_source": "central.gis",
             "reference_values_embedded": False,
+            "form_definition_url": f"/gis/projects/{project_id}/api/form-definition/",
+            "form_definition_revision": (plan.get("definition") or {}).get("revision") or "",
             "survey_link_supported": bool(effective_changeset and effective_survey_link_changeset_url),
             "survey_links_url": effective_survey_links_url,
             "survey_link_changeset_url": effective_survey_link_changeset_url,
@@ -117,8 +119,8 @@ def build_qgis_manifest(
             "name": project.get("name") or "",
             "status": project.get("status") or "",
         },
-        "profile": plan.get("profile"),
-        "capabilities": plan.get("capabilities") or [],
+        "definition": plan.get("definition") or {},
+        "catalog_scopes": plan.get("capabilities") or [],
         "layers": layers,
         "layer_count": len(layers),
         "qfield": {

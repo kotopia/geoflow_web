@@ -1,0 +1,33 @@
+name: Import verified GIS central definition bundle
+
+on:
+  push:
+    branches:
+      - feat/gis-central-single-source
+    paths:
+      - .bootstrap/geoflow-central-single-source.incremental.bundle.b64
+      - .bootstrap/geoflow-central-single-source.incremental.bundle.sha256
+      - .github/workflows/_bootstrap-import.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  import-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out bootstrap branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace bootstrap branch with verified commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .bootstrap/geoflow-central-single-source.incremental.bundle.b64 > /tmp/geoflow-central-single-source.incremental.bundle
+          sed 's#  .*#  /tmp/geoflow-central-single-source.incremental.bundle#' .bootstrap/geoflow-central-single-source.incremental.bundle.sha256 | sha256sum --check --strict
+          git bundle verify /tmp/geoflow-central-single-source.incremental.bundle
+          git fetch /tmp/geoflow-central-single-source.incremental.bundle refs/heads/feat/gis-central-single-source:refs/remotes/bundle/feature
+          git push origin refs/remotes/bundle/feature:refs/heads/feat/gis-central-single-source --force-with-lease

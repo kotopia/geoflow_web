@@ -180,31 +180,12 @@ def _init_gpkg(conn: sqlite3.Connection) -> None:
     )
 
 
-def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tuple[PackageField, ...]:
-    with connections[alias].cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT fd.physical_name, fd.data_type, pf.editable, pf.visible, pf.sort_order,
-                   fd.label, fd.standard_name, COALESCE(fd.unit, ''),
-                   COALESCE(fd.code_group_key, ''), COALESCE(fd.widget_type, ''),
-                   COALESCE(pf.required, fd.required_default),
-                   COALESCE(fd.description, '')
-              FROM gis.profile_field pf
-              JOIN gis.meta_field_def fd ON fd.id=pf.field_def_id
-              JOIN gis.meta_feature_type ft ON ft.id=fd.feature_type_id
-             WHERE pf.profile_id=%s::uuid
-               AND pf.enabled
-               AND ft.physical_name=%s
-             ORDER BY pf.sort_order, fd.sort_order, fd.physical_name
-            """,
-            [profile_id, physical_name],
-        )
-        rows = cursor.fetchall()
+def _central_layer_fields(plan: dict[str, Any], layer_id: str) -> tuple[PackageField, ...]:
+    rows = [field for field in (plan.get("form_definition") or {}).get("fields", [])
+            if field.get("layer_id") == layer_id and field.get("storage", {}).get("kind") == "column"]
     fields = []
-    for (
-        name, data_type, editable, visible, sort_order, label,
-        standard_name, unit, code_group_key, widget_type, required, description,
-    ) in rows:
+    for row in rows:
+        name=row.get("field_name"); data_type=row.get("storage_data_type") or "text"
         # Only the canonical geom column belongs in this feature table. Other
         # PostGIS columns (currently survey.raw_geom) are server lineage fields,
         # not QField scalar attributes.
@@ -216,16 +197,11 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
             PackageField(
                 name=name,
                 data_type=data_type or "text",
-                editable=bool(editable),
-                visible=bool(visible),
-                sort_order=int(sort_order or 0),
-                label=str(label or ""),
-                standard_name=str(standard_name or ""),
-                unit=str(unit or ""),
-                code_group_key=str(code_group_key or ""),
-                widget_type=str(widget_type or ""),
-                required=bool(required),
-                description=str(description or ""),
+                editable=not bool(row.get("readonly")), visible=bool(row.get("visible")),
+                sort_order=int(row.get("display_order") or 0), label=str(row.get("label") or ""),
+                standard_name=str(row.get("field_identifier") or ""), unit=str(row.get("unit") or ""),
+                code_group_key="central:"+str(row.get("id")), widget_type=str(row.get("widget_type") or ""),
+                required=bool(row.get("required")), description=str(row.get("description") or ""),
             )
         )
     by_name = {field.name: field for field in fields}
@@ -236,10 +212,8 @@ def _profile_layer_fields(alias: str, profile_id: str, physical_name: str) -> tu
 
 
 def _layer_specs(alias: str, plan: dict[str, Any]) -> tuple[PackageLayer, ...]:
-    profile = plan.get("profile") or {}
-    profile_id = str(profile.get("id") or "")
-    if not profile_id:
-        raise ValueError("active GIS profile is required for GeoPackage materialization")
+    if not (plan.get("form_definition") or {}).get("revision"):
+        raise ValueError("central form definition is required for GeoPackage materialization")
     specs = []
     for row in plan.get("layers") or []:
         physical_name = str(row.get("physical_name") or "")
@@ -252,7 +226,7 @@ def _layer_specs(alias: str, plan: dict[str, Any]) -> tuple[PackageLayer, ...]:
                 label=str(row.get("label") or row.get("standard_name") or physical_name),
                 domain=str(row.get("domain") or ""),
                 geometry_kind=str(row.get("geometry_kind") or ""),
-                fields=_profile_layer_fields(alias, profile_id, physical_name),
+                fields=_central_layer_fields(plan, str(row.get("id") or "")),
             )
         )
     return tuple(specs)
@@ -504,15 +478,16 @@ def build_project_geopackage(alias: str, *, project_id: str, plan: dict[str, Any
             sqlite_conn.execute("PRAGMA temp_store=MEMORY")
             sqlite_conn.execute("PRAGMA cache_size=-65536")
             _init_gpkg(sqlite_conn)
-            profile = plan.get("profile") or {}
+            definition = plan.get("definition") or {}
             sqlite_conn.executemany(
                 "INSERT INTO _geoflow_package(key,value) VALUES (?,?)",
                 [
                     ("package_version", "0.6"),
                     ("package_id", str(uuid.uuid4())),
                     ("project_id", str(uuid.UUID(str(project_id)))),
-                    ("profile_id", str(profile.get("id") or "")),
-                    ("profile_code", str(profile.get("code") or "")),
+                    ("definition_version", str(definition.get("version") or "")),
+                    ("definition_revision", str(definition.get("revision") or "")),
+                    ("form_definition_json", json.dumps(plan.get("form_definition") or {},ensure_ascii=False,separators=(",",":"))),
                     ("generated_at", dt.datetime.now(dt.timezone.utc).isoformat()),
                     ("snapshot_batch_rows", str(SNAPSHOT_BATCH_ROWS)),
                     ("spatial_index", "gpkg_rtree_index"),

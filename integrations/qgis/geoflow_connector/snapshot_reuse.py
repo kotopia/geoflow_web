@@ -21,7 +21,7 @@ class SnapshotReuseMixin:
     """Open a valid local project Snapshot and catch up with Delta only.
 
     The first open still downloads a server GeoPackage. Later opens validate the
-    cached package against the current project/profile/layer schema and reuse it
+    cached package against the current project/definition/layer schema and reuse it
     in place. A cache carrying pending/outbox work is preferred so offline edits
     are never silently replaced by a fresh Snapshot.
     """

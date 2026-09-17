@@ -42,14 +42,12 @@ def snapshot_fingerprint(
     plan: dict[str, Any],
     layer_manifest: list[dict[str, Any]],
 ) -> str:
-    profile = plan.get("profile") or {}
+    definition = plan.get("definition") or {}
     payload = {
         "alias_hash": hashlib.sha256(str(alias).encode("utf-8")).hexdigest()[:16],
         "project_id": str(project_id),
-        "profile": {
-            "id": str(profile.get("id") or ""),
-            "code": str(profile.get("code") or ""),
-        },
+        "definition": {"version": str(definition.get("version") or ""),
+                       "revision": str(definition.get("revision") or "")},
         "layers": layer_manifest,
         "package_version": "0.6",
         "spatial_index": "gpkg_rtree_index",

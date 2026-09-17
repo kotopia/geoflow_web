@@ -65,6 +65,7 @@ def inventory(cur):
         ORDER BY table_name,ordinal_position""")
     for column in columns:
         column['column_default'] = default_summary(column['column_default'])
+    column_names={(column['table_name'],column['column_name']) for column in columns}
     constraints = rows(cur, """SELECT n.nspname AS table_schema,c.relname AS table_name,k.conname AS name,k.contype AS type,
         k.conkey AS columns,k.confkey AS referenced_columns,
         rn.nspname AS referenced_schema,rc.relname AS referenced_table
@@ -91,12 +92,19 @@ def inventory(cur):
         result['work_types'] = rows(cur, """SELECT code,name,active FROM catalog.category_node
             WHERE level=2 ORDER BY code""")
     if 'definition_layer' in present:
-        result['central_layers'] = rows(cur, 'SELECT standard_name,label FROM gis.definition_layer ORDER BY standard_name')
+        if ('definition_layer','id') in column_names:
+            result['central_layers'] = rows(cur, '''SELECT id::text,standard_name,physical_name,label,
+                geometry_kind,active FROM gis.definition_layer ORDER BY standard_name''')
+        else:
+            result['central_layers'] = rows(cur, 'SELECT standard_name,label FROM gis.definition_layer ORDER BY standard_name')
     if 'definition_field' in present:
         result['central_standard_fields'] = []
-        for row in rows(cur, """SELECT source_layer,to_jsonb(f) AS field FROM gis.definition_field f
-                WHERE source_layer IS NOT NULL AND physical_name IS NOT NULL
-                ORDER BY source_layer,physical_name"""):
+        query=("""SELECT l.standard_name AS source_layer,to_jsonb(f) AS field FROM gis.definition_field f
+                JOIN gis.definition_layer l ON l.id=f.source_layer_id WHERE f.physical_name IS NOT NULL
+                ORDER BY l.standard_name,f.physical_name""" if ('definition_field','source_layer_id') in column_names else
+               """SELECT source_layer,to_jsonb(f) AS field FROM gis.definition_field f
+                WHERE source_layer IS NOT NULL AND physical_name IS NOT NULL ORDER BY source_layer,physical_name""")
+        for row in rows(cur,query):
             field = json_object(row['field'])
             result['central_standard_fields'].append({'layer': row['source_layer'],
                 **{key: field.get(key) for key in STANDARD_FIELD_KEYS}})
@@ -104,10 +112,15 @@ def inventory(cur):
             count(*) AS count FROM gis.definition_field GROUP BY kind,(physical_name IS NOT NULL)
             ORDER BY kind,standard""")
     if {'definition_code', 'definition_field'} <= present:
-        result['code_coverage'] = rows(cur, """SELECT f.source_layer AS layer,f.physical_name AS field,
-            count(c.id) AS code_count FROM gis.definition_field f
-            LEFT JOIN gis.definition_code c ON c.field_id=f.id WHERE f.physical_name IS NOT NULL
-            GROUP BY f.source_layer,f.physical_name ORDER BY f.source_layer,f.physical_name""")
+        if ('definition_field','source_layer_id') in column_names:
+            result['code_coverage'] = rows(cur, """SELECT l.standard_name AS layer,f.physical_name AS field,
+                count(c.id) AS code_count FROM gis.definition_field f JOIN gis.definition_layer l ON l.id=f.source_layer_id
+                LEFT JOIN gis.definition_code c ON c.field_id=f.id WHERE f.physical_name IS NOT NULL
+                GROUP BY l.standard_name,f.physical_name ORDER BY l.standard_name,f.physical_name""")
+        else:
+            result['code_coverage'] = rows(cur, """SELECT f.source_layer AS layer,f.physical_name AS field,
+                count(c.id) AS code_count FROM gis.definition_field f LEFT JOIN gis.definition_code c ON c.field_id=f.id
+                WHERE f.physical_name IS NOT NULL GROUP BY f.source_layer,f.physical_name ORDER BY f.source_layer,f.physical_name""")
     if {'definition_rule','definition_rule_value','definition_field','definition_code'} <= present:
         result['rule_integrity'] = rows(cur, """SELECT count(*) AS rules,
             count(*) FILTER(WHERE s.id IS NULL OR t.id IS NULL OR sc.id IS NULL) AS broken_sources,

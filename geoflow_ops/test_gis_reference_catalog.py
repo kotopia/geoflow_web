@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import patch
+from pathlib import Path
 
 from django.test import SimpleTestCase
 
@@ -37,57 +38,32 @@ class _FakeConnection:
 
 
 class GisReferenceCatalogTests(SimpleTestCase):
-    def test_catalog_reads_only_gis_reference_tables_and_groups_values(self):
-        connection = _FakeConnection(
-            [
-                (
-                    "WTL_VALV_PS",
-                    "TEST_FIELD",
-                    "test_field",
-                    "테스트 항목",
-                    "WTL.TEST.GROUP",
-                    "테스트 코드",
-                    "A",
-                    "항목 A",
-                    10,
-                ),
-                (
-                    "WTL_VALV_PS",
-                    "TEST_FIELD",
-                    "test_field",
-                    "테스트 항목",
-                    "WTL.TEST.GROUP",
-                    "테스트 코드",
-                    "B",
-                    "항목 B",
-                    20,
-                ),
-            ]
-        )
-        with patch.object(reference_catalog, "connections", {"tenant": connection}), patch("geoflow_ops.gis.central_definitions.central_snapshot",return_value=None):
-            payload = reference_catalog.project_reference_catalog(
-                using="tenant",
-                standard_names={"wtl_valv_ps"},
-            )
-
-        sql = connection.cursor_instance.sql.lower()
-        self.assertIn("gis.meta_field_def", sql)
-        self.assertIn("gis.ref_code_group", sql)
-        self.assertIn("gis.ref_code_value", sql)
-        self.assertNotIn("ops.settings_nodes", sql)
-        self.assertNotIn(" from ops.", sql)
-        self.assertEqual(connection.cursor_instance.params, ["WTL_VALV_PS"])
-        self.assertEqual(payload["runtime_source"], "gis")
+    def test_catalog_reads_only_central_reference_definition_and_keeps_uuids(self):
+        data={"layers":[{"id":"layer-uuid","standard_name":"WTL_VALV_PS"}],
+              "fields":[{"id":"field-uuid","source_layer_id":"layer-uuid","physical_name":"test_field",
+                         "standard_name":"TEST_FIELD","label":"테스트 항목"}],
+              "codes":[{"id":"a-uuid","field_id":"field-uuid","code":"A","label":"항목 A","sort_order":10,"enabled":True},
+                       {"id":"b-uuid","field_id":"field-uuid","code":"B","label":"항목 B","sort_order":20,"enabled":True}],
+              "rules":[]}
+        with patch("geoflow_ops.gis.central_definitions.central_snapshot",return_value=data):
+            payload=reference_catalog.project_reference_catalog(using="tenant",standard_names={"wtl_valv_ps"})
+        source=Path(reference_catalog.__file__).read_text(encoding='utf-8')
+        self.assertNotIn("gis.meta_field_def",source)
+        self.assertNotIn("gis.ref_code_group",source)
+        self.assertEqual(payload["runtime_source"], "central.gis")
         self.assertEqual(payload["binding_count"], 1)
         self.assertEqual(payload["group_count"], 1)
+        self.assertEqual(
+            [row["id"] for row in payload["groups"][0]["values"]],
+            ["a-uuid", "b-uuid"],
+        )
         self.assertEqual(
             [row["code"] for row in payload["groups"][0]["values"]],
             ["A", "B"],
         )
 
     def test_empty_reference_catalog_is_valid(self):
-        connection = _FakeConnection([])
-        with patch.object(reference_catalog, "connections", {"tenant": connection}), patch("geoflow_ops.gis.central_definitions.central_snapshot",return_value=None):
+        with patch("geoflow_ops.gis.central_definitions.central_snapshot",return_value={"layers":[],"fields":[],"codes":[],"rules":[]}):
             payload = reference_catalog.project_reference_catalog(
                 using="tenant",
                 standard_names={"DORO"},
@@ -110,7 +86,7 @@ class QgisReferenceManifestTests(SimpleTestCase):
         )
 
         transport = manifest["transport"]
-        self.assertEqual(transport["reference_catalog_source"], "gis")
+        self.assertEqual(transport["reference_catalog_source"], "central.gis")
         self.assertFalse(transport["reference_values_embedded"])
         self.assertEqual(
             transport["reference_catalog_url"],

@@ -61,8 +61,12 @@ def guard_definition_deletion(cur, data):
     elif action=='delete_field': field=uid
     source=None
     if field:
-        source=one(cur,'SELECT source_layer,physical_name FROM gis.definition_field WHERE id=%s',[field])
-    configs=list(GroupDBConfig.objects.using('default').values_list('group_id',flat=True))
+        source=one(cur,'''SELECT f.physical_name,
+            array_remove(array_agg(DISTINCT COALESCE(sl.physical_name,ll.physical_name)),NULL)
+            FROM gis.definition_field f LEFT JOIN gis.definition_layer sl ON sl.id=f.source_layer_id
+            LEFT JOIN gis.definition_field_layer fl ON fl.field_id=f.id
+            LEFT JOIN gis.definition_layer ll ON ll.id=fl.layer_id WHERE f.id=%s GROUP BY f.id''',[field])
+    configs=list(GroupDBConfig.objects.using('default').exclude(db_alias='default').values_list('group_id',flat=True))
     for group_id in configs:
         try:
             with tenant_cursor(group_id) as tc:
@@ -81,16 +85,9 @@ def guard_definition_deletion(cur, data):
                         tc.execute('SELECT 1 FROM ops.attachments WHERE purpose=%s LIMIT 1',['gis_form:'+field])
                         if tc.fetchone(): raise DefinitionError('사진 첨부에서 사용 중인 필드입니다.')
                 if source:
-                    tc.execute("SELECT to_regclass('gis.meta_feature_type')")
-                    if not tc.fetchone()[0]: continue
-                    if source[0]:
-                        tc.execute('SELECT physical_name FROM gis.meta_feature_type WHERE standard_name=%s',[source[0]])
-                        tables=[x[0] for x in tc.fetchall()]
-                    else:
-                        tc.execute('SELECT physical_name FROM gis.meta_feature_type')
-                        tables=[x[0] for x in tc.fetchall()]
+                    tables=list(source[1] or [])
                     for table in tables:
-                        column=source[1] if source[0] else 'ext_data'
+                        column=source[0] or 'ext_data'
                         tc.execute("SELECT data_type FROM information_schema.columns WHERE table_schema='gis' AND table_name=%s AND column_name=%s",[table,column])
                         column_info=tc.fetchone()
                         if not column_info: continue

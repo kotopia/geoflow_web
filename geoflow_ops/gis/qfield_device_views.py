@@ -254,8 +254,8 @@ def qfield_bootstrap_api(request, project_id):
                 "start_date": project.start_date.isoformat() if project.start_date else None,
                 "end_date": project.end_date.isoformat() if project.end_date else None,
             },
-            "profile": plan.get("profile"),
-            "capabilities": plan.get("capabilities") or [],
+            "definition": plan.get("definition") or {},
+            "catalog_scopes": plan.get("capabilities") or [],
             "layers": layers,
             "initial_center": {
                 "priority": ["gps", "last_location", "project_center", "map_fallback"],

@@ -20,6 +20,7 @@ from .qgis_sync import (
     _geometry_valid,
     _source_row,
     _uuid_exists,
+    _validate_central_form,
     sync_runtime_enabled,
 )
 
@@ -406,6 +407,7 @@ def apply_project_changeset(
                 )
                 if after is None:
                     raise ChangesetUnavailable(f"{label}: created object could not be re-read")
+                _validate_central_form(plan,standard_name,after.get('attrs') or {})
                 full_names = sorted(editable_names)
                 new_values = _source_values(after, full_names, field_by_name)
                 changed_fields = sorted(set(raw_attributes) | {"geom"})
@@ -522,6 +524,7 @@ def apply_project_changeset(
             )
             if after is None:
                 raise ChangesetUnavailable(f"{label}: updated object could not be re-read")
+            _validate_central_form(plan,standard_name,after.get('attrs') or {})
             new_values = _source_values(after, changed_names, field_by_name)
             if geometry_changed:
                 changed_names.append("geom")

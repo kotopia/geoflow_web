@@ -49,7 +49,10 @@ class SurveyLinkContractTests(SimpleTestCase):
             _optional_decimal("1.01", field="confidence", maximum=Decimal("1"))
 
     def test_link_query_is_limited_to_active_layer_plan(self):
-        plan = {"layers": [{"standard_name": "WTL_VALV_PS"}, {"standard_name": "SURVEY"}]}
+        plan = {"layers": [
+            {"id":"ffffffff-ffff-4fff-8fff-ffffffffffff","standard_name":"WTL_VALV_PS","physical_name":"wtl_valv_ps"},
+            {"id":"99999999-9999-4999-8999-999999999999","standard_name":"SURVEY","physical_name":"survey"},
+        ]}
         cursor = MagicMock()
         cursor.fetchall.return_value = []
         connection = MagicMock()
@@ -60,8 +63,8 @@ class SurveyLinkContractTests(SimpleTestCase):
                 [],
             )
         sql, params = cursor.execute.call_args.args
-        self.assertIn("upper(ft.standard_name)=ANY(%s)", sql)
-        self.assertEqual(params[1], ["WTL_VALV_PS"])
+        self.assertIn("sl.layer_id=ANY(%s::uuid[])", sql)
+        self.assertEqual(params[1], ["ffffffff-ffff-4fff-8fff-ffffffffffff"])
 
         with self.assertRaises(SyncRejected):
             list_survey_links(
@@ -97,7 +100,7 @@ class SurveyLinkContractTests(SimpleTestCase):
         created = {
             "id": self.link_id,
             "survey_id": self.survey_id,
-            "feature_type_id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            "layer_id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
             "layer": "WTL_VALV_PS",
             "physical_name": "wtl_valv_ps",
             "target_id": self.target_id,
@@ -114,7 +117,7 @@ class SurveyLinkContractTests(SimpleTestCase):
             stack.enter_context(patch("geoflow_ops.gis.survey_links._receipt_replay", return_value=None))
             stack.enter_context(patch("geoflow_ops.gis.survey_links._reserve_receipt", return_value=True))
             stack.enter_context(patch("geoflow_ops.gis.survey_links._feature_type_for_layer", return_value={
-                "id": created["feature_type_id"], "standard_name": "WTL_VALV_PS", "physical_name": "wtl_valv_ps",
+                "id": created["layer_id"], "standard_name": "WTL_VALV_PS", "physical_name": "wtl_valv_ps",
             }))
             survey = stack.enter_context(patch("geoflow_ops.gis.survey_links._survey_exists", return_value=True))
             target = stack.enter_context(patch("geoflow_ops.gis.survey_links._target_exists", return_value=True))
