@@ -38,6 +38,32 @@ class InventorySafetyTests(unittest.TestCase):
     def test_operational_tables_are_not_count_targets(self):
         self.assertTrue({'projects', 'employees', 'users', 'contracts', 'wtl_pipe_lm', 'survey'}.isdisjoint(inventory.METADATA_TABLES))
 
+    def test_failure_diagnostics_exclude_error_payload(self):
+        class ProgrammingError(Exception):
+            pgcode = '42703'
+        error = ProgrammingError('password=private-secret host=private-host column=private-name')
+        result = inventory.failure_summary(error, 'inventory')
+        self.assertEqual(result, {'stage': 'inventory', 'category': 'schema_or_query_mismatch', 'sqlstate': '42703'})
+        self.assertNotIn('private', json.dumps(result))
+        error.pgcode = 'private-secret'
+        self.assertNotIn('sqlstate', inventory.failure_summary(error, 'inventory'))
+
+    def test_failed_tenant_does_not_discard_successful_inventory(self):
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        class TenantDBCredentialError(RuntimeError): pass
+        @contextmanager
+        def factory(group_id, *, write):
+            self.assertFalse(write)
+            if group_id == 'private-id-b':
+                raise TenantDBCredentialError('private-secret')
+            yield object()
+        with patch.object(inventory, 'inventory', return_value={'read_only': True}):
+            results = inventory.inspect_tenants(['private-id-a', 'private-id-b', 'private-id-c'], factory)
+        self.assertEqual([r['status'] for r in results], ['ok', 'inspection_failed', 'ok'])
+        self.assertEqual(results[1]['failure'], {'stage': 'connect', 'category': 'credential_resolution_failed'})
+        self.assertNotIn('private', json.dumps(results))
+
     def test_remote_shell_parses_and_has_no_deployment_actions(self):
         import subprocess
         import textwrap
