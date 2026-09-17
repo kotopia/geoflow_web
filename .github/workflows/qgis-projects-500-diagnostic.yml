@@ -1,0 +1,142 @@
+name: QGIS projects API 500 diagnostic
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/qgis-projects-500-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-qgis-projects-api:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read bounded sanitized production traceback
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          unit='geoflow-stabilized.service'
+          command -v python3 >/dev/null 2>&1 || { echo 'qgis_projects_diag_blocker=python_missing'; exit 2; }
+          command -v journalctl >/dev/null 2>&1 || { echo 'qgis_projects_diag_blocker=journalctl_missing'; exit 2; }
+          systemctl cat "$unit" >/dev/null 2>&1 || { echo 'qgis_projects_diag_blocker=service_missing'; exit 2; }
+          journal_file="$(mktemp)"
+          trap 'find "$journal_file" -maxdepth 0 -type f -delete 2>/dev/null || true' EXIT
+          sudo -n journalctl -u "$unit" --since '6 hours ago' --no-pager -o cat >"$journal_file"
+          python3 - "$journal_file" <<'PY'
+          from __future__ import annotations
+
+          import re
+          import sys
+          from pathlib import Path
+
+          text = Path(sys.argv[1]).read_text(errors="replace")
+          target = "/gis/api/qgis/projects/"
+          hits = [match.start() for match in re.finditer(re.escape(target), text)]
+          print(f"qgis_projects_diag_request_count={len(hits)}")
+          if not hits:
+              print("qgis_projects_diag_result=no_matching_request")
+              raise SystemExit(3)
+
+          marker = hits[-1]
+          before = text[:marker]
+          traceback_start = before.rfind("Traceback (most recent call last):")
+          if traceback_start < 0 or marker - traceback_start > 30000:
+              traceback_start = marker
+          next_record = text.find("Internal Server Error:", marker + len(target))
+          block_end = next_record if next_record >= 0 else min(len(text), marker + 30000)
+          block = text[traceback_start:block_end]
+
+          secret_patterns = (
+              (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<email>"),
+              (r"\b[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}\b", "<uuid>"),
+              (r"(?i)(password|secret|token|authorization|cookie)=?[^\s,;]+", r"\1=<redacted>"),
+              (r"(?i)(postgres(?:ql)?://)[^\s]+", r"\1<redacted>"),
+          )
+
+          def sanitize(value: str) -> str:
+              value = value.rstrip()
+              for pattern, replacement in secret_patterns:
+                  value = re.sub(pattern, replacement, value)
+              return value[:1000]
+
+          frame_re = re.compile(r'^\s*File "([^"]+)", line (\d+), in ([A-Za-z0-9_<>]+)')
+          terminal_re = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)*([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception)):\s*(.*)$")
+          emitted = 0
+          print("qgis_projects_diag_traceback_begin")
+          for line in block.splitlines():
+              frame = frame_re.match(line)
+              terminal = terminal_re.match(line)
+              if line.startswith("Traceback (most recent call last):"):
+                  print(line)
+                  emitted += 1
+              elif frame:
+                  path, number, function = frame.groups()
+                  repo_marker = "/geoflow_web/"
+                  if repo_marker in path:
+                      path = path.split(repo_marker, 1)[1]
+                  elif "/site-packages/" in path:
+                      path = "site-packages/" + path.split("/site-packages/", 1)[1]
+                  else:
+                      path = Path(path).name
+                  print(f'  File "{sanitize(path)}", line {number}, in {function}')
+                  emitted += 1
+              elif terminal:
+                  print(f"{terminal.group(1)}: {sanitize(terminal.group(2))}")
+                  emitted += 1
+              elif target in line:
+                  print("Internal Server Error: /gis/api/qgis/projects/")
+                  emitted += 1
+          print("qgis_projects_diag_traceback_end")
+          print(f"qgis_projects_diag_emitted_lines={emitted}")
+          if not emitted:
+              print("qgis_projects_diag_result=matching_request_without_traceback")
+              raise SystemExit(4)
+          print("RESULT qgis_projects_500_diagnostic=SUCCESS")
+          PY
+          REMOTE
