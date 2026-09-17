@@ -230,7 +230,7 @@ def snapshot(cur):
       'groups':rows(cur,'SELECT id::text,name FROM gis.definition_group ORDER BY name'),
       'layers':rows(cur,'''SELECT id::text,standard_name,physical_name,label,domain_code,geometry_kind,
         feature_role,scope_type,sort_order,active FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
-      'catalogs':rows(cur,"SELECT id::text,code,name FROM catalog.category_node WHERE level=2 AND active ORDER BY sort_order,code"),
+      'catalogs':rows(cur,"SELECT id::text,code,name FROM catalog.category_node WHERE level=2 AND active ORDER BY ord,code"),
       'layer_catalogs':rows(cur,'''SELECT lc.layer_id::text,l.standard_name AS layer_name,lc.catalog_level,
         lc.catalog_item_id::text AS catalog_id,lc.catalog_item_id::text FROM gis.definition_layer_catalog lc
         JOIN gis.definition_layer l ON l.id=lc.layer_id ORDER BY l.standard_name,lc.catalog_level,lc.catalog_item_id'''),

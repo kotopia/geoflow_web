@@ -102,8 +102,21 @@ class CentralPostgresTests(unittest.TestCase):
         self.addCleanup(self.db.close); self.addCleanup(self.db.rollback)
         self.cur=self.db.cursor(); self.addCleanup(self.cur.close)
         self.cur.execute('DROP SCHEMA IF EXISTS gis CASCADE; DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS prj CASCADE')
-        self.cur.execute('CREATE SCHEMA catalog; CREATE TABLE catalog.category_node(id uuid PRIMARY KEY,name text,code text,level int,sort_order int,active boolean)')
-        self.catalog=str(uuid4()); self.cur.execute("INSERT INTO catalog.category_node VALUES (%s,'하수도','SEWERAGE',2,1,true)",[self.catalog])
+        self.cur.execute('''CREATE SCHEMA catalog;
+          CREATE TABLE catalog.category_node(
+            id uuid PRIMARY KEY,code text,name text,level smallint,ord integer,active boolean,
+            org_unit_id uuid,geom_hint text,created_at timestamptz,updated_at timestamptz);
+          CREATE TABLE catalog.category_facet(
+            id uuid PRIMARY KEY,code text,name text,ord integer,active boolean,
+            created_at timestamptz,updated_at timestamptz);
+          CREATE TABLE catalog.category_facet_option(
+            id uuid PRIMARY KEY,facet_id uuid REFERENCES catalog.category_facet(id),code text,name text,
+            ord integer,active boolean,default_unit text,geom_hint text,
+            created_at timestamptz,updated_at timestamptz)''')
+        self.catalog=str(uuid4()); self.cur.execute(
+            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) VALUES (%s,'SEWERAGE','하수도',2,1,true)",
+            [self.catalog],
+        )
         self.cur.execute((ROOT/'docs/architecture/gis-central-definitions.sql').read_text())
         self.manhole=str(uuid4()); self.pipe=str(uuid4())
         self.cur.execute("INSERT INTO gis.definition_layer(id,standard_name,physical_name,label) VALUES (%s,'MANHOLE','manhole','하수맨홀'),(%s,'PIPE','pipe','상수관로')",[self.manhole,self.pipe])
@@ -123,6 +136,32 @@ class CentralPostgresTests(unittest.TestCase):
         data=defs.snapshot(self.cur)
         self.assertEqual(data['group_fields'][0]['layer_id'],self.manhole)
         self.assertEqual(data['rules'][0]['allowed'],[target])
+
+    def test_snapshot_uses_catalog_ord_and_accepts_real_facet_schema(self):
+        later = str(uuid4())
+        self.cur.execute(
+            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) "
+            "VALUES (%s,'WATER','상수도',2,9,true)",
+            [later],
+        )
+        facet = str(uuid4())
+        option = str(uuid4())
+        self.cur.execute(
+            "INSERT INTO catalog.category_facet(id,code,name,ord,active) "
+            "VALUES (%s,'FACILITY','시설',1,true)",
+            [facet],
+        )
+        self.cur.execute(
+            "INSERT INTO catalog.category_facet_option(id,facet_id,code,name,ord,active) "
+            "VALUES (%s,%s,'MANHOLE','맨홀',1,true)",
+            [option, facet],
+        )
+        group = self.save('group', label='아산시')
+        self.save('scope', group=group, catalog=option, catalog_level=3)
+
+        data = defs.snapshot(self.cur)
+        self.assertEqual([row['code'] for row in data['catalogs']], ['SEWERAGE', 'WATER'])
+        self.assertEqual(data['scopes'][0]['catalog_id'], option)
 
     def test_physical_numeric_metadata_is_not_text(self):
         source={'layers':[{'standard_name':'PIPE','physical_name':'pipe','label':'관로','domain_code':'WATER','geometry_kind':'LINE','sort_order':1}],
