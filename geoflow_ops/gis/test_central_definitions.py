@@ -93,6 +93,16 @@ class ResolutionTests(unittest.TestCase):
         merged=transition.merge_source_snapshots([first,second])
         self.assertEqual([layer['standard_name'] for layer in merged['layers']],['MANHOLE','PIPE'])
 
+    def test_standard_field_admin_uses_compact_filterable_table(self):
+        template=(ROOT/'control/templates/control/gis/definitions.html').read_text()
+        for marker in ('standard-field-search','standard-kind-filter','standard-widget-filter',
+                       'standard-visible-filter','standard-required-filter','standard-readonly-filter',
+                       'standard-field-table'):
+            self.assertIn(marker,template)
+        self.assertIn('#standard-table thead th{position:sticky',template)
+        self.assertIn('data-action="standard_field" class="d-inline"',template)
+        self.assertNotIn('data-action="standard_field" class="border rounded p-2 mb-2"',template)
+
 
 @unittest.skipUnless(os.getenv('GEOFLOW_FORMS_ISOLATED_PG')=='1','isolated PostgreSQL opt-in only')
 class CentralPostgresTests(unittest.TestCase):
@@ -162,6 +172,36 @@ class CentralPostgresTests(unittest.TestCase):
         data = defs.snapshot(self.cur)
         self.assertEqual([row['code'] for row in data['catalogs']], ['SEWERAGE', 'WATER'])
         self.assertEqual(data['scopes'][0]['catalog_id'], option)
+
+    def test_standard_field_edit_persists_and_updates_final_definition(self):
+        field_id=str(uuid4())
+        self.cur.execute('''INSERT INTO gis.definition_field(
+          id,source_layer_id,physical_name,standard_name,label,storage_data_type,storage_udt_name,
+          max_length,kind,widget_type,visible,required,readonly,sort_order,layout)
+          VALUES (%s,%s,'saa_cde','SAA_CDE','관종','character varying(10)','varchar',10,
+          'text','text',true,false,false,10,'{}'::jsonb)''',[field_id,self.pipe])
+
+        self.save('standard_field',id=field_id,label='관종 수정',kind='text',widget_type='combo',
+                  visible='true',required='true',readonly='true',sort_order='20',layout='{}')
+        first=defs.snapshot(self.cur)
+        saved=next(field for field in first['fields'] if field['id']==field_id)
+        self.assertEqual((saved['label'],saved['kind'],saved['widget_type']),('관종 수정','text','combo'))
+        self.assertEqual((saved['visible'],saved['required'],saved['readonly'],saved['sort_order']),
+                         (True,True,True,20))
+        self.assertEqual((saved['storage_data_type'],saved['max_length']),('character varying(10)',10))
+
+        final=resolve(first,{'group_id':None,'additions':{},'private_items':{},'overrides':{}},
+                      [next(layer for layer in first['layers'] if layer['id']==self.pipe)])
+        resolved=next(field for field in final['fields'] if field['id']==field_id)
+        self.assertEqual((resolved['label'],resolved['semantic_data_type'],resolved['widget_type']),
+                         ('관종 수정','text','combo'))
+        self.assertEqual((resolved['visible'],resolved['required'],resolved['readonly'],resolved['display_order']),
+                         (True,True,True,20))
+
+        reloaded=defs.snapshot(self.cur)
+        persisted=next(field for field in reloaded['fields'] if field['id']==field_id)
+        self.assertEqual((persisted['label'],persisted['widget_type'],persisted['sort_order']),
+                         ('관종 수정','combo',20))
 
     def test_physical_numeric_metadata_is_not_text(self):
         source={'layers':[{'standard_name':'PIPE','physical_name':'pipe','label':'관로','domain_code':'WATER','geometry_kind':'LINE','sort_order':1}],
