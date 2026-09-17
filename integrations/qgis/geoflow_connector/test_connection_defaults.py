@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from integrations.qgis.geoflow_connector.connection_defaults import (
+from integrations.qgis.geoflow_connector.api.defaults import (
     PRODUCTION_SERVER_URL,
     migrate_legacy_connection_defaults,
 )

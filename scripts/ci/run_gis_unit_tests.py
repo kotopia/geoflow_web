@@ -71,6 +71,8 @@ def main() -> int:
         for name in (
             "integrations.qgis.geoflow_connector.test_cache_lifecycle",
             "integrations.qgis.geoflow_connector.test_snapshot_cache",
+            "integrations.qgis.geoflow_connector.test_dynamic_form_contract",
+            "integrations.qgis.geoflow_connector.test_dynamic_form_runtime_contract",
         )
     )
     result = unittest.TextTestRunner(verbosity=2).run(

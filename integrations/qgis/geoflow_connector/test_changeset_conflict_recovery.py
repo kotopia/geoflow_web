@@ -7,12 +7,12 @@ import unittest
 import uuid
 from pathlib import Path
 
-from .changeset_queue import (
+from .sync.queue import (
     ensure_changeset_tables,
     prepare_outbox,
     repair_uuid_exists_outbox,
 )
-from .client import GeoFlowChangesetConflict
+from .api.client import GeoFlowChangesetConflict
 
 
 CLIENT_ID = "11111111-1111-4111-8111-111111111111"
@@ -122,7 +122,7 @@ class ChangesetConflictRecoveryTests(unittest.TestCase):
         self.assertIn("uuid_already_exists", str(error))
 
     def test_successful_changeset_path_refreshes_baseline_only_when_queues_empty(self):
-        source = (Path(__file__).resolve().parent / "plugin.py").read_text(
+        source = (Path(__file__).resolve().parent / "app/plugin.py").read_text(
             encoding="utf-8"
         )
         method = source.split("def _sync_changesets", 1)[1].split(

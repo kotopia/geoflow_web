@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from .snapshot_cache import (
+from .cache.snapshot import (
     inspect_snapshot,
     manifest_cache_fingerprint,
     select_reusable_snapshot,
