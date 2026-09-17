@@ -59,10 +59,27 @@ class InventorySafetyTests(unittest.TestCase):
                 raise TenantDBCredentialError('private-secret')
             yield object()
         with patch.object(inventory, 'inventory', return_value={'read_only': True}):
-            results = inventory.inspect_tenants(['private-id-a', 'private-id-b', 'private-id-c'], factory)
+            results = inventory.inspect_tenants([(1, 'private-id-a'), (2, 'private-id-b'), (3, 'private-id-c')], factory)
         self.assertEqual([r['status'] for r in results], ['ok', 'inspection_failed', 'ok'])
         self.assertEqual(results[1]['failure'], {'stage': 'connect', 'category': 'credential_resolution_failed'})
         self.assertNotIn('private', json.dumps(results))
+
+    def test_central_registration_is_not_opened_as_tenant(self):
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        configurations = [('tenant-a', 'tenant_a'), ('central-id', 'default'), ('tenant-b', 'tenant_b')]
+        opened = []
+        @contextmanager
+        def factory(group_id, *, write):
+            self.assertNotEqual(group_id, 'central-id')
+            self.assertFalse(write)
+            opened.append(group_id)
+            yield object()
+        with patch.object(inventory, 'inventory', return_value={'read_only': True}):
+            results = inventory.inspect_tenants(inventory.tenant_targets(configurations), factory)
+        self.assertEqual(opened, ['tenant-a', 'tenant-b'])
+        self.assertEqual([r['store'] for r in results], [1, 3])
+        self.assertTrue(all(r['status'] == 'ok' for r in results))
 
     def test_remote_shell_parses_and_has_no_deployment_actions(self):
         import subprocess
