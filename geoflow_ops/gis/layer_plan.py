@@ -24,11 +24,26 @@ def scope_capability_ready(alias: str) -> bool:
     return _table_exists(alias,'prj.scope_item') and central_definitions.central_snapshot() is not None
 
 
+def _scope_rows(cursor, *, project_id=None, project_ids=None):
+    sql = '''SELECT project_id::text,lv2_id::text,lv3_id::text,lv4_id::text
+        FROM prj.scope_item WHERE project_id IS NOT NULL'''
+    params = []
+    if project_id is not None:
+        sql += ' AND project_id=%s'
+        params.append(str(project_id))
+    elif project_ids is not None:
+        sql += ' AND project_id=ANY(%s::uuid[])'
+        params.append([str(value) for value in project_ids])
+    cursor.execute(sql, params)
+    return cursor.fetchall()
+
+
 def _project_scopes(alias, project_id):
     with connections[alias].cursor() as cursor:
-        cursor.execute('''SELECT lv2_id::text,lv3_id::text,lv4_id::text
-            FROM prj.scope_item WHERE project_id=%s AND COALESCE(active,true)''',[str(project_id)])
-        return [{'2':row[0],'3':row[1],'4':row[2]} for row in cursor.fetchall()]
+        return [
+            {'2':row[1],'3':row[2],'4':row[3]}
+            for row in _scope_rows(cursor, project_id=project_id)
+        ]
 
 
 def _scope_keys(scopes):
@@ -80,10 +95,8 @@ def gis_enabled_project_ids(alias: str) -> set[str] | None:
     data=central_definitions.central_snapshot()
     if data is None or not _table_exists(alias,'prj.scope_item'): return None
     with connections[alias].cursor() as cursor:
-        cursor.execute('''SELECT project_id::text,lv2_id::text,lv3_id::text,lv4_id::text
-            FROM prj.scope_item WHERE project_id IS NOT NULL AND COALESCE(active,true)''')
         scopes={}
-        for project_id,lv2,lv3,lv4 in cursor.fetchall():
+        for project_id,lv2,lv3,lv4 in _scope_rows(cursor):
             scopes.setdefault(project_id,[]).append({'2':lv2,'3':lv3,'4':lv4})
         cursor.execute("SELECT to_regclass('gis.project_definition')")
         configs={}
@@ -108,9 +121,10 @@ def allowed_standard_names_for_projects(alias: str, project_ids) -> set[str]:
     data=central_definitions.central_snapshot()
     if data is None: return set()
     with connections[alias].cursor() as cursor:
-        cursor.execute('''SELECT lv2_id::text,lv3_id::text,lv4_id::text FROM prj.scope_item
-            WHERE project_id=ANY(%s::uuid[]) AND COALESCE(active,true)''',[ids])
-        scopes=[{'2':row[0],'3':row[1],'4':row[2]} for row in cursor.fetchall()]
+        scopes=[
+            {'2':row[1],'3':row[2],'4':row[3]}
+            for row in _scope_rows(cursor, project_ids=ids)
+        ]
         cursor.execute("SELECT to_regclass('gis.project_definition')")
         configs=[]
         if cursor.fetchone()[0]:
