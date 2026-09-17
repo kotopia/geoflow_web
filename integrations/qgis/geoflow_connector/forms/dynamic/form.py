@@ -6,6 +6,7 @@ from qgis.PyQt.QtWidgets import QWidget, QVBoxLayout
 
 from .layout import LayoutRenderer
 from .rules import allowed_code_ids, validate
+from .style import apply_form_style
 from .widgets import create_widget
 
 
@@ -16,6 +17,7 @@ class DynamicForm(QWidget):
         super().__init__(parent)
         self.definition = definition
         self.fields = fields
+        apply_form_style(self)
         self.handles = {field["id"]: create_widget(field, self) for field in fields}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -25,6 +27,7 @@ class DynamicForm(QWidget):
         self.apply_rules()
 
     def _changed(self, field_id):
+        self.handles[field_id].set_error(None)
         self.apply_rules()
         self.changed.emit(field_id)
 
@@ -48,4 +51,12 @@ class DynamicForm(QWidget):
             )
 
     def validation_errors(self):
-        return validate(self.definition, self.fields, self.values())
+        errors = validate(self.definition, self.fields, self.values())
+        for handle in self.handles.values():
+            handle.set_error(None)
+        for message in errors:
+            for field in self.fields:
+                if message.startswith(field["label"] + " "):
+                    self.handles[field["id"]].set_error(message)
+                    break
+        return errors

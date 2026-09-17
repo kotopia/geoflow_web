@@ -10,7 +10,8 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         for path in ("app/unified.py", "app/protection.py", "app/state.py", "ui/form_host.py",
                      "ui/form_header.py", "ui/presentation.py", "ui/designer/main_dock.ui",
                      "ui/designer/layer_workspace.ui", "resources/feather.qrc",
-                     "resources/feather_rc.py", "resources/qt_resources.py"):
+                     "resources/feather_rc.py", "resources/qt_resources.py",
+                     "resources/styles/geoflow_form.qss", "forms/dynamic/style.py"):
             self.assertTrue((ROOT / path).is_file(), path)
         self.assertGreaterEqual(len(list((ROOT / "resources/icons").rglob("*"))), 300)
 
@@ -29,6 +30,37 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         self.assertIn("form_definition_url", definition)
         self.assertIn("definition_revision_mismatch", definition)
         self.assertNotIn("tenant", definition.casefold())
+
+    def test_dynamic_widgets_use_one_shared_geoflow_style(self):
+        widgets = (ROOT / "forms/dynamic/widgets.py").read_text(encoding="utf-8")
+        layout = (ROOT / "forms/dynamic/layout.py").read_text(encoding="utf-8")
+        form = (ROOT / "forms/dynamic/form.py").read_text(encoding="utf-8")
+        qss = (ROOT / "resources/styles/geoflow_form.qss").read_text(encoding="utf-8")
+
+        for name in ("GeoFlowLineEdit", "GeoFlowTextEdit", "GeoFlowComboBox",
+                     "GeoFlowSpinBox", "GeoFlowDoubleSpinBox", "GeoFlowCheckBox",
+                     "GeoFlowDateEdit", "GeoFlowDateTimeEdit"):
+            self.assertIn("class " + name, widgets)
+        self.assertNotIn("setStyleSheet", widgets)
+        self.assertIn("apply_form_style(self)", form)
+        self.assertIn('geoflowRole", "fieldLabel', layout)
+        self.assertIn('geoflowRole", "fieldError', layout)
+        self.assertIn("attach_error_label", layout)
+        self.assertIn("def showPopup(self):", widgets)
+        self.assertLess(widgets.index("isinstance(widget, QDateTimeEdit)"),
+                        widgets.index("isinstance(widget, QDateEdit)"))
+
+        for state in ('[error="true"]', '[readonly="true"]', ":disabled",
+                      ":hover", ":focus"):
+            self.assertIn(state, qss)
+        for resource in ("chevron-down.svg", "calendar.svg", "check.svg",
+                         "arrow-up.png", "arrow-down.png"):
+            self.assertIn(":/geoflow/feather/" + resource, qss)
+
+    def test_validation_feedback_preserves_rule_validation_result(self):
+        form = (ROOT / "forms/dynamic/form.py").read_text(encoding="utf-8")
+        self.assertIn("errors = validate(self.definition, self.fields, self.values())", form)
+        self.assertIn("return errors", form)
 
 
 if __name__ == "__main__":

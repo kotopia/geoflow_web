@@ -9,12 +9,133 @@ from qgis.PyQt.QtWidgets import (
 )
 
 
+def _repolish(widget):
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()
+
+
+class _GeoFlowInputMixin:
+    def _init_geoflow(self, *, multiline=False):
+        self.setProperty("geoflowInput", True)
+        self.setProperty("error", False)
+        self.setProperty("readonly", False)
+        if multiline:
+            self.setMinimumHeight(72)
+            self.setMaximumHeight(96)
+        else:
+            self.setMinimumHeight(32)
+            self.setMaximumHeight(32)
+
+    def set_validation_error(self, value):
+        self.setProperty("error", bool(value))
+        _repolish(self)
+
+    def set_geoflow_readonly(self, value):
+        self.setProperty("readonly", bool(value))
+        if hasattr(self, "setReadOnly"):
+            self.setReadOnly(bool(value))
+        else:
+            self.setEnabled(not bool(value))
+        _repolish(self)
+
+
+class GeoFlowLineEdit(QLineEdit, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_geoflow()
+
+
+class GeoFlowTextEdit(QTextEdit, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_geoflow(multiline=True)
+
+
+class GeoFlowComboBox(QComboBox, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._readonly = False
+        self._init_geoflow()
+
+    def setReadOnly(self, value):
+        self._readonly = bool(value)
+        self.setProperty("readonly", self._readonly)
+        _repolish(self)
+
+    def showPopup(self):
+        if not self._readonly:
+            super().showPopup()
+
+    def keyPressEvent(self, event):
+        if self._readonly:
+            event.ignore()
+            return
+        super().keyPressEvent(event)
+
+    def wheelEvent(self, event):
+        if self._readonly:
+            event.ignore()
+            return
+        super().wheelEvent(event)
+
+
+class GeoFlowSpinBox(QSpinBox, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_geoflow()
+
+
+class GeoFlowDoubleSpinBox(QDoubleSpinBox, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_geoflow()
+
+
+class GeoFlowCheckBox(QCheckBox, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._readonly = False
+        self._init_geoflow()
+
+    def setReadOnly(self, value):
+        self._readonly = bool(value)
+        self.setProperty("readonly", self._readonly)
+        _repolish(self)
+
+    def mousePressEvent(self, event):
+        if self._readonly:
+            event.ignore()
+            return
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        if self._readonly:
+            event.ignore()
+            return
+        super().keyPressEvent(event)
+
+
+class GeoFlowDateEdit(QDateEdit, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_geoflow()
+
+
+class GeoFlowDateTimeEdit(QDateTimeEdit, _GeoFlowInputMixin):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_geoflow()
+
+
 class WidgetHandle:
     def __init__(self, field, widget, *, editor=None):
         self.field = field
         self.widget = widget
         self.editor = editor or widget
         self._all_codes = list(field.get("reference_codes", []))
+        self.error_label = None
 
     def connect_changed(self, slot):
         widget = self.editor
@@ -27,10 +148,23 @@ class WidgetHandle:
 
     def set_readonly(self, value):
         value = bool(value)
-        if hasattr(self.editor, "setReadOnly"):
+        if hasattr(self.editor, "set_geoflow_readonly"):
+            self.editor.set_geoflow_readonly(value)
+        elif hasattr(self.editor, "setReadOnly"):
             self.editor.setReadOnly(value)
         else:
             self.editor.setEnabled(not value)
+
+    def attach_error_label(self, label):
+        self.error_label = label
+
+    def set_error(self, message=None):
+        setter = getattr(self.editor, "set_validation_error", None)
+        if setter is not None:
+            setter(bool(message))
+        if self.error_label is not None:
+            self.error_label.setText(str(message or ""))
+            self.error_label.setVisible(bool(message))
 
     def set_value(self, value):
         widget = self.editor
@@ -43,12 +177,12 @@ class WidgetHandle:
             widget.setValue(int(value or 0))
         elif isinstance(widget, QDoubleSpinBox):
             widget.setValue(float(value or 0))
-        elif isinstance(widget, QDateEdit):
-            parsed = QDate.fromString(str(value or ""), "yyyy-MM-dd")
-            widget.setDate(parsed if parsed.isValid() else widget.minimumDate())
         elif isinstance(widget, QDateTimeEdit):
             parsed = QDateTime.fromString(str(value or ""), "yyyy-MM-ddTHH:mm:ss")
             widget.setDateTime(parsed if parsed.isValid() else widget.minimumDateTime())
+        elif isinstance(widget, QDateEdit):
+            parsed = QDate.fromString(str(value or ""), "yyyy-MM-dd")
+            widget.setDate(parsed if parsed.isValid() else widget.minimumDate())
         elif isinstance(widget, (QLineEdit, QTextEdit)):
             setter = getattr(widget, "setPlainText", None) or widget.setText
             setter("" if value is None else str(value))
@@ -61,14 +195,14 @@ class WidgetHandle:
             return widget.isChecked()
         if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
             return widget.value()
-        if isinstance(widget, QDateEdit):
-            if widget.date() == widget.minimumDate():
-                return None
-            return widget.date().toString("yyyy-MM-dd")
         if isinstance(widget, QDateTimeEdit):
             if widget.dateTime() == widget.minimumDateTime():
                 return None
             return widget.dateTime().toString("yyyy-MM-ddTHH:mm:ss")
+        if isinstance(widget, QDateEdit):
+            if widget.date() == widget.minimumDate():
+                return None
+            return widget.date().toString("yyyy-MM-dd")
         if isinstance(widget, QTextEdit):
             return widget.toPlainText().strip() or None
         if isinstance(widget, QLineEdit):
@@ -110,33 +244,32 @@ def create_widget(field: dict, parent=None) -> WidgetHandle:
     kind = field.get("widget_type") or field.get("semantic_data_type") or "text"
     codes = field.get("reference_codes", [])
     if kind in {"combo", "relation"} or codes:
-        editor = QComboBox(parent)
+        editor = GeoFlowComboBox(parent)
         handle = WidgetHandle(field, editor)
         handle.set_allowed_codes(None)
     elif kind == "multiline":
-        editor = QTextEdit(parent)
-        editor.setMaximumHeight(96)
+        editor = GeoFlowTextEdit(parent)
         handle = WidgetHandle(field, editor)
     elif kind == "integer":
-        editor = QSpinBox(parent)
+        editor = GeoFlowSpinBox(parent)
         editor.setRange(-2147483648, 2147483647)
         handle = WidgetHandle(field, editor)
     elif kind == "decimal":
-        editor = QDoubleSpinBox(parent)
+        editor = GeoFlowDoubleSpinBox(parent)
         editor.setDecimals(int(field.get("scale") or 6))
         editor.setRange(-1e15, 1e15)
         handle = WidgetHandle(field, editor)
     elif kind == "boolean":
-        handle = WidgetHandle(field, QCheckBox(parent))
+        handle = WidgetHandle(field, GeoFlowCheckBox(parent))
     elif kind == "date":
-        editor = QDateEdit(parent)
+        editor = GeoFlowDateEdit(parent)
         editor.setMinimumDate(QDate(1900, 1, 1))
         editor.setSpecialValueText("선택")
         editor.setCalendarPopup(True)
         editor.setDisplayFormat("yyyy-MM-dd")
         handle = WidgetHandle(field, editor)
     elif kind == "datetime":
-        editor = QDateTimeEdit(parent)
+        editor = GeoFlowDateTimeEdit(parent)
         editor.setMinimumDateTime(QDateTime(QDate(1900, 1, 1), editor.minimumTime()))
         editor.setSpecialValueText("선택")
         editor.setCalendarPopup(True)
@@ -146,11 +279,12 @@ def create_widget(field: dict, parent=None) -> WidgetHandle:
         host, editor = _photo_widget(parent)
         handle = WidgetHandle(field, host, editor=editor)
     else:
-        editor = QLineEdit(parent)
+        editor = GeoFlowLineEdit(parent)
         maximum = field.get("max_length")
         if maximum:
             editor.setMaxLength(int(maximum))
         handle = WidgetHandle(field, editor)
     handle.set_readonly(field.get("readonly") or kind == "hidden")
+    handle.editor.setProperty("required", bool(field.get("required")))
     handle.widget.setVisible(bool(field.get("visible", True)) and kind != "hidden")
     return handle
