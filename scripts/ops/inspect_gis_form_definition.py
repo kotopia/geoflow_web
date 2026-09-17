@@ -158,6 +158,41 @@ def inventory(cur):
     return result
 
 
+def failure_summary(exc, stage):
+    """Return bounded categories only; never exception text/args, DSN or diagnostics."""
+    categories = {
+        'TenantDBCredentialError': 'credential_resolution_failed',
+        'Http404': 'tenant_configuration_unavailable',
+        'OperationalError': 'connection_or_database_unavailable',
+        'InterfaceError': 'database_interface_failed',
+        'ProgrammingError': 'schema_or_query_mismatch',
+        'ValueError': 'invalid_metadata',
+    }
+    category = next((categories[c.__name__] for c in type(exc).__mro__
+                     if c.__name__ in categories), 'unexpected_inspection_error')
+    result = {'stage': stage, 'category': category}
+    sqlstate = getattr(exc, 'pgcode', None)
+    if isinstance(sqlstate, str) and re.fullmatch(r'[0-9A-Z]{5}', sqlstate):
+        result['sqlstate'] = sqlstate
+    return result
+
+
+def inspect_tenants(tenant_ids, cursor_factory):
+    results = []
+    for number, group_id in enumerate(tenant_ids, 1):
+        stage = 'connect'
+        try:
+            with cursor_factory(group_id, write=False) as cur:
+                stage = 'inventory'
+                data = inventory(cur)
+                stage = 'close'
+            results.append({'store': number, 'status': 'ok', 'inventory': data})
+        except Exception as exc:
+            results.append({'store': number, 'status': 'inspection_failed',
+                            'failure': failure_summary(exc, stage)})
+    return results
+
+
 def main():
     # Applies even to initial Django connection setup and the tenant registry read.
     os.environ['PGOPTIONS'] = os.environ.get('PGOPTIONS', '') + ' -c default_transaction_read_only=on'
@@ -168,7 +203,7 @@ def main():
     from control.models import GroupDBConfig
     from control.services.gis_admin import tenant_cursor
 
-    result = {'report_version': 1, 'observed_at': datetime.now(timezone.utc).isoformat(),
+    result = {'report_version': 2, 'observed_at': datetime.now(timezone.utc).isoformat(),
               'tenants': [], 'complete': False}
     with transaction.atomic(using='default'), connections['default'].cursor() as cur:
         cur.execute('SET TRANSACTION READ ONLY')
@@ -179,15 +214,8 @@ def main():
         tenant_ids = list(GroupDBConfig.objects.using('default')
                           .filter(group__status='active').order_by('group_id')
                           .values_list('group_id', flat=True))
-    failed = False
-    for number, group_id in enumerate(tenant_ids, 1):
-        try:
-            with tenant_cursor(group_id, write=False) as cur:
-                data = inventory(cur)
-            result['tenants'].append({'store': number, 'status': 'ok', 'inventory': data})
-        except Exception:
-            failed = True
-            result['tenants'].append({'store': number, 'status': 'inspection_failed'})
+    result['tenants'] = inspect_tenants(tenant_ids, tenant_cursor)
+    failed = any(t['status'] != 'ok' for t in result['tenants'])
     result['complete'] = not failed
     print('GIS_FORM_INVENTORY_BEGIN')
     print(json.dumps(result, ensure_ascii=True, sort_keys=True, default=str))
