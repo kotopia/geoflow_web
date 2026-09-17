@@ -8,6 +8,7 @@ from uuid import uuid4
 from control.services import gis_definitions as defs
 from control.services import gis_definition_transition as transition
 from geoflow_ops.gis.central_definitions import project_config, reference_payload, resolve, validate_attributes
+from geoflow_ops.gis.layer_plan import _scope_rows
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -172,6 +173,30 @@ class CentralPostgresTests(unittest.TestCase):
         data = defs.snapshot(self.cur)
         self.assertEqual([row['code'] for row in data['catalogs']], ['SEWERAGE', 'WATER'])
         self.assertEqual(data['scopes'][0]['catalog_id'], option)
+
+    def test_layer_plan_scope_query_accepts_canonical_table_without_active_column(self):
+        self.cur.execute('''CREATE SCHEMA prj;
+          CREATE TABLE prj.scope_item(
+            id uuid PRIMARY KEY, project_id uuid, lv2_id uuid,
+            lv3_id uuid, lv4_id uuid, unit varchar(20),
+            design_qty numeric(18,3), completed_qty numeric(18,3),
+            remark varchar(255), created_at timestamptz, updated_at timestamptz)''')
+        project = str(uuid4())
+        scope = str(uuid4())
+        self.cur.execute(
+            'INSERT INTO prj.scope_item(id,project_id,lv2_id) VALUES (%s,%s,%s)',
+            [str(uuid4()), project, scope],
+        )
+
+        self.assertEqual(_scope_rows(self.cur), [(project, scope, None, None)])
+        self.assertEqual(
+            _scope_rows(self.cur, project_id=project),
+            [(project, scope, None, None)],
+        )
+        self.assertEqual(
+            _scope_rows(self.cur, project_ids=[project]),
+            [(project, scope, None, None)],
+        )
 
     def test_standard_field_edit_persists_and_updates_final_definition(self):
         field_id=str(uuid4())
