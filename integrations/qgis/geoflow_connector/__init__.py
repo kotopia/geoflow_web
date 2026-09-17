@@ -1,21 +1,25 @@
 def classFactory(iface):
-    from .cache_lifecycle_qgis import CacheLifecycleMixin
-    from .delta_apply_v3 import DeltaApplyV3Mixin
-    from .layer_workspace import LayerWorkspaceMixin
-    from .plugin import GeoFlowConnectorPlugin
-    from .realtime_delta_v3 import RealtimeDeltaV3Mixin
-    from .realtime_session_guard import RealtimeSessionGuardMixin
-    from .snapshot_reuse import SnapshotReuseMixin
+    from .app.unified import UnifiedMixin
+    from .app.integration import ConnectorIntegrationMixin
+    from .cache.qgis_lifecycle import CacheLifecycleMixin
+    from .sync.delta_apply import DeltaApplyMixin
+    from .ui.layer_workspace import LayerWorkspaceMixin
+    from .app.plugin import GeoFlowConnectorPlugin
+    from .sync.realtime import RealtimeMixin
+    from .sync.session_guard import RealtimeSessionGuardMixin
+    from .cache.reuse import SnapshotReuseMixin
 
-    class GeoFlowConnectorPluginV081(
+    class GeoFlowConnectorPluginV120(
+        UnifiedMixin,
+        ConnectorIntegrationMixin,
         CacheLifecycleMixin,
         RealtimeSessionGuardMixin,
-        RealtimeDeltaV3Mixin,
+        RealtimeMixin,
         LayerWorkspaceMixin,
         SnapshotReuseMixin,
-        DeltaApplyV3Mixin,
+        DeltaApplyMixin,
         GeoFlowConnectorPlugin,
     ):
         pass
 
-    return GeoFlowConnectorPluginV081(iface)
+    return GeoFlowConnectorPluginV120(iface)

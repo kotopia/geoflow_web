@@ -7,8 +7,8 @@ import unittest
 import uuid
 from pathlib import Path
 
-from .changeset_queue import ensure_changeset_tables
-from .local_change_recovery import _content_hash, recover_untracked_snapshot_changes
+from .sync.queue import ensure_changeset_tables
+from .cache.recovery import _content_hash, recover_untracked_snapshot_changes
 
 
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
@@ -129,13 +129,13 @@ class LocalChangeRecoveryTests(unittest.TestCase):
 
     def test_qgis_save_still_schedules_automatic_changeset_sync(self):
         root = Path(__file__).resolve().parent
-        plugin = (root / "plugin.py").read_text(encoding="utf-8")
-        snapshot_reuse = (root / "snapshot_reuse.py").read_text(encoding="utf-8")
+        plugin = (root / "app/plugin.py").read_text(encoding="utf-8")
+        snapshot_reuse = (root / "cache/reuse.py").read_text(encoding="utf-8")
         self.assertIn("self._auto_sync_timer.setInterval(700)", plugin)
         self.assertIn("self._schedule_auto_sync()", plugin)
         self.assertIn("self._sync_active_project(self.active_client, automatic=True)", plugin)
-        self.assertIn("layer.beforeCommitChanges.connect", snapshot_reuse)
-        self.assertIn("layer.afterCommitChanges.connect", snapshot_reuse)
+        self.assertIn("self._connect_sync(layer, layer.beforeCommitChanges", snapshot_reuse)
+        self.assertIn("self._connect_sync(layer, layer.afterCommitChanges", snapshot_reuse)
         self.assertIn("write_authorized and sync_supported", snapshot_reuse)
 
 

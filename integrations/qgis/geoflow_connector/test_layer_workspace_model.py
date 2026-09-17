@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from .layer_workspace_model import (
+from .layers.model import (
     editor_widget_spec,
     filtered_layer_rows,
     form_field_label,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-from .cache_lifecycle import (
+from .cache.lifecycle import (
     CacheInventoryItem,
     execute_cache_cleanup,
     inspect_cache_file,
