@@ -1,0 +1,111 @@
+name: GIS form definition read-only inventory
+
+on:
+  pull_request:
+    branches: [release/stabilized-deploy]
+    paths:
+      - scripts/ops/inspect_gis_form_definition.py
+      - control/test_gis_form_inventory.py
+      - .github/workflows/gis-form-inventory.yml
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - scripts/ops/inspect_gis_form_definition.py
+      - control/test_gis_form_inventory.py
+      - .github/workflows/gis-form-inventory.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inventory-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: geoflow_test
+          POSTGRES_PASSWORD: geoflow_test
+          POSTGRES_DB: geoflow_inventory_test
+        ports: [55441:5432]
+        options: >-
+          --health-cmd "pg_isready -U geoflow_test -d geoflow_inventory_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - run: python -m pip install psycopg2-binary==2.9.10
+      - run: python -m unittest control.test_gis_form_inventory -v
+        env:
+          GEOFLOW_INVENTORY_ISOLATED_PG: '1'
+
+  inspect-production:
+    if: github.event_name == 'push' && github.ref_name == 'release/stabilized-deploy'
+    needs: inventory-safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: '22'
+    steps:
+      - name: Checkout exact reviewed inventory
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Validate inputs and configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+      - name: Inspect schema and definition metadata without deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_file="/tmp/geoflow-gis-inventory-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.py"
+          script_hash="$(sha256sum scripts/ops/inspect_gis_form_definition.py | cut -d' ' -f1)"
+          cleanup() {
+            ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+              "$SSH_USER@$SSH_HOST" "rm -f '$remote_file'" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          scp -i "$HOME/.ssh/geoflow_deploy_key" -P "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            scripts/ops/inspect_gis_form_definition.py "$SSH_USER@$SSH_HOST:$remote_file"
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$remote_file' '$script_hash'" <<'REMOTE'
+          set -euo pipefail
+          diagnostic="$1"
+          expected_hash="$2"
+          [ "$(sha256sum "$diagnostic" | cut -d' ' -f1)" = "$expected_hash" ] || exit 2
+          service='geoflow-stabilized.service'
+          [ "$(systemctl is-active "$service" 2>/dev/null || true)" = active ] || exit 2
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || exit 2
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -f "$repo/manage.py" ] || exit 2
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || exit 2
+          cd "$repo"
+          echo "gis_inventory_runtime_sha=$(git rev-parse HEAD)"
+          PGOPTIONS='-c default_transaction_read_only=on' PYTHONPATH="$repo" "$python" "$diagnostic"
+          REMOTE
