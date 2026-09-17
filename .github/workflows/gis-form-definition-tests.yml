@@ -43,7 +43,7 @@ jobs:
           remote = textwrap.dedent(remote)
           subprocess.run(['bash', '-n'], input=remote, text=True, check=True)
           # Prove the validator catches the exact defect previously missed by outer bash -n.
-          broken = remote.replace('gis-definition-code-deploy.yml) ;;', 'gis-definition-code-deploy.yml ;;')
+          broken = remote.replace(') ;;', ' ;;', 1)
           assert broken != remote
           result = subprocess.run(['bash', '-n'], input=broken, text=True, capture_output=True)
           assert result.returncode != 0, 'Missing case terminator must fail validation'
