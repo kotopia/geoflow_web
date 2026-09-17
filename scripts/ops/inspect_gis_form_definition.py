@@ -65,7 +65,7 @@ def inventory(cur):
         ORDER BY table_name,ordinal_position""")
     for column in columns:
         column['column_default'] = default_summary(column['column_default'])
-    constraints = rows(cur, """SELECT c.relname AS table_name,k.conname AS name,k.contype AS type,
+    constraints = rows(cur, """SELECT n.nspname AS table_schema,c.relname AS table_name,k.conname AS name,k.contype AS type,
         k.conkey AS columns,k.confkey AS referenced_columns,
         rn.nspname AS referenced_schema,rc.relname AS referenced_table
         FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid
@@ -127,6 +127,24 @@ def inventory(cur):
             result['tenant_standard_fields'].append({'layer': row['layer'],
                 **{key: field.get(key) for key in STANDARD_FIELD_KEYS},
                 'has_reference_code': bool(field.get('code_group_key'))})
+    if {'capability', 'capability_feature', 'meta_feature_type'} <= present:
+        result['capability_layers'] = rows(cur, """SELECT c.code AS capability,c.active,
+            l.standard_name AS layer,cf.enabled,cf.required,cf.sort_order
+            FROM gis.capability c JOIN gis.capability_feature cf ON cf.capability_id=c.id
+            JOIN gis.meta_feature_type l ON l.id=cf.feature_type_id
+            ORDER BY c.code,l.standard_name""")
+    if 'scope_binding' in present:
+        result['scope_binding_levels'] = rows(cur, """SELECT catalog_level,active,count(*) AS count,
+            count(*) FILTER(WHERE catalog_code_cache IS NULL) AS missing_cached_codes
+            FROM gis.scope_binding GROUP BY catalog_level,active ORDER BY catalog_level,active""")
+    if {'profile_field', 'meta_field_def', 'meta_feature_type'} <= present:
+        result['profile_field_settings'] = rows(cur, """SELECT
+            dense_rank() OVER(ORDER BY pf.profile_id) AS profile_number,
+            l.standard_name AS layer,f.physical_name AS field,
+            pf.enabled,pf.required,pf.editable,pf.visible,pf.sort_order
+            FROM gis.profile_field pf JOIN gis.meta_field_def f ON f.id=pf.field_def_id
+            JOIN gis.meta_feature_type l ON l.id=f.feature_type_id
+            ORDER BY pf.profile_id,l.standard_name,f.physical_name""")
     if 'profile_field' in present:
         result['profile_flags'] = rows(cur, """SELECT enabled,required,editable,visible,count(*) AS count
             FROM gis.profile_field GROUP BY enabled,required,editable,visible

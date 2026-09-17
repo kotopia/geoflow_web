@@ -10,6 +10,34 @@ Windows의 workspace-backup.zip은 이 작업 환경에 제공되지 않았으�
 아래 변경 방향은 운영 DB 관측과 대조한 후 확정한다. DB 조사 전에 모델/API/UI 구현을 시작하지 않는다.
 새 Form Definition 시스템, 별도 필드 원본, 멀티 그룹, 사진/관계형 저장 모델은 만들지 않는다.
 
+## 2026-09-17 최종 사용자 지시 반영 — 아래 잠정안보다 우선
+
+추가 첨부 1 → 첨부 2에서 중앙 단일 Definition으로 방향을 확정했다. 아래 표는 최초 코드 조사
+기록이며, 제거를 단순 후보로 기술한 부분은 다음 확정 목표로 대체한다.
+
+- 중앙이 Final Layer Plan과 Final Form Definition을 모두 계산한다. 실제 프로젝트/계약/직원 및
+  기존 프로젝트 업무범위 원본을 중복 생성하거나 이동하지 않는다. 중앙 Resolver가 권한 확인된
+  기존 프로젝트 문맥을 입력받으며, 업무범위→레이어 규칙은 중앙에서만 관리한다.
+- tenant meta_field_def, ref_code_group/value는 중앙 경로 전환 후 제거한다.
+- profile/profile_feature/profile_field/project_profile은 중앙 Group/Project 적용 구조로 흡수 후 제거한다.
+- scope_binding/capability/capability_feature의 L2/L3/L4 및 공통·측량 레이어 연결 의미를 중앙에
+  흡수한다. tenant에 별도 업무 규칙이나 중앙 실패 시 fallback을 남기지 않는다.
+- meta_feature_type는 로컬 FK/physical mapping만 필요한 최소 runtime registry로 축소하거나 대체한다.
+  표시명/폼/위젯/순서/업무범위 판단은 중앙에 둔다. 기존 survey_link/import_batch FK를 먼저 조사한다.
+- Project Definition/Override도 중앙 책임으로 확정한다. 기존 project_definition 선택정보 구조를
+  재사용하되, 현재 tenant에 있는 행의 중앙 배치와 tenant/project 식별·권한 검증은 실제 DB 조사 후
+  구체화한다. 프로젝트 본문을 옮기거나 최종 Definition을 프로젝트마다 복제하지 않는다.
+- 중앙 definition_layer는 현재 standard_name PK이고 UUID가 없다. 안정적인 layer UUID를 기존
+  테이블에 추가하고 실제 physical mapping을 연결할 필요가 있다. 새 레이어 master를 만들지 않는다.
+- 중앙 definition_layer_catalog의 현재 L2 운용을 기존 L3/L4/공통레이어 의미까지 확장해야 한다.
+  코드와 실제 DB가 표현하는 모든 의미를 확인한 뒤 최소 변경을 정한다.
+- 중앙 정의 + 실제 tenant physical schema를 대조해 누락/type/geometry/mapping 불일치를 명시한다.
+  tenant에 Form Definition 복제본을 만드는 방식으로 해결하지 않는다.
+- QGIS/QField package와 서버 저장 검증을 먼저 전환하고 FK/의존 제거 및 회귀검증 후 legacy 표를 삭제한다.
+  GIS 테스트 데이터와 legacy 호환은 보호 대상이 아니지만 비GIS 운영데이터/권한은 유지한다.
+- Definition content revision은 재사용한다. 별도 snapshot 표나 멀티 그룹, 사진/child CRUD는 이번에 만들지 않는다.
+- 실제 운영 DB read-only 조사 완료 전에는 schema 변경을 시작하지 않는다.
+
 ## 현재 구조와 변경 분류표
 
 | 항목 | 현재 구조 | 분류/재사용 | 부족한 정보 | 최소 수정 방향 | DB 변경 | API 변경 | UI 변경 |

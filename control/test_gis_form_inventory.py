@@ -71,6 +71,18 @@ class InventoryPostgresTests(unittest.TestCase):
             cur.execute("INSERT INTO gis.project_definition VALUES ('11111111-2222-3333-4444-555555555555',null,'{}','{\"private label\":\"private value\"}')")
             cur.execute("CREATE TABLE gis.wtl_pipe_lm(id integer,description text DEFAULT 'private-default')")
             cur.execute("INSERT INTO gis.wtl_pipe_lm VALUES (1,'private-feature-data')")
+            cur.execute("CREATE TABLE gis.meta_feature_type(id integer PRIMARY KEY,standard_name text,physical_name text,label text,geometry_kind text,active boolean,sort_order integer)")
+            cur.execute("INSERT INTO gis.meta_feature_type VALUES (1,'WTL_PIPE_LM','wtl_pipe_lm','상수관로','LINE',true,1)")
+            cur.execute("CREATE TABLE gis.meta_field_def(id integer PRIMARY KEY,feature_type_id integer,physical_name text,label text,data_type text,widget_type text)")
+            cur.execute("INSERT INTO gis.meta_field_def VALUES (2,1,'saa_cde','관종','varchar','combo')")
+            cur.execute("CREATE TABLE gis.profile_field(profile_id integer,field_def_id integer,enabled boolean,required boolean,editable boolean,visible boolean,sort_order integer)")
+            cur.execute("INSERT INTO gis.profile_field VALUES (987654321,2,true,false,true,true,1)")
+            cur.execute("CREATE TABLE gis.capability(id integer PRIMARY KEY,code text,active boolean)")
+            cur.execute("INSERT INTO gis.capability VALUES (1,'WATER',true)")
+            cur.execute("CREATE TABLE gis.capability_feature(capability_id integer,feature_type_id integer,enabled boolean,required boolean,sort_order integer)")
+            cur.execute("INSERT INTO gis.capability_feature VALUES (1,1,true,false,1)")
+            cur.execute("CREATE TABLE gis.scope_binding(catalog_level integer,active boolean,catalog_code_cache text)")
+            cur.execute("INSERT INTO gis.scope_binding VALUES (4,true,null)")
         cls.conn.autocommit = False
         cls.conn.set_session(readonly=True)
 
@@ -93,6 +105,11 @@ class InventoryPostgresTests(unittest.TestCase):
         for forbidden in ['11111111-2222-3333-4444-555555555555', 'private label', 'private value', 'private-feature-data', 'private-default']:
             self.assertNotIn(forbidden, output)
         self.assertNotIn('wtl_pipe_lm', result['metadata_counts'])
+        self.assertEqual(result['capability_layers'][0]['capability'], 'WATER')
+        self.assertEqual(result['scope_binding_levels'][0]['catalog_level'], 4)
+        self.assertEqual(result['profile_field_settings'][0]['profile_number'], 1)
+        self.assertNotIn('987654321', output)
+        self.assertEqual(result['tenant_standard_fields'][0]['widget_type'], 'combo')
 
     def test_postgres_rejects_mutation(self):
         import psycopg2
