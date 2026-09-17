@@ -19,8 +19,8 @@ from . import (
     views,
 )
 from .layer_plan import (
-    DEFAULT_PROFILE_CODES,
     allowed_standard_names_for_projects,
+    project_layer_plan,
     require_enabled_layer_plan,
 )
 from .registry import domain_counts_for_rows
@@ -68,21 +68,21 @@ class LayerPlanFailClosedTests(SimpleTestCase):
         self.assertIn("gis_foundation_unavailable", endpoint)
         self.assertIn("allowed_standard_names_for_projects", endpoint)
 
-    def test_dashboard_layer_union_uses_project_and_profile_scope(self):
+    def test_dashboard_layer_union_uses_each_central_project_plan(self):
         self.assertEqual(allowed_standard_names_for_projects("unused", []), set())
         source = inspect.getsource(allowed_standard_names_for_projects)
-        self.assertIn("s.project_id=ANY(%s::uuid[])", source)
-        self.assertIn("pp.project_id=rp.project_id", source)
-        self.assertIn("p.code=ANY(%s::text[])", source)
-        self.assertIn("array_position(%s::text[], p.code)", source)
-        self.assertIn("pf.profile_id=sp.profile_id", source)
-        self.assertIn("cf.capability_id=c.id", source)
+        self.assertIn("central_definitions.central_snapshot()", source)
+        self.assertIn("prj.scope_item", source)
+        self.assertNotIn("gis.profile", source)
+        plan_source=inspect.getsource(project_layer_plan)
+        self.assertIn("central_definitions.central_snapshot()",plan_source)
+        self.assertNotIn("gis.profile",plan_source)
+        self.assertNotIn("gis.capability",plan_source)
 
-    def test_unassigned_project_prefers_production_profile_then_dev_compatibility(self):
-        self.assertEqual(
-            DEFAULT_PROFILE_CODES,
-            ("GEOFLOW_BASE_V1", "GEOFLOW_DEV_BASE"),
-        )
+    def test_tenant_profiles_are_not_definition_fallbacks(self):
+        source=Path(__file__).with_name('layer_plan.py').read_text(encoding='utf-8')
+        for legacy in ('gis.profile','gis.profile_field','gis.capability','gis.scope_binding'):
+            self.assertNotIn(legacy,source)
 
     def test_domain_summary_contains_only_authorized_rows(self):
         counts = domain_counts_for_rows(

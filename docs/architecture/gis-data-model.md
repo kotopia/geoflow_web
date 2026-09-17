@@ -73,25 +73,18 @@ GeoFlow는 중앙 Control DB + tenant별 독립 tenant DB 구조다. 따라서 t
 ### Catalog 기반 GIS 자동 등록
 
 프로젝트의 GIS 사용 여부를 별도 수동 등록 플래그로 중복 저장하지 않는다. 활성
-`prj.scope_item`이 tenant의 `gis.scope_binding`을 통해 활성 Capability에 연결되고,
-해당 Capability와 Profile의 교집합에 하나 이상의 레이어가 있으면 GIS 프로젝트로
-실시간 판정한다.
+`prj.scope_item`의 Catalog UUID를 중앙 `gis.definition_layer_catalog`와 결합하고,
+프로젝트가 선택한 중앙 Group의 전체 Layer 및 개별 추가 항목을 합쳐 Final Layer Plan을
+계산한다. Tenant가 Capability/Profile로 업무범위를 다시 해석하지 않는다.
 
-- 중앙 Catalog의 L2 `WATER`는 tenant Capability `WATER`에 연결한다.
-- 중앙 Catalog의 L2 `SEWERAGE`는 tenant Capability `SEWER`에 연결한다.
-- 운영 tenant는 Catalog UUID가 tenant마다 복제되지 않도록 초기화 시 이 두 binding을
-  중앙 Catalog에서 정확히 조회해 동기화한다.
-- 프로젝트별 활성 Profile이 있으면 그것을 우선한다.
-- 별도 Profile이 없는 프로젝트는 `GEOFLOW_BASE_V1`을 사용하며, 기존 개발 환경에
-  한해 `GEOFLOW_DEV_BASE`를 호환 fallback으로 허용한다.
-- 업무범위 추가·삭제 결과는 다음 GIS 조회부터 즉시 Layer Plan에 반영한다. 업무범위를
-  삭제해 레이어가 숨겨져도 기존 GIS 객체를 삭제하지 않는다.
-- 상수와 하수가 모두 있으면 두 Capability의 합집합을 Profile로 제한한 Layer Plan을
-  사용한다. 둘 다 없으면 GIS 목록과 데이터 API에서 fail-closed 한다.
+- 업무범위 추가·삭제 결과는 다음 GIS 조회부터 Final Layer Plan에 반영한다.
+- Group을 선택하면 그 Group에 연결된 모든 Layer가 포함된다.
+- 업무범위도 Group도 개별 추가도 없으면 GIS 데이터 API는 fail-closed 한다.
+- 업무범위에서 레이어가 빠져도 기존 GIS 시설물 행을 자동 삭제하지 않는다.
 
-따라서 Catalog 편집은 업무 사실의 원본이고, `scope_binding`은 그 업무가 어떤 GIS
-기능을 활성화하는지 정의하는 tenant metadata다. WebGIS, QGIS, QField는 동일한
-Layer Plan을 사용한다.
+따라서 Catalog 편집은 업무 사실의 원본이고, 중앙 `gis.definition_layer_catalog`가
+그 업무가 어떤 GIS Layer를 활성화하는지 정의한다. Tenant `scope_binding/capability*`는
+제거한다. WebGIS, QGIS, QField는 중앙 서버가 계산한 동일한 Final Layer Plan을 사용한다.
 
 QGIS가 향후 PostGIS에 직접 접근하는 경우에는 project-scoped View/RLS/short-lived role/proxy 중 검토된 방식을 사용해야 한다. 현재 단계에서 특정 방식을 데이터 모델에 강제하지 않는다.
 
@@ -102,34 +95,21 @@ QGIS가 향후 PostGIS에 직접 접근하는 경우에는 project-scoped View/R
 - 필요 시 `created_at`, `updated_at`, `created_by`, `updated_by`를 추가한다.
 - 외부 납품 형식이 문자열 날짜를 요구하면 Export 시 변환한다.
 
-## 8. Metadata / Reference / Profile
-`gis` schema 내부의 관리용 테이블은 역할 prefix로 구분한다.
+## 8. 중앙 Definition / Tenant Runtime
+중앙 DB의 `gis.definition_*`가 Layer, Field, Form metadata, 참조코드, 조건 규칙,
+그룹과 Catalog 연결의 유일한 원본이다. Layer와 Field 관계는 UUID로 식별하고,
+물리 테이블명·표시명은 식별자로 사용하지 않는다.
 
-### Metadata
-- `meta_feature_type`: 시설물/레이어 정의
-- `meta_field_def`: 필드 정의, 단위, 타입, 위젯, 필수 여부, 표준명
-
-### Reference
-- `ref_code_group`
-- `ref_code_value`
-
-GIS 전문 코드는 `ops.settings_nodes`에 혼합하지 않고 GIS reference 영역에서 관리한다. 기존 업무 공통 설정은 계속 `ops.settings_nodes`가 담당한다.
-
-### Profile
-- `profile`
-- `profile_feature`
-- `profile_field`
-
-Profile은 지자체 또는 사업별로 어떤 시설물/필드를 사용하는지 정의한다.
-
-Metadata/Profile은 WebGIS에서 직접 Form 생성에 사용할 수 있다. QGIS/QField에서는 metadata를 실시간 DB UI 엔진처럼 해석하는 것을 전제로 하지 않는다.
+Tenant에는 실제 시설물 행과 `prj.scope_item`, 최소 프로젝트 선택인
+`gis.project_definition`만 남긴다. `meta_*`, `ref_code_*`, `profile*`,
+`scope_binding`, `capability*` 정의 복제는 중앙 전환 후 제거한다.
 
 ## 9. QGIS/QField Materialization 원칙
 QGIS/QField 구성 흐름은 다음과 같다.
 
-`GeoFlow metadata/profile → 프로젝트별 QGIS/QField 구성 생성 → .qgs/.qgz/QField package → QGIS/QField`
+`중앙 Final Layer Plan/Form Definition → 프로젝트별 QGIS/QField 구성 생성 → .qgs/.qgz/QField package → QGIS/QField`
 
-즉 metadata/profile은 Source of Truth이며, QGIS 프로젝트의 레이어·Form·Value Relation·Style 설정은 필요 시 materialize한다.
+즉 중앙 Definition은 Source of Truth이며, QGIS 프로젝트의 레이어·Form·Value Relation·Style 설정은 필요 시 materialize한다.
 
 QGIS Plugin은 유지한다.
 - GeoFlow 로그인
@@ -197,7 +177,7 @@ QGIS Plugin은 유지한다.
 권장 필드:
 - `id`
 - `survey_id`
-- `feature_type_id` → `meta_feature_type`
+- `layer_id` → 중앙 `definition_layer.id`의 논리 참조
 - `target_id` → 대상 시설물 UUID의 논리 참조
 - `match_method`
 - `match_distance`
@@ -239,7 +219,7 @@ QGIS Plugin은 유지한다.
 초기에는 `import_batch` 수준의 이력을 권장한다.
 - 프로젝트
 - 원본 파일/원본 시스템
-- Profile
+- 중앙 Definition revision
 - 작업자
 - Import 일시
 - 성공/실패/경고 건수
@@ -307,7 +287,7 @@ QGIS Plugin은 유지한다.
 - 사진/현장조사
 - 오프라인 작업 및 동기화
 
-세 클라이언트는 동일한 GeoFlow GIS 데이터 모델과 project/profile 문맥을 사용한다.
+세 클라이언트는 동일한 GeoFlow GIS 데이터 모델과 project/catalog/group 문맥을 사용한다.
 
 ## 20. 구현 순서
 1. 아키텍처 문서 + Feature Registry + 기본 GIS 화면
@@ -334,34 +314,36 @@ GIS schema 또는 데이터 모델을 변경할 때는 이 문서를 기준으�
 - 운영 tenant DB migration 적용
 
 ## 최종 설계 문장
-**GeoFlow GIS는 tenant DB의 단일 `gis` schema 안에서 기존 공공 GIS 테이블/필드 의미를 최대한 유지하고, 부족한 구조만 확장한다. 프로젝트·직원·계약·권한은 기존 GeoFlow를 참조하며, 사업별 차이는 Metadata/Profile과 제한적 확장 저장으로 흡수한다. 공통 survey는 단일 모델로 유지하되 `survey_link`로 시설물 lineage를 명시적으로 보존하고, GeoFlow metadata/profile을 WebGIS 및 생성된 QGIS/QField 구성의 Source of Truth로 사용한다.**
+**GeoFlow GIS는 실제 시설물 행은 tenant `gis` schema에 격리하고, Layer/Field/Form/Reference/Rule/Group/Catalog 연결은 중앙 `gis.definition_*`에서 단일 관리한다. 중앙 서버가 Project + Catalog + Group + Project 선택으로 Final Layer Plan과 Final Form Definition을 계산하며 WebGIS/QGIS/QField는 이를 그대로 사용한다.**
 
-## 22. 중앙 공통 업무정의 v2 (2026-09-16 확정 변경)
+## 22. 중앙 공통 업무정의 v3 (2026-09-17 확정 변경)
 
 지자체 업무 규칙은 테넌트별로 복제하지 않는다. 중앙 DB의 `gis.definition_*`가 그룹,
 추가 필드, 필드별 참조코드와 조건 규칙의 원본이다. 중앙 catalog L2와 레이어 연결은
-기존 tenant scope_binding/capability_feature에서 검증해 초기화한다. 이후 업무정의
+기존 tenant scope_binding/capability_feature의 의미를 전환 시 검증해 초기화한다. 이후 업무정의
 화면은 tenant 선택 없이 중앙만 수정한다. 공간 객체·사진·직원·프로젝트는 tenant에 남는다.
 
 그룹명만 생성한 뒤 catalog 업무범위 → 기존 레이어 → 기존/추가 필드를 연결한다.
-표준 물리 필드는 layer+physical_name으로 식별하고 임의 삭제/재타이핑을 금지한다.
+표준 Layer/Field 관계는 안정적인 UUID로 식별한다. `physical_name`은 저장 매핑이며
+식별자가 아니다. 저장 타입·길이·precision·scale·nullable·default는 실제 Tenant
+PostGIS schema를 기준으로 교정한다. 의미 타입과 Widget 타입은 별도로 중앙 관리한다.
 추가 필드는 여러 레이어에 동일 UUID로 연결한다. 기본 순서와 그룹별 순서를 구분한다.
 참조코드는 필드 선택 후 등록한다. '유형없음/레이어없음'은 미연결 상태의 UI 분류다.
 조건 규칙은 별도 연결표로 관리하며 코드 FK와 순환 검증을 적용한다.
 
-기존 tenant의 meta/profile/ref 테이블은 Layer Plan, snapshot, business approval 등에서
-여전히 참조하므로 삭제하지 않는다. 기존 reference API는 중앙 적용 이후 중앙 코드를
-기존 wire shape로 제공한다. 추가항목 API는 v2 정의/순서/조건을 반환한다. 새 추가항목의
-클라이언트 입력, 관계형 하위 기록 저장, 조건에 따른 클라이언트 선택 UI는 후속 통합이다.
-기존 저장 경로에 새 완료필수/조건 규칙을 강제로 적용하지 않는다.
+Final Layer Plan은 `prj.scope_item`의 Catalog 선택과 중앙 Layer binding, 중앙 Group,
+프로젝트 선택을 합성한다. Final Form Definition은 표준 필드와 추가 필드를 동일한
+응답 구조로 정규화하고 Code UUID와 Rule UUID 관계, 최종 순서, flags, layout, revision을
+제공한다. QGIS/QField package와 서버 쓰기 검증도 이 결과만 사용한다.
 
-기존 미사용 form_item/profile_form_item/project_form_item DDL은 폐기한다. cheonan_db에서
-실제 존재하는 경우 비어 있고 외부 의존관계가 없을 때만 DROP한다. CASCADE는 금지한다.
-프로젝트 선택·추가·전용 항목은 tenant gis.project_definition 한 테이블로 통합한다.
+`survey_link.feature_type_id`는 중앙 `layer_id`로, `import_batch.profile_id`는 Definition
+revision으로 전환한 뒤 Tenant의 `meta_*`, `ref_code_*`, `profile*`, `scope_binding`,
+`capability*`와 구 Form 테이블을 CASCADE 없이 제거한다. 프로젝트 선택·추가·전용 항목은
+Tenant `gis.project_definition` 한 테이블에 중앙 UUID만 저장하며 Definition 복제본은 두지 않는다.
 프로젝트마다 공통 정의를 복제하지 않으며 프로젝트 전용 항목만 해당 행에 보관한다.
 
 ### 그룹 전체 연결과 실행 범위 (2026-09-16 보완)
-프로젝트의 그룹 선택은 그룹 전체 레이어·항목에 대한 참조다. 구성 화면은 업무범위 밖의
-레이어도 표시하고 개별 중앙 필드 추가를 허용한다. 해당 항목은 업무범위 추가 후 사용
-가능하다고 표시한다. 실행 API는 기존 Layer Plan 교집합만 반환하며 구성 선택이
-시설물 데이터 접근 권한이나 프로젝트 업무범위를 자동으로 확장하지 않는다.
+프로젝트의 그룹 선택은 그룹 전체 레이어·항목에 대한 참조다. 구성 화면은 모든 연결
+레이어를 표시하고 개별 중앙 필드 추가도 허용한다. 실행 API의 Final Layer Plan 역시
+선택한 Group의 모든 레이어를 포함한다. 단, 시설물 행 접근은 계속 프로젝트 권한과
+`project_id` 범위로 서버에서 제한하며 다른 프로젝트의 데이터 권한을 확장하지 않는다.

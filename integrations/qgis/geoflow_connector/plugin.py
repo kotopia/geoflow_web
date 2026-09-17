@@ -133,11 +133,12 @@ class GeoFlowConnectorPlugin:
         sync_supported: bool,
         changeset_supported: bool,
     ):
-        profile = manifest.get("profile") or {}
+        definition = manifest.get("definition") or {}
         qgs_project.writeEntry("GeoFlow", "managed", "1")
         qgs_project.writeEntry("GeoFlow", "project_id", project_id)
         qgs_project.writeEntry("GeoFlow", "project_code", project_code)
-        qgs_project.writeEntry("GeoFlow", "profile_code", str(profile.get("code") or ""))
+        qgs_project.writeEntry("GeoFlow", "definition_version", str(definition.get("version") or ""))
+        qgs_project.writeEntry("GeoFlow", "definition_revision", str(definition.get("revision") or ""))
         qgs_project.writeEntry("GeoFlow", "manifest_version", str(manifest.get("manifest_version") or ""))
         qgs_project.writeEntry("GeoFlow", "package_path", package_path)
         qgs_project.writeEntry("GeoFlow", "sync_supported", "1" if sync_supported else "0")

@@ -29,7 +29,7 @@ from .qfield_auth import (
     qfield_ticket_runtime_enabled,
 )
 from .qgis_plugin_repository import QGIS_PLUGIN_TEST_PACKAGE
-from .registry import FEATURE_TYPES, domain_counts_for_rows, feature_rows
+from .registry import domain_counts_for_rows, feature_by_name, feature_rows
 
 
 _GEOJSON_PROPERTY_CANDIDATES = (
@@ -58,7 +58,7 @@ def _project_queryset(alias):
     return Project.objects.using(alias).order_by("-start_date", "name")
 
 
-def _require_project_gis_access(request, alias, project_id, *, allow_unready=False):
+def _require_project_gis_access(request, alias, project_id, *, allow_unready=False, allow_disabled=False):
     project = get_object_or_404(_project_queryset(alias), id=project_id)
     policy = project_access_policy(request, alias)
     if not policy.can_webgis_read(project.id):
@@ -66,19 +66,13 @@ def _require_project_gis_access(request, alias, project_id, *, allow_unready=Fal
     plan = project_layer_plan(alias, project.id)
     if not allow_unready:
         require_enabled_layer_plan(plan)
-    elif plan.get("ready") and not plan.get("gis_enabled"):
+    elif plan.get("ready") and not plan.get("gis_enabled") and not allow_disabled:
         raise Http404("GIS is not enabled by this project's business scope.")
     return project, plan
 
 
 def _registry_feature(value):
-    key = (value or "").strip().lower()
-    if not key:
-        return None
-    for item in FEATURE_TYPES:
-        if key in (item.standard_name.lower(), item.physical_name.lower()):
-            return item
-    return None
+    return feature_by_name(value)
 
 
 def _parse_bbox(value):

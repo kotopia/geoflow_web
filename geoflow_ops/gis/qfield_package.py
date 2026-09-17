@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import json
 import os
 import sqlite3
 import tempfile
@@ -229,15 +230,17 @@ def build_qfield_geopackage(alias: str, *, project_id: str, plan: dict[str, Any]
             conn.execute("PRAGMA temp_store=MEMORY")
             conn.execute("PRAGMA cache_size=-65536")
             _init_gpkg(conn)
-            profile = plan.get("profile") or {}
+            definition = plan.get("definition") or {}
             conn.executemany(
                 "INSERT INTO _geoflow_package(key,value) VALUES (?,?)",
                 [
                     ("package_version", "0.9"),
                     ("package_id", str(uuid.uuid4())),
                     ("project_id", str(uuid.UUID(str(project_id)))),
-                    ("profile_id", str(profile.get("id") or "")),
-                    ("profile_code", str(profile.get("code") or "")),
+                    ("definition_version", str(definition.get("version") or "")),
+                    ("definition_revision", str(definition.get("revision") or "")),
+                    ("definition_group_id", str(definition.get("group_id") or "")),
+                    ("form_definition_json", json.dumps(plan.get("form_definition") or {},ensure_ascii=False,separators=(",",":"))),
                     ("generated_at", dt.datetime.now(dt.timezone.utc).isoformat()),
                     ("qfield_package_version", QFIELD_PACKAGE_VERSION),
                     ("qfield_plugin_runtime_version", QFIELD_PLUGIN_RUNTIME_VERSION),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sqlite3
 import tempfile
 import uuid
@@ -51,15 +52,16 @@ def build_project_geopackage_file(
             sqlite_conn.execute("PRAGMA temp_store=MEMORY")
             sqlite_conn.execute("PRAGMA cache_size=-65536")
             _init_gpkg(sqlite_conn)
-            profile = plan.get("profile") or {}
+            definition = plan.get("definition") or {}
             sqlite_conn.executemany(
                 "INSERT INTO _geoflow_package(key,value) VALUES (?,?)",
                 [
                     ("package_version", "0.6"),
                     ("package_id", str(uuid.uuid4())),
                     ("project_id", str(uuid.UUID(str(project_id)))),
-                    ("profile_id", str(profile.get("id") or "")),
-                    ("profile_code", str(profile.get("code") or "")),
+                    ("definition_version", str(definition.get("version") or "")),
+                    ("definition_revision", str(definition.get("revision") or "")),
+                    ("form_definition_json", json.dumps(plan.get("form_definition") or {},ensure_ascii=False,separators=(",",":"))),
                     ("generated_at", dt.datetime.now(dt.timezone.utc).isoformat()),
                     ("snapshot_batch_rows", str(SNAPSHOT_BATCH_ROWS)),
                     ("spatial_index", "gpkg_rtree_index"),

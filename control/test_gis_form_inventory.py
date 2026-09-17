@@ -108,8 +108,20 @@ class InventoryPostgresTests(unittest.TestCase):
             cur.execute('CREATE TABLE catalog.category_node(id uuid PRIMARY KEY,code text,name text,level integer,active boolean)')
             cur.execute("INSERT INTO catalog.category_node VALUES ('00000000-0000-0000-0000-000000000001','WATER','상수도',2,true)")
             cur.execute((ROOT / 'docs/architecture/gis-central-definitions.sql').read_text().replace('CREATE SCHEMA IF NOT EXISTS gis;', ''))
-            cur.execute("INSERT INTO gis.definition_layer VALUES ('WTL_PIPE_LM','상수관로')")
-            cur.execute("INSERT INTO gis.definition_field(id,label,kind,source_layer,physical_name) VALUES ('00000000-0000-0000-0000-000000000002','관종','text','WTL_PIPE_LM','saa_cde')")
+            cur.execute("""
+                INSERT INTO gis.definition_layer(id,standard_name,physical_name,label)
+                VALUES ('00000000-0000-0000-0000-000000000003','WTL_PIPE_LM','wtl_pipe_lm','상수관로')
+            """)
+            cur.execute("""
+                INSERT INTO gis.definition_field(id,label,kind,source_layer_id,physical_name)
+                VALUES (
+                  '00000000-0000-0000-0000-000000000002',
+                  '관종',
+                  'text',
+                  '00000000-0000-0000-0000-000000000003',
+                  'saa_cde'
+                )
+            """)
             cur.execute("CREATE TABLE gis.project_definition(project_id uuid,group_id uuid,additions jsonb,private_items jsonb)")
             cur.execute("INSERT INTO gis.project_definition VALUES ('11111111-2222-3333-4444-555555555555',null,'{}','{\"private label\":\"private value\"}')")
             cur.execute("CREATE TABLE gis.wtl_pipe_lm(id integer,description text DEFAULT 'private-default')")

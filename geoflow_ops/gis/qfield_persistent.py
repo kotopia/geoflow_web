@@ -23,7 +23,7 @@ def qfield_install_id(project_id) -> str:
 def qfield_schema_fingerprint(alias: str, plan: dict[str, Any]) -> str:
     specs = _layer_specs(alias, plan)
     payload = {
-        "profile": (plan.get("profile") or {}).get("code") or "",
+        "definition_revision": (plan.get("definition") or {}).get("revision") or "",
         "layers": [
             {
                 "standard_name": spec.standard_name,

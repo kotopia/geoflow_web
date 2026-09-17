@@ -39,7 +39,7 @@ def _version_tuple(value: str) -> tuple[int, ...]:
 
 def manifest_cache_fingerprint(manifest: dict) -> str:
     project = manifest.get("project") or {}
-    profile = manifest.get("profile") or {}
+    definition = manifest.get("definition") or {}
     layers = []
     for layer in manifest.get("layers") or []:
         fields = []
@@ -65,8 +65,8 @@ def manifest_cache_fingerprint(manifest: dict) -> str:
     payload = {
         "manifest_version": str(manifest.get("manifest_version") or ""),
         "project_id": str(project.get("id") or ""),
-        "profile_id": str(profile.get("id") or ""),
-        "profile_code": str(profile.get("code") or ""),
+        "definition_version": str(definition.get("version") or ""),
+        "definition_revision": str(definition.get("revision") or ""),
         "layers": layers,
     }
     encoded = json.dumps(
@@ -113,7 +113,7 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
         return None
 
     project = manifest.get("project") or {}
-    profile = manifest.get("profile") or {}
+    definition = manifest.get("definition") or {}
     expected_project = str(project.get("id") or "")
     if not expected_project:
         return None
@@ -139,11 +139,8 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
         if _version_tuple(meta.get("package_version", "")) < MIN_REUSABLE_PACKAGE_VERSION:
             return None
 
-        expected_profile_id = str(profile.get("id") or "")
-        expected_profile_code = str(profile.get("code") or "")
-        if expected_profile_id and str(meta.get("profile_id") or "") != expected_profile_id:
-            return None
-        if expected_profile_code and str(meta.get("profile_code") or "") != expected_profile_code:
+        expected_revision = str(definition.get("revision") or "")
+        if not expected_revision or str(meta.get("definition_revision") or "") != expected_revision:
             return None
 
         expected_layers = {

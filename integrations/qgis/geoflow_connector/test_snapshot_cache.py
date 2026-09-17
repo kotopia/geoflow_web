@@ -25,9 +25,9 @@ class SnapshotCacheTests(unittest.TestCase):
                 "id": "11111111-1111-4111-8111-111111111401",
                 "code": "GIS-DEV-001",
             },
-            "profile": {
-                "id": "22222222-2222-4222-8222-222222222222",
-                "code": "GEOFLOW_DEV_BASE",
+            "definition": {
+                "version": "gis-final-form-v3",
+                "revision": "definition-revision-001",
             },
             "layers": [
                 {
@@ -92,8 +92,7 @@ class SnapshotCacheTests(unittest.TestCase):
                 [
                     ("package_version", "0.6"),
                     ("project_id", self.manifest["project"]["id"]),
-                    ("profile_id", self.manifest["profile"]["id"]),
-                    ("profile_code", self.manifest["profile"]["code"]),
+                    ("definition_revision", self.manifest["definition"]["revision"]),
                     ("snapshot_revision", str(revision)),
                     ("last_applied_revision", str(revision)),
                 ],
@@ -143,6 +142,12 @@ class SnapshotCacheTests(unittest.TestCase):
             *self.manifest["layers"][0]["fields"],
             {"name": "memo", "data_type": "text", "editable": True, "visible": True, "sort_order": 4},
         ]
+        self.assertIsNone(inspect_snapshot(str(path), changed))
+
+    def test_definition_revision_change_invalidates_snapshot(self):
+        path = self._package("cache.gpkg", revision=34)
+        changed = dict(self.manifest)
+        changed["definition"] = dict(self.manifest["definition"], revision="definition-revision-002")
         self.assertIsNone(inspect_snapshot(str(path), changed))
 
     def test_dirty_snapshot_is_preferred_over_newer_clean_snapshot(self):

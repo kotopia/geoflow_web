@@ -153,8 +153,8 @@ def qgis_projects_api(request):
                 "status": project.status or "",
                 "member_role": member["member_role"] if member else None,
                 "can_write": policy.can_webgis_write(project.id),
-                "profile": plan.get("profile"),
-                "capabilities": plan.get("capabilities") or [],
+                "definition": plan.get("definition") or {},
+                "catalog_scopes": plan.get("capabilities") or [],
                 "layer_count": len(plan.get("layers") or []),
                 "manifest_url": reverse(
                     "gis:qgis_project_manifest_api",

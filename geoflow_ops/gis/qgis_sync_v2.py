@@ -21,6 +21,7 @@ from .qgis_sync import (
     _read_package_project_id,
     _source_row,
     _uuid_exists,
+    _validate_central_form,
     sync_runtime_enabled,
 )
 from .qgis_sync_hash import content_hash
@@ -130,6 +131,7 @@ def _collect_operations_last_write_wins(
                     continue
 
                 attrs = package_row["attrs"]
+                _validate_central_form(plan, spec.standard_name, attrs)
                 if attrs.get("project_id") != project_id:
                     raise SyncRejected(
                         f"{spec.standard_name} {object_id}: project_id mismatch"
@@ -193,6 +195,7 @@ def _collect_operations_last_write_wins(
             # No baseline row means a new local object.
             assert package_row is not None
             attrs = package_row["attrs"]
+            _validate_central_form(plan, spec.standard_name, attrs)
             if attrs.get("project_id") != project_id:
                 raise SyncRejected(
                     f"{spec.standard_name} {object_id}: project_id mismatch"
