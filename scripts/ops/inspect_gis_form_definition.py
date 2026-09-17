@@ -177,9 +177,9 @@ def failure_summary(exc, stage):
     return result
 
 
-def inspect_tenants(tenant_ids, cursor_factory):
+def inspect_tenants(tenant_targets, cursor_factory):
     results = []
-    for number, group_id in enumerate(tenant_ids, 1):
+    for number, group_id in tenant_targets:
         stage = 'connect'
         try:
             with cursor_factory(group_id, write=False) as cur:
@@ -191,6 +191,13 @@ def inspect_tenants(tenant_ids, cursor_factory):
             results.append({'store': number, 'status': 'inspection_failed',
                             'failure': failure_summary(exc, stage)})
     return results
+
+
+def tenant_targets(active_config_rows):
+    # tenant_cursor explicitly rejects default: it is already inventoried as central.
+    # Preserve registry positions for correlation with earlier redacted reports.
+    return [(number, group_id) for number, (group_id, alias) in enumerate(active_config_rows, 1)
+            if alias != 'default']
 
 
 def main():
@@ -211,10 +218,12 @@ def main():
         cur.execute("SET LOCAL lock_timeout='3s'")
         result['central'] = inventory(cur)
         # Never emit tenant config, names, aliases, endpoints, or IDs.
-        tenant_ids = list(GroupDBConfig.objects.using('default')
+        active_configs = list(GroupDBConfig.objects.using('default')
                           .filter(group__status='active').order_by('group_id')
-                          .values_list('group_id', flat=True))
-    result['tenants'] = inspect_tenants(tenant_ids, tenant_cursor)
+                          .values_list('group_id', 'db_alias'))
+    targets = tenant_targets(active_configs)
+    result['central_registry_entries'] = len(active_configs) - len(targets)
+    result['tenants'] = inspect_tenants(targets, tenant_cursor)
     failed = any(t['status'] != 'ok' for t in result['tenants'])
     result['complete'] = not failed
     print('GIS_FORM_INVENTORY_BEGIN')
