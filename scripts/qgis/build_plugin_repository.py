@@ -45,8 +45,24 @@ def package_files(source: Path):
 
 def build_zip(source: Path, destination: Path) -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    files = list(package_files(source))
+    directories = {PurePosixPath(PACKAGE_DIR)}
+    for _, archive_path in files:
+        directories.update(
+            parent
+            for parent in archive_path.parents
+            if parent != PurePosixPath(".")
+        )
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path, archive_path in package_files(source):
+        for archive_path in sorted(directories):
+            info = zipfile.ZipInfo(
+                str(archive_path).rstrip("/") + "/",
+                date_time=(2026, 1, 1, 0, 0, 0),
+            )
+            info.compress_type = zipfile.ZIP_STORED
+            info.external_attr = ((stat.S_IFDIR | 0o755) << 16) | 0x10
+            archive.writestr(info, b"")
+        for path, archive_path in files:
             info = zipfile.ZipInfo(str(archive_path), date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = (stat.S_IFREG | 0o644) << 16

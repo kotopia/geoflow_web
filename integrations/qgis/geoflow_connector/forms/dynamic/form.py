@@ -63,6 +63,11 @@ class DynamicForm(QWidget):
         finally:
             self.blockSignals(False)
 
+    def set_worker_reference_codes(self, codes):
+        for handle in self.handles.values():
+            if handle.field.get("worker_reference"):
+                handle.set_reference_codes(codes)
+
     def apply_rules(self):
         values = self.values()
         for field in self.fields:

@@ -11,7 +11,7 @@ def classFactory(iface):
     from .sync.session_guard import RealtimeSessionGuardMixin
     from .cache.reuse import SnapshotReuseMixin
 
-    class GeoFlowConnectorPluginV121(
+    class GeoFlowConnectorPluginV123(
         UnifiedMixin,
         ConnectorIntegrationMixin,
         CacheLifecycleMixin,
@@ -24,4 +24,4 @@ def classFactory(iface):
     ):
         pass
 
-    return GeoFlowConnectorPluginV121(iface)
+    return GeoFlowConnectorPluginV123(iface)

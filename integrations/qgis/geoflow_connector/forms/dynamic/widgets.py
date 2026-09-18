@@ -3,11 +3,13 @@
 """Qt widget factory driven only by Final Form Definition metadata."""
 from __future__ import annotations
 
-from qgis.PyQt.QtCore import QDate, QDateTime
+import datetime as dt
+
+from qgis.PyQt.QtCore import QDate, QDateTime, QTime, Qt
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDoubleSpinBox,
-    QFileDialog, QHBoxLayout, QLineEdit, QPushButton, QSpinBox, QTextEdit,
-    QWidget,
+    QFileDialog, QHBoxLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox,
+    QTextEdit, QWidget,
 )
 
 
@@ -18,6 +20,46 @@ def _repolish(widget):
     widget.update()
 
 
+def _date_value(value):
+    if isinstance(value, QDateTime):
+        return value.date()
+    if isinstance(value, QDate):
+        return value if value.isValid() else QDate()
+    if isinstance(value, dt.datetime):
+        return QDate(value.year, value.month, value.day)
+    if isinstance(value, dt.date):
+        return QDate(value.year, value.month, value.day)
+    text = str(value or '').strip()
+    if not text:
+        return QDate()
+    parsed = QDate.fromString(text[:10], 'yyyy-MM-dd')
+    return parsed if parsed.isValid() else QDate()
+
+
+def _datetime_value(value):
+    if isinstance(value, QDateTime):
+        return value if value.isValid() else QDateTime()
+    if isinstance(value, QDate):
+        return QDateTime(value, QTime(0, 0)) if value.isValid() else QDateTime()
+    if isinstance(value, dt.datetime):
+        return QDateTime(
+            QDate(value.year, value.month, value.day),
+            QTime(value.hour, value.minute, value.second, value.microsecond // 1000),
+        )
+    if isinstance(value, dt.date):
+        return QDateTime(QDate(value.year, value.month, value.day), QTime(0, 0))
+    text = str(value or '').strip()
+    if not text:
+        return QDateTime()
+    parsed = QDateTime.fromString(text, Qt.DateFormat.ISODate)
+    if not parsed.isValid():
+        parsed = QDateTime.fromString(text, 'yyyy-MM-dd HH:mm:ss')
+    if not parsed.isValid():
+        date = _date_value(text)
+        parsed = QDateTime(date, QTime(0, 0)) if date.isValid() else QDateTime()
+    return parsed
+
+
 # ============================================================
 # 공통 입력 상태와 GeoFlow 스타일 속성
 # ============================================================
@@ -26,12 +68,17 @@ class _GeoFlowInputMixin:
         self.setProperty("geoflowInput", True)
         self.setProperty("error", False)
         self.setProperty("readonly", False)
+        self.setMinimumWidth(0)
+        policy = self.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        policy.setHorizontalStretch(1)
+        self.setSizePolicy(policy)
         if multiline:
             self.setMinimumHeight(72)
             self.setMaximumHeight(96)
         else:
-            self.setMinimumHeight(32)
-            self.setMaximumHeight(32)
+            self.setMinimumHeight(28)
+            self.setMaximumHeight(28)
 
     def set_validation_error(self, value):
         self.setProperty("error", bool(value))
@@ -80,10 +127,7 @@ class GeoFlowComboBox(QComboBox, _GeoFlowInputMixin):
         super().keyPressEvent(event)
 
     def wheelEvent(self, event):
-        if self._readonly:
-            event.ignore()
-            return
-        super().wheelEvent(event)
+        event.ignore()
 
 
 class GeoFlowSpinBox(QSpinBox, _GeoFlowInputMixin):
@@ -91,11 +135,17 @@ class GeoFlowSpinBox(QSpinBox, _GeoFlowInputMixin):
         super().__init__(parent)
         self._init_geoflow()
 
+    def wheelEvent(self, event):
+        event.ignore()
+
 
 class GeoFlowDoubleSpinBox(QDoubleSpinBox, _GeoFlowInputMixin):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_geoflow()
+
+    def wheelEvent(self, event):
+        event.ignore()
 
 
 class GeoFlowCheckBox(QCheckBox, _GeoFlowInputMixin):
@@ -127,11 +177,17 @@ class GeoFlowDateEdit(QDateEdit, _GeoFlowInputMixin):
         super().__init__(parent)
         self._init_geoflow()
 
+    def wheelEvent(self, event):
+        event.ignore()
+
 
 class GeoFlowDateTimeEdit(QDateTimeEdit, _GeoFlowInputMixin):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_geoflow()
+
+    def wheelEvent(self, event):
+        event.ignore()
 
 
 # ============================================================
@@ -178,6 +234,20 @@ class WidgetHandle:
         widget = self.editor
         if isinstance(widget, QComboBox):
             index = widget.findData(None if value is None else str(value))
+            if index < 0 and value not in (None, ""):
+                label = "미해결 작업자" if self.field.get("worker_reference") else "미해결 참조값"
+                widget.addItem(label, str(value))
+                index = widget.count() - 1
+                widget.setProperty("unresolvedReferenceValue", str(value))
+                widget.setProperty(
+                    "unresolvedWorkerId",
+                    str(value) if self.field.get("worker_reference") else "",
+                )
+                widget.setToolTip("참조값 미해결 · 원래 저장값은 보존됩니다.")
+            elif index >= 0:
+                widget.setProperty("unresolvedReferenceValue", "")
+                widget.setProperty("unresolvedWorkerId", "")
+                widget.setToolTip("")
             widget.setCurrentIndex(index if index >= 0 else 0)
         elif isinstance(widget, QCheckBox):
             widget.setChecked(bool(value))
@@ -186,10 +256,10 @@ class WidgetHandle:
         elif isinstance(widget, QDoubleSpinBox):
             widget.setValue(float(value or 0))
         elif isinstance(widget, QDateTimeEdit):
-            parsed = QDateTime.fromString(str(value or ""), "yyyy-MM-ddTHH:mm:ss")
+            parsed = _datetime_value(value)
             widget.setDateTime(parsed if parsed.isValid() else widget.minimumDateTime())
         elif isinstance(widget, QDateEdit):
-            parsed = QDate.fromString(str(value or ""), "yyyy-MM-dd")
+            parsed = _date_value(value)
             widget.setDate(parsed if parsed.isValid() else widget.minimumDate())
         elif isinstance(widget, (QLineEdit, QTextEdit)):
             setter = getattr(widget, "setPlainText", None) or widget.setText
@@ -231,6 +301,12 @@ class WidgetHandle:
             self.set_value(current)
         finally:
             self.editor.blockSignals(False)
+
+    def set_reference_codes(self, codes):
+        if not isinstance(self.editor, QComboBox):
+            return
+        self._all_codes = list(codes or [])
+        self.set_allowed_codes(None)
 
 
 def _photo_widget(parent):

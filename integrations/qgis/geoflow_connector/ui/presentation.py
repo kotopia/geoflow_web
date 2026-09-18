@@ -38,6 +38,11 @@ class PanelPresentation(QObject):
             self.buttons[key] = b
         button('projects', engine.show_projects)
         button('select', lambda: self.invoke('set_select_map_tool'))
+        self.buttons['select'].setCheckable(True)
+        self.buttons['select'].setStyleSheet(
+            'QToolButton:checked { background-color: #dbeafe; '
+            'border: 1px solid #3b7ddd; border-radius: 4px; }'
+        )
         button('save', lambda: self.invoke('save_current'))
         button('zoom', lambda: engine.zoom_workspace_layer())
         button('drafts', lambda: self.invoke('show_retained'))

@@ -472,22 +472,18 @@ class GeoFlowConnectorPlugin:
 
     def current_user_context(self) -> dict:
         context = self.active_context or {}
-        user = context.get("user") or {}
-        if user:
-            return dict(user)
         client = getattr(self.dialog, "client", None) if self.dialog is not None else None
-        info = getattr(client, "session_user", {}) or {}
-        if info:
-            worker_id = str(info.get("worker_id") or "").strip()
-            return {
-                "user_id": str(info.get("user_id") or ""),
-                "display_name": str(info.get("display_name") or info.get("name") or ""),
-                "worker_id": worker_id,
-                "worker_name": str(info.get("worker_name") or ""),
-                "employee_id": str(info.get("employee_id") or ""),
-                "worker_link_status": str(info.get("worker_link_status") or "unknown"),
-            }
-        return {}
+        info = context.get("user") or getattr(client, "session_user", {}) or {}
+        if not isinstance(info, dict) or not info:
+            return {}
+        return {
+            "user_id": str(info.get("user_id") or ""),
+            "display_name": str(info.get("display_name") or info.get("name") or ""),
+            "worker_id": str(info.get("worker_id") or ""),
+            "worker_name": str(info.get("worker_name") or ""),
+            "employee_id": str(info.get("employee_id") or ""),
+            "worker_link_status": str(info.get("worker_link_status") or "unknown"),
+        }
 
     def current_project_context(self) -> dict:
         context = self.active_context or {}

@@ -12,6 +12,7 @@ from qgis.PyQt.uic import loadUiType
 
 from .connector_adapter import ConnectorAdapter
 from .form_header import FormHeader
+from ..api.references import fields_with_worker_references, worker_reference_codes
 from ..forms.dynamic.binding import DynamicFormBinding
 from ..forms.dynamic.contract import layer_fields
 from ..forms.dynamic.form import DynamicForm
@@ -64,6 +65,11 @@ class Main(QWidget, FORM_CLASS):
         self.retained_button = QPushButton("보존 입력")
         self.reference_diagnostic_button = QPushButton("중앙 정의 진단")
         self.layout_button = QPushButton("폼 배치 편집")
+        self.select_button.setCheckable(True)
+        self.select_button.setStyleSheet(
+            "QPushButton:checked { background-color: #dbeafe; "
+            "border: 1px solid #3b7ddd; border-radius: 4px; }"
+        )
         for button in (self.select_button, self.add_button, self.save_button,
                        self.zoom_button, self.retained_button, self.layout_button,
                        self.reference_diagnostic_button):
@@ -81,12 +87,16 @@ class Main(QWidget, FORM_CLASS):
         self.verticalLayout.setStretch(2, 1)
         self.select_tool = IdentifyGeometry(plugin.mapCanvas, layer_provider=self.adapter.layers_by_id)
         self.select_tool.geomIdentified.connect(self.on_feature_selected)
+        self.select_tool.noFeatureIdentified.connect(self._empty_map_clicked)
+        plugin.mapCanvas.mapToolSet.connect(self._sync_select_tool_state)
         self.adapter.changed.connect(self.refresh_connection)
         self.adapter.selectionChanged.connect(self._selection_changed)
         self.adapter.objectSelected.connect(self._object_selected)
         self._retained_window = None
         self.formStack.currentChanged.connect(self._sync_header)
+        self.placeholderHeader.layoutButton.setEnabled(False)
         self.refresh_connection()
+        self._sync_select_tool_state()
 
     @property
     def formHeader(self):
@@ -95,6 +105,14 @@ class Main(QWidget, FORM_CLASS):
     def _sync_header(self, *args):
         page = self.formStack.currentWidget()
         self.headerStack.setCurrentWidget(getattr(page, "header", self.placeholderHeader))
+
+    def _sync_select_tool_state(self, *args):
+        active = self.plugin.mapCanvas.mapTool() is self.select_tool
+        self.select_button.setChecked(active)
+        presentation = getattr(self.plugin, "presentation", None)
+        rail_button = getattr(presentation, "buttons", {}).get("select") if presentation else None
+        if rail_button is not None:
+            rail_button.setChecked(active)
 
     def _definition_service(self):
         return getattr(self.plugin, "_definition_service", None)
@@ -140,6 +158,8 @@ class Main(QWidget, FORM_CLASS):
             self._retained().raise_()
 
     def _freeze_page(self, layer_id):
+        page = self.pages[layer_id]
+        page.binding.has_actual_changes()
         page = self.pages.pop(layer_id)
         page.binding.dispose()
         self.headerStack.removeWidget(page.header)
@@ -157,6 +177,7 @@ class Main(QWidget, FORM_CLASS):
     def _stop_selection_tool(self):
         if self.plugin.mapCanvas.mapTool() is self.select_tool:
             self.plugin.mapCanvas.unsetMapTool(self.select_tool)
+        self._sync_select_tool_state()
 
     def refresh_connection(self):
         if self._closed or self._refreshing or getattr(self.plugin, "_opening", False):
@@ -200,6 +221,11 @@ class Main(QWidget, FORM_CLASS):
                 mode = "편집 권한 있음" if state["can_write"] else "읽기 전용"
                 message = f"{state['project_name']} · {mode} · 중앙 Dynamic Form {revision[:8]}"
             self.status.setText(message)
+            references = getattr(self.plugin, "_reference_service", None)
+            if getattr(references, "state", "") == "ready":
+                codes = worker_reference_codes(references.catalog)
+                for page in self.pages.values():
+                    page.form.set_worker_reference_codes(codes)
             self._display_layer(self.adapter.selected_layer_id())
             self.retained_button.setEnabled(bool(self.archives))
             self.retained_button.setText(f"보존 입력 ({len(self.archives)})")
@@ -228,7 +254,10 @@ class Main(QWidget, FORM_CLASS):
             self.save_button.setEnabled(False)
             return
         standard = str(layer.customProperty("geoflow/standard_name", "")).upper()
-        fields = layer_fields(service.definition, standard)
+        fields = fields_with_worker_references(
+            layer_fields(service.definition, standard),
+            getattr(getattr(self.plugin, "_reference_service", None), "catalog", {}),
+        )
         if not fields:
             self.placeholder.setText(f"{layer.name()} · {standard}\n중앙 업무정의에 이 레이어의 필드가 없습니다.")
             self.formStack.setCurrentWidget(self.placeholder)
@@ -260,8 +289,9 @@ class Main(QWidget, FORM_CLASS):
         layout.addWidget(page.note)
         page.header = FormHeader(self.headerStack)
         manifest_layers = (self.plugin.active_context or {}).get("manifest", {}).get("layers", [])
-        page.header.titleLabel.setText(next((row.get("label") for row in manifest_layers
+        page.header.layerNameLabel.setText(next((row.get("label") for row in manifest_layers
             if str(row.get("standard_name", "")).upper() == standard), standard))
+        page.header.layoutButton.clicked.connect(self.edit_form_layout)
         page.header.referenceRefreshButton.clicked.connect(self.plugin.refresh_reference_catalog)
         page.header.pushButtonUpdate.clicked.connect(self.save_current)
         user = getattr(self.plugin, "current_user_context", lambda: {})()
@@ -272,7 +302,6 @@ class Main(QWidget, FORM_CLASS):
         page.form = DynamicForm(
             service.definition, fields, page, layer=standard, form_layout=local_layout
         )
-        page.form.changed.connect(lambda *args, current=page: setattr(current, "dirty", True))
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(page.form)
@@ -315,6 +344,27 @@ class Main(QWidget, FORM_CLASS):
         layer = self.adapter.layers_by_id().get(layer_id)
         if layer is not None and feature_id is not None:
             self.on_feature_selected(layer, layer.getFeature(feature_id))
+        elif layer is not None:
+            self._clear_selected_feature(layer_id)
+
+    def _clear_selected_feature(self, layer_id):
+        page = self.pages.get(layer_id)
+        if page is None:
+            return
+        if page.binding.clear():
+            page.note.setText("객체를 선택하세요")
+        else:
+            page.note.setText("객체를 선택하세요 · 미저장 입력은 보존되어 있습니다.")
+        self.save_button.setEnabled(False)
+        page.header.pushButtonUpdate.setEnabled(False)
+
+    def _empty_map_clicked(self):
+        selected_layer_id = self.adapter.selected_layer_id()
+        for layer in self.adapter.layers_by_id().values():
+            if layer.selectedFeatureIds():
+                layer.removeSelection()
+        if selected_layer_id:
+            self._clear_selected_feature(selected_layer_id)
 
     def on_feature_selected(self, layer, feature):
         if self._closed or layer is None or feature is None or not feature.isValid():
@@ -331,7 +381,7 @@ class Main(QWidget, FORM_CLASS):
         if hasattr(self.plugin, "presentation"):
             from .presentation import PanelMode
             self.plugin.presentation.set_mode(PanelMode.FULL)
-        if page.dirty and page.feature_id != feature.id():
+        if page.binding.has_actual_changes() and page.feature_id != feature.id():
             page.note.setText(f"{page.standard} · 이전 객체 {page.feature_id}의 임시 입력 보존 (새 객체 연결 거부)")
             return
         page.feature_id = feature.id()
@@ -339,13 +389,19 @@ class Main(QWidget, FORM_CLASS):
         page.note.setText(f"{page.standard} · 객체 {feature.id()} · 중앙 Dynamic Form")
         self.save_button.setEnabled(page.binding.can_save)
         page.header.pushButtonUpdate.setEnabled(page.binding.can_save)
+        for other_id, other_layer in self.adapter.layers_by_id().items():
+            if other_id != layer_id and other_layer.selectedFeatureIds():
+                other_layer.removeSelection()
         if layer.selectedFeatureIds() != [feature.id()]:
             layer.selectByIds([feature.id()])
 
     def set_select_map_tool(self):
         self.refresh_connection()
-        if self.adapter.selected_layer_id() in self.adapter.layers_by_id():
+        if self.plugin.mapCanvas.mapTool() is self.select_tool:
+            self.plugin.mapCanvas.unsetMapTool(self.select_tool)
+        elif self.adapter.selected_layer_id() in self.adapter.layers_by_id():
             self.plugin.mapCanvas.setMapTool(self.select_tool)
+        self._sync_select_tool_state()
 
     def save_current(self):
         page = self.pages.get(self.adapter.selected_layer_id())
@@ -368,7 +424,12 @@ class Main(QWidget, FORM_CLASS):
         self.adapter.selectionChanged.disconnect(self._selection_changed)
         self.adapter.objectSelected.disconnect(self._object_selected)
         self.adapter.close()
+        try:
+            self.plugin.mapCanvas.mapToolSet.disconnect(self._sync_select_tool_state)
+        except (RuntimeError, TypeError):
+            pass
         self.select_tool.geomIdentified.disconnect(self.on_feature_selected)
+        self.select_tool.noFeatureIdentified.disconnect(self._empty_map_clicked)
         self.select_tool.deleteLater()
         if self._retained_window is not None:
             self._retained_window.close()

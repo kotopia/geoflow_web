@@ -9,6 +9,21 @@ from copy import deepcopy
 LAYOUT_VERSION = 1
 
 
+def row_field_id(value):
+    if isinstance(value, dict):
+        return str(value.get("field") or "")
+    return str(value or "")
+
+
+def row_field_weight(value):
+    if not isinstance(value, dict) or value.get("weight") in (None, "", 0, "0"):
+        return 1
+    try:
+        return max(1, int(value["weight"]))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _visible_fields(fields):
     """화면 배치 대상만 추린다. 중앙 visible/widget_type 판단은 변경하지 않는다."""
     return [
@@ -73,11 +88,14 @@ def normalize_layout(layout, layer, fields):
                 if not isinstance(raw_row, list):
                     continue
                 row = []
-                for raw_id in raw_row:
-                    field_id = str(raw_id)
+                for raw_value in raw_row:
+                    field_id = row_field_id(raw_value)
                     if field_id in available and field_id not in seen:
                         seen.add(field_id)
-                        row.append(field_id)
+                        if isinstance(raw_value, dict) and raw_value.get("weight") not in (None, "", 0, "0"):
+                            row.append({"field": field_id, "weight": row_field_weight(raw_value)})
+                        else:
+                            row.append(field_id)
                 # 사용자가 만든 빈 행은 유지하되, 중복/삭제 필드만 있던 행은 제거한다.
                 if row or not raw_row:
                     rows.append(row)
@@ -103,7 +121,8 @@ def placed_field_ids(layout):
         for tab in (layout or {}).get("tabs", [])
         for group in tab.get("groups", [])
         for row in group.get("rows", [])
-        for field_id in row
+        for value in row
+        for field_id in [row_field_id(value)]
     ]
 
 

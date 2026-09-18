@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from qgis.PyQt.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget,
+    QGroupBox, QHBoxLayout, QLabel, QSizePolicy, QTabWidget, QVBoxLayout,
+    QWidget,
 )
 
-from .layout_model import render_layout
+from .layout_model import render_layout, row_field_id, row_field_weight
 
 # ============================================================
 # 필드 Label · 입력 위젯 · 오류 메시지 블록
@@ -16,6 +17,14 @@ class LayoutRenderer:
     def _field_block(field, handle, parent):
         block = QWidget(parent)
         block.setProperty("geoflowRole", "fieldBlock")
+        block.setMinimumWidth(0)
+        block.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        for widget in (handle.widget, handle.editor):
+            widget.setMinimumWidth(0)
+            policy = widget.sizePolicy()
+            policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+            policy.setHorizontalStretch(1)
+            widget.setSizePolicy(policy)
         layout = QVBoxLayout(block)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -67,10 +76,12 @@ class LayoutRenderer:
                     row = QHBoxLayout()
                     row.setContentsMargins(0, 0, 0, 0)
                     row.setSpacing(12)
-                    for field_id in row_spec:
+                    for field_spec in row_spec:
+                        field_id = row_field_id(field_spec)
                         field = fields_by_id[field_id]
                         row.addWidget(
-                            self._field_block(field, handles[field_id], box), 1
+                            self._field_block(field, handles[field_id], box),
+                            row_field_weight(field_spec),
                         )
                     form.addLayout(row)
                 tab_layout.addWidget(box)

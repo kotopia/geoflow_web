@@ -2,6 +2,7 @@
 # 기능: 프로젝트·세션별 비동기 참조코드 catalog 캐시 및 바인딩 해석
 """One asynchronous, session/project-scoped reference catalog for the plugin."""
 from urllib.parse import urljoin, urlsplit
+from copy import deepcopy
 from qgis.PyQt.QtCore import QObject, pyqtSignal
 from qgis.core import QgsApplication, QgsTask
 from ..layers.model import reference_groups, layer_reference_bindings
@@ -12,6 +13,52 @@ from ..layers.model import reference_groups, layer_reference_bindings
 # ============================================================
 def field_options(catalog, standard, definition):
     return resolve_field_reference(catalog, standard, definition)['options']
+
+
+def worker_reference_codes(catalog):
+    """Return worker UUID/name choices without exposing unresolved UUIDs as labels."""
+    result = []
+    seen = set()
+    for position, row in enumerate((catalog or {}).get('workers') or []):
+        if not isinstance(row, dict):
+            continue
+        worker_id = str(row.get('id') or '').strip()
+        if not worker_id or worker_id in seen:
+            continue
+        seen.add(worker_id)
+        label = next((str(row.get(key) or '').strip()
+                      for key in ('worker_name', 'display_name', 'name', 'label')
+                      if str(row.get(key) or '').strip()), '')
+        resolved = bool(row.get('resolved')) and bool(label)
+        result.append({
+            'id': worker_id,
+            'value': worker_id,
+            'label': label if resolved else f'미해결 작업자 {position + 1}',
+            'order': position,
+            'enabled': True,
+            'resolved': resolved,
+        })
+    return result
+
+
+def fields_with_worker_references(fields, catalog):
+    """Clone presentation metadata and attach workers to worker_id fields only."""
+    codes = worker_reference_codes(catalog)
+    result = []
+    for source in fields:
+        field = deepcopy(source)
+        storage = field.get('storage') if isinstance(field.get('storage'), dict) else {}
+        names = {
+            str(field.get('name') or '').strip().casefold(),
+            str(field.get('field_name') or '').strip().casefold(),
+            str(storage.get('key') or '').strip().casefold(),
+        }
+        if 'worker_id' in names:
+            field['worker_reference'] = True
+            field['widget_type'] = 'relation'
+            field['reference_codes'] = deepcopy(codes)
+        result.append(field)
+    return result
 
 
 def resolve_field_reference(catalog, standard, definition):
@@ -172,6 +219,9 @@ class ReferenceService(QObject):
     def diagnostic(self):
         """No session IDs, cookies, URLs or feature records in diagnostic output."""
         keys = set(reference_groups(self.catalog))
+        workers = worker_reference_codes(self.catalog)
         return dict(state=self.state, group_count=len(keys),
-                    binding_count=len(self.catalog.get('bindings', [])),
-                    missing_groups=[])
+                     binding_count=len(self.catalog.get('bindings', [])),
+                     worker_count=len(workers),
+                     unresolved_worker_count=sum(not row['resolved'] for row in workers),
+                     missing_groups=[])

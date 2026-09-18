@@ -2,6 +2,14 @@
 <ui version="4.0">
  <class>FormHeader</class>
  <widget class="QWidget" name="FormHeader">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>308</width>
+    <height>68</height>
+   </rect>
+  </property>
   <property name="styleSheet">
    <string notr="true">QDateEdit, QLineEdit {
     background-color: white;
@@ -16,38 +24,131 @@ QPushButton#pushButtonUpdate { background-color: rgb(46, 171, 229); color: white
 QPushButton#pushButtonUpdate:disabled { background-color: rgb(225, 230, 235); color: rgb(130, 130, 130); border-color: rgb(200, 200, 200); }</string>
   </property>
   <layout class="QVBoxLayout" name="headerLayout">
-   <property name="spacing"><number>4</number></property>
-   <property name="leftMargin"><number>6</number></property>
-   <property name="topMargin"><number>4</number></property>
-   <property name="rightMargin"><number>6</number></property>
-   <property name="bottomMargin"><number>4</number></property>
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>6</number>
+   </property>
+   <property name="topMargin">
+    <number>4</number>
+   </property>
+   <property name="rightMargin">
+    <number>6</number>
+   </property>
+   <property name="bottomMargin">
+    <number>4</number>
+   </property>
    <item>
     <layout class="QHBoxLayout" name="actionsLayout">
-     <item><widget class="QLabel" name="titleLabel"><property name="text"><string>속성폼</string></property></widget></item>
-     <item><spacer name="headerSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
-     <item><widget class="QPushButton" name="referenceRefreshButton"><property name="text"><string>코드 새로고침</string></property><property name="toolTip"><string>서버의 참조코드 목록을 다시 받습니다. 입력 중인 값은 보존합니다.</string></property></widget></item>
-     <item><widget class="QPushButton" name="pushButtonUpdate"><property name="enabled"><bool>false</bool></property><property name="text"><string>저장</string></property><property name="toolTip"><string>현재 속성폼을 로컬 저장합니다. 서버 동기화는 별도입니다.</string></property></widget></item>
+     <item>
+      <spacer name="headerSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="titleLabel">
+       <property name="text">
+        <string>속성폼</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="referenceRefreshButton">
+       <property name="toolTip">
+        <string>서버의 참조코드 목록을 다시 받습니다. 입력 중인 값은 보존합니다.</string>
+       </property>
+       <property name="text">
+        <string>코드 새로고침</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButtonUpdate">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="toolTip">
+        <string>현재 속성폼을 로컬 저장합니다. 서버 동기화는 별도입니다.</string>
+       </property>
+       <property name="text">
+        <string>저장</string>
+       </property>
+      </widget>
+     </item>
     </layout>
    </item>
    <item>
     <layout class="QHBoxLayout" name="workInfoLayout">
-     <property name="spacing"><number>4</number></property>
-     <item><widget class="QLabel" name="dateLabel"><property name="text"><string>작업일</string></property><property name="buddy"><cstring>dateEdit</cstring></property></widget></item>
+     <property name="spacing">
+      <number>4</number>
+     </property>
      <item>
-      <widget class="QDateEdit" name="dateEdit">
-       <property name="enabled"><bool>false</bool></property>
-       <property name="displayFormat"><string>yyyy-MM-dd</string></property>
-       <property name="calendarPopup"><bool>true</bool></property>
-       <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+      <widget class="QLabel" name="dateLabel">
+       <property name="text">
+        <string>작업일</string>
+       </property>
+       <property name="buddy">
+        <cstring>dateEdit</cstring>
+       </property>
       </widget>
      </item>
-     <item><widget class="QLabel" name="workerLabel"><property name="text"><string>작업자</string></property><property name="buddy"><cstring>lineEditWorker</cstring></property></widget></item>
-     <item><widget class="QLineEdit" name="lineEditWorker"><property name="enabled"><bool>false</bool></property><property name="readOnly"><bool>true</bool></property><property name="placeholderText"><string>객체를 선택하세요</string></property></widget></item>
+     <item>
+      <widget class="QDateEdit" name="dateEdit">
+       <property name="readOnly">
+        <bool>true</bool>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+       <property name="displayFormat">
+        <string>yyyy-MM-dd</string>
+       </property>
+       <property name="calendarPopup">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="workerLabel">
+       <property name="text">
+        <string>작업자</string>
+       </property>
+       <property name="buddy">
+        <cstring>lineEditWorker</cstring>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="lineEditWorker">
+       <property name="readOnly">
+        <bool>true</bool>
+       </property>
+       <property name="placeholderText">
+        <string>객체를 선택하세요</string>
+       </property>
+      </widget>
+     </item>
     </layout>
    </item>
   </layout>
  </widget>
- <tabstops><tabstop>dateEdit</tabstop><tabstop>lineEditWorker</tabstop><tabstop>referenceRefreshButton</tabstop><tabstop>pushButtonUpdate</tabstop></tabstops>
- <resources><include location="../../resources/feather.qrc"/></resources>
+ <tabstops>
+  <tabstop>dateEdit</tabstop>
+  <tabstop>lineEditWorker</tabstop>
+  <tabstop>referenceRefreshButton</tabstop>
+  <tabstop>pushButtonUpdate</tabstop>
+ </tabstops>
+ <resources>
+  <include location="../../resources/feather.qrc"/>
+ </resources>
  <connections/>
 </ui>
