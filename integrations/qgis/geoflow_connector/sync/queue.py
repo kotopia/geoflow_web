@@ -12,6 +12,9 @@ from typing import Any
 MAX_OUTBOX_ITEMS = 5000
 
 
+# ============================================================
+# 로컬 변경 큐와 내구성 Outbox 관리
+# ============================================================
 def ensure_changeset_tables(package_path: str) -> None:
     conn = sqlite3.connect(package_path, timeout=30)
     try:
@@ -296,6 +299,9 @@ def acknowledge_outbox(package_path: str, changeset_id: str) -> None:
         conn.close()
 
 
+# ============================================================
+# UUID 중복 응답의 제한적 재전송 복구
+# ============================================================
 def repair_uuid_exists_outbox(
     package_path: str,
     changeset_id: str,

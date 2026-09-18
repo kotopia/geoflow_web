@@ -46,6 +46,9 @@ def _write_pinned_projects(settings: QSettings, project_ids: set[str]) -> None:
     settings.setValue(_PINNED_PROJECTS_KEY, sorted(project_ids))
 
 
+# ============================================================
+# QGIS 설정과 캐시 고정·정리 UI 연결
+# ============================================================
 class CacheLifecycleMixin:
     """Apply the approved local QGIS Snapshot retention policy.
 

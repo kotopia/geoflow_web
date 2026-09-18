@@ -15,6 +15,9 @@ from pathlib import Path
 MIN_REUSABLE_PACKAGE_VERSION = (0, 6)
 
 
+# ============================================================
+# Snapshot 계약 검증과 재사용 후보 선정
+# ============================================================
 @dataclass(frozen=True)
 class SnapshotCacheCandidate:
     path: str

@@ -7,6 +7,9 @@ from qgis.core import QgsApplication, QgsTask
 from ..layers.model import reference_groups, layer_reference_bindings
 
 
+# ============================================================
+# 중앙 참조코드와 필드 바인딩 해석
+# ============================================================
 def field_options(catalog, standard, definition):
     return resolve_field_reference(catalog, standard, definition)['options']
 
@@ -69,6 +72,9 @@ def normalize_catalog(payload):
                 current_user=current if isinstance(current, dict) else {})
 
 
+# ============================================================
+# 프로젝트 세션별 참조코드 비동기 로드
+# ============================================================
 class ReferenceService(QObject):
     changed = pyqtSignal()
 

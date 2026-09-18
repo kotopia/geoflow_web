@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections import OrderedDict
 
 
+# ============================================================
+# 레이어 목록·검색·도메인 그룹 순수 변환
+# ============================================================
 def workspace_rows(definitions, layers):
     """Rows are keyed by actual layer ID, never by a display label."""
     by_standard = {str(row.get('standard_name') or ''): row for row in definitions}
@@ -107,6 +110,9 @@ def form_field_label(field: dict) -> str:
     return display
 
 
+# ============================================================
+# 중앙 필드 메타데이터의 QGIS 기본 편집기 변환
+# ============================================================
 def editor_widget_spec(field: dict, values: list[dict] | None = None) -> tuple[str, dict]:
     """Return a QGIS-native editor setup from the server field contract."""
 

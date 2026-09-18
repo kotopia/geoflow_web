@@ -5,6 +5,9 @@ from enum import Enum
 from qgis.PyQt.QtCore import QObject, pyqtSignal
 
 
+# ============================================================
+# 로그인·프로젝트 화면 상태 정의와 전이
+# ============================================================
 class State(str, Enum):
     LOGGED_OUT = 'LOGGED_OUT'
     LOGGED_IN_NO_PROJECT = 'LOGGED_IN_NO_PROJECT'

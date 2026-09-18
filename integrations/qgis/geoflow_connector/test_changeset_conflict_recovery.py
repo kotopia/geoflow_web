@@ -1,3 +1,5 @@
+# 제목: Changeset 충돌 복구 테스트
+# 기능: UUID 충돌 및 미전송 변경 복구 계약을 검증
 from __future__ import annotations
 
 import json

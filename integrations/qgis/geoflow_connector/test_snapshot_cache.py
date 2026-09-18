@@ -1,3 +1,5 @@
+# 제목: Snapshot 캐시 테스트
+# 기능: Manifest 지문·캐시 재사용 및 손상 차단 계약을 검증
 from __future__ import annotations
 
 import os

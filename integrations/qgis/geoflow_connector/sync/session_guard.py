@@ -12,6 +12,9 @@ from qgis.core import Qgis
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
 
 
+# ============================================================
+# 프로젝트·로그인 세션 전환 시 실시간 연결 보호
+# ============================================================
 class RealtimeSessionGuardMixin:
     """Stop fallback/reconnect traffic when the authenticated QGIS session expires.
 

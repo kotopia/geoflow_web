@@ -1,3 +1,5 @@
+# 제목: Dynamic Form 중앙 규칙 실행기
+# 기능: 코드 연결 규칙과 필수값 검증을 업무별 하드코딩 없이 실행
 """Central rule evaluation; this module contains no business-specific values."""
 from __future__ import annotations
 

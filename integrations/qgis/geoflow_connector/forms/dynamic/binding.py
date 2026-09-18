@@ -1,3 +1,5 @@
+# 제목: Dynamic Form 객체 바인딩
+# 기능: QGIS Feature 값의 로드·변경 추적·로컬 저장을 중앙 저장 계약에 맞게 처리
 """QGIS feature binder for dynamic central forms."""
 from __future__ import annotations
 
@@ -17,6 +19,9 @@ def _clean(value):
     return value
 
 
+# ============================================================
+# 중앙 필드와 QGIS Feature 값 연결
+# ============================================================
 class DynamicFormBinding:
     def __init__(self, page, layer, form, can_write):
         self.page, self.layer, self.form = page, layer, form

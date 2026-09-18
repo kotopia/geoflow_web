@@ -34,6 +34,9 @@ from ..layers.model import DOMAIN_LABELS as _DOMAIN_LABELS, SYSTEM_FORM_FIELDS a
 _SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
+# ============================================================
+# 프로젝트 materialize와 로컬 편집·동기화 엔진
+# ============================================================
 class GeoFlowConnectorPlugin:
     def __init__(self, iface):
         self.iface = iface

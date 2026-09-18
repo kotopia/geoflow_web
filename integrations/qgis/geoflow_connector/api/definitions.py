@@ -1,3 +1,5 @@
+# 제목: API - 중앙 Final Form Definition 로더
+# 기능: 프로젝트별 정의 Revision을 비동기로 검증·캐시하고 변경 신호를 전달
 """Asynchronous loader for the server-authoritative Final Form Definition."""
 from urllib.parse import urljoin, urlsplit
 
@@ -7,6 +9,9 @@ from qgis.core import QgsApplication, QgsTask
 from ..forms.dynamic.contract import normalize_definition
 
 
+# ============================================================
+# 프로젝트별 Final Form Definition 로드
+# ============================================================
 class DefinitionService(QObject):
     changed = pyqtSignal()
 

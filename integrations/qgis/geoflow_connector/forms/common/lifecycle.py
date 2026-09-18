@@ -5,6 +5,9 @@ from qgis.core import Qgis
 from qgis.PyQt import sip
 
 
+# ============================================================
+# 업무폼 활성 기간의 QGIS 기본 Form 동작 제어
+# ============================================================
 class BusinessFormSettings:
     """Suppress native creation dialogs only while supported business UI owns them."""
     def __init__(self):

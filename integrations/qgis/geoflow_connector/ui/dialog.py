@@ -30,6 +30,9 @@ def _password_echo_mode():
     return QLineEdit.Password
 
 
+# ============================================================
+# 로그인과 프로젝트 선택 화면
+# ============================================================
 class GeoFlowConnectorDialog(QDialog):
     def __init__(
         self,

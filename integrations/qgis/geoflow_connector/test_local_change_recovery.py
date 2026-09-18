@@ -1,3 +1,5 @@
+# 제목: 로컬 변경 복구 테스트
+# 기능: 오프라인 변경과 Snapshot 재구성 시 데이터 보존을 검증
 from __future__ import annotations
 
 import json

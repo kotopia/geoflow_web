@@ -1,3 +1,5 @@
+# 제목: QGIS 캐시 수명주기 테스트
+# 기능: 보존 대상과 만료·용량 정리 정책의 경계를 검증
 from __future__ import annotations
 
 import datetime as dt

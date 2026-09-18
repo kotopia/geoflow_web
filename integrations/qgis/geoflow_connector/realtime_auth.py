@@ -1,3 +1,5 @@
+# 제목: 실시간 연결 인증 URL 처리
+# 기능: 현재 세션 쿠키와 CSRF 정보를 WebSocket 연결 파라미터로 안전하게 변환
 from __future__ import annotations
 
 import urllib.parse

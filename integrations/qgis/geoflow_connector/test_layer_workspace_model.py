@@ -1,3 +1,5 @@
+# 제목: 레이어 Workspace 모델 테스트
+# 기능: 그룹·검색·표시명 및 편집기 메타데이터 변환을 검증
 from __future__ import annotations
 
 import unittest
