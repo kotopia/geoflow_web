@@ -15,16 +15,30 @@ from qgis.PyQt.uic import loadUi
 from . import protection
 
 
+# ============================================================
+# QGIS 종료 요청과 복구 입력 보호
+# ============================================================
 class ExitGuard(QObject):
     def __init__(self, engine):
         super().__init__(engine.iface.mainWindow())
         self.engine = engine
+        self._approved = False
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.Close and self.engine._integration_live:
+            # QGIS가 한 번의 종료 과정에서 Close를 다시 보내도 복구 확인을 반복하지 않는다.
+            if self._approved:
+                event.accept()
+                return False
             if not self.engine.guard_transition('QGIS 종료'):
                 event.ignore()
                 return True
+            self._approved = True
+            event.accept()
+        elif self._approved and event.type() in (
+                QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress):
+            # 다른 QGIS 구성요소가 종료를 취소한 뒤 사용자가 작업을 재개하면 다시 보호한다.
+            self._approved = False
         return False
 
 
@@ -57,6 +71,9 @@ class LoginDialog(GeoFlowConnectorDialog):
             self.engine.log('login_failure')
 
 
+# ============================================================
+# 단일 Dock 업무 흐름과 프로젝트 전환
+# ============================================================
 class UnifiedMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -222,6 +239,9 @@ class UnifiedMixin:
     def _show_layer_workspace(self):
         self.run()
 
+    # ============================================================
+    # 미저장 입력·편집 버퍼·전송 큐 전환 보호
+    # ============================================================
     def guard_transition(self, label):
         if self._opening or self._sync_in_progress:
             return False
@@ -240,6 +260,10 @@ class UnifiedMixin:
                 path = protection.checkpoint(self)
                 self.iface.messageBar().pushMessage('GeoFlow 입력 보존', str(path), level=Qgis.Info)
             except Exception:
+                self.iface.messageBar().pushMessage(
+                    'GeoFlow', '복구 JSON을 저장하지 못해 전환을 중단했습니다.',
+                    level=Qgis.Critical,
+                )
                 return False
         if report['buffers']:
             self.iface.messageBar().pushMessage('GeoFlow', 'QGIS 편집 버퍼를 먼저 저장하거나 명시적으로 취소하세요. 전환을 중단했습니다.', level=Qgis.Warning)

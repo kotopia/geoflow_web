@@ -64,7 +64,7 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         self.assertIn("errors = validate(self.definition, self.fields, self.values())", form)
         self.assertIn("return errors", form)
 
-    def test_local_layout_is_qsettings_only_and_shutdown_close_is_latched(self):
+    def test_local_layout_is_qsettings_only_and_shutdown_host_does_not_reopen(self):
         editor = (ROOT / "forms/dynamic/layout_editor.py").read_text(encoding="utf-8")
         model = (ROOT / "forms/dynamic/layout_model.py").read_text(encoding="utf-8")
         renderer = (ROOT / "forms/dynamic/layout.py").read_text(encoding="utf-8")
@@ -79,6 +79,12 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         self.assertIn("page.dirty and not self._shutting_down", host)
         shutdown = host.split("def shutdown(self):", 1)[1]
         self.assertNotIn("self.show_retained()", shutdown)
+
+    def test_recovery_approval_allows_the_original_close_event(self):
+        unified = (ROOT / "app/unified.py").read_text(encoding="utf-8")
+        self.assertIn("if self._approved:", unified)
+        self.assertIn("event.accept()", unified)
+        self.assertIn("복구 JSON을 저장하지 못해 전환을 중단했습니다.", unified)
 
 
 if __name__ == "__main__":
