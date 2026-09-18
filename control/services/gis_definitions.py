@@ -95,7 +95,12 @@ def _form_metadata(data, *, kind):
     if widget not in WIDGETS:
         raise DefinitionError('위젯 유형을 선택하세요.')
     return [widget, boolean(data.get('visible'), True), boolean(data.get('required')),
-            boolean(data.get('readonly')), json.dumps(json_object(data.get('layout'),'레이아웃'), ensure_ascii=False)]
+            boolean(data.get('readonly'))]
+
+
+def _layout_json(data):
+    """Validate layout only for the additional-field editor that owns it."""
+    return json.dumps(json_object(data.get('layout'), '레이아웃'), ensure_ascii=False)
 
 
 def mutate(cur, data):
@@ -122,8 +127,8 @@ def mutate(cur, data):
         if action == 'standard_field':
             one(cur, 'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NOT NULL', [uid])
             cur.execute('''UPDATE gis.definition_field SET label=%s,kind=%s,widget_type=%s,
-              visible=%s,required=%s,readonly=%s,sort_order=%s,layout=%s::jsonb WHERE id=%s''',
-              [values[0],values[1],*meta[:4],values[5],meta[4],uid])
+              visible=%s,required=%s,readonly=%s,sort_order=%s WHERE id=%s''',
+              [values[0],values[1],*meta,values[5],uid])
         else:
             if data.get('id'):
                 old = one(cur,'SELECT kind,source_layer_id FROM gis.definition_field WHERE id=%s',[uid])
@@ -140,7 +145,7 @@ def mutate(cur, data):
               max_length=EXCLUDED.max_length,precision=EXCLUDED.precision,scale=EXCLUDED.scale,
               sort_order=EXCLUDED.sort_order,widget_type=EXCLUDED.widget_type,visible=EXCLUDED.visible,
               required=EXCLUDED.required,readonly=EXCLUDED.readonly,layout=EXCLUDED.layout''',
-              [uid,*values,*meta])
+              [uid,*values,*meta,_layout_json(data)])
     elif action == 'code':
         field = identifier(data.get('field')); kind = _codes_allowed(cur,field); code = text(data.get('code'))
         if kind == 'integer':

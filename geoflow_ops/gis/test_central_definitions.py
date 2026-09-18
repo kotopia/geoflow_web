@@ -8,6 +8,7 @@ from uuid import uuid4
 from control.services import gis_definitions as defs
 from control.services import gis_definition_transition as transition
 from geoflow_ops.gis.central_definitions import project_config, reference_payload, resolve, validate_attributes
+from control.management.commands.repair_gis_definition_layouts import normalize_layout
 from geoflow_ops.gis.layer_plan import _scope_rows
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -102,7 +103,15 @@ class ResolutionTests(unittest.TestCase):
             self.assertIn(marker,template)
         self.assertIn('#standard-table thead th{position:sticky',template)
         self.assertIn('data-action="standard_field" class="d-inline"',template)
+        standard_table = template.split("$('standard-table').innerHTML=", 1)[1].split("$('standard-summary')", 1)[0]
+        self.assertNotIn("hidden('layout'", standard_table)
         self.assertNotIn('data-action="standard_field" class="border rounded p-2 mb-2"',template)
+
+    def test_legacy_layout_normalization_only_recovers_json_objects(self):
+        self.assertEqual(normalize_layout('{"section":"기본"}'), {'section':'기본'})
+        self.assertEqual(normalize_layout(['기본']), {})
+        self.assertEqual(normalize_layout('["기본"]'), {})
+        self.assertEqual(normalize_layout('not-json'), {})
 
 
 @unittest.skipUnless(os.getenv('GEOFLOW_FORMS_ISOLATED_PG')=='1','isolated PostgreSQL opt-in only')
@@ -204,16 +213,17 @@ class CentralPostgresTests(unittest.TestCase):
           id,source_layer_id,physical_name,standard_name,label,storage_data_type,storage_udt_name,
           max_length,kind,widget_type,visible,required,readonly,sort_order,layout)
           VALUES (%s,%s,'saa_cde','SAA_CDE','관종','character varying(10)','varchar',10,
-          'text','text',true,false,false,10,'{}'::jsonb)''',[field_id,self.pipe])
+          'text','text',true,false,false,10,'{"section":"기본","width":6}'::jsonb)''',[field_id,self.pipe])
 
         self.save('standard_field',id=field_id,label='관종 수정',kind='text',widget_type='combo',
-                  visible='true',required='true',readonly='true',sort_order='20',layout='{}')
+                  visible='true',required='true',readonly='true',sort_order='20')
         first=defs.snapshot(self.cur)
         saved=next(field for field in first['fields'] if field['id']==field_id)
         self.assertEqual((saved['label'],saved['kind'],saved['widget_type']),('관종 수정','text','combo'))
         self.assertEqual((saved['visible'],saved['required'],saved['readonly'],saved['sort_order']),
                          (True,True,True,20))
         self.assertEqual((saved['storage_data_type'],saved['max_length']),('character varying(10)',10))
+        self.assertEqual(saved['layout'], {'section':'기본','width':6})
 
         final=resolve(first,{'group_id':None,'additions':{},'private_items':{},'overrides':{}},
                       [next(layer for layer in first['layers'] if layer['id']==self.pipe)])
@@ -227,6 +237,22 @@ class CentralPostgresTests(unittest.TestCase):
         persisted=next(field for field in reloaded['fields'] if field['id']==field_id)
         self.assertEqual((persisted['label'],persisted['widget_type'],persisted['sort_order']),
                          ('관종 수정','combo',20))
+        self.assertEqual(persisted['layout'], {'section':'기본','width':6})
+
+    def test_standard_field_ignores_layout_payload_but_additional_field_validates_it(self):
+        field_id=str(uuid4())
+        self.cur.execute('''INSERT INTO gis.definition_field(
+          id,source_layer_id,physical_name,standard_name,label,kind,widget_type,layout)
+          VALUES (%s,%s,'mop_cde','MOP_CDE','재질','text','text','{"section":"시설"}'::jsonb)''',
+          [field_id,self.pipe])
+
+        self.save('standard_field',id=field_id,label='재질 수정',kind='text',widget_type='combo',
+                  visible='true',sort_order='30',layout='["표준 화면에서는 무시"]')
+        self.cur.execute('SELECT layout FROM gis.definition_field WHERE id=%s',[field_id])
+        self.assertEqual(self.cur.fetchone()[0], {'section':'시설'})
+
+        with self.assertRaisesRegex(defs.DefinitionError, '레이아웃은 객체여야 합니다'):
+            self.save('field',label='추가 필드',kind='text',layout='[]')
 
     def test_physical_numeric_metadata_is_not_text(self):
         source={'layers':[{'standard_name':'PIPE','physical_name':'pipe','label':'관로','domain_code':'WATER','geometry_kind':'LINE','sort_order':1}],
