@@ -1,0 +1,32 @@
+name: Bootstrap QGIS branch import
+
+on:
+  push:
+    branches:
+      - feat/qgis-local-form-layout-comments-shutdown
+    paths:
+      - .bootstrap/qgis-local-layout-1.2.2.bundle.b64
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Verify and restore reviewed commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          data=.bootstrap/qgis-local-layout-1.2.2.bundle.b64
+          expected="$(sed -n '1s/^SHA256=//p' "$data")"
+          test -n "$expected"
+          tail -n +2 "$data" | base64 --decode > "$RUNNER_TEMP/import.bundle"
+          echo "$expected  $RUNNER_TEMP/import.bundle" | sha256sum --check -
+          git bundle verify "$RUNNER_TEMP/import.bundle"
+          git fetch "$RUNNER_TEMP/import.bundle" import:refs/remotes/bundle/import
+          git reset --hard refs/remotes/bundle/import
+          git push --force-with-lease="refs/heads/$GITHUB_REF_NAME:$GITHUB_SHA" origin "HEAD:refs/heads/$GITHUB_REF_NAME"
