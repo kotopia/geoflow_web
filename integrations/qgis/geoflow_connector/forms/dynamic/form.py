@@ -1,4 +1,5 @@
-"""Dynamic form view assembled from one normalized central definition."""
+# GeoFlow QGIS 플러그인 - 중앙 정의 기반 동적 속성폼
+# 중앙 위젯·규칙은 유지하고 로컬 사용자 배치에 따라 화면만 다시 구성한다.
 from __future__ import annotations
 
 from qgis.PyQt.QtCore import pyqtSignal
@@ -13,18 +14,37 @@ from .widgets import create_widget
 class DynamicForm(QWidget):
     changed = pyqtSignal(str)
 
-    def __init__(self, definition, fields, parent=None):
+    def __init__(self, definition, fields, parent=None, *, layer="", form_layout=None):
         super().__init__(parent)
         self.definition = definition
         self.fields = fields
+        self.layer = str(layer or "").upper()
+        self.form_layout = form_layout
         apply_form_style(self)
         self.handles = {field["id"]: create_widget(field, self) for field in fields}
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(LayoutRenderer().render(fields, self.handles, self))
+        self._root_layout = QVBoxLayout(self)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
+        self._layout_widget = None
+        self.set_form_layout(form_layout)
         for field_id, handle in self.handles.items():
             handle.connect_changed(lambda *args, key=field_id: self._changed(key))
         self.apply_rules()
+
+    # ============================================================
+    # 입력값을 보존한 화면 배치 재구성
+    # ============================================================
+    def set_form_layout(self, form_layout):
+        self.form_layout = form_layout
+        if self._layout_widget is not None:
+            # 기존 블록 삭제에 입력 위젯이 함께 소멸하지 않도록 먼저 소유권을 옮긴다.
+            for handle in self.handles.values():
+                handle.widget.setParent(self)
+            self._root_layout.removeWidget(self._layout_widget)
+            self._layout_widget.deleteLater()
+        self._layout_widget = LayoutRenderer().render(
+            self.fields, self.handles, self, layer=self.layer, layout=form_layout
+        )
+        self._root_layout.addWidget(self._layout_widget)
 
     def _changed(self, field_id):
         self.handles[field_id].set_error(None)

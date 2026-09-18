@@ -1,4 +1,5 @@
-"""1.1.2 Form Host UX backed only by the central Dynamic Form contract."""
+# GeoFlow QGIS 플러그인 - 중앙 Dynamic Form 호스트
+# 레이어 선택·객체 바인딩·로컬 폼 배치 편집 화면을 하나의 업무 패널로 연결한다.
 import json
 import os
 
@@ -14,12 +15,16 @@ from .form_header import FormHeader
 from ..forms.dynamic.binding import DynamicFormBinding
 from ..forms.dynamic.contract import layer_fields
 from ..forms.dynamic.form import DynamicForm
+from ..forms.dynamic.layout_editor import FormLayoutEditor, LocalFormLayoutStore
 from ..layers.identify import IdentifyGeometry
 
 
 FORM_CLASS, _ = loadUiType(os.path.join(os.path.dirname(__file__), "designer", "form_host.ui"))
 
 
+# ============================================================
+# 레이어 선택·객체 바인딩·Dynamic Form 통합 화면
+# ============================================================
 class Main(QWidget, FORM_CLASS):
     def __init__(self, plugin, worker=None, date=None, project_code=None):
         super().__init__()
@@ -29,9 +34,11 @@ class Main(QWidget, FORM_CLASS):
         self.project_code = project_code or ""
         self._signature = None
         self._closed = self._refreshing = self._split_initialized = False
+        self._shutting_down = False
         self.pages, self.archives = {}, []
         from ..forms.common.lifecycle import BusinessFormSettings
         self._form_settings = BusinessFormSettings()
+        self._layout_store = LocalFormLayoutStore()
         self.setupUi(self)
         self.status = self.connectionStatus
         self.status.setTextFormat(Qt.TextFormat.PlainText)
@@ -56,8 +63,10 @@ class Main(QWidget, FORM_CLASS):
         self.zoom_button = QPushButton("범위 이동")
         self.retained_button = QPushButton("보존 입력")
         self.reference_diagnostic_button = QPushButton("중앙 정의 진단")
+        self.layout_button = QPushButton("폼 배치 편집")
         for button in (self.select_button, self.add_button, self.save_button,
-                       self.zoom_button, self.retained_button, self.reference_diagnostic_button):
+                       self.zoom_button, self.retained_button, self.layout_button,
+                       self.reference_diagnostic_button):
             toolbar.addWidget(button)
         self.add_button.setEnabled(False)
         self.add_button.setToolTip("도형 추가는 QGIS 편집 도구를 사용합니다.")
@@ -67,6 +76,7 @@ class Main(QWidget, FORM_CLASS):
         self.zoom_button.clicked.connect(self.adapter.zoom_selected)
         self.retained_button.clicked.connect(self.show_retained)
         self.reference_diagnostic_button.clicked.connect(self.show_definition_diagnostics)
+        self.layout_button.clicked.connect(self.edit_form_layout)
         self.verticalLayout.insertWidget(1, toolbar)
         self.verticalLayout.setStretch(2, 1)
         self.select_tool = IdentifyGeometry(plugin.mapCanvas, layer_provider=self.adapter.layers_by_id)
@@ -137,7 +147,7 @@ class Main(QWidget, FORM_CLASS):
         page.header.setEnabled(False)
         page.form.setEnabled(False)
         self.formStack.removeWidget(page)
-        if page.dirty:
+        if page.dirty and not self._shutting_down:
             page.note.setText("이전 연결·객체의 입력을 보존했습니다. 편집·저장할 수 없습니다.\n" + page.note.text())
             self._retained().tabs.addTab(page, page.project_name + " · " + page.standard)
             self.archives.append(page)
@@ -205,6 +215,7 @@ class Main(QWidget, FORM_CLASS):
         layer = self.adapter.layers_by_id().get(layer_id)
         self.select_button.setEnabled(layer is not None)
         self.zoom_button.setEnabled(layer is not None)
+        self.layout_button.setEnabled(layer is not None)
         service = self._definition_service()
         if layer is None:
             self.placeholder.setText("현재 프로젝트의 GeoFlow 레이어를 선택하세요.")
@@ -257,7 +268,10 @@ class Main(QWidget, FORM_CLASS):
         page.header.lineEditWorker.setText(str(user.get("worker_name") or user.get("display_name") or ""))
         page.header.dateEdit.setDate(QDate.currentDate())
         self.headerStack.addWidget(page.header)
-        page.form = DynamicForm(service.definition, fields, page)
+        local_layout = self._layout_store.load(standard, fields)
+        page.form = DynamicForm(
+            service.definition, fields, page, layer=standard, form_layout=local_layout
+        )
         page.form.changed.connect(lambda *args, current=page: setattr(current, "dirty", True))
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -268,6 +282,32 @@ class Main(QWidget, FORM_CLASS):
         self.pages[layer.id()] = page
         self.formStack.addWidget(page)
         page.binding = DynamicFormBinding(page, layer, page.form, state["can_write"])
+
+    # ============================================================
+    # 레이어별 로컬 속성폼 배치 편집
+    # ============================================================
+    def edit_form_layout(self):
+        layer_id = self.adapter.selected_layer_id()
+        page = self.pages.get(layer_id)
+        if page is None:
+            return
+        editor = FormLayoutEditor(
+            page.standard, page.form.fields, page.form.form_layout,
+            self.plugin.iface.mainWindow(),
+        )
+        dialog_code = getattr(QDialog, "DialogCode", QDialog)
+        if editor.exec() != dialog_code.Accepted:
+            return
+        if editor.reset_requested:
+            self._layout_store.reset(page.standard)
+            value = self._layout_store.load(page.standard, page.form.fields)
+            page.note.setText("로컬 사용자 배치를 삭제하고 기본 배치로 복원했습니다.")
+        else:
+            value = self._layout_store.save(
+                page.standard, page.form.fields, editor.value()
+            )
+            page.note.setText("이 PC의 레이어별 폼 배치를 저장했습니다.")
+        page.form.set_form_layout(value)
 
     def _object_selected(self, layer_id, feature_id):
         if self._closed or getattr(self.plugin, "_opening", False):
@@ -318,6 +358,8 @@ class Main(QWidget, FORM_CLASS):
         if self._closed:
             return
         self._closed = True
+        # 종료 확인 단계에서 JSON 저장이 끝났으므로 새 보존 창을 만들지 않는다.
+        self._shutting_down = True
         self._form_settings.close()
         self._stop_selection_tool()
         for layer_id in list(self.pages):
@@ -328,5 +370,7 @@ class Main(QWidget, FORM_CLASS):
         self.adapter.close()
         self.select_tool.geomIdentified.disconnect(self.on_feature_selected)
         self.select_tool.deleteLater()
-        if self.archives:
-            self.show_retained()
+        if self._retained_window is not None:
+            self._retained_window.close()
+            self._retained_window.deleteLater()
+            self._retained_window = None
