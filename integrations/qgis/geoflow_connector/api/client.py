@@ -22,6 +22,9 @@ _CSRF_RE = re.compile(
 )
 
 
+# ============================================================
+# 인증·프로젝트·동기화 HTTP 오류 계약
+# ============================================================
 class GeoFlowClientError(RuntimeError):
     def __init__(self, message, *, http_status=None):
         super().__init__(message)
@@ -51,6 +54,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# ============================================================
+# GeoFlow 세션과 API 요청 처리
+# ============================================================
 class GeoFlowHttpClient:
     def __init__(self, base_url: str, timeout: int = 30):
         normalized = (base_url or "").strip().rstrip("/")

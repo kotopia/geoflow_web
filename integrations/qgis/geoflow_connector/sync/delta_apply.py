@@ -4,6 +4,9 @@ from __future__ import annotations
 import uuid
 from qgis.core import QgsFeature, QgsDefaultValue, QgsFeatureRequest
 
+# ============================================================
+# 편집 세션을 보존하는 서버 Delta 적용
+# ============================================================
 class DeltaApplyMixin:
     """Apply revision Delta while preserving UUID identity and clean edit sessions."""
 

@@ -1,18 +1,16 @@
-"""Generic tab/section renderer for central layout metadata."""
+# GeoFlow QGIS 플러그인 - 속성폼 화면 배치
+# 중앙 필드 위젯을 로컬 Tab → Group → Row → Field 배치에 따라 표시한다.
 from __future__ import annotations
-
-from collections import OrderedDict
 
 from qgis.PyQt.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QTabWidget, QVBoxLayout, QWidget,
 )
 
+from .layout_model import render_layout
 
-def _name(field, key, default):
-    value = (field.get("layout") or {}).get(key)
-    return str(value or default).strip()
-
-
+# ============================================================
+# 필드 Label · 입력 위젯 · 오류 메시지 블록
+# ============================================================
 class LayoutRenderer:
     @staticmethod
     def _field_block(field, handle, parent):
@@ -44,33 +42,39 @@ class LayoutRenderer:
         handle.attach_error_label(error)
         return block
 
-    def render(self, fields, handles, parent=None):
+    # ============================================================
+    # 사용자 배치에 따른 탭·그룹·행 렌더링
+    # ============================================================
+    def render(self, fields, handles, parent=None, *, layer="", layout=None):
         root = QWidget(parent)
         outer = QVBoxLayout(root)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(16)
         tabs = QTabWidget(root)
-        grouped = OrderedDict()
-        for field in fields:
-            if not field.get("visible", True) or field.get("widget_type") == "hidden":
-                continue
-            tab = _name(field, "tab", "기본 정보")
-            section = _name(field, "section", "속성")
-            grouped.setdefault(tab, OrderedDict()).setdefault(section, []).append(field)
-        for tab_name, sections in grouped.items():
+        fields_by_id = {str(field["id"]): field for field in fields}
+        effective = render_layout(layout, layer, fields)
+        for tab_spec in effective["tabs"]:
             tab = QWidget(tabs)
             tab_layout = QVBoxLayout(tab)
             tab_layout.setContentsMargins(4, 4, 4, 4)
             tab_layout.setSpacing(16)
-            for section_name, rows in sections.items():
-                box = QGroupBox(section_name, tab)
+            for group_spec in tab_spec["groups"]:
+                box = QGroupBox(group_spec["title"], tab)
                 form = QVBoxLayout(box)
                 form.setContentsMargins(10, 12, 10, 10)
                 form.setSpacing(12)
-                for field in rows:
-                    form.addWidget(self._field_block(field, handles[field["id"]], box))
+                for row_spec in group_spec["rows"]:
+                    row = QHBoxLayout()
+                    row.setContentsMargins(0, 0, 0, 0)
+                    row.setSpacing(12)
+                    for field_id in row_spec:
+                        field = fields_by_id[field_id]
+                        row.addWidget(
+                            self._field_block(field, handles[field_id], box), 1
+                        )
+                    form.addLayout(row)
                 tab_layout.addWidget(box)
             tab_layout.addStretch(1)
-            tabs.addTab(tab, tab_name)
+            tabs.addTab(tab, tab_spec["title"])
         outer.addWidget(tabs)
         return root

@@ -1,3 +1,5 @@
+# 제목: 속성폼 공통 Header
+# 기능: Designer 기반 작업자·작업일·저장·참조코드 새로고침 영역을 로드
 """Shared attribute-form header defined in Qt Designer."""
 from pathlib import Path
 

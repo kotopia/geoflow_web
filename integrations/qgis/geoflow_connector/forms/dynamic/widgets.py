@@ -1,3 +1,5 @@
+# 제목: Dynamic Form 공통 입력 위젯
+# 기능: 중앙 메타데이터에 따라 값·읽기전용·검증 상태를 지원하는 Qt 위젯을 생성
 """Qt widget factory driven only by Final Form Definition metadata."""
 from __future__ import annotations
 
@@ -16,6 +18,9 @@ def _repolish(widget):
     widget.update()
 
 
+# ============================================================
+# 공통 입력 상태와 GeoFlow 스타일 속성
+# ============================================================
 class _GeoFlowInputMixin:
     def _init_geoflow(self, *, multiline=False):
         self.setProperty("geoflowInput", True)
@@ -129,6 +134,9 @@ class GeoFlowDateTimeEdit(QDateTimeEdit, _GeoFlowInputMixin):
         self._init_geoflow()
 
 
+# ============================================================
+# 위젯 값·신호·검증·참조코드 연결
+# ============================================================
 class WidgetHandle:
     def __init__(self, field, widget, *, editor=None):
         self.field = field
@@ -240,6 +248,9 @@ def _photo_widget(parent):
     return host, editor
 
 
+# ============================================================
+# 중앙 widget_type 기반 위젯 생성
+# ============================================================
 def create_widget(field: dict, parent=None) -> WidgetHandle:
     kind = field.get("widget_type") or field.get("semantic_data_type") or "text"
     codes = field.get("reference_codes", [])

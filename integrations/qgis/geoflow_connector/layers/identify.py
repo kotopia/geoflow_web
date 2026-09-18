@@ -27,6 +27,9 @@ from qgis.PyQt.QtGui import QPixmap, QCursor
 from qgis.core import QgsVectorLayer, QgsFeature
 from qgis.gui import QgsMapToolIdentify, QgsMapMouseEvent
 
+# ============================================================
+# 지도 객체 선택과 속성폼 연결
+# ============================================================
 class IdentifyGeometry(QgsMapToolIdentify):
     # signal definition
     geomIdentified = pyqtSignal(QgsVectorLayer, QgsFeature, QgsMapMouseEvent)

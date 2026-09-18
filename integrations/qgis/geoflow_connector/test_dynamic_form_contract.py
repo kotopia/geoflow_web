@@ -1,3 +1,5 @@
+# 제목: 중앙 Dynamic Form 계약 테스트
+# 기능: v3 정규화·필드 순서·참조코드 규칙·필수값 검증을 확인
 from __future__ import annotations
 
 import unittest

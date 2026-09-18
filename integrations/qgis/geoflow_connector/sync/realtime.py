@@ -23,6 +23,9 @@ except ImportError:  # QGIS builds do not always re-export QtWebSockets via qgis
 from .queue import read_last_applied_revision
 
 
+# ============================================================
+# 실시간 변경 알림·재연결·폴링 보완
+# ============================================================
 class RealtimeMixin:
     """Ticket-authenticated hints, guarded Delta pulls and low-rate fallback."""
 

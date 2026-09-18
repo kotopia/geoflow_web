@@ -78,6 +78,9 @@ class VisibilityTree(QTreeWidget):
         super().mouseDoubleClickEvent(event)
 
 
+# ============================================================
+# 레이어 검색·선택·가시성 Workspace
+# ============================================================
 class GeoFlowLayerWorkspace(QWidget):
     """Metadata-driven layer workspace with one reusable native form."""
 
@@ -227,6 +230,9 @@ class GeoFlowLayerWorkspace(QWidget):
             self.model.select_layer(layer.id())
 
 
+# ============================================================
+# Workspace 생명주기와 중앙 메타데이터 연결
+# ============================================================
 class LayerWorkspaceMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

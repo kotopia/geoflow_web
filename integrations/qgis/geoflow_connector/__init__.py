@@ -1,3 +1,5 @@
+# 제목: GeoFlow QGIS 플러그인 진입점
+# 기능: QGIS가 호출할 단일 플러그인 클래스와 Mixin 조합을 생성
 def classFactory(iface):
     from .app.unified import UnifiedMixin
     from .app.integration import ConnectorIntegrationMixin

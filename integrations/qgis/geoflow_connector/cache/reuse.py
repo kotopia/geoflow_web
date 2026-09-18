@@ -15,6 +15,9 @@ from .snapshot import select_reusable_snapshot, stamp_snapshot
 _SNAPSHOT_REQUIRED_TEXT = "서버 Delta 보존 범위를 벗어났습니다."
 
 
+# ============================================================
+# 검증된 프로젝트 Snapshot 재사용
+# ============================================================
 class SnapshotReuseMixin:
     """Open a valid local project Snapshot and catch up with Delta only.
 

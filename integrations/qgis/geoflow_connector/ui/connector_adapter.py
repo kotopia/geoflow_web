@@ -18,6 +18,9 @@ class IntegrationEvents(QObject):
     changed = pyqtSignal()
 
 
+# ============================================================
+# 통합 플러그인과 업무폼 사이의 상태·선택 어댑터
+# ============================================================
 class ConnectorAdapter(QObject):
     changed = pyqtSignal()
     selectionChanged = pyqtSignal(str)

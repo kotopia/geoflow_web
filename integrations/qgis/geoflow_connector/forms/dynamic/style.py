@@ -1,3 +1,5 @@
+# 제목: Dynamic Form 공통 스타일 로더
+# 기능: 패키지 QSS를 한 번 읽어 모든 동적 속성폼 루트에 동일하게 적용
 """Shared GeoFlow presentation for central Dynamic Forms."""
 from __future__ import annotations
 

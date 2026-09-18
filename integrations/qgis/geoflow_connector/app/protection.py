@@ -10,6 +10,9 @@ from qgis.PyQt.QtWidgets import QLineEdit, QComboBox, QAbstractSpinBox, QAbstrac
 from qgis.core import QgsProject
 
 
+# ============================================================
+# 현재 프로젝트 소유 레이어와 미전송 상태 조사
+# ============================================================
 def owned_layers(context):
     context = context or {}
     result = []
@@ -41,6 +44,9 @@ def inspect(engine):
             'queue': queue_status(engine.active_context)}
 
 
+# ============================================================
+# 미저장 폼 입력의 원자적 복구 JSON 저장
+# ============================================================
 def checkpoint(engine):
     """Atomic JSON export, never automatic replay onto another object/project."""
     main = engine.work
@@ -77,6 +83,9 @@ def checkpoint(engine):
     return target
 
 
+# ============================================================
+# 프로젝트 전환 시 플러그인 소유 레이어만 제거
+# ============================================================
 def remove_owned(context):
     project = QgsProject.instance()
     root = project.layerTreeRoot()

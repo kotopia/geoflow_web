@@ -73,6 +73,9 @@ def _content_hash(attributes: dict, geometry_wkb: bytes | None, editable_names: 
     return hashlib.sha256(encoded).hexdigest()
 
 
+# ============================================================
+# Snapshot 기준선과 다른 로컬 변경 복구
+# ============================================================
 def recover_untracked_snapshot_changes(package_path: str, manifest: dict) -> dict[str, int]:
     """Queue edits saved while the server sync gate was disabled."""
 

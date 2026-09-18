@@ -16,6 +16,9 @@ class PanelMode(IntEnum):
 WIDTHS = dict(icons=46, boundary=16, layers=200, form=400, selector=430, map_reserve=220)
 
 
+# ============================================================
+# Dock 아이콘·레이어·전체 폼 표시 모드
+# ============================================================
 class PanelPresentation(QObject):
     def __init__(self, engine, root):
         super().__init__(engine.dock)

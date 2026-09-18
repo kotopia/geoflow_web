@@ -1,4 +1,9 @@
-/* GeoFlow Dynamic Form — compact AdminKit-inspired Qt presentation. */
+/* GeoFlow QGIS 플러그인 - Dynamic Form 공통 스타일
+   중앙 정의로 생성된 모든 입력 위젯의 AdminKit 계열 표현을 통일한다. */
+
+/* ==========================================================
+   속성폼 기본 화면과 그룹
+   ========================================================== */
 #GeoFlowDynamicForm {
     background: #f8f9fa;
     color: #495057;
@@ -21,6 +26,9 @@
     padding: 0 4px;
 }
 
+/* ==========================================================
+   필드 Label · 필수 표시 · 검증 메시지
+   ========================================================== */
 #GeoFlowDynamicForm QLabel[geoflowRole="fieldLabel"] {
     color: #6c757d;
     font-size: 11px;
@@ -41,6 +49,9 @@
     background: transparent;
 }
 
+/* ==========================================================
+   기본 입력 위젯과 Hover · Focus 상태
+   ========================================================== */
 #GeoFlowDynamicForm QLineEdit[geoflowInput="true"],
 #GeoFlowDynamicForm QTextEdit[geoflowInput="true"],
 #GeoFlowDynamicForm QComboBox[geoflowInput="true"],
@@ -83,6 +94,9 @@
     background: #ffffff;
 }
 
+/* ==========================================================
+   읽기전용 · 비활성 · 오류 상태
+   ========================================================== */
 #GeoFlowDynamicForm QLineEdit[readonly="true"],
 #GeoFlowDynamicForm QTextEdit[readonly="true"],
 #GeoFlowDynamicForm QSpinBox[readonly="true"],
@@ -118,6 +132,9 @@
     border: 1px solid #dc3545;
 }
 
+/* ==========================================================
+   참조코드 ComboBox
+   ========================================================== */
 #GeoFlowDynamicForm QComboBox[geoflowInput="true"] {
     padding-right: 28px;
 }
@@ -146,6 +163,9 @@
     padding: 3px;
 }
 
+/* ==========================================================
+   숫자 입력 SpinBox 제어 버튼
+   ========================================================== */
 #GeoFlowDynamicForm QSpinBox::up-button,
 #GeoFlowDynamicForm QDoubleSpinBox::up-button {
     subcontrol-origin: border;
@@ -178,6 +198,9 @@
     height: 8px;
 }
 
+/* ==========================================================
+   Boolean CheckBox
+   ========================================================== */
 #GeoFlowDynamicForm QCheckBox[geoflowInput="true"] {
     color: #495057;
     spacing: 7px;
@@ -224,6 +247,9 @@
     image: url(:/geoflow/feather/check.svg);
 }
 
+/* ==========================================================
+   날짜 · 일시 선택 위젯
+   ========================================================== */
 #GeoFlowDynamicForm QDateEdit::drop-down,
 #GeoFlowDynamicForm QDateTimeEdit::drop-down {
     subcontrol-origin: padding;

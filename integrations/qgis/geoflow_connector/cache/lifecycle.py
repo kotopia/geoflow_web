@@ -14,6 +14,9 @@ from typing import Iterable
 COMPLETED_STATUSES = {"complete", "completed"}
 
 
+# ============================================================
+# 캐시 조사 결과와 안전한 정리 계획
+# ============================================================
 @dataclass(frozen=True)
 class CacheInventoryItem:
     path: str
@@ -231,6 +234,9 @@ def plan_cache_cleanup(
     return tuple(decisions)
 
 
+# ============================================================
+# 승인된 GeoFlow 캐시 파일만 정리
+# ============================================================
 def execute_cache_cleanup(
     root_dir: str,
     decisions: Iterable[CacheCleanupDecision],

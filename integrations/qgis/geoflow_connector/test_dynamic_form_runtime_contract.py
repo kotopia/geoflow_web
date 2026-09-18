@@ -1,3 +1,5 @@
+# 제목: QGIS Dynamic Form 런타임 구조 테스트
+# 기능: 공통 위젯·스타일·중앙 전용 실행 경로와 패키지 리소스를 점검
 from pathlib import Path
 import unittest
 
@@ -61,6 +63,28 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         form = (ROOT / "forms/dynamic/form.py").read_text(encoding="utf-8")
         self.assertIn("errors = validate(self.definition, self.fields, self.values())", form)
         self.assertIn("return errors", form)
+
+    def test_local_layout_is_qsettings_only_and_shutdown_host_does_not_reopen(self):
+        editor = (ROOT / "forms/dynamic/layout_editor.py").read_text(encoding="utf-8")
+        model = (ROOT / "forms/dynamic/layout_model.py").read_text(encoding="utf-8")
+        renderer = (ROOT / "forms/dynamic/layout.py").read_text(encoding="utf-8")
+        host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
+
+        self.assertIn('KEY_PREFIX = "GeoFlowConnector/formLayouts/"', editor)
+        self.assertIn("QSettings", editor)
+        self.assertNotIn("client.", editor)
+        self.assertNotIn("definition_field", editor + model)
+        self.assertIn("미배치 필드", model)
+        self.assertIn("QHBoxLayout", renderer)
+        self.assertIn("page.dirty and not self._shutting_down", host)
+        shutdown = host.split("def shutdown(self):", 1)[1]
+        self.assertNotIn("self.show_retained()", shutdown)
+
+    def test_recovery_approval_allows_the_original_close_event(self):
+        unified = (ROOT / "app/unified.py").read_text(encoding="utf-8")
+        self.assertIn("if self._approved:", unified)
+        self.assertIn("event.accept()", unified)
+        self.assertIn("복구 JSON을 저장하지 못해 전환을 중단했습니다.", unified)
 
 
 if __name__ == "__main__":

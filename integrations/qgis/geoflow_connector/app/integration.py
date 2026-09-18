@@ -20,6 +20,9 @@ def integration_events(iface):
     return bus
 
 
+# ============================================================
+# 플러그인 상태·레이어·선택 이벤트 통합
+# ============================================================
 class ConnectorIntegrationMixin:
     integration_api_version = 2
 

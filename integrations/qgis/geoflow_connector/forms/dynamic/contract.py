@@ -1,3 +1,5 @@
+# 제목: Dynamic Form 중앙 계약 정규화
+# 기능: v3 정의의 필드·규칙·저장소 형식을 검증하고 레이어별 순서를 확정
 """Fail-closed normalization for the central Final Form Definition v3."""
 from __future__ import annotations
 

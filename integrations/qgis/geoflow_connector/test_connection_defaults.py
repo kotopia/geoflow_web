@@ -1,3 +1,5 @@
+# 제목: 연결 기본값 이전 테스트
+# 기능: 구형 개발 주소만 운영 기본값으로 안전하게 이전하는지 검증
 from __future__ import annotations
 
 import unittest

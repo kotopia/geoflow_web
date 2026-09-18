@@ -7,6 +7,9 @@ from qgis.PyQt import sip
 from .model import workspace_rows
 
 
+# ============================================================
+# 레이어·객체 선택 상태의 단일 관리
+# ============================================================
 class LayerWorkspaceState(QObject):
     rowsChanged = pyqtSignal()
     selectionChanged = pyqtSignal(str)
