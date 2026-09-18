@@ -2,12 +2,14 @@
 # 기능: 폼 입력·편집 버퍼·미전송 큐 검사와 명시적 전환 시 입력 보존
 """Read-only transition inspection and durable, explicitly identified form drafts."""
 import json
+import math
 import os
 import sqlite3
 import uuid
+import datetime as dt
 from pathlib import Path
-from qgis.PyQt.QtWidgets import QLineEdit, QComboBox, QAbstractSpinBox, QAbstractButton, QTextEdit, QPlainTextEdit
 from qgis.core import QgsProject
+from qgis.PyQt.QtCore import QDate, QDateTime, Qt
 
 
 # ============================================================
@@ -47,6 +49,32 @@ def inspect(engine):
 # ============================================================
 # 미저장 폼 입력의 원자적 복구 JSON 저장
 # ============================================================
+def json_safe(value):
+    """Return strict-JSON data for Python, Qt and QGIS widget values."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, QDateTime):
+        return value.toString(Qt.DateFormat.ISODate) if value.isValid() else None
+    if isinstance(value, QDate):
+        return value.toString(Qt.DateFormat.ISODate) if value.isValid() else None
+    if isinstance(value, (dt.datetime, dt.date, dt.time)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [json_safe(item) for item in value]
+    try:
+        if value.isNull():
+            return None
+    except AttributeError:
+        pass
+    return str(value)
+
+
 def checkpoint(engine):
     """Atomic JSON export, never automatic replay onto another object/project."""
     main = engine.work
@@ -57,29 +85,39 @@ def checkpoint(engine):
         return None
     rows = []
     for page in pages:
+        current = page.form.values()
         values = {}
-        for widget in page.form.input_widgets((QLineEdit, QComboBox, QAbstractSpinBox, QAbstractButton, QTextEdit, QPlainTextEdit)):
-            name = widget.objectName()
-            if not name or name.startswith('qt_'):
-                continue
-            if isinstance(widget, QComboBox):
-                value = {'value': widget.currentData(), 'label': widget.currentText()}
-            elif isinstance(widget, QAbstractButton):
-                value = widget.isChecked()
-            elif isinstance(widget, (QTextEdit, QPlainTextEdit)):
-                value = widget.toPlainText()
-            else:
-                value = widget.text()
-            values[name] = value
-        rows.append({'project_id': getattr(page, 'project_id', ''), 'project_name': page.project_name,
-                     'layer_id': page.layer_id, 'standard': page.standard, 'feature_id': page.feature_id,
+        for field_id, handle in page.form.handles.items():
+            value = current.get(field_id)
+            editor = handle.editor
+            if hasattr(editor, 'currentData') and hasattr(editor, 'currentText'):
+                value = {'value': value, 'label': editor.currentText()}
+            values[str(field_id)] = json_safe(value)
+        rows.append({'project_id': json_safe(getattr(page, 'project_id', '')),
+                     'project_name': json_safe(page.project_name),
+                     'layer_id': json_safe(page.layer_id), 'standard': json_safe(page.standard),
+                     'feature_id': json_safe(page.feature_id),
                      'widgets': values})
     directory = Path(engine._app_data_location()) / 'GeoFlowConnector' / 'form-drafts'
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / (str(uuid.uuid4()) + '.json')
     temporary = target.with_suffix('.tmp')
-    temporary.write_text(json.dumps({'format': 1, 'automatic_replay': False, 'drafts': rows}, ensure_ascii=False, indent=2, default=str), encoding='utf8')
-    os.replace(temporary, target)
+    try:
+        payload = json.dumps(
+            {'format': 1, 'automatic_replay': False, 'drafts': rows},
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        temporary.write_text(payload, encoding='utf8')
+        os.replace(temporary, target)
+    finally:
+        try:
+            if temporary.exists():
+                temporary.unlink()
+        except OSError:
+            # Preserve the original checkpoint exception; stale .tmp files are never replayed.
+            pass
     return target
 
 

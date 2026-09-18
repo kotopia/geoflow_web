@@ -31,7 +31,7 @@
    ========================================================== */
 #GeoFlowDynamicForm QLabel[geoflowRole="fieldLabel"] {
     color: #6c757d;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     background: transparent;
 }
@@ -60,7 +60,7 @@
 #GeoFlowDynamicForm QDateEdit[geoflowInput="true"],
 #GeoFlowDynamicForm QDateTimeEdit[geoflowInput="true"] {
     background: #ffffff;
-    color: #495057;
+    color: #1b1d1f;
     border: 1px solid #ced4da;
     border-radius: 5px;
     padding: 0 9px;
@@ -264,4 +264,50 @@
     image: url(:/geoflow/feather/calendar.svg);
     width: 13px;
     height: 13px;
+}
+
+/* ==========================================================
+   Local form-layout editor preview
+   ========================================================== */
+#GeoFlowDynamicForm[layoutEditorPreview="true"] {
+    background: #f8f9fa;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QGroupBox[editorRole="group"] {
+    margin-top: 10px;
+    border: 1px solid #d8dee7;
+    border-radius: 6px;
+    background: #ffffff;
+    font-weight: 600;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QGroupBox[editorRole="group"][editorSelected="true"] {
+    border: 2px solid #3b7ddd;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QFrame#geoFormEditorRow {
+    border: 1px dashed #adb5bd;
+    border-radius: 5px;
+    background: #f8f9fa;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QFrame#geoFormEditorRow[editorSelected="true"] {
+    border: 2px dashed #3b7ddd;
+    background: #eef5ff;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QFrame#geoFormEditorRow[dropTarget="true"] {
+    border: 2px dashed #1f9d55;
+    background: #eaf8f0;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QFrame[editorRole="fieldCard"] {
+    border: 1px solid #d8dee7;
+    border-radius: 5px;
+    background: #ffffff;
+}
+
+#GeoFlowDynamicForm[layoutEditorPreview="true"] QFrame[editorRole="fieldCard"][editorSelected="true"] {
+    border: 2px solid #3b7ddd;
+    background: #f4f8ff;
 }

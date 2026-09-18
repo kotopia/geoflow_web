@@ -28,6 +28,9 @@ class BuildPluginRepositoryTests(unittest.TestCase):
             encoding="utf-8",
         )
         (self.source / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+        icons = self.source / "resources" / "icons"
+        icons.mkdir(parents=True)
+        (icons / "check.svg").write_text("<svg/>\n", encoding="utf-8")
         (self.source / "test_hidden.py").write_text("SECRET = False\n", encoding="utf-8")
         cache = self.source / "__pycache__"
         cache.mkdir()
@@ -43,7 +46,19 @@ class BuildPluginRepositoryTests(unittest.TestCase):
         with zipfile.ZipFile(first) as archive:
             self.assertEqual(
                 archive.namelist(),
-                ["geoflow_connector/__init__.py", "geoflow_connector/metadata.txt"],
+                [
+                    "geoflow_connector/",
+                    "geoflow_connector/resources/",
+                    "geoflow_connector/resources/icons/",
+                    "geoflow_connector/__init__.py",
+                    "geoflow_connector/metadata.txt",
+                    "geoflow_connector/resources/icons/check.svg",
+                ],
+            )
+            self.assertTrue(archive.getinfo("geoflow_connector/").is_dir())
+            self.assertEqual(
+                (archive.getinfo("geoflow_connector/").external_attr >> 16) & 0o777,
+                0o755,
             )
 
     def test_xml_matches_metadata_package_and_hash(self):

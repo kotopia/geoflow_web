@@ -1,6 +1,8 @@
 # 제목: app/unified.py
 # 기능: 단일 Dock, 로그인/프로젝트/업무 화면 전환 및 종료 보호
 """Single plugin shell around the existing authentication and sync engines."""
+import traceback
+
 from qgis.PyQt.QtCore import Qt, QEvent, QObject, QTimer
 from qgis.PyQt.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QLabel, QMessageBox, QDialog)
@@ -93,6 +95,20 @@ class UnifiedMixin:
     def log(self, event):
         # Only controlled event identifiers; no exception bodies, URLs or tokens.
         QgsMessageLog.logMessage(event, 'GeoFlow', Qgis.MessageLevel.Info)
+
+    def log_exception(self, event, exc):
+        QgsMessageLog.logMessage(
+            f"{event}\n{type(exc).__name__}: {exc}\n{traceback.format_exc()}",
+            'GeoFlow',
+            Qgis.MessageLevel.Critical,
+        )
+
+    def _checkpoint_safely(self, reason):
+        try:
+            return True, protection.checkpoint(self)
+        except Exception as exc:
+            self.log_exception(f'draft_checkpoint_failure reason={reason}', exc)
+            return False, None
 
     def check_single_instance(self):
         others = getattr(utils, 'active_plugins', [])
@@ -247,7 +263,8 @@ class UnifiedMixin:
             return False
         try:
             report = protection.inspect(self)
-        except Exception:
+        except Exception as exc:
+            self.log_exception('transition_inspection_failure', exc)
             self.iface.messageBar().pushMessage('GeoFlow', '로컬 큐 확인 실패로 전환을 중단했습니다.', level=Qgis.Warning)
             return False
         if report['drafts']:
@@ -256,10 +273,10 @@ class UnifiedMixin:
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
             if choice != QMessageBox.StandardButton.Yes:
                 return False
-            try:
-                path = protection.checkpoint(self)
+            ok, path = self._checkpoint_safely(label)
+            if ok:
                 self.iface.messageBar().pushMessage('GeoFlow 입력 보존', str(path), level=Qgis.Info)
-            except Exception:
+            else:
                 self.iface.messageBar().pushMessage(
                     'GeoFlow', '복구 JSON을 저장하지 못해 전환을 중단했습니다.',
                     level=Qgis.Critical,
@@ -451,17 +468,14 @@ class UnifiedMixin:
 
     def _integration_auth_changing(self):
         if getattr(self, 'work', None) is not None:
-            try:
-                protection.checkpoint(self)
-            except Exception:
-                self.log('draft_checkpoint_failure')
+            self._checkpoint_safely('인증 전환')
         super()._integration_auth_changing()
 
     def unload(self):
         self._unloading = True
         if hasattr(self, 'presentation'):
             self.presentation.close()
-        protection.checkpoint(self)
+        self._checkpoint_safely('플러그인 unload')
         self._disconnect_sync_layers()
         self.iface.mainWindow().removeEventFilter(self._exit_guard)
         if self.work is not None:

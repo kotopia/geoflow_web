@@ -33,6 +33,7 @@ from qgis.gui import QgsMapToolIdentify, QgsMapMouseEvent
 class IdentifyGeometry(QgsMapToolIdentify):
     # signal definition
     geomIdentified = pyqtSignal(QgsVectorLayer, QgsFeature, QgsMapMouseEvent)
+    noFeatureIdentified = pyqtSignal()
 
     def __init__(self, canvas, layerType = 'AllLayers', layer_provider=None):
         self.layer_provider = layer_provider
@@ -58,4 +59,5 @@ class IdentifyGeometry(QgsMapToolIdentify):
         if len(results) > 0:
             self.geomIdentified.emit(results[0].mLayer, QgsFeature(results[0].mFeature), mouseEvent)
         else:
+            self.noFeatureIdentified.emit()
             self.canvas.refresh()
