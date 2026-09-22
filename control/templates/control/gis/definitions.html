@@ -72,7 +72,97 @@ function renderRules(){
  $('rule-table').innerHTML=`<table class="table"><thead><tr><th>기준 필드</th><th>기준값</th><th>대상 필드</th><th>허용값</th><th></th></tr></thead><tbody>${d.rules.map(r=>`<tr><td>${esc(name(r.source_field))}</td><td>${esc(code(r.source_code)?.label)}</td><td>${esc(name(r.target_field))}</td><td>${esc(r.allowed.map(x=>code(x)?.label).join(', '))}</td><td><button class="btn btn-sm btn-outline-primary" data-edit-rule="${r.id}">편집</button> ${del('delete_rule',{id:r.id})}</td></tr>`).join('')}</tbody></table>`;
 }
 function fillRuleValues(r={}){$('rule-code').innerHTML=opts(d.codes.filter(c=>c.field_id===$('rule-source').value),'id','label',r.source_code);$('rule-allowed').innerHTML=opts(d.codes.filter(c=>c.field_id===$('rule-target').value),'id','label');Array.from($('rule-allowed').options).forEach(o=>o.selected=(r.allowed||[]).includes(o.value));}
-function render(){renderGroups();renderStandards();renderFields();renderFilters();renderRules();}
+
+function renderAdminV2(){
+ const root=$('admin-v2-content'); if(!root)return;
+ if(!d.admin_schema_ready){root.innerHTML='<div class="alert alert-warning">GIS 관리 확장 스키마가 아직 적용되지 않았습니다. 기존 GIS 정의 기능은 그대로 유지됩니다.</div>';return;}
+ let groups='<div class="table-responsive"><table class="table table-sm"><thead><tr><th>코드</th><th>표시명</th><th>그룹명</th><th>순서</th><th>사용</th><th>설명</th><th></th></tr></thead><tbody>';
+ (d.groups||[]).forEach(function(g){
+   const form='ag-'+g.id;
+   groups+='<tr><td><code>'+esc(g.group_code||'')+'</code></td>'+
+    '<td><input form="'+form+'" name="display_name" class="form-control form-control-sm" value="'+esc(g.display_name||g.name)+'"></td>'+
+    '<td><input form="'+form+'" name="name" class="form-control form-control-sm" value="'+esc(g.name)+'"></td>'+
+    '<td><input form="'+form+'" name="sort_order" type="number" class="form-control form-control-sm" value="'+Number(g.sort_order||0)+'"></td>'+
+    '<td class="text-center"><input form="'+form+'" name="active" type="checkbox" value="true" '+(g.active!==false?'checked':'')+'></td>'+
+    '<td><input form="'+form+'" name="description" class="form-control form-control-sm" value="'+esc(g.description||'')+'"></td>'+
+    '<td class="text-nowrap"><form id="'+form+'" data-action="group_admin" class="d-inline">'+hidden('id',g.id)+hidden('group_code',g.group_code||('group_'+g.id.replaceAll('-','')))+'<button class="btn btn-sm btn-outline-primary">저장</button></form> '+
+    '<form data-action="delete_group_admin" class="d-inline">'+hidden('id',g.id)+'<button class="btn btn-sm btn-outline-danger">빈 그룹 삭제</button></form></td></tr>';
+ });
+ groups+='</tbody></table></div>';
+
+ let layers='<div class="table-responsive"><table class="table table-sm"><thead><tr><th>표준/DB명</th><th>표시명</th><th>그룹</th><th>순서</th><th>사용</th><th>설명</th></tr></thead><tbody>';
+ (d.layers||[]).forEach(function(l){
+   const membership=(d.group_layers||[]).find(function(x){return x.layer_id===l.id;});
+   let groupOptions='<option value="">미분류</option>';
+   (d.groups||[]).forEach(function(g){groupOptions+='<option value="'+esc(g.id)+'" '+(membership&&membership.group_id===g.id?'selected':'')+'>'+esc(g.display_name||g.name)+'</option>';});
+   layers+='<tr data-admin-layer="'+l.id+'"><td><code>'+esc(l.standard_name)+'</code><div class="small text-muted">'+esc(l.physical_name)+'</div></td>'+
+    '<td><input data-k="label" class="form-control form-control-sm" value="'+esc(l.label)+'"></td>'+
+    '<td><select data-k="group_id" class="form-select form-select-sm">'+groupOptions+'</select></td>'+
+    '<td><input data-k="sort_order" type="number" class="form-control form-control-sm" value="'+Number(l.sort_order||0)+'"></td>'+
+    '<td class="text-center"><input data-k="active" type="checkbox" '+(l.active?'checked':'')+'></td>'+
+    '<td><input data-k="description" class="form-control form-control-sm" value="'+esc(l.description||'')+'"></td></tr>';
+ });
+ layers+='</tbody></table></div>';
+
+ let layerOptions=''; (d.layers||[]).forEach(function(l){layerOptions+='<option value="'+esc(l.id)+'">'+esc(l.label)+'</option>';});
+ let fieldOptions='<option value="">없음/신규</option>'; (d.fields||[]).forEach(function(x){fieldOptions+='<option value="'+esc(x.id)+'">'+esc(x.label)+'</option>';});
+ const typeOptions=['text','varchar','integer','bigint','numeric','double precision','boolean','date','timestamp','timestamptz','uuid','jsonb'].map(function(x){return '<option value="'+x+'">'+x+'</option>';}).join('');
+
+ let changes='<div class="table-responsive"><table class="table table-sm"><thead><tr><th>작업</th><th>레이어</th><th>컬럼</th><th>상태</th><th>SQL Preview</th><th></th></tr></thead><tbody>';
+ (d.schema_changes||[]).forEach(function(sc){changes+='<tr><td>'+esc(sc.operation)+'</td><td>'+esc(sc.standard_name)+'</td><td><code>'+esc(sc.old_name||'')+'</code>'+(sc.new_name?' → <code>'+esc(sc.new_name)+'</code>':'')+'</td><td>'+esc(sc.status)+'</td><td><code class="small">'+esc(sc.preview_sql)+'</code></td><td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-secondary" data-schema-cmd="inspect" data-change-id="'+sc.id+'">영향분석</button> <button type="button" class="btn btn-sm btn-outline-primary" data-schema-cmd="approve" data-change-id="'+sc.id+'">승인</button> <button type="button" class="btn btn-sm btn-danger" data-schema-cmd="apply" data-change-id="'+sc.id+'" data-operation="'+esc(sc.operation)+'" data-old-name="'+esc(sc.old_name||'')+'">적용</button></td></tr>';});
+ changes+='</tbody></table></div>';
+
+ let tenants=''; (d.tenants||[]).forEach(function(t){tenants+='<label class="form-check form-check-inline"><input class="form-check-input" data-schema-tenant type="checkbox" value="'+esc(t.group_id)+'"> '+esc(t.group__name||t.group__code)+'</label>';});
+ let logs='<div class="table-responsive"><table class="table table-sm"><thead><tr><th>일시</th><th>변경자</th><th>대상</th><th>변경</th><th>Schema</th></tr></thead><tbody>';
+ (d.change_log||[]).slice(0,100).forEach(function(x){logs+='<tr><td>'+esc(x.created_at||'')+'</td><td>'+esc(x.actor||'')+'</td><td>'+esc(x.target_type)+'</td><td>'+esc(x.change_type)+'</td><td>'+(x.schema_applied?'반영':'미반영')+'</td></tr>';});
+ logs+='</tbody></table></div>';
+
+ root.innerHTML=
+ '<div class="alert alert-info">일반 Definition 수정과 물리 DB Schema 변경은 분리됩니다. DB 필드명/타입은 Schema Manager를 통해서만 변경합니다.</div>'+
+ '<div class="card card-body mb-3"><h2 class="h5">레이어 그룹 관리</h2><form data-action="group_admin" class="row g-2 mb-3"><div class="col-md-2"><input name="group_code" class="form-control" placeholder="group_code" pattern="[a-z_][a-z0-9_]*" required></div><div class="col-md-2"><input name="name" class="form-control" placeholder="그룹명" required></div><div class="col-md-2"><input name="display_name" class="form-control" placeholder="표시명" required></div><div class="col-md-1"><input name="sort_order" type="number" value="0" class="form-control"></div><div class="col-md-2"><input name="description" class="form-control" placeholder="설명"></div><div class="col-md-1"><label><input name="active" type="checkbox" value="true" checked> 사용</label></div><div class="col-md-2"><button class="btn btn-primary w-100">그룹 생성</button></div></form>'+groups+'</div>'+
+ '<div class="card card-body mb-3"><div class="d-flex justify-content-between"><div><h2 class="h5">레이어 일괄 관리</h2><p class="small text-muted">표준명과 물리 테이블명은 일반 편집에서 변경할 수 없습니다.</p></div><button id="save-admin-layers" type="button" class="btn btn-primary align-self-start">전체 저장</button></div><form id="admin-layer-bulk" data-action="bulk_layers_admin">'+hidden('items','[]')+'</form>'+layers+'</div>'+
+ '<div class="card card-body mb-3"><h2 class="h5">필드 일괄 편집</h2><div class="d-flex gap-2 mb-2"><select id="admin-field-layer" class="form-select" style="max-width:320px">'+layerOptions+'</select><button id="save-admin-fields" type="button" class="btn btn-primary">전체 저장</button></div><p class="small text-muted">DB 필드명/타입은 읽기전용입니다.</p><form id="admin-field-bulk" data-action="bulk_fields_admin">'+hidden('items','[]')+'</form><div id="admin-field-table"></div></div>'+
+ '<div class="card card-body mb-3"><h2 class="h5">신규 표준 필드 Definition</h2><p class="small text-muted">정의만 먼저 생성되며 실제 tenant DB 컬럼은 Schema 변경 승인 전까지 반영되지 않습니다.</p><form data-action="field_admin" class="row g-2"><div class="col-md-2"><select name="source_layer_id" class="form-select" required>'+layerOptions+'</select></div><div class="col-md-2"><input name="physical_name" class="form-control" placeholder="db_field_name" pattern="[a-z_][a-z0-9_]*" required></div><div class="col-md-2"><input name="standard_name" class="form-control" placeholder="STANDARD_NAME" required></div><div class="col-md-2"><input name="label" class="form-control" placeholder="표시명" required></div><div class="col-md-2"><select name="storage_data_type" class="form-select">'+typeOptions+'</select></div><div class="col-md-1"><select name="kind" class="form-select">'+Object.keys(d.kinds).map(function(k){return '<option value="'+k+'">'+esc(k)+'</option>';}).join('')+'</select></div><div class="col-md-1"><button class="btn btn-primary w-100">정의 생성</button></div></form></div>'+
+ '<div class="card card-body mb-3"><h2 class="h5">Schema Manager</h2><form data-action="schema_change_admin" class="row g-2 align-items-end mb-3"><label class="col-md-2">작업<select name="operation" class="form-select"><option>ADD_COLUMN</option><option>RENAME_COLUMN</option><option>ALTER_TYPE</option><option>DROP_COLUMN</option><option>DEPRECATE</option></select></label><label class="col-md-2">레이어<select name="layer_id" class="form-select" required>'+layerOptions+'</select></label><label class="col-md-2">필드<select name="field_id" class="form-select">'+fieldOptions+'</select></label><label class="col-md-1">기존명<input name="old_name" class="form-control"></label><label class="col-md-1">신규명<input name="new_name" class="form-control"></label><label class="col-md-2">신규 타입<select name="new_type" class="form-select"><option value=""></option>'+typeOptions+'</select></label><div class="col-md-2"><button class="btn btn-warning w-100">변경 요청 생성</button></div></form><div class="mb-2"><strong>적용 대상 tenant</strong><div>'+tenants+'</div><button id="schema-select-all" type="button" class="btn btn-sm btn-light">전체 선택</button></div>'+changes+'</div>'+
+ '<div class="card card-body"><h2 class="h5">변경 이력</h2>'+logs+'</div>';
+ renderAdminFields();
+}
+function renderAdminFields(){
+ const target=$('admin-field-table'); if(!target)return;
+ const layerId=$('admin-field-layer')?.value||d.layers?.[0]?.id||'';
+ let html='<div class="table-responsive"><table class="table table-sm"><thead><tr><th>DB 필드/타입</th><th>표시명</th><th>순서</th><th>Widget</th><th>필수</th><th>폼</th><th>테이블</th><th>읽기전용</th><th>활성</th></tr></thead><tbody>';
+ d.fields.filter(function(f){return f.source_layer_id===layerId;}).forEach(function(f){
+  html+='<tr data-admin-field="'+f.id+'"><td><code>'+esc(f.physical_name||'')+'</code><div class="small text-muted">'+esc(f.storage_data_type||f.storage_udt_name||'')+'</div></td><td><input data-k="label" class="form-control form-control-sm" value="'+esc(f.label)+'"></td><td><input data-k="sort_order" type="number" class="form-control form-control-sm" value="'+Number(f.sort_order||0)+'"></td><td><select data-k="widget_type" class="form-select form-select-sm">'+Object.keys(d.widgets).map(function(k){return '<option value="'+k+'" '+(k===f.widget_type?'selected':'')+'>'+esc(k)+'</option>';}).join('')+'</select></td><td class="text-center"><input data-k="required" type="checkbox" '+(f.required?'checked':'')+'></td><td class="text-center"><input data-k="form_visible" type="checkbox" '+((f.form_visible??f.visible)!==false?'checked':'')+'></td><td class="text-center"><input data-k="table_visible" type="checkbox" '+((f.table_visible??f.visible)!==false?'checked':'')+'></td><td class="text-center"><input data-k="readonly" type="checkbox" '+(f.readonly?'checked':'')+'></td><td class="text-center"><input data-k="active" type="checkbox" '+(f.active!==false?'checked':'')+'></td></tr>';
+ });
+ target.innerHTML=html+'</tbody></table></div>';
+}
+function collectAdminRows(selector,attr){
+ return Array.from(document.querySelectorAll(selector)).map(function(row){
+  const item={id:row.getAttribute(attr)};
+  row.querySelectorAll('[data-k]').forEach(function(el){item[el.dataset.k]=el.type==='checkbox'?el.checked:el.value;});
+  return item;
+ });
+}
+async function schemaCommand(button){
+ const id=button.dataset.changeId, cmd=button.dataset.schemaCmd, body=new FormData();
+ body.set('csrfmiddlewaretoken',document.querySelector('[name=csrfmiddlewaretoken]').value);
+ if(cmd==='apply'){
+  document.querySelectorAll('[data-schema-tenant]:checked').forEach(function(x){body.append('tenant_group_id',x.value);});
+  if(button.dataset.operation==='DROP_COLUMN'){
+   const expected='DROP COLUMN '+button.dataset.oldName, entered=window.prompt('영구 삭제 확인 문구를 입력하세요:\n'+expected,'');
+   if(entered===null)return; body.set('confirmation',entered);
+  }
+ }
+ if(cmd==='approve'&&button.dataset.operation==='DROP_COLUMN'&&window.confirm('데이터가 존재하는 경우에도 DROP 승인하시겠습니까?'))body.set('allow_data_loss','true');
+ button.disabled=true;
+ try{
+  const resp=await fetch('/control/central/gis/schema/'+id+'/'+cmd+'/',{method:'POST',body,credentials:'same-origin',headers:{'Accept':'application/json'}});
+  const result=await resp.json(); if(!resp.ok||!result.ok)throw new Error(result.error||result.status||'Schema 처리 실패');
+  if(cmd==='inspect')window.alert(JSON.stringify(result.impact,null,2)); else location.reload();
+ }catch(error){$('notice').innerHTML='<div class="alert alert-danger">'+esc(error.message)+'</div>';}finally{button.disabled=false;}
+}
+
+function render(){renderGroups();renderStandards();renderFields();renderFilters();renderRules();renderAdminV2();}
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.tab)tab(b.dataset.tab);if(b.dataset.group){group=b.dataset.group;renderGroups();}if(b.id==='new-field'||b.dataset.editField){editingField=b.dataset.editField||'';renderFields();}if(b.id==='close-field'){editingField=null;renderFields();}if(b.dataset.codeField){tab('codes');renderFilters(true);$('filter-field').value=b.dataset.codeField;renderFilters();}if(b.dataset.editRule||b.id==='new-rule'){editingRule=b.dataset.editRule||null;renderRules();}});
 document.addEventListener('change',e=>{if(e.target.id==='standard-layer')renderStandards();else if(['standard-kind-filter','standard-widget-filter','standard-visible-filter','standard-required-filter','standard-readonly-filter'].includes(e.target.id))renderStandardFields();else if(e.target.id==='filter-catalog'){$('filter-layer').value='all';$('filter-field').value='all';renderFilters();}else if(e.target.id==='filter-layer'){$('filter-field').value='all';renderFilters();}else if(e.target.id==='filter-field')renderFilters();else if(['rule-source','rule-target'].includes(e.target.id))fillRuleValues();});
 document.addEventListener('input',e=>{if(e.target.id==='standard-field-search')renderStandardFields();});
