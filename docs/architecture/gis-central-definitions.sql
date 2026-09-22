@@ -110,3 +110,82 @@ CREATE TABLE gis.definition_rule_value (
  FOREIGN KEY(code_id,target_field) REFERENCES gis.definition_code(id,field_id)
 );
 COMMENT ON TABLE gis.definition_group IS 'GeoFlow central GIS definitions v3; no tenant operational records';
+
+
+-- Central GIS definition administration extension (v4-compatible, additive only).
+ALTER TABLE gis.definition_group
+  ADD COLUMN IF NOT EXISTS group_code text,
+  ADD COLUMN IF NOT EXISTS display_name text,
+  ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+UPDATE gis.definition_group
+   SET group_code = COALESCE(NULLIF(group_code,''), 'group_' || replace(id::text,'-','')),
+       display_name = COALESCE(NULLIF(display_name,''), name)
+ WHERE group_code IS NULL OR group_code='' OR display_name IS NULL OR display_name='';
+
+CREATE UNIQUE INDEX IF NOT EXISTS definition_group_group_code_uq
+  ON gis.definition_group(group_code);
+
+ALTER TABLE gis.definition_layer
+  ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+ALTER TABLE gis.definition_group_layer
+  ADD COLUMN IF NOT EXISTS sort_order integer NOT NULL DEFAULT 0;
+
+ALTER TABLE gis.definition_field
+  ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS form_visible boolean,
+  ADD COLUMN IF NOT EXISTS table_visible boolean,
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+CREATE TABLE IF NOT EXISTS gis.definition_change_log (
+ id uuid PRIMARY KEY,
+ actor text NOT NULL DEFAULT '',
+ target_type text NOT NULL CHECK(target_type IN ('GROUP','LAYER','FIELD','SCHEMA')),
+ target_id uuid,
+ change_type text NOT NULL,
+ before_value jsonb,
+ after_value jsonb,
+ schema_applied boolean NOT NULL DEFAULT false,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS definition_change_log_target_idx
+  ON gis.definition_change_log(target_type,target_id,created_at DESC);
+
+CREATE TABLE IF NOT EXISTS gis.schema_change (
+ id uuid PRIMARY KEY,
+ operation text NOT NULL CHECK(operation IN
+   ('ADD_COLUMN','RENAME_COLUMN','DEPRECATE','DROP_COLUMN','ALTER_TYPE')),
+ layer_id uuid NOT NULL REFERENCES gis.definition_layer(id),
+ field_id uuid REFERENCES gis.definition_field(id),
+ old_name text,
+ new_name text,
+ old_type text,
+ new_type text,
+ status text NOT NULL DEFAULT 'PENDING' CHECK(status IN
+   ('PENDING','APPROVED','APPLYING','APPLIED','PARTIAL_FAILED','FAILED','CANCELLED')),
+ preview_sql text NOT NULL DEFAULT '',
+ impact jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(impact)='object'),
+ created_by text NOT NULL DEFAULT '',
+ approved_by text NOT NULL DEFAULT '',
+ created_at timestamptz NOT NULL DEFAULT now(),
+ approved_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS gis.schema_change_tenant (
+ change_id uuid NOT NULL REFERENCES gis.schema_change(id) ON DELETE CASCADE,
+ tenant_group_id uuid NOT NULL,
+ status text NOT NULL DEFAULT 'PENDING' CHECK(status IN
+   ('PENDING','APPROVED','APPLYING','APPLIED','PARTIAL_FAILED','FAILED','CANCELLED')),
+ error_message text NOT NULL DEFAULT '',
+ applied_at timestamptz,
+ before_schema jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(before_schema)='object'),
+ after_schema jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(after_schema)='object'),
+ PRIMARY KEY(change_id,tenant_group_id)
+);
