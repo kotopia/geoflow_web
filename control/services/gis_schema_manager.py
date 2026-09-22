@@ -361,6 +361,40 @@ def tenant_column_state(cur, *, table_name, column_name=None):
     return {"table_exists": True, "column": state, "non_null_rows": int(cur.fetchone()[0])}
 
 
+def _canonical_db_type(column):
+    if not column:
+        return None
+    raw=str(column.get("data_type") or column.get("udt_name") or "").lower()
+    aliases={
+        "character varying":"varchar","varchar":"varchar","int4":"integer","integer":"integer",
+        "int8":"bigint","bigint":"bigint","float8":"double precision","double precision":"double precision",
+        "bool":"boolean","boolean":"boolean","timestamp without time zone":"timestamp",
+        "timestamp":"timestamp","timestamp with time zone":"timestamptz","timestamptz":"timestamptz",
+    }
+    return aliases.get(raw,raw)
+
+
+def change_already_applied(cur, change):
+    operation=change.get("operation")
+    table_name=identifier(change["table_name"],"레이어 테이블명")
+    if operation=="DEPRECATE":
+        return True
+    if operation=="ADD_COLUMN":
+        state=tenant_column_state(cur,table_name=table_name,column_name=change.get("new_name"))
+        return bool(state.get("column")) and _canonical_db_type(state["column"])==data_type(change.get("new_type"))
+    if operation=="RENAME_COLUMN":
+        old_state=tenant_column_state(cur,table_name=table_name,column_name=change.get("old_name"))
+        new_state=tenant_column_state(cur,table_name=table_name,column_name=change.get("new_name"))
+        return old_state.get("table_exists") and not old_state.get("column") and bool(new_state.get("column"))
+    if operation=="DROP_COLUMN":
+        state=tenant_column_state(cur,table_name=table_name,column_name=change.get("old_name"))
+        return state.get("table_exists") and not state.get("column")
+    if operation=="ALTER_TYPE":
+        state=tenant_column_state(cur,table_name=table_name,column_name=change.get("old_name"))
+        return bool(state.get("column")) and _canonical_db_type(state["column"])==data_type(change.get("new_type"))
+    return False
+
+
 def apply_change_to_tenant(cur, change):
     operation = change.get("operation")
     if operation not in SCHEMA_OPERATIONS:
