@@ -502,6 +502,17 @@ def schema_change_snapshot(cur):
     return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
+def schema_change_tenant_snapshot(cur):
+    cur.execute(
+        """SELECT change_id::text,tenant_group_id::text,status,error_message,applied_at,
+                  before_schema,after_schema
+             FROM gis.schema_change_tenant
+            ORDER BY change_id,tenant_group_id"""
+    )
+    columns = [item[0] for item in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
 def change_log_snapshot(cur, limit=200):
     cur.execute(
         """SELECT id::text,actor,target_type,target_id::text,change_type,before_value,
@@ -733,9 +744,10 @@ def mutate_admin(cur, data, *, actor=""):
             precision=data.get("precision"),
             scale=data.get("scale"),
         )
+        base = data.dict() if hasattr(data, "dict") else dict(data)
         field_id = mutate_admin(
             cur,
-            {**dict(data), "action": "field_admin", "source_layer_id": layer_id,
+            {**base, "action": "field_admin", "source_layer_id": layer_id,
              "storage_data_type": type_value, "active": False},
             actor=actor,
         )
@@ -765,7 +777,8 @@ def mutate_admin(cur, data, *, actor=""):
         type_changed = desired_type != current_type
         if name_changed and type_changed:
             raise DefinitionError("물리 필드명과 DB 타입은 한 번에 하나씩 변경하세요. 첫 변경 적용 후 다음 변경을 진행하세요.")
-        mutate_admin(cur, {**current, **dict(data), "action": "field_admin", "id": uid}, actor=actor)
+        base = data.dict() if hasattr(data, "dict") else dict(data)
+        mutate_admin(cur, {**current, **base, "action": "field_admin", "id": uid}, actor=actor)
         if name_changed:
             create_schema_change(
                 cur,
