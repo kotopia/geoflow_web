@@ -216,7 +216,7 @@ def mutate(cur, data):
     elif action == 'delete_code': cur.execute('DELETE FROM gis.definition_code WHERE id=%s',[uid])
     elif action == 'delete_field':
         one(cur,'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NULL',[uid],'기존 표준 필드는 삭제할 수 없습니다.')
-        cur.execute('DELETE FROM gis.definition_field WHERE id=%s',[uid])
+        cur.execute('UPDATE gis.definition_field SET active=false,updated_at=now() WHERE id=%s',[uid])
     elif action == 'delete_group':
         cur.execute('SELECT count(*) FROM gis.definition_group_layer WHERE group_id=%s',[uid])
         layer_count=int(cur.fetchone()[0])
