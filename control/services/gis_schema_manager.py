@@ -63,7 +63,8 @@ def storage_type(*, data_kind=None, db_type=None, max_length=None, precision=Non
     """Build a validated physical DB type from UI-friendly inputs."""
     selected = str(db_type or data_kind or "").strip().lower()
     aliases = {
-        "문자": "varchar", "정수": "integer", "큰 정수": "bigint", "실수": "numeric",
+        "문자": "varchar", "character varying": "varchar",
+        "정수": "integer", "큰 정수": "bigint", "실수": "numeric",
         "유무": "boolean", "날짜": "date", "날짜시간": "timestamp", "json": "jsonb",
     }
     selected = aliases.get(selected, selected)
@@ -598,7 +599,7 @@ def mutate_admin(cur, data, *, actor=""):
                  active=EXCLUDED.active,layer_group_id=EXCLUDED.layer_group_id,
                  description=EXCLUDED.description,updated_at=now()""",
             [uid, standard_name, physical_name, _label(data.get("label")),
-             str(data.get("domain_code") or "")[:40], geometry,
+             str(data.get("domain_code") or (before or {}).get("domain_code") or "")[:40], geometry,
              str(data.get("feature_role") or (before or {}).get("feature_role") or "ASSET")[:40],
              str(data.get("scope_type") or (before or {}).get("scope_type") or "PROJECT")[:40],
              _int(data.get("sort_order")), _bool(data.get("active"), bool(before and before["active"])),
@@ -753,6 +754,7 @@ def mutate_admin(cur, data, *, actor=""):
             scale=data.get("scale"),
         )
         base = data.dict() if hasattr(data, "dict") else dict(data)
+        base["visible"] = base.get("form_visible", base.get("visible", "true"))
         field_id = mutate_admin(
             cur,
             {**base, "action": "field_admin", "source_layer_id": layer_id,
@@ -780,12 +782,19 @@ def mutate_admin(cur, data, *, actor=""):
             precision=data.get("precision") if data.get("precision") not in (None, "") else current.get("precision"),
             scale=data.get("scale") if data.get("scale") not in (None, "") else current.get("scale"),
         )
-        current_type = data_type(current.get("storage_data_type") or current.get("storage_udt_name") or "text")
+        current_type = storage_type(
+            db_type=current.get("storage_data_type") or current.get("storage_udt_name") or "text",
+            max_length=current.get("max_length"),
+            precision=current.get("precision"),
+            scale=current.get("scale"),
+        )
         name_changed = desired_name != current["physical_name"]
         type_changed = desired_type != current_type
         if name_changed and type_changed:
             raise DefinitionError("물리 필드명과 DB 타입은 한 번에 하나씩 변경하세요. 첫 변경 적용 후 다음 변경을 진행하세요.")
         base = data.dict() if hasattr(data, "dict") else dict(data)
+        if "form_visible" in base:
+            base["visible"] = base["form_visible"]
         mutate_admin(cur, {**current, **base, "action": "field_admin", "id": uid}, actor=actor)
         if name_changed:
             create_schema_change(
