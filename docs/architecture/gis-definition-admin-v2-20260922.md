@@ -300,3 +300,45 @@ Field:
 - GIS 외 schema 변경
 - 서비스 배포/재시작
 - QGIS 플러그인/QField 변경
+
+
+## Catalog-first administration revision (2026-09-22)
+
+The primary central administration flow is now intentionally:
+
+```
+Catalog (L2 업무범위)
+  -> definition_layer_catalog (many-to-many)
+  -> definition_layer
+  -> definition_field (physical fields)
+```
+
+`gis.definition_layer_group` remains in the schema for compatibility and possible future reuse, but it is **not** a required classification level and is not presented as the primary CRUD flow. Existing `gis.definition_group` remains the separate business/form inheritance group.
+
+### Standard/Layer Field UI
+
+The **표준/레이어 필드** tab owns:
+- Catalog selection and Catalog-scoped Layer filtering.
+- Layer Definition create/update and L2 Catalog many-to-many binding.
+- Physical Field Definition create/update/deactivate request.
+- Safe DB type construction for `varchar(n)` and `numeric(p,s)`.
+- Widget/Form/Table metadata editing independently from DB type.
+
+Physical changes create guarded Schema Manager requests:
+- new physical field -> `ADD_COLUMN`
+- physical name change -> `RENAME_COLUMN`
+- type/length/precision/scale change -> `ALTER_TYPE`
+- physical field delete request -> deactivate Definition + `DROP_COLUMN` request
+
+The field UUID remains stable across rename/type changes. Central physical identity is updated only after all registered tenants have successfully applied the schema change.
+
+### Management extension
+
+The **관리 확장** tab no longer presents duplicate Layer Group/Layer/Field CRUD. It is reserved for:
+- impact analysis,
+- Schema change status,
+- per-tenant apply/error state,
+- approval/retry,
+- change history.
+
+The existing backend/admin extension tables and functions remain available for compatibility; no destructive rollback of the already deployed additive schema is performed.
