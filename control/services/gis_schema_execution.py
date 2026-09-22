@@ -150,6 +150,23 @@ def _record_target(change_id, group_id, *, status, error="", before=None, after=
             )
 
 
+def rollout_status(registered, tenant_status, targets, succeeded):
+    registered=list(registered)
+    targets=list(targets)
+    succeeded=list(succeeded)
+    all_registered_applied=bool(registered) and all(
+        tenant_status.get(group_id)=="APPLIED" for group_id in registered
+    )
+    requested_ok=len(succeeded)==len(targets)
+    if all_registered_applied:
+        return "APPLIED", True
+    if requested_ok:
+        return "PARTIAL_APPLIED", False
+    if succeeded:
+        return "PARTIAL_FAILED", False
+    return "FAILED", False
+
+
 def _finalize(change, targets, succeeded, *, actor=""):
     requested_ok = len(succeeded) == len(targets)
     registered = registered_tenant_ids()
@@ -159,17 +176,9 @@ def _finalize(change, targets, succeeded, *, actor=""):
             [change["id"]],
         )
         tenant_status = dict(status_cursor.fetchall())
-    all_registered_applied = bool(registered) and all(
-        tenant_status.get(group_id) == "APPLIED" for group_id in registered
+    status, all_registered_applied = rollout_status(
+        registered, tenant_status, targets, succeeded
     )
-    if all_registered_applied:
-        status = "APPLIED"
-    elif requested_ok:
-        status = "PARTIAL_APPLIED"
-    elif succeeded:
-        status = "PARTIAL_FAILED"
-    else:
-        status = "FAILED"
     with transaction.atomic(using="default"):
         with connections["default"].cursor() as cur:
             cur.execute("UPDATE gis.schema_change SET status=%s WHERE id=%s", [status, change["id"]])
