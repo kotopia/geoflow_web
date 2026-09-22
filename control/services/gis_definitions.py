@@ -128,8 +128,9 @@ def mutate(cur, data):
         if action == 'standard_field':
             one(cur, 'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NOT NULL', [uid])
             cur.execute('''UPDATE gis.definition_field SET label=%s,kind=%s,widget_type=%s,
-              visible=%s,required=%s,readonly=%s,sort_order=%s WHERE id=%s''',
-              [values[0],values[1],*meta,values[5],uid])
+              visible=%s,form_visible=%s,table_visible=%s,required=%s,readonly=%s,
+              sort_order=%s,updated_at=now() WHERE id=%s''',
+              [values[0],values[1],meta[0],meta[1],meta[1],meta[1],meta[2],meta[3],values[5],uid])
         else:
             if data.get('id'):
                 old = one(cur,'SELECT kind,source_layer_id FROM gis.definition_field WHERE id=%s',[uid])
@@ -140,14 +141,17 @@ def mutate(cur, data):
                     if cur.fetchone():
                         raise DefinitionError('참조코드를 먼저 정리한 후 유형을 변경하세요.')
             cur.execute('''INSERT INTO gis.definition_field
-              (id,label,kind,max_length,precision,scale,sort_order,widget_type,visible,required,readonly,layout,active)
-              VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
+              (id,label,kind,max_length,precision,scale,sort_order,widget_type,visible,
+               form_visible,table_visible,required,readonly,layout,active)
+              VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
               ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,kind=EXCLUDED.kind,
               max_length=EXCLUDED.max_length,precision=EXCLUDED.precision,scale=EXCLUDED.scale,
               sort_order=EXCLUDED.sort_order,widget_type=EXCLUDED.widget_type,visible=EXCLUDED.visible,
+              form_visible=EXCLUDED.form_visible,table_visible=EXCLUDED.table_visible,
               required=EXCLUDED.required,readonly=EXCLUDED.readonly,layout=EXCLUDED.layout,
               active=EXCLUDED.active,updated_at=now()''',
-              [uid,*values,*meta,_layout_json(data),boolean(data.get('active'),True)])
+              [uid,*values,meta[0],meta[1],meta[1],meta[1],meta[2],meta[3],
+               _layout_json(data),boolean(data.get('active'),True)])
     elif action == 'code':
         field = identifier(data.get('field')); kind = _codes_allowed(cur,field); code = text(data.get('code'))
         if kind == 'integer':
