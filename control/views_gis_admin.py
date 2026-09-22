@@ -36,17 +36,18 @@ def dashboard(request):
                         legacy_target=None
                         legacy_before=None
                         requested_id=request.POST.get('id')
-                        if action in ('group','delete_group'):
+                        audit_ready=gis_schema_manager.admin_schema_ready(cur)
+                        if audit_ready and action in ('group','delete_group'):
                             legacy_target='GROUP'
                             legacy_before=gis_schema_manager.group_state(cur,requested_id) if requested_id else None
-                        elif action=='layer':
+                        elif audit_ready and action=='layer':
                             legacy_target='LAYER'
                             legacy_before=gis_schema_manager.layer_state(cur,requested_id) if requested_id else None
-                        elif action in ('field','standard_field','delete_field'):
+                        elif audit_ready and action in ('field','standard_field','delete_field'):
                             legacy_target='FIELD'
                             legacy_before=gis_schema_manager.field_state(cur,requested_id) if requested_id else None
                         uid=definitions.mutate(cur,request.POST)
-                        if legacy_target and gis_schema_manager.admin_schema_ready(cur):
+                        if legacy_target and audit_ready:
                             after=(gis_schema_manager.group_state(cur,uid) if legacy_target=='GROUP'
                                    else gis_schema_manager.layer_state(cur,uid) if legacy_target=='LAYER'
                                    else gis_schema_manager.field_state(cur,uid))
