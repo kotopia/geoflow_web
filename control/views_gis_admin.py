@@ -61,6 +61,7 @@ def dashboard(request):
                 payload['admin_schema_ready']=gis_schema_manager.admin_schema_ready(cur)
                 if payload['admin_schema_ready']:
                     payload['schema_changes']=gis_schema_manager.schema_change_snapshot(cur)
+                    payload['schema_change_tenants']=gis_schema_manager.schema_change_tenant_snapshot(cur)
                     payload['change_log']=gis_schema_manager.change_log_snapshot(cur)
                 payload['tenants']=list(GroupDBConfig.objects.using('default').select_related('group').filter(group__status='active').exclude(db_alias='default').order_by('group__name').values('group_id','group__code','group__name'))
         if request.method=='POST': return JsonResponse({'ok':True,'id':uid,'data':payload})
