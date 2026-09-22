@@ -36,12 +36,18 @@ def identifier(value, label="DB 식별자"):
 def data_type(value):
     """Return a safe PostgreSQL type expression without accepting arbitrary SQL."""
     value = " ".join(str(value or "").strip().lower().split())
+    aliases = {
+        "character varying": "varchar",
+        "timestamp without time zone": "timestamp",
+        "timestamp with time zone": "timestamptz",
+    }
+    value = aliases.get(value, value)
     if value in ALLOWED_TYPES:
         return value
     match = PARAMETERIZED_TYPE_RE.fullmatch(value)
     if not match:
         raise DefinitionError("허용되지 않은 DB 타입입니다.")
-    if match.group(1) == "varchar":
+    if match.group(1) in ("varchar", "character varying"):
         length = int(match.group(2))
         if not 1 <= length <= 1000000:
             raise DefinitionError("문자 길이는 1~1000000입니다.")
