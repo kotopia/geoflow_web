@@ -459,20 +459,28 @@ def mutate_admin(cur, data, *, actor=""):
         geometry = str(data.get("geometry_kind") or (before or {}).get("geometry_kind") or "").upper()
         if geometry not in ("", "POINT", "LINE", "POLYGON"):
             raise DefinitionError("Geometry 유형을 확인하세요.")
+        layer_group_id = data.get("layer_group_id")
+        if layer_group_id in (None, ""):
+            layer_group_id = (before or {}).get("layer_group_id")
+        if layer_group_id:
+            layer_group_id = _uuid(layer_group_id, "레이어 그룹")
+            if not layer_group_state(cur, layer_group_id):
+                raise DefinitionError("레이어 그룹을 찾을 수 없습니다.")
         cur.execute("""INSERT INTO gis.definition_layer
             (id,standard_name,physical_name,label,domain_code,geometry_kind,feature_role,
-             scope_type,sort_order,active,description,updated_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+             scope_type,sort_order,active,layer_group_id,description,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
             ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,domain_code=EXCLUDED.domain_code,
               geometry_kind=EXCLUDED.geometry_kind,feature_role=EXCLUDED.feature_role,
               scope_type=EXCLUDED.scope_type,sort_order=EXCLUDED.sort_order,
-              active=EXCLUDED.active,description=EXCLUDED.description,updated_at=now()""",
+              active=EXCLUDED.active,layer_group_id=EXCLUDED.layer_group_id,
+              description=EXCLUDED.description,updated_at=now()""",
             [uid, standard_name, physical_name, _label(data.get("label")),
              str(data.get("domain_code") or "")[:40], geometry,
              str(data.get("feature_role") or (before or {}).get("feature_role") or "ASSET")[:40],
              str(data.get("scope_type") or (before or {}).get("scope_type") or "PROJECT")[:40],
              _int(data.get("sort_order")), _bool(data.get("active"), bool(before and before["active"])),
-             str(data.get("description") or "")[:2000]])
+             layer_group_id, str(data.get("description") or "")[:2000]])
         after = layer_state(cur, uid)
         audit(cur, actor=actor, target_type="LAYER", target_id=uid,
               change_type="UPDATE" if before else "CREATE", before=before, after=after)
