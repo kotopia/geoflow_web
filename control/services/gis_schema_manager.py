@@ -472,6 +472,14 @@ def apply_change_to_tenant(cur, change):
             sql.Identifier("gis"), sql.Identifier(table_name),
             sql.Identifier(identifier(change["new_name"], "신규 컬럼명")),
             sql.SQL(data_type(change["new_type"])))
+        params = []
+        if change.get("field_default") not in (None, ""):
+            stmt += sql.SQL(" DEFAULT %s")
+            params.append(change.get("field_default"))
+        if change.get("field_nullable") is False:
+            stmt += sql.SQL(" NOT NULL")
+        cur.execute(stmt, params)
+        return
     elif operation == "RENAME_COLUMN":
         stmt = sql.SQL("ALTER TABLE {}.{} RENAME COLUMN {} TO {}").format(
             sql.Identifier("gis"), sql.Identifier(table_name),
