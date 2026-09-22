@@ -496,20 +496,6 @@ def mutate_admin(cur, data, *, actor=""):
               change_type="DEACTIVATE", before=before, after=layer_state(cur, uid))
         return uid
 
-    if action == "group_layer_admin":
-        group_id = _uuid(data.get("group_id"), "그룹")
-        layer_id = _uuid(data.get("layer_id"), "레이어")
-        if not layer_group_state(cur, group_id) or not layer_state(cur, layer_id):
-            raise DefinitionError("그룹 또는 레이어를 찾을 수 없습니다.")
-        cur.execute("""INSERT INTO gis.definition_group_layer(group_id,layer_id,sort_order)
-            VALUES (%s,%s,%s) ON CONFLICT(group_id,layer_id)
-            DO UPDATE SET sort_order=EXCLUDED.sort_order""",
-            [group_id, layer_id, _int(data.get("sort_order"))])
-        audit(cur, actor=actor, target_type="LAYER", target_id=layer_id,
-              change_type="GROUP_ASSIGN",
-              after={"group_id": group_id, "sort_order": _int(data.get("sort_order"))})
-        return layer_id
-
     if action == "field_admin":
         uid = _uuid(data.get("id")) if data.get("id") else str(uuid4())
         before = field_state(cur, uid) if data.get("id") else None
