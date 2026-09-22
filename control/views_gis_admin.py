@@ -33,7 +33,29 @@ def dashboard(request):
                         )
                     else:
                         guard_definition_deletion(cur,request.POST)
+                        legacy_target=None
+                        legacy_before=None
+                        requested_id=request.POST.get('id')
+                        if action in ('group','delete_group'):
+                            legacy_target='GROUP'
+                            legacy_before=gis_schema_manager.group_state(cur,requested_id) if requested_id else None
+                        elif action=='layer':
+                            legacy_target='LAYER'
+                            legacy_before=gis_schema_manager.layer_state(cur,requested_id) if requested_id else None
+                        elif action in ('field','standard_field','delete_field'):
+                            legacy_target='FIELD'
+                            legacy_before=gis_schema_manager.field_state(cur,requested_id) if requested_id else None
                         uid=definitions.mutate(cur,request.POST)
+                        if legacy_target and gis_schema_manager.admin_schema_ready(cur):
+                            after=(gis_schema_manager.group_state(cur,uid) if legacy_target=='GROUP'
+                                   else gis_schema_manager.layer_state(cur,uid) if legacy_target=='LAYER'
+                                   else gis_schema_manager.field_state(cur,uid))
+                            gis_schema_manager.audit(
+                                cur,actor=gis_schema_manager.actor_name(request),
+                                target_type=legacy_target,target_id=uid,
+                                change_type='LEGACY_'+action.upper(),
+                                before=legacy_before,after=after,
+                            )
                 payload=definitions.snapshot(cur)
                 payload['admin_schema_ready']=gis_schema_manager.admin_schema_ready(cur)
                 if payload['admin_schema_ready']:
