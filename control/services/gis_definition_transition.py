@@ -13,10 +13,11 @@ LEGACY_DEFINITION = (
     'ref_code_group', 'meta_field_def', 'meta_feature_type',
 )
 CENTRAL_TABLES = (
-    'definition_group', 'definition_layer', 'definition_layer_catalog',
+    'definition_group', 'definition_layer_group', 'definition_layer', 'definition_layer_catalog',
     'definition_field', 'definition_field_layer', 'definition_code',
     'definition_group_scope', 'definition_group_layer',
     'definition_group_field', 'definition_rule', 'definition_rule_value',
+    'definition_change_log', 'schema_change', 'schema_change_tenant',
 )
 V3_COMMENT = 'GeoFlow central GIS definitions v3; no tenant operational records'
 

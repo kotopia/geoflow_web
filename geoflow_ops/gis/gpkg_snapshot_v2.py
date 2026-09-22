@@ -197,7 +197,8 @@ def _central_layer_fields(plan: dict[str, Any], layer_id: str) -> tuple[PackageF
             PackageField(
                 name=name,
                 data_type=data_type or "text",
-                editable=not bool(row.get("readonly")), visible=bool(row.get("visible")),
+                editable=not bool(row.get("readonly")),
+                visible=bool(row.get("table_visible", row.get("visible"))),
                 sort_order=int(row.get("display_order") or 0), label=str(row.get("label") or ""),
                 standard_name=str(row.get("field_identifier") or ""), unit=str(row.get("unit") or ""),
                 code_group_key="central:"+str(row.get("id")), widget_type=str(row.get("widget_type") or ""),

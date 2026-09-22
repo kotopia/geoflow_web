@@ -61,27 +61,36 @@ def resolve(data, config, layers, *, include_unavailable=False):
     # add central extension fields or override order/flags; they never duplicate it.
     links={}
     for field in fields.values():
+        if not field.get('active', True):
+            continue
         layer_id=field.get('source_layer_id')
         if layer_id in selected:
+            form_visible=field['visible'] if field.get('form_visible') is None else field['form_visible']
+            table_visible=field['visible'] if field.get('table_visible') is None else field['table_visible']
             links[(field['id'],layer_id)]={'sort_order':field['sort_order'],'required':field['required'],
-                'visible':field['visible'],'readonly':field['readonly'],'layout':field.get('layout') or {},
-                'source':'standard','inherited':False}
+                'visible':form_visible,'table_visible':table_visible,'readonly':field['readonly'],
+                'layout':field.get('layout') or {},'source':'standard','inherited':False}
     for link in data['group_fields']:
         if link['group_id'] != group_id or link['layer_id'] not in selected:
             continue
         base=fields.get(link['field_id'])
-        if not base: continue
+        if not base or not base.get('active', True): continue
+        base_form_visible=base['visible'] if base.get('form_visible') is None else base['form_visible']
+        base_table_visible=base['visible'] if base.get('table_visible') is None else base['table_visible']
         links[(link['field_id'],link['layer_id'])]={'sort_order':link['sort_order'],
-            'required':link['required'],'visible':base['visible'] if link['visible'] is None else link['visible'],
+            'required':link['required'],'visible':base_form_visible if link['visible'] is None else link['visible'],
+            'table_visible':base_table_visible,
             'readonly':base['readonly'] if link['readonly'] is None else link['readonly'],
             'layout':link.get('layout') or base.get('layout') or {},'source':'group','inherited':True}
     for field_id, layer_ids in config.get('additions',{}).items():
         field=fields.get(field_id)
-        if not field: continue
+        if not field or not field.get('active', True): continue
         for layer_id in layer_ids:
             if layer_id in selected:
+                form_visible=field['visible'] if field.get('form_visible') is None else field['form_visible']
+                table_visible=field['visible'] if field.get('table_visible') is None else field['table_visible']
                 links.setdefault((field_id,layer_id),{'sort_order':field['sort_order'],'required':field['required'],
-                    'visible':field['visible'],'readonly':field['readonly'],'layout':field.get('layout') or {},
+                    'visible':form_visible,'table_visible':table_visible,'readonly':field['readonly'],'layout':field.get('layout') or {},
                     'source':'project','inherited':False})
     private=dict(config.get('private_items',{}))
     fields.update(private)
@@ -89,7 +98,9 @@ def resolve(data, config, layers, *, include_unavailable=False):
         layer_id=field.get('source_layer_id')
         if layer_id in selected:
             links[(field_id,layer_id)]={'sort_order':field.get('sort_order',0),'required':field.get('required',False),
-                'visible':field.get('visible',True),'readonly':field.get('readonly',False),
+                'visible':field.get('form_visible',field.get('visible',True)),
+                'table_visible':field.get('table_visible',field.get('visible',True)),
+                'readonly':field.get('readonly',False),
                 'layout':field.get('layout') or {},'source':'project','inherited':False}
 
     overrides=config.get('overrides',{})
@@ -109,6 +120,8 @@ def resolve(data, config, layers, *, include_unavailable=False):
             'storage_data_type':field.get('storage_data_type'),'semantic_data_type':semantic,
             'widget_type':override.get('widget_type',field.get('widget_type','text')),
             'visible':override.get('visible',link['visible']),
+            'form_visible':override.get('form_visible',override.get('visible',link['visible'])),
+            'table_visible':override.get('table_visible',link.get('table_visible',link['visible'])),
             'required':override.get('required',link['required']),
             'readonly':override.get('readonly',link['readonly']),
             'default':override.get('default',field.get('default_value')),
@@ -147,7 +160,8 @@ def resolve(data, config, layers, *, include_unavailable=False):
 
 def reference_payload(data, layer_ids):
     ids=set(layer_ids)
-    fields=[field for field in data['fields'] if field.get('source_layer_id') in ids and field.get('physical_name')]
+    fields=[field for field in data['fields']
+            if field.get('active',True) and field.get('source_layer_id') in ids and field.get('physical_name')]
     bindings=[]; groups=[]
     layers={layer['id']:layer for layer in data['layers']}
     for field in fields:

@@ -1,6 +1,7 @@
 """Authoring service for the central, platform-independent GIS definition."""
 from __future__ import annotations
 
+import hashlib
 import json
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
@@ -127,8 +128,9 @@ def mutate(cur, data):
         if action == 'standard_field':
             one(cur, 'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NOT NULL', [uid])
             cur.execute('''UPDATE gis.definition_field SET label=%s,kind=%s,widget_type=%s,
-              visible=%s,required=%s,readonly=%s,sort_order=%s WHERE id=%s''',
-              [values[0],values[1],*meta,values[5],uid])
+              visible=%s,form_visible=%s,table_visible=%s,required=%s,readonly=%s,
+              sort_order=%s,updated_at=now() WHERE id=%s''',
+              [values[0],values[1],meta[0],meta[1],meta[1],meta[1],meta[2],meta[3],values[5],uid])
         else:
             if data.get('id'):
                 old = one(cur,'SELECT kind,source_layer_id FROM gis.definition_field WHERE id=%s',[uid])
@@ -139,13 +141,17 @@ def mutate(cur, data):
                     if cur.fetchone():
                         raise DefinitionError('참조코드를 먼저 정리한 후 유형을 변경하세요.')
             cur.execute('''INSERT INTO gis.definition_field
-              (id,label,kind,max_length,precision,scale,sort_order,widget_type,visible,required,readonly,layout)
-              VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+              (id,label,kind,max_length,precision,scale,sort_order,widget_type,visible,
+               form_visible,table_visible,required,readonly,layout,active)
+              VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s)
               ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,kind=EXCLUDED.kind,
               max_length=EXCLUDED.max_length,precision=EXCLUDED.precision,scale=EXCLUDED.scale,
               sort_order=EXCLUDED.sort_order,widget_type=EXCLUDED.widget_type,visible=EXCLUDED.visible,
-              required=EXCLUDED.required,readonly=EXCLUDED.readonly,layout=EXCLUDED.layout''',
-              [uid,*values,*meta,_layout_json(data)])
+              form_visible=EXCLUDED.form_visible,table_visible=EXCLUDED.table_visible,
+              required=EXCLUDED.required,readonly=EXCLUDED.readonly,layout=EXCLUDED.layout,
+              active=EXCLUDED.active,updated_at=now()''',
+              [uid,*values,meta[0],meta[1],meta[1],meta[1],meta[2],meta[3],
+               _layout_json(data),boolean(data.get('active'),True)])
     elif action == 'code':
         field = identifier(data.get('field')); kind = _codes_allowed(cur,field); code = text(data.get('code'))
         if kind == 'integer':
@@ -215,8 +221,14 @@ def mutate(cur, data):
     elif action == 'delete_code': cur.execute('DELETE FROM gis.definition_code WHERE id=%s',[uid])
     elif action == 'delete_field':
         one(cur,'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NULL',[uid],'기존 표준 필드는 삭제할 수 없습니다.')
-        cur.execute('DELETE FROM gis.definition_field WHERE id=%s',[uid])
-    elif action == 'delete_group': cur.execute('DELETE FROM gis.definition_group WHERE id=%s',[uid])
+        cur.execute('UPDATE gis.definition_field SET active=false,updated_at=now() WHERE id=%s',[uid])
+    elif action == 'delete_group':
+        cur.execute('SELECT count(*) FROM gis.definition_group_layer WHERE group_id=%s',[uid])
+        layer_count=int(cur.fetchone()[0])
+        if layer_count:
+            raise DefinitionError(f'이 그룹에는 {layer_count}개의 레이어가 있습니다. 다른 그룹 또는 미분류로 이동한 후 삭제하세요.')
+        cur.execute('DELETE FROM gis.definition_group_scope WHERE group_id=%s',[uid])
+        cur.execute('DELETE FROM gis.definition_group WHERE id=%s',[uid])
     elif action == 'delete_scope':
         cur.execute('DELETE FROM gis.definition_group_scope WHERE group_id=%s AND catalog_level=%s AND catalog_item_id=%s',
                     [identifier(data.get('group')),number(data.get('catalog_level'),2),identifier(data.get('catalog'))])
@@ -233,16 +245,19 @@ def mutate(cur, data):
 def snapshot(cur):
     data = {
       'groups':rows(cur,'SELECT id::text,name FROM gis.definition_group ORDER BY name'),
+      'layer_groups':rows(cur,'''SELECT id::text,group_code,group_name,display_name,sort_order,active,description
+        FROM gis.definition_layer_group ORDER BY sort_order,display_name,group_code'''),
       'layers':rows(cur,'''SELECT id::text,standard_name,physical_name,label,domain_code,geometry_kind,
-        feature_role,scope_type,sort_order,active FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
+        feature_role,scope_type,sort_order,active,layer_group_id::text,description,updated_at
+        FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
       'catalogs':rows(cur,"SELECT id::text,code,name FROM catalog.category_node WHERE level=2 AND active ORDER BY ord,code"),
       'layer_catalogs':rows(cur,'''SELECT lc.layer_id::text,l.standard_name AS layer_name,lc.catalog_level,
         lc.catalog_item_id::text AS catalog_id,lc.catalog_item_id::text FROM gis.definition_layer_catalog lc
         JOIN gis.definition_layer l ON l.id=lc.layer_id ORDER BY l.standard_name,lc.catalog_level,lc.catalog_item_id'''),
       'fields':rows(cur,'''SELECT f.id::text,f.source_layer_id::text,l.standard_name AS source_layer,
         f.physical_name,f.standard_name,f.label,f.storage_data_type,f.storage_udt_name,f.kind,f.widget_type,
-        f.max_length,f.precision,f.scale,f.nullable,f.storage_default,f.visible,f.required,f.readonly,
-        f.default_value,f.sort_order,f.unit,f.description,f.layout,
+        f.max_length,f.precision,f.scale,f.nullable,f.storage_default,f.visible,f.form_visible,f.table_visible,f.required,f.readonly,
+        f.default_value,f.sort_order,f.unit,f.description,f.layout,f.active,f.updated_at,
         (SELECT count(*) FROM gis.definition_code c WHERE c.field_id=f.id AND c.enabled) AS code_count
         FROM gis.definition_field f LEFT JOIN gis.definition_layer l ON l.id=f.source_layer_id
         ORDER BY COALESCE(l.sort_order,2147483647),f.sort_order,f.label'''),
@@ -263,4 +278,12 @@ def snapshot(cur):
         LEFT JOIN gis.definition_code c ON c.id=v.code_id GROUP BY r.id ORDER BY r.id'''),
       'kinds':KINDS,'widgets':WIDGETS,
     }
+    revision_source={key:data[key] for key in (
+        'groups','layer_groups','layers','layer_catalogs','fields','field_layers','codes',
+        'scopes','group_layers','group_fields','rules'
+    )}
+    data['definition_revision']=hashlib.sha256(
+        json.dumps(revision_source,sort_keys=True,ensure_ascii=False,default=str,
+                   separators=(',',':')).encode()
+    ).hexdigest()
     return data
