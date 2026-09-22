@@ -216,7 +216,13 @@ def mutate(cur, data):
     elif action == 'delete_field':
         one(cur,'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NULL',[uid],'기존 표준 필드는 삭제할 수 없습니다.')
         cur.execute('DELETE FROM gis.definition_field WHERE id=%s',[uid])
-    elif action == 'delete_group': cur.execute('DELETE FROM gis.definition_group WHERE id=%s',[uid])
+    elif action == 'delete_group':
+        cur.execute('SELECT count(*) FROM gis.definition_group_layer WHERE group_id=%s',[uid])
+        layer_count=int(cur.fetchone()[0])
+        if layer_count:
+            raise DefinitionError(f'이 그룹에는 {layer_count}개의 레이어가 있습니다. 다른 그룹 또는 미분류로 이동한 후 삭제하세요.')
+        cur.execute('DELETE FROM gis.definition_group_scope WHERE group_id=%s',[uid])
+        cur.execute('DELETE FROM gis.definition_group WHERE id=%s',[uid])
     elif action == 'delete_scope':
         cur.execute('DELETE FROM gis.definition_group_scope WHERE group_id=%s AND catalog_level=%s AND catalog_item_id=%s',
                     [identifier(data.get('group')),number(data.get('catalog_level'),2),identifier(data.get('catalog'))])
