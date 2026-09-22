@@ -30,6 +30,7 @@ app_name = "control"
 
 urlpatterns = [
     path("central/gis/definitions/", views_gis_admin.dashboard, name="gis_definitions"),
+    path("central/gis/schema/<uuid:change_id>/<str:command>/", views_gis_admin.schema_change_command, name="gis_schema_change_command"),
     path("central/bids/", central_bids.dashboard, name="central_bids"),
     path("central/bids/status/", central_bids.status, name="central_bids_status"),
     path('', dashboard, name='dashboard'),  # /control/ 진입점
