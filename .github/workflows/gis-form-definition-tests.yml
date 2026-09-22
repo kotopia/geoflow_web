@@ -30,6 +30,18 @@ jobs:
       - run: python -m unittest geoflow_ops.gis.test_form_definitions geoflow_ops.gis.test_central_definitions geoflow_ops.gis.test_definition_visibility control.test_gis_schema_manager -v
         env:
           GEOFLOW_FORMS_ISOLATED_PG: '1'
+      - name: Compile changed GIS Python modules
+        run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py geoflow_ops/gis/central_definitions.py
+      - name: Validate central GIS admin JavaScript syntax
+        run: |
+          python - <<'PYCODE'
+          from pathlib import Path
+          source = Path('control/templates/control/gis/definitions.html').read_text()
+          start = source.index('<script>') + len('<script>')
+          end = source.index('</script>', start)
+          Path('/tmp/gis-definitions-admin.js').write_text(source[start:end])
+          PYCODE
+          node --check /tmp/gis-definitions-admin.js
       - name: Validate remote deployment shell without executing it
         run: |
           python - <<'PYCODE'
