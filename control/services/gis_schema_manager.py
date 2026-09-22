@@ -309,6 +309,11 @@ def create_schema_change(cur, data, *, actor=""):
     new_name = identifier(data.get("new_name"), "신규 컬럼명") if data.get("new_name") else None
     old_type = data_type(data.get("old_type")) if data.get("old_type") else None
     new_type = data_type(data.get("new_type")) if data.get("new_type") else None
+    selected_field = field_state(cur, field_id) if field_id else None
+    if field_id and not selected_field:
+        raise DefinitionError("필드를 찾을 수 없습니다.")
+    if selected_field and selected_field.get("source_layer_id") != layer["id"]:
+        raise DefinitionError("선택한 필드는 해당 레이어의 필드가 아닙니다.")
     if operation == "ADD_COLUMN" and (not new_name or not new_type):
         raise DefinitionError("ADD COLUMN에는 컬럼명과 타입이 필요합니다.")
     if operation == "RENAME_COLUMN" and (not old_name or not new_name):
@@ -317,6 +322,12 @@ def create_schema_change(cur, data, *, actor=""):
         raise DefinitionError("DROP COLUMN에는 컬럼명이 필요합니다.")
     if operation == "ALTER_TYPE" and (not old_name or not new_type):
         raise DefinitionError("TYPE 변경에는 컬럼명과 신규 타입이 필요합니다.")
+    if selected_field:
+        physical_name = selected_field.get("physical_name")
+        if operation == "ADD_COLUMN" and physical_name != new_name:
+            raise DefinitionError("신규 컬럼명은 선택한 필드의 DB 필드명과 같아야 합니다.")
+        if operation in ("RENAME_COLUMN", "DROP_COLUMN", "ALTER_TYPE") and physical_name != old_name:
+            raise DefinitionError("기존 컬럼명은 선택한 필드의 DB 필드명과 같아야 합니다.")
     preview = preview_sql(operation=operation, table_name=layer["physical_name"],
                           old_name=old_name, new_name=new_name, new_type=new_type)
     impact = {"central_references": impact_for_field(cur, field_id) if field_id else {},
