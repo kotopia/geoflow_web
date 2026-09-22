@@ -230,5 +230,63 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
         self.assertGreaterEqual(len(manager.change_log_snapshot(self.cur)), 6)
 
 
+    def test_physical_add_rename_drop_are_limited_to_gis_schema(self):
+        self.cur.execute("CREATE TABLE gis.wtl_test_ps(id uuid PRIMARY KEY)")
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "ADD_COLUMN",
+                "table_name": "wtl_test_ps",
+                "new_name": "new_depth",
+                "new_type": "numeric",
+            },
+        )
+        self.cur.execute(
+            """SELECT data_type FROM information_schema.columns
+                WHERE table_schema='gis' AND table_name='wtl_test_ps' AND column_name='new_depth'"""
+        )
+        self.assertEqual(self.cur.fetchone()[0], "numeric")
+
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "RENAME_COLUMN",
+                "table_name": "wtl_test_ps",
+                "old_name": "new_depth",
+                "new_name": "depth_value",
+            },
+        )
+        self.cur.execute(
+            """SELECT count(*) FROM information_schema.columns
+                WHERE table_schema='gis' AND table_name='wtl_test_ps' AND column_name='depth_value'"""
+        )
+        self.assertEqual(self.cur.fetchone()[0], 1)
+
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "DROP_COLUMN",
+                "table_name": "wtl_test_ps",
+                "old_name": "depth_value",
+            },
+        )
+        self.cur.execute(
+            """SELECT count(*) FROM information_schema.columns
+                WHERE table_schema='gis' AND table_name='wtl_test_ps' AND column_name='depth_value'"""
+        )
+        self.assertEqual(self.cur.fetchone()[0], 0)
+
+        with self.assertRaises(DefinitionError):
+            manager.apply_change_to_tenant(
+                self.cur,
+                {
+                    "operation": "ADD_COLUMN",
+                    "table_name": "ctr.contracts",
+                    "new_name": "forbidden",
+                    "new_type": "text",
+                },
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
