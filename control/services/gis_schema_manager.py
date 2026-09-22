@@ -131,7 +131,7 @@ def ensure_admin_schema(cur):
           old_type text,
           new_type text,
           status text NOT NULL DEFAULT 'PENDING' CHECK(status IN
-            ('PENDING','APPROVED','APPLYING','APPLIED','PARTIAL_FAILED','FAILED','CANCELLED')),
+            ('PENDING','APPROVED','APPLYING','APPLIED','PARTIAL_APPLIED','PARTIAL_FAILED','FAILED','CANCELLED')),
           preview_sql text NOT NULL DEFAULT '',
           impact jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(impact)='object'),
           created_by text NOT NULL DEFAULT '',
@@ -145,7 +145,7 @@ def ensure_admin_schema(cur):
           change_id uuid NOT NULL REFERENCES gis.schema_change(id) ON DELETE CASCADE,
           tenant_group_id uuid NOT NULL,
           status text NOT NULL DEFAULT 'PENDING' CHECK(status IN
-            ('PENDING','APPROVED','APPLYING','APPLIED','PARTIAL_FAILED','FAILED','CANCELLED')),
+            ('PENDING','APPROVED','APPLYING','APPLIED','PARTIAL_APPLIED','PARTIAL_FAILED','FAILED','CANCELLED')),
           error_message text NOT NULL DEFAULT '',
           applied_at timestamptz,
           before_schema jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(before_schema)='object'),
