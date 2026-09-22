@@ -581,46 +581,10 @@ def mutate_admin(cur, data, *, actor=""):
                 **current,
                 **item,
                 "action": "layer_admin",
+                "layer_group_id": item.get("layer_group_id", current.get("layer_group_id")),
                 "label": item.get("label", current["label"]),
             }
             mutate_admin(cur, merged, actor=actor)
-            target_group = item.get("group_id") or None
-            cur.execute("SELECT group_id::text FROM gis.definition_group_layer WHERE layer_id=%s", [item["id"]])
-            current_groups = [row[0] for row in cur.fetchall()]
-            if target_group:
-                target_group = _uuid(target_group, "그룹")
-                mutate_admin(cur, {
-                    "action": "group_layer_admin",
-                    "group_id": target_group,
-                    "layer_id": item["id"],
-                    "sort_order": item.get("group_sort_order", item.get("sort_order", 0)),
-                }, actor=actor)
-                for old_group in current_groups:
-                    if old_group == target_group:
-                        continue
-                    cur.execute("""INSERT INTO gis.definition_group_field
-                        (group_id,layer_id,field_id,sort_order,required,visible,readonly,layout)
-                        SELECT %s,layer_id,field_id,sort_order,required,visible,readonly,layout
-                          FROM gis.definition_group_field
-                         WHERE group_id=%s AND layer_id=%s
-                        ON CONFLICT(group_id,layer_id,field_id) DO NOTHING""",
-                        [target_group, old_group, item["id"]])
-                    cur.execute("DELETE FROM gis.definition_group_field WHERE group_id=%s AND layer_id=%s",
-                                [old_group, item["id"]])
-                    cur.execute("DELETE FROM gis.definition_group_layer WHERE group_id=%s AND layer_id=%s",
-                                [old_group, item["id"]])
-                    audit(cur, actor=actor, target_type="LAYER", target_id=item["id"],
-                          change_type="GROUP_MOVE",
-                          before={"group_id": old_group}, after={"group_id": target_group})
-            else:
-                cur.execute("SELECT count(*) FROM gis.definition_group_field WHERE layer_id=%s", [item["id"]])
-                if int(cur.fetchone()[0]):
-                    raise DefinitionError("그룹별 필드 설정이 있는 레이어는 미분류로 바로 이동할 수 없습니다.")
-                cur.execute("DELETE FROM gis.definition_group_layer WHERE layer_id=%s", [item["id"]])
-                if current_groups:
-                    audit(cur, actor=actor, target_type="LAYER", target_id=item["id"],
-                          change_type="MOVE_UNCLASSIFIED",
-                          before={"group_ids": current_groups}, after={"group_id": None})
         return ""
 
     if action == "schema_change_admin":
