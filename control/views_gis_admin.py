@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods, require_POST
 from control.decorators import require_central_admin
+from control.models import GroupDBConfig
 from control.services import gis_definitions as definitions
 from control.services.gis_admin import guard_definition_deletion
 from control.services import gis_schema_manager
@@ -38,6 +39,7 @@ def dashboard(request):
                 if payload['admin_schema_ready']:
                     payload['schema_changes']=gis_schema_manager.schema_change_snapshot(cur)
                     payload['change_log']=gis_schema_manager.change_log_snapshot(cur)
+                payload['tenants']=list(GroupDBConfig.objects.using('default').select_related('group').filter(group__status='active').exclude(db_alias='default').order_by('group__name').values('group_id','group__code','group__name'))
         if request.method=='POST': return JsonResponse({'ok':True,'id':uid,'data':payload})
         return render(request,'control/gis/definitions.html',{'ready':True,'definition_data':payload})
     except definitions.DefinitionError as exc:
