@@ -239,13 +239,17 @@ def rollout_status(registered, tenant_status, targets, succeeded):
     all_registered_applied=bool(registered) and all(
         tenant_status.get(group_id)=="APPLIED" for group_id in registered
     )
-    requested_ok=len(succeeded)==len(targets)
     if all_registered_applied:
         return "APPLIED", True
-    if requested_ok:
+
+    any_applied=any(tenant_status.get(group_id)=="APPLIED" for group_id in registered)
+    any_failed=any(tenant_status.get(group_id)=="FAILED" for group_id in registered)
+    requested_ok=bool(targets) and len(succeeded)==len(targets)
+
+    if any_failed:
+        return ("PARTIAL_FAILED" if any_applied else "FAILED"), False
+    if requested_ok or any_applied:
         return "PARTIAL_APPLIED", False
-    if succeeded:
-        return "PARTIAL_FAILED", False
     return "FAILED", False
 
 
