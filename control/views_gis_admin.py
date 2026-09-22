@@ -97,8 +97,8 @@ def schema_change_command(request, change_id, command):
                 str(change_id),tenant_ids,actor=actor,
                 confirmation=request.POST.get('confirmation',''),
             )
-            return JsonResponse({'ok':result['status']=='APPLIED',**result},
-                                status=200 if result['status']=='APPLIED' else 409)
+            ok=result['status'] in ('APPLIED','PARTIAL_APPLIED')
+            return JsonResponse({'ok':ok,**result},status=200 if ok else 409)
         return JsonResponse({'ok':False,'error':'지원하지 않는 Schema 명령입니다.'},status=400)
     except definitions.DefinitionError as exc:
         return JsonResponse({'ok':False,'error':str(exc)},status=409)
