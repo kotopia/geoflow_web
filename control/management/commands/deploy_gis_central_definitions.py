@@ -9,6 +9,7 @@ from django.db import connections, transaction
 from control.models import GroupDBConfig
 from control.services.gis_admin import tenant_cursor
 from control.services import gis_definition_transition as transition
+from control.services import gis_schema_manager
 
 
 class Command(BaseCommand):
@@ -56,6 +57,7 @@ class Command(BaseCommand):
                         raise RuntimeError('central v3 definition is required after tenant retirement')
                     created=False
                     corrected=0
+                gis_schema_manager.ensure_admin_schema(cursor)
                 cursor.execute('SELECT standard_name,id::text FROM gis.definition_layer')
                 layer_ids=dict(cursor.fetchall())
                 cursor.execute('SELECT count(*) FROM gis.definition_layer'); layer_count=cursor.fetchone()[0]
