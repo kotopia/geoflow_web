@@ -395,3 +395,231 @@ def change_log_snapshot(cur, limit=200):
             ORDER BY created_at DESC,id DESC LIMIT %s""", [limit])
     columns = [item[0] for item in cur.description]
     return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def _bool(value, default=False):
+    if value is None:
+        return default
+    return value in (True, "true", "on", "1", 1)
+
+
+def _int(value, default=0):
+    try:
+        return int(default if value in (None, "") else value)
+    except (TypeError, ValueError):
+        raise DefinitionError("순서는 정수여야 합니다.") from None
+
+
+def _label(value):
+    value = str(value or "").strip()
+    if not value or len(value) > 120:
+        raise DefinitionError("표시명 길이를 확인하세요.")
+    return value
+
+
+def _json_list(value, label):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            raise DefinitionError(label + " JSON을 확인하세요.") from None
+    if not isinstance(value, list):
+        raise DefinitionError(label + "은 목록이어야 합니다.")
+    return value
+
+
+def mutate_admin(cur, data, *, actor=""):
+    """GIS-only additive CRUD used by the expanded central admin."""
+    action = str(data.get("action") or "")
+    if action == "group_admin":
+        uid = _uuid(data.get("id")) if data.get("id") else str(uuid4())
+        before = group_state(cur, uid) if data.get("id") else None
+        code = identifier(data.get("group_code") or ("group_" + uid.replace("-", "")), "그룹 코드")
+        name = _label(data.get("name") or data.get("label"))
+        display = _label(data.get("display_name") or name)
+        cur.execute("""INSERT INTO gis.definition_group
+            (id,name,group_code,display_name,sort_order,active,description,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,now())
+            ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,group_code=EXCLUDED.group_code,
+              display_name=EXCLUDED.display_name,sort_order=EXCLUDED.sort_order,
+              active=EXCLUDED.active,description=EXCLUDED.description,updated_at=now()""",
+            [uid, name, code, display, _int(data.get("sort_order")),
+             _bool(data.get("active"), True), str(data.get("description") or "")[:2000]])
+        after = group_state(cur, uid)
+        audit(cur, actor=actor, target_type="GROUP", target_id=uid,
+              change_type="UPDATE" if before else "CREATE", before=before, after=after)
+        return uid
+
+    if action == "delete_group_admin":
+        uid = _uuid(data.get("id"), "그룹")
+        before = group_state(cur, uid)
+        if not before:
+            raise DefinitionError("그룹을 찾을 수 없습니다.")
+        impact = impact_for_group(cur, uid)
+        if impact["group_layers"] or impact["group_fields"]:
+            raise DefinitionError(
+                f"그룹에 레이어 {impact['group_layers']}개/필드 연결 {impact['group_fields']}개가 있어 삭제할 수 없습니다."
+            )
+        cur.execute("DELETE FROM gis.definition_group_scope WHERE group_id=%s", [uid])
+        cur.execute("DELETE FROM gis.definition_group WHERE id=%s", [uid])
+        audit(cur, actor=actor, target_type="GROUP", target_id=uid,
+              change_type="DELETE_EMPTY_GROUP", before=before, after=None)
+        return uid
+
+    if action == "layer_admin":
+        uid = _uuid(data.get("id")) if data.get("id") else str(uuid4())
+        before = layer_state(cur, uid) if data.get("id") else None
+        if before:
+            # Physical identity is immutable in ordinary editing.
+            standard_name = before["standard_name"]
+            physical_name = before["physical_name"]
+        else:
+            standard_name = str(data.get("standard_name") or "").strip().upper()
+            if not standard_name or len(standard_name) > 120:
+                raise DefinitionError("표준 레이어명을 확인하세요.")
+            physical_name = identifier(data.get("physical_name"), "물리 테이블명")
+        geometry = str(data.get("geometry_kind") or (before or {}).get("geometry_kind") or "").upper()
+        if geometry not in ("", "POINT", "LINE", "POLYGON"):
+            raise DefinitionError("Geometry 유형을 확인하세요.")
+        cur.execute("""INSERT INTO gis.definition_layer
+            (id,standard_name,physical_name,label,domain_code,geometry_kind,feature_role,
+             scope_type,sort_order,active,description,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+            ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,domain_code=EXCLUDED.domain_code,
+              geometry_kind=EXCLUDED.geometry_kind,feature_role=EXCLUDED.feature_role,
+              scope_type=EXCLUDED.scope_type,sort_order=EXCLUDED.sort_order,
+              active=EXCLUDED.active,description=EXCLUDED.description,updated_at=now()""",
+            [uid, standard_name, physical_name, _label(data.get("label")),
+             str(data.get("domain_code") or "")[:40], geometry,
+             str(data.get("feature_role") or (before or {}).get("feature_role") or "ASSET")[:40],
+             str(data.get("scope_type") or (before or {}).get("scope_type") or "PROJECT")[:40],
+             _int(data.get("sort_order")), _bool(data.get("active"), bool(before and before["active"])),
+             str(data.get("description") or "")[:2000]])
+        after = layer_state(cur, uid)
+        audit(cur, actor=actor, target_type="LAYER", target_id=uid,
+              change_type="UPDATE" if before else "CREATE", before=before, after=after)
+        return uid
+
+    if action == "deactivate_layer_admin":
+        uid = _uuid(data.get("id"), "레이어")
+        before = layer_state(cur, uid)
+        if not before:
+            raise DefinitionError("레이어를 찾을 수 없습니다.")
+        cur.execute("UPDATE gis.definition_layer SET active=false,updated_at=now() WHERE id=%s", [uid])
+        audit(cur, actor=actor, target_type="LAYER", target_id=uid,
+              change_type="DEACTIVATE", before=before, after=layer_state(cur, uid))
+        return uid
+
+    if action == "group_layer_admin":
+        group_id = _uuid(data.get("group_id"), "그룹")
+        layer_id = _uuid(data.get("layer_id"), "레이어")
+        if not group_state(cur, group_id) or not layer_state(cur, layer_id):
+            raise DefinitionError("그룹 또는 레이어를 찾을 수 없습니다.")
+        cur.execute("""INSERT INTO gis.definition_group_layer(group_id,layer_id,sort_order)
+            VALUES (%s,%s,%s) ON CONFLICT(group_id,layer_id)
+            DO UPDATE SET sort_order=EXCLUDED.sort_order""",
+            [group_id, layer_id, _int(data.get("sort_order"))])
+        audit(cur, actor=actor, target_type="LAYER", target_id=layer_id,
+              change_type="GROUP_ASSIGN",
+              after={"group_id": group_id, "sort_order": _int(data.get("sort_order"))})
+        return layer_id
+
+    if action == "field_admin":
+        uid = _uuid(data.get("id")) if data.get("id") else str(uuid4())
+        before = field_state(cur, uid) if data.get("id") else None
+        kind = str(data.get("kind") or (before or {}).get("kind") or "text")
+        if kind not in {"text","integer","decimal","boolean","date","datetime","photo","relation"}:
+            raise DefinitionError("필드 유형을 확인하세요.")
+        widget = str(data.get("widget_type") or (before or {}).get("widget_type") or "text")
+        if widget not in {"text","multiline","integer","decimal","combo","boolean","date","datetime","photo","relation","hidden"}:
+            raise DefinitionError("Widget 유형을 확인하세요.")
+        if before:
+            source_layer_id = before["source_layer_id"]
+            physical_name = before["physical_name"]
+            standard_name = before["standard_name"]
+            storage_data_type = before["storage_data_type"]
+        else:
+            source_layer_id = _uuid(data.get("source_layer_id"), "레이어") if data.get("source_layer_id") else None
+            physical_name = identifier(data.get("physical_name"), "DB 필드명") if source_layer_id else None
+            standard_name = str(data.get("standard_name") or (physical_name or "")).strip().upper() or None
+            storage_data_type = data_type(data.get("storage_data_type")) if source_layer_id else None
+            if source_layer_id and not layer_state(cur, source_layer_id):
+                raise DefinitionError("레이어를 찾을 수 없습니다.")
+        visible = _bool(data.get("visible"), bool((before or {}).get("visible", True)))
+        form_visible = _bool(data.get("form_visible"), visible)
+        table_visible = _bool(data.get("table_visible"), visible)
+        active = _bool(data.get("active"), bool((before or {}).get("active", False if not before and source_layer_id else True)))
+        cur.execute("""INSERT INTO gis.definition_field
+            (id,source_layer_id,physical_name,standard_name,label,storage_data_type,kind,widget_type,
+             visible,form_visible,table_visible,required,readonly,sort_order,unit,description,active,layout,updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}'::jsonb,now())
+            ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,kind=EXCLUDED.kind,
+              widget_type=EXCLUDED.widget_type,visible=EXCLUDED.visible,
+              form_visible=EXCLUDED.form_visible,table_visible=EXCLUDED.table_visible,
+              required=EXCLUDED.required,readonly=EXCLUDED.readonly,sort_order=EXCLUDED.sort_order,
+              unit=EXCLUDED.unit,description=EXCLUDED.description,active=EXCLUDED.active,updated_at=now()""",
+            [uid, source_layer_id, physical_name, standard_name, _label(data.get("label")),
+             storage_data_type, kind, widget, visible, form_visible, table_visible,
+             _bool(data.get("required")), _bool(data.get("readonly")), _int(data.get("sort_order")),
+             str(data.get("unit") or "")[:40], str(data.get("description") or "")[:2000], active])
+        if source_layer_id:
+            cur.execute("""INSERT INTO gis.definition_field_layer(field_id,layer_id)
+                VALUES (%s,%s) ON CONFLICT DO NOTHING""", [uid, source_layer_id])
+        after = field_state(cur, uid)
+        audit(cur, actor=actor, target_type="FIELD", target_id=uid,
+              change_type="UPDATE" if before else "CREATE_PENDING_SCHEMA" if source_layer_id else "CREATE",
+              before=before, after=after)
+        return uid
+
+    if action == "deactivate_field_admin":
+        uid = _uuid(data.get("id"), "필드")
+        before = field_state(cur, uid)
+        if not before:
+            raise DefinitionError("필드를 찾을 수 없습니다.")
+        cur.execute("UPDATE gis.definition_field SET active=false,updated_at=now() WHERE id=%s", [uid])
+        audit(cur, actor=actor, target_type="FIELD", target_id=uid,
+              change_type="DEACTIVATE", before=before, after=field_state(cur, uid))
+        return uid
+
+    if action == "bulk_fields_admin":
+        items = _json_list(data.get("items"), "필드 일괄 편집")
+        if len(items) > 500:
+            raise DefinitionError("한 번에 500개 필드까지만 수정할 수 있습니다.")
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                raise DefinitionError("필드 일괄 편집 항목을 확인하세요.")
+            merged = dict(item)
+            merged["action"] = "field_admin"
+            mutate_admin(cur, merged, actor=actor)
+        return ""
+
+    if action == "bulk_layers_admin":
+        items = _json_list(data.get("items"), "레이어 일괄 편집")
+        if len(items) > 300:
+            raise DefinitionError("한 번에 300개 레이어까지만 수정할 수 있습니다.")
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                raise DefinitionError("레이어 일괄 편집 항목을 확인하세요.")
+            current = layer_state(cur, item["id"])
+            if not current:
+                raise DefinitionError("레이어를 찾을 수 없습니다.")
+            merged = {
+                **current,
+                **item,
+                "action": "layer_admin",
+                "label": item.get("label", current["label"]),
+            }
+            mutate_admin(cur, merged, actor=actor)
+            if item.get("group_id"):
+                mutate_admin(cur, {
+                    "action": "group_layer_admin",
+                    "group_id": item["group_id"],
+                    "layer_id": item["id"],
+                    "sort_order": item.get("group_sort_order", item.get("sort_order", 0)),
+                }, actor=actor)
+        return ""
+
+    if action == "schema_change_admin":
+        return create_schema_change(cur, data, actor=actor)
+
+    raise DefinitionError("지원하지 않는 GIS 관리 요청입니다.")
