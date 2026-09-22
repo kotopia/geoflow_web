@@ -272,9 +272,11 @@ def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
                 )
                 if not before.get("table_exists"):
                     raise DefinitionError("대상 GIS 테이블이 없습니다.")
-                if change["operation"] in ("RENAME_COLUMN", "DROP_COLUMN", "ALTER_TYPE") and not before.get("column"):
-                    raise DefinitionError("대상 GIS 컬럼이 없습니다.")
-                manager.apply_change_to_tenant(cur, change)
+                already_applied = manager.change_already_applied(cur, change)
+                if not already_applied:
+                    if change["operation"] in ("RENAME_COLUMN", "DROP_COLUMN", "ALTER_TYPE") and not before.get("column"):
+                        raise DefinitionError("대상 GIS 컬럼이 없습니다.")
+                    manager.apply_change_to_tenant(cur, change)
                 after = manager.tenant_column_state(
                     cur,
                     table_name=change["table_name"],
