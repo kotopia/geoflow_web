@@ -15,6 +15,7 @@ ALLOWED_TYPES = {
     "text", "varchar", "integer", "bigint", "numeric", "double precision",
     "boolean", "date", "timestamp", "timestamptz", "uuid", "jsonb",
 }
+PARAMETERIZED_TYPE_RE = re.compile(r"^(varchar|character varying)\((\d{1,7})\)$|^(numeric)\((\d{1,4}),(\d{1,4})\)$")
 SCHEMA_OPERATIONS = {"ADD_COLUMN", "RENAME_COLUMN", "DEPRECATE", "DROP_COLUMN", "ALTER_TYPE"}
 
 
@@ -33,10 +34,58 @@ def identifier(value, label="DB 식별자"):
 
 
 def data_type(value):
+    """Return a safe PostgreSQL type expression without accepting arbitrary SQL."""
     value = " ".join(str(value or "").strip().lower().split())
-    if value not in ALLOWED_TYPES:
+    aliases = {
+        "character varying": "varchar",
+        "timestamp without time zone": "timestamp",
+        "timestamp with time zone": "timestamptz",
+    }
+    value = aliases.get(value, value)
+    if value in ALLOWED_TYPES:
+        return value
+    match = PARAMETERIZED_TYPE_RE.fullmatch(value)
+    if not match:
         raise DefinitionError("허용되지 않은 DB 타입입니다.")
-    return value
+    if match.group(1) in ("varchar", "character varying"):
+        length = int(match.group(2))
+        if not 1 <= length <= 1000000:
+            raise DefinitionError("문자 길이는 1~1000000입니다.")
+        return f"varchar({length})"
+    precision = int(match.group(4))
+    scale = int(match.group(5))
+    if not 1 <= precision <= 1000 or not 0 <= scale <= precision:
+        raise DefinitionError("전체 자릿수와 소수 자릿수를 확인하세요.")
+    return f"numeric({precision},{scale})"
+
+
+def storage_type(*, data_kind=None, db_type=None, max_length=None, precision=None, scale=None):
+    """Build a validated physical DB type from UI-friendly inputs."""
+    selected = str(db_type or data_kind or "").strip().lower()
+    aliases = {
+        "문자": "varchar", "character varying": "varchar",
+        "정수": "integer", "큰 정수": "bigint", "실수": "numeric",
+        "유무": "boolean", "날짜": "date", "날짜시간": "timestamp", "json": "jsonb",
+    }
+    selected = aliases.get(selected, selected)
+    if selected == "varchar":
+        length = _int(max_length, 255)
+        return data_type(f"varchar({length})")
+    if selected == "numeric":
+        p = _int(precision, 12)
+        s = _int(scale, 2)
+        return data_type(f"numeric({p},{s})")
+    return data_type(selected)
+
+
+def storage_parts(type_value):
+    spec = data_type(type_value)
+    if spec.startswith("varchar("):
+        return spec, int(spec[8:-1]), None, None
+    if spec.startswith("numeric("):
+        p, s = spec[8:-1].split(",", 1)
+        return spec, None, int(p), int(s)
+    return spec, None, None, None
 
 
 def _bool(value, default=False):
@@ -219,8 +268,9 @@ def layer_state(cur, layer_id):
 
 def field_state(cur, field_id):
     return _row(cur, """SELECT id::text,source_layer_id::text,physical_name,standard_name,label,
-        storage_data_type,storage_udt_name,kind,widget_type,visible,form_visible,
-        table_visible,required,readonly,sort_order,unit,description,active
+        storage_data_type,storage_udt_name,max_length,precision,scale,nullable,storage_default,
+        kind,widget_type,visible,form_visible,table_visible,required,readonly,sort_order,unit,
+        description,active
         FROM gis.definition_field WHERE id=%s""", [_uuid(field_id)])
 
 
@@ -382,7 +432,12 @@ def _canonical_db_type(column):
         "bool":"boolean","boolean":"boolean","timestamp without time zone":"timestamp",
         "timestamp":"timestamp","timestamp with time zone":"timestamptz","timestamptz":"timestamptz",
     }
-    return aliases.get(raw,raw)
+    base=aliases.get(raw,raw)
+    if base=="varchar" and column.get("max_length"):
+        return f"varchar({int(column['max_length'])})"
+    if base=="numeric" and column.get("precision") is not None and column.get("scale") is not None:
+        return f"numeric({int(column['precision'])},{int(column['scale'])})"
+    return base
 
 
 def change_already_applied(cur, change):
@@ -418,6 +473,14 @@ def apply_change_to_tenant(cur, change):
             sql.Identifier("gis"), sql.Identifier(table_name),
             sql.Identifier(identifier(change["new_name"], "신규 컬럼명")),
             sql.SQL(data_type(change["new_type"])))
+        params = []
+        if change.get("field_default") not in (None, ""):
+            stmt += sql.SQL(" DEFAULT %s")
+            params.append(change.get("field_default"))
+        if change.get("field_nullable") is False:
+            stmt += sql.SQL(" NOT NULL")
+        cur.execute(stmt, params)
+        return
     elif operation == "RENAME_COLUMN":
         stmt = sql.SQL("ALTER TABLE {}.{} RENAME COLUMN {} TO {}").format(
             sql.Identifier("gis"), sql.Identifier(table_name),
@@ -443,6 +506,17 @@ def schema_change_snapshot(cur):
                   sc.created_at,sc.approved_at
              FROM gis.schema_change sc JOIN gis.definition_layer l ON l.id=sc.layer_id
             ORDER BY sc.created_at DESC,sc.id DESC"""
+    )
+    columns = [item[0] for item in cur.description]
+    return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+
+def schema_change_tenant_snapshot(cur):
+    cur.execute(
+        """SELECT change_id::text,tenant_group_id::text,status,error_message,applied_at,
+                  before_schema,after_schema
+             FROM gis.schema_change_tenant
+            ORDER BY change_id,tenant_group_id"""
     )
     columns = [item[0] for item in cur.description]
     return [dict(zip(columns, row)) for row in cur.fetchall()]
@@ -525,12 +599,37 @@ def mutate_admin(cur, data, *, actor=""):
                  active=EXCLUDED.active,layer_group_id=EXCLUDED.layer_group_id,
                  description=EXCLUDED.description,updated_at=now()""",
             [uid, standard_name, physical_name, _label(data.get("label")),
-             str(data.get("domain_code") or "")[:40], geometry,
+             str(data.get("domain_code") or (before or {}).get("domain_code") or "")[:40], geometry,
              str(data.get("feature_role") or (before or {}).get("feature_role") or "ASSET")[:40],
              str(data.get("scope_type") or (before or {}).get("scope_type") or "PROJECT")[:40],
              _int(data.get("sort_order")), _bool(data.get("active"), bool(before and before["active"])),
              layer_group_id, str(data.get("description") or "")[:2000]],
         )
+        if "catalog_ids" in data or "catalog_id" in data:
+            raw_catalogs = data.get("catalog_ids")
+            if hasattr(data, "getlist"):
+                selected_catalogs = data.getlist("catalog_ids") or ([data.get("catalog_id")] if data.get("catalog_id") else [])
+            elif isinstance(raw_catalogs, str):
+                try:
+                    selected_catalogs = json.loads(raw_catalogs)
+                except (TypeError, ValueError):
+                    selected_catalogs = [value for value in raw_catalogs.split(",") if value]
+            elif isinstance(raw_catalogs, (list, tuple)):
+                selected_catalogs = list(raw_catalogs)
+            else:
+                selected_catalogs = [data.get("catalog_id")] if data.get("catalog_id") else []
+            selected_catalogs = list(dict.fromkeys(_uuid(value, "업무범위") for value in selected_catalogs if value))
+            for catalog_id in selected_catalogs:
+                _catalog = _row(cur, "SELECT id::text FROM catalog.category_node WHERE id=%s AND level=2 AND active", [catalog_id])
+                if not _catalog:
+                    raise DefinitionError("업무범위를 찾을 수 없습니다.")
+            cur.execute("DELETE FROM gis.definition_layer_catalog WHERE layer_id=%s AND catalog_level=2", [uid])
+            for catalog_id in selected_catalogs:
+                cur.execute(
+                    """INSERT INTO gis.definition_layer_catalog(layer_id,catalog_level,catalog_item_id,sort_order)
+                       VALUES (%s,2,%s,0) ON CONFLICT DO NOTHING""",
+                    [uid, catalog_id],
+                )
         audit(cur, actor=actor, target_type="LAYER", target_id=uid,
               change_type="UPDATE" if before else "CREATE", before=before, after=layer_state(cur, uid))
         return uid
@@ -557,11 +656,22 @@ def mutate_admin(cur, data, *, actor=""):
         if before:
             source_layer_id, physical_name = before["source_layer_id"], before["physical_name"]
             standard_name, storage_data_type = before["standard_name"], before["storage_data_type"]
+            max_length, precision, scale = before.get("max_length"), before.get("precision"), before.get("scale")
         else:
             source_layer_id = _uuid(data.get("source_layer_id"), "레이어") if data.get("source_layer_id") else None
             physical_name = identifier(data.get("physical_name"), "DB 필드명") if source_layer_id else None
             standard_name = str(data.get("standard_name") or physical_name or "").strip().upper() or None
-            storage_data_type = data_type(data.get("storage_data_type")) if source_layer_id else None
+            if source_layer_id:
+                storage_data_type = storage_type(
+                    data_kind=data.get("data_type_kind"),
+                    db_type=data.get("storage_data_type"),
+                    max_length=data.get("max_length"),
+                    precision=data.get("precision"),
+                    scale=data.get("scale"),
+                )
+                storage_data_type, max_length, precision, scale = storage_parts(storage_data_type)
+            else:
+                storage_data_type, max_length, precision, scale = None, None, None, None
             if source_layer_id and not layer_state(cur, source_layer_id):
                 raise DefinitionError("레이어를 찾을 수 없습니다.")
         visible = _bool(data.get("visible"), bool((before or {}).get("visible", True)))
@@ -570,16 +680,20 @@ def mutate_admin(cur, data, *, actor=""):
         active_default = bool((before or {}).get("active", False if not before and source_layer_id else True))
         cur.execute(
             """INSERT INTO gis.definition_field
-               (id,source_layer_id,physical_name,standard_name,label,storage_data_type,kind,widget_type,
-                visible,form_visible,table_visible,required,readonly,sort_order,unit,description,active,layout,updated_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}'::jsonb,now())
+               (id,source_layer_id,physical_name,standard_name,label,storage_data_type,max_length,
+                precision,scale,nullable,storage_default,kind,widget_type,visible,form_visible,
+                table_visible,required,readonly,sort_order,unit,description,active,layout,updated_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'{}'::jsonb,now())
                ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,kind=EXCLUDED.kind,
                  widget_type=EXCLUDED.widget_type,visible=EXCLUDED.visible,
                  form_visible=EXCLUDED.form_visible,table_visible=EXCLUDED.table_visible,
                  required=EXCLUDED.required,readonly=EXCLUDED.readonly,sort_order=EXCLUDED.sort_order,
                  unit=EXCLUDED.unit,description=EXCLUDED.description,active=EXCLUDED.active,updated_at=now()""",
             [uid, source_layer_id, physical_name, standard_name, _label(data.get("label")),
-             storage_data_type, kind, widget, visible, form_visible, table_visible,
+             storage_data_type, max_length, precision, scale,
+             _bool(data.get("nullable"), bool((before or {}).get("nullable", True))),
+             str(data.get("storage_default") or (before or {}).get("storage_default") or "")[:500] or None,
+             kind, widget, visible, form_visible, table_visible,
              _bool(data.get("required")), _bool(data.get("readonly")), _int(data.get("sort_order")),
              str(data.get("unit") or "")[:40], str(data.get("description") or "")[:2000],
              _bool(data.get("active"), active_default)],
@@ -630,7 +744,102 @@ def mutate_admin(cur, data, *, actor=""):
                                "label": item.get("label", current["label"])}, actor=actor)
         return ""
 
+    if action == "physical_field_create_admin":
+        layer_id = _uuid(data.get("source_layer_id"), "레이어")
+        type_value = storage_type(
+            data_kind=data.get("data_type_kind"),
+            db_type=data.get("storage_data_type"),
+            max_length=data.get("max_length"),
+            precision=data.get("precision"),
+            scale=data.get("scale"),
+        )
+        base = data.dict() if hasattr(data, "dict") else dict(data)
+        base["visible"] = base.get("form_visible", base.get("visible", "true"))
+        field_id = mutate_admin(
+            cur,
+            {**base, "action": "field_admin", "source_layer_id": layer_id,
+             "storage_data_type": type_value, "active": False},
+            actor=actor,
+        )
+        create_schema_change(
+            cur,
+            {"operation": "ADD_COLUMN", "layer_id": layer_id, "field_id": field_id,
+             "new_name": identifier(data.get("physical_name"), "DB 필드명"), "new_type": type_value},
+            actor=actor,
+        )
+        return field_id
+
+    if action == "physical_field_update_admin":
+        uid = _uuid(data.get("id"), "필드")
+        current = field_state(cur, uid)
+        if not current or not current.get("source_layer_id"):
+            raise DefinitionError("물리 필드를 찾을 수 없습니다.")
+        desired_name = identifier(data.get("physical_name") or current["physical_name"], "DB 필드명")
+        desired_type = storage_type(
+            data_kind=data.get("data_type_kind"),
+            db_type=data.get("storage_data_type") or current.get("storage_data_type"),
+            max_length=data.get("max_length") if data.get("max_length") not in (None, "") else current.get("max_length"),
+            precision=data.get("precision") if data.get("precision") not in (None, "") else current.get("precision"),
+            scale=data.get("scale") if data.get("scale") not in (None, "") else current.get("scale"),
+        )
+        current_type = storage_type(
+            db_type=current.get("storage_data_type") or current.get("storage_udt_name") or "text",
+            max_length=current.get("max_length"),
+            precision=current.get("precision"),
+            scale=current.get("scale"),
+        )
+        name_changed = desired_name != current["physical_name"]
+        type_changed = desired_type != current_type
+        if name_changed and type_changed:
+            raise DefinitionError("물리 필드명과 DB 타입은 한 번에 하나씩 변경하세요. 첫 변경 적용 후 다음 변경을 진행하세요.")
+        base = data.dict() if hasattr(data, "dict") else dict(data)
+        if "form_visible" in base:
+            base["visible"] = base["form_visible"]
+        mutate_admin(cur, {**current, **base, "action": "field_admin", "id": uid}, actor=actor)
+        if name_changed:
+            create_schema_change(
+                cur,
+                {"operation": "RENAME_COLUMN", "layer_id": current["source_layer_id"], "field_id": uid,
+                 "old_name": current["physical_name"], "new_name": desired_name},
+                actor=actor,
+            )
+        elif type_changed:
+            create_schema_change(
+                cur,
+                {"operation": "ALTER_TYPE", "layer_id": current["source_layer_id"], "field_id": uid,
+                 "old_name": current["physical_name"], "new_type": desired_type},
+                actor=actor,
+            )
+        return uid
+
+    if action == "physical_field_delete_admin":
+        uid = _uuid(data.get("id"), "필드")
+        current = field_state(cur, uid)
+        if not current or not current.get("source_layer_id"):
+            raise DefinitionError("물리 필드를 찾을 수 없습니다.")
+        mutate_admin(cur, {"action": "deactivate_field_admin", "id": uid}, actor=actor)
+        create_schema_change(
+            cur,
+            {"operation": "DROP_COLUMN", "layer_id": current["source_layer_id"],
+             "field_id": uid, "old_name": current["physical_name"]},
+            actor=actor,
+        )
+        return uid
+
     if action == "schema_change_admin":
-        return create_schema_change(cur, data, actor=actor)
+        payload = data.dict() if hasattr(data, "dict") else dict(data)
+        if payload.get("new_type"):
+            raw_type = str(payload.get("new_type") or "").strip().lower()
+            has_dimensions = any(payload.get(key) not in (None, "") for key in ("max_length", "precision", "scale"))
+            payload["new_type"] = (
+                storage_type(
+                    db_type=raw_type,
+                    max_length=payload.get("max_length"),
+                    precision=payload.get("precision"),
+                    scale=payload.get("scale"),
+                )
+                if has_dimensions else data_type(raw_type)
+            )
+        return create_schema_change(cur, payload, actor=actor)
 
     raise DefinitionError("지원하지 않는 GIS 관리 요청입니다.")

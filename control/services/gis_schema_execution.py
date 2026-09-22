@@ -37,8 +37,10 @@ def registered_tenant_ids():
 def get_change(change_id, *, lock=False):
     query = """SELECT sc.id::text,sc.operation,sc.layer_id::text,l.physical_name AS table_name,
                       sc.field_id::text,sc.old_name,sc.new_name,sc.old_type,sc.new_type,
-                      sc.status,sc.preview_sql,sc.impact
+                      sc.status,sc.preview_sql,sc.impact,f.nullable AS field_nullable,
+                      f.storage_default AS field_default
                  FROM gis.schema_change sc JOIN gis.definition_layer l ON l.id=sc.layer_id
+                 LEFT JOIN gis.definition_field f ON f.id=sc.field_id
                 WHERE sc.id=%s"""
     if lock:
         query += " FOR UPDATE"
@@ -168,9 +170,13 @@ def _finalize(change, targets, succeeded, *, actor=""):
             if all_registered_applied:
                 if change["operation"] == "ADD_COLUMN" and change.get("field_id"):
                     before = manager.field_state(cur, change["field_id"])
+                    spec, max_length, precision, scale = manager.storage_parts(change["new_type"])
                     cur.execute(
-                        "UPDATE gis.definition_field SET active=true,updated_at=now() WHERE id=%s",
-                        [change["field_id"]],
+                        """UPDATE gis.definition_field
+                              SET storage_data_type=%s,max_length=%s,precision=%s,scale=%s,
+                                  active=true,updated_at=now()
+                            WHERE id=%s""",
+                        [spec, max_length, precision, scale, change["field_id"]],
                     )
                     manager.audit(
                         cur, actor=actor, target_type="FIELD", target_id=change["field_id"],
@@ -192,11 +198,12 @@ def _finalize(change, targets, succeeded, *, actor=""):
                     )
                 elif change["operation"] == "ALTER_TYPE" and change.get("field_id"):
                     before = manager.field_state(cur, change["field_id"])
+                    spec, max_length, precision, scale = manager.storage_parts(change["new_type"])
                     cur.execute(
                         """UPDATE gis.definition_field
-                              SET storage_data_type=%s,updated_at=now()
+                              SET storage_data_type=%s,max_length=%s,precision=%s,scale=%s,updated_at=now()
                             WHERE id=%s""",
-                        [change["new_type"], change["field_id"]],
+                        [spec, max_length, precision, scale, change["field_id"]],
                     )
                     manager.audit(
                         cur, actor=actor, target_type="FIELD", target_id=change["field_id"],

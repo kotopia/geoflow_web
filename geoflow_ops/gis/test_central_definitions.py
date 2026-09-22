@@ -95,17 +95,21 @@ class ResolutionTests(unittest.TestCase):
         merged=transition.merge_source_snapshots([first,second])
         self.assertEqual([layer['standard_name'] for layer in merged['layers']],['MANHOLE','PIPE'])
 
-    def test_standard_field_admin_uses_compact_filterable_table(self):
+    def test_standard_field_admin_uses_catalog_layer_physical_field_flow(self):
         template=(ROOT/'control/templates/control/gis/definitions.html').read_text()
-        for marker in ('standard-field-search','standard-kind-filter','standard-widget-filter',
+        for marker in ('standard-catalog','standard-layer','new-standard-layer','new-standard-field',
+                       'standard-field-search','standard-kind-filter','standard-widget-filter',
                        'standard-visible-filter','standard-required-filter','standard-readonly-filter',
-                       'standard-field-table'):
+                       'standard-field-table','physical_field_create_admin','physical_field_update_admin',
+                       'physical_field_delete_admin'):
             self.assertIn(marker,template)
         self.assertIn('#standard-table thead th{position:sticky',template)
-        self.assertIn('data-action="standard_field" class="d-inline"',template)
-        standard_table = template.split("$('standard-table').innerHTML=", 1)[1].split("$('standard-summary')", 1)[0]
-        self.assertNotIn("hidden('layout'", standard_table)
-        self.assertNotIn('data-action="standard_field" class="border rounded p-2 mb-2"',template)
+        self.assertIn('standardLayersForCatalog',template)
+        self.assertIn('Layer/Field CRUD는 표준/레이어 필드에서 수행합니다.',template)
+        admin = template.split('function renderAdminV2(){',1)[1].split('function renderAdminFields(){',1)[0]
+        self.assertNotIn('레이어 그룹 관리', admin)
+        self.assertNotIn('레이어 정의 생성', admin)
+        self.assertNotIn('필드 일괄 편집', admin)
 
     def test_legacy_layout_normalization_only_recovers_json_objects(self):
         self.assertEqual(normalize_layout('{"section":"기본"}'), {'section':'기본'})
