@@ -238,6 +238,19 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
             },
             actor="test-admin",
         )
+        with self.assertRaises(DefinitionError):
+            manager.mutate_admin(
+                self.cur,
+                {
+                    "action": "schema_change_admin",
+                    "operation": "ADD_COLUMN",
+                    "layer_id": layer_id,
+                    "field_id": field_id,
+                    "new_name": "different_name",
+                    "new_type": "numeric",
+                },
+                actor="test-admin",
+            )
         changes = manager.schema_change_snapshot(self.cur)
         self.assertEqual(changes[0]["id"], change_id)
         self.assertEqual(changes[0]["status"], "PENDING")
