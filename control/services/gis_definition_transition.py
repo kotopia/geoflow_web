@@ -17,6 +17,7 @@ CENTRAL_TABLES = (
     'definition_field', 'definition_field_layer', 'definition_code',
     'definition_group_scope', 'definition_group_layer',
     'definition_group_field', 'definition_rule', 'definition_rule_value',
+    'definition_change_log', 'schema_change', 'schema_change_tenant',
 )
 V3_COMMENT = 'GeoFlow central GIS definitions v3; no tenant operational records'
 
