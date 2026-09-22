@@ -15,7 +15,7 @@ ALLOWED_TYPES = {
     "text", "varchar", "integer", "bigint", "numeric", "double precision",
     "boolean", "date", "timestamp", "timestamptz", "uuid", "jsonb",
 }
-PARAMETERIZED_TYPE_RE = re.compile(r"^(varchar)\\((\\d{1,7})\\)$|^(numeric)\\((\\d{1,4}),(\\d{1,4})\\)$")
+PARAMETERIZED_TYPE_RE = re.compile(r"^(varchar|character varying)\((\d{1,7})\)$|^(numeric)\((\d{1,4}),(\d{1,4})\)$")
 SCHEMA_OPERATIONS = {"ADD_COLUMN", "RENAME_COLUMN", "DEPRECATE", "DROP_COLUMN", "ALTER_TYPE"}
 
 
