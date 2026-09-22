@@ -588,8 +588,10 @@ def mutate_admin(cur, data, *, actor=""):
         for item in items:
             if not isinstance(item, dict) or not item.get("id"):
                 raise DefinitionError("필드 일괄 편집 항목을 확인하세요.")
-            merged = dict(item)
-            merged["action"] = "field_admin"
+            current = field_state(cur, item["id"])
+            if not current:
+                raise DefinitionError("필드를 찾을 수 없습니다.")
+            merged = {**current, **item, "action": "field_admin"}
             mutate_admin(cur, merged, actor=actor)
         return ""
 
