@@ -6,6 +6,7 @@ from django.views.decorators.http import require_http_methods
 from control.decorators import require_central_admin
 from control.services import gis_definitions as definitions
 from control.services.gis_admin import guard_definition_deletion
+from control.services import gis_schema_manager
 
 logger=logging.getLogger(__name__)
 
@@ -23,9 +24,19 @@ def dashboard(request):
                     return render(request,'control/gis/definitions.html',{'ready':False})
                 if request.method=='POST':
                     cur.execute("SELECT pg_advisory_xact_lock(hashtext('geoflow.central.gis.definitions'))")
-                    guard_definition_deletion(cur,request.POST)
-                    uid=definitions.mutate(cur,request.POST)
+                    action=request.POST.get('action','')
+                    if action.endswith('_admin'):
+                        uid=gis_schema_manager.mutate_admin(
+                            cur,request.POST,actor=gis_schema_manager.actor_name(request)
+                        )
+                    else:
+                        guard_definition_deletion(cur,request.POST)
+                        uid=definitions.mutate(cur,request.POST)
                 payload=definitions.snapshot(cur)
+                payload['admin_schema_ready']=gis_schema_manager.admin_schema_ready(cur)
+                if payload['admin_schema_ready']:
+                    payload['schema_changes']=gis_schema_manager.schema_change_snapshot(cur)
+                    payload['change_log']=gis_schema_manager.change_log_snapshot(cur)
         if request.method=='POST': return JsonResponse({'ok':True,'id':uid,'data':payload})
         return render(request,'control/gis/definitions.html',{'ready':True,'definition_data':payload})
     except definitions.DefinitionError as exc:
