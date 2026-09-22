@@ -83,7 +83,7 @@ class GisSchemaManagerValidationTests(unittest.TestCase):
         cursor = FakeCursor()
         manager.ensure_admin_schema(cursor)
         joined = "\n".join(statement for statement, _ in cursor.statements).lower()
-        self.assertIn("gis.definition_group", joined)
+        self.assertIn("gis.definition_layer_group", joined)
         self.assertIn("gis.schema_change", joined)
         self.assertNotIn("alter table ctr.", joined)
         self.assertNotIn("alter table hr.", joined)
@@ -144,21 +144,13 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
                 "domain_code": "WTL",
                 "geometry_kind": "POINT",
                 "sort_order": "1",
+                "layer_group_id": first_group,
             },
             actor="test-admin",
         )
         self.assertFalse(manager.layer_state(self.cur, layer_id)["active"])
+        self.assertEqual(manager.layer_state(self.cur, layer_id)["layer_group_id"], first_group)
 
-        manager.mutate_admin(
-            self.cur,
-            {
-                "action": "group_layer_admin",
-                "group_id": first_group,
-                "layer_id": layer_id,
-                "sort_order": 1,
-            },
-            actor="test-admin",
-        )
         with self.assertRaises(DefinitionError):
             manager.mutate_admin(
                 self.cur,
@@ -170,22 +162,22 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
             self.cur,
             {
                 "action": "bulk_layers_admin",
-                "items": json.dumps([{"id": layer_id, "group_id": second_group}]),
+                "items": json.dumps([{"id": layer_id, "layer_group_id": second_group}]),
             },
             actor="test-admin",
         )
         self.cur.execute(
-            "SELECT group_id::text FROM gis.definition_group_layer WHERE layer_id=%s",
+            "SELECT layer_group_id::text FROM gis.definition_layer WHERE id=%s",
             [layer_id],
         )
-        self.assertEqual([row[0] for row in self.cur.fetchall()], [second_group])
+        self.assertEqual(self.cur.fetchone()[0], second_group)
 
         manager.mutate_admin(
             self.cur,
             {"action": "delete_group_admin", "id": first_group},
             actor="test-admin",
         )
-        self.assertIsNone(manager.group_state(self.cur, first_group))
+        self.assertIsNone(manager.layer_group_state(self.cur, first_group))
 
         field_id = manager.mutate_admin(
             self.cur,
