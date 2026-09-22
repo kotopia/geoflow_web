@@ -39,7 +39,7 @@ def dashboard(request):
                         audit_ready=gis_schema_manager.admin_schema_ready(cur)
                         if audit_ready and action in ('group','delete_group'):
                             legacy_target='GROUP'
-                            legacy_before=gis_schema_manager.group_state(cur,requested_id) if requested_id else None
+                            legacy_before=gis_schema_manager.business_group_state(cur,requested_id) if requested_id else None
                         elif audit_ready and action=='layer':
                             legacy_target='LAYER'
                             legacy_before=gis_schema_manager.layer_state(cur,requested_id) if requested_id else None
@@ -48,7 +48,7 @@ def dashboard(request):
                             legacy_before=gis_schema_manager.field_state(cur,requested_id) if requested_id else None
                         uid=definitions.mutate(cur,request.POST)
                         if legacy_target and audit_ready:
-                            after=(gis_schema_manager.group_state(cur,uid) if legacy_target=='GROUP'
+                            after=(gis_schema_manager.business_group_state(cur,uid) if legacy_target=='GROUP'
                                    else gis_schema_manager.layer_state(cur,uid) if legacy_target=='LAYER'
                                    else gis_schema_manager.field_state(cur,uid))
                             gis_schema_manager.audit(
