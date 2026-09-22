@@ -353,6 +353,72 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
         self.assertEqual(len(dropped), 1)
 
 
+    def test_add_column_applies_dimensions_default_and_nullability(self):
+        self.cur.execute("CREATE TABLE gis.wtl_dimension_ps(id uuid PRIMARY KEY)")
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "ADD_COLUMN",
+                "table_name": "wtl_dimension_ps",
+                "new_name": "depth_value",
+                "new_type": "numeric(8,3)",
+                "field_nullable": False,
+                "field_default": "0",
+            },
+        )
+        state = manager.tenant_column_state(
+            self.cur, table_name="wtl_dimension_ps", column_name="depth_value"
+        )
+        self.assertEqual(manager._canonical_db_type(state["column"]), "numeric(8,3)")
+        self.assertEqual(state["column"]["is_nullable"], "NO")
+
+    def test_existing_varchar_dimensions_do_not_create_spurious_type_change(self):
+        water = str(uuid4())
+        self.cur.execute(
+            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) VALUES (%s,'WATER','상수도',2,1,true)",
+            [water],
+        )
+        layer_id = manager.mutate_admin(
+            self.cur,
+            {
+                "action": "layer_admin",
+                "standard_name": "WTL_TEXT_PS",
+                "physical_name": "wtl_text_ps",
+                "label": "문자 테스트",
+                "geometry_kind": "POINT",
+                "catalog_ids": json.dumps([water]),
+            },
+            actor="test-admin",
+        )
+        field_id = str(uuid4())
+        self.cur.execute(
+            """INSERT INTO gis.definition_field(
+                 id,source_layer_id,physical_name,standard_name,label,storage_data_type,
+                 storage_udt_name,max_length,kind,widget_type,active)
+               VALUES (%s,%s,'memo','MEMO','메모','character varying','varchar',50,'text','text',true)""",
+            [field_id, layer_id],
+        )
+        manager.mutate_admin(
+            self.cur,
+            {
+                "action": "physical_field_update_admin",
+                "id": field_id,
+                "physical_name": "memo",
+                "label": "메모 수정",
+                "storage_data_type": "varchar",
+                "max_length": "50",
+                "kind": "text",
+                "widget_type": "text",
+            },
+            actor="test-admin",
+        )
+        changes = [
+            x for x in manager.schema_change_snapshot(self.cur)
+            if x["field_id"] == field_id and x["operation"] == "ALTER_TYPE"
+        ]
+        self.assertEqual(changes, [])
+
+
     def test_physical_add_rename_drop_are_limited_to_gis_schema(self):
         self.cur.execute("CREATE TABLE gis.wtl_test_ps(id uuid PRIMARY KEY)")
         manager.apply_change_to_tenant(
