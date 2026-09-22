@@ -94,10 +94,16 @@ class GisSchemaManagerValidationTests(unittest.TestCase):
         self.assertTrue(complete)
 
         status, complete=manager.rollout_status(
-            registered, {"a":"APPLIED","b":"FAILED"}, ["a","b"], ["a"]
+            registered, {"a":"APPLIED","b":"FAILED"}, ["b"], []
         )
         self.assertEqual(status,"PARTIAL_FAILED")
         self.assertFalse(complete)
+
+        status, complete=manager.rollout_status(
+            registered, {"a":"APPLIED","b":"APPLIED"}, ["b"], ["b"]
+        )
+        self.assertEqual(status,"APPLIED")
+        self.assertTrue(complete)
 
     def test_admin_schema_ddl_is_gis_only(self):
         cursor = FakeCursor()
