@@ -422,7 +422,7 @@ def mutate_admin(cur, data, *, actor=""):
             ON CONFLICT(id) DO UPDATE SET group_code=EXCLUDED.group_code,group_name=EXCLUDED.group_name,
               display_name=EXCLUDED.display_name,sort_order=EXCLUDED.sort_order,
               active=EXCLUDED.active,description=EXCLUDED.description,updated_at=now()""",
-            [uid, name, code, display, _int(data.get("sort_order")),
+            [uid, code, name, display, _int(data.get("sort_order")),
              _bool(data.get("active"), True), str(data.get("description") or "")[:2000]])
         after = layer_group_state(cur, uid)
         audit(cur, actor=actor, target_type="GROUP", target_id=uid,
@@ -459,8 +459,9 @@ def mutate_admin(cur, data, *, actor=""):
         geometry = str(data.get("geometry_kind") or (before or {}).get("geometry_kind") or "").upper()
         if geometry not in ("", "POINT", "LINE", "POLYGON"):
             raise DefinitionError("Geometry 유형을 확인하세요.")
-        layer_group_id = data.get("layer_group_id")
-        if layer_group_id in (None, ""):
+        if "layer_group_id" in data:
+            layer_group_id = data.get("layer_group_id") or None
+        else:
             layer_group_id = (before or {}).get("layer_group_id")
         if layer_group_id:
             layer_group_id = _uuid(layer_group_id, "레이어 그룹")
