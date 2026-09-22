@@ -104,11 +104,13 @@ tenant DB는 중앙 Definition 복제본을 두지 않는다. tenant의 `gis` sc
 
 ### A. 기존 테이블 최소 확장
 
-#### definition_group
+#### definition_layer_group (신규)
 
-추가 후보:
+기존 `definition_group`은 프로젝트 Form 상속/업무 그룹 의미로 이미 사용 중이므로 레이어 분류 그룹으로 재사용하지 않는다. 레이어 분류용 최소 테이블을 별도로 둔다.
 
+- `id uuid`
 - `group_code text`
+- `group_name text`
 - `display_name text`
 - `sort_order integer NOT NULL DEFAULT 0`
 - `active boolean NOT NULL DEFAULT true`
@@ -116,7 +118,7 @@ tenant DB는 중앙 Definition 복제본을 두지 않는다. tenant의 `gis` sc
 - `created_at timestamptz`
 - `updated_at timestamptz`
 
-기존 `name`은 삭제/변경하지 않고 호환 유지한다.
+기존 `definition_group` 구조와 의미는 변경하지 않는다.
 
 #### definition_layer
 
@@ -125,7 +127,7 @@ tenant DB는 중앙 Definition 복제본을 두지 않는다. tenant의 `gis` sc
 - `description text NOT NULL DEFAULT ''`
 - `updated_at timestamptz`
 
-그룹 소속과 그룹 내 순서는 `definition_group_layer`에서 관리한다.
+레이어 분류 소속은 `definition_layer.layer_group_id`로 관리한다. 기존 `definition_group_layer`는 Form/업무 그룹과 레이어의 기존 연결 의미를 그대로 유지하며 레이어 분류 이동에 사용하지 않는다.
 
 #### definition_group_layer
 
