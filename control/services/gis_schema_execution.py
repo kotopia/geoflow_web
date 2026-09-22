@@ -150,23 +150,6 @@ def _record_target(change_id, group_id, *, status, error="", before=None, after=
             )
 
 
-def rollout_status(registered, tenant_status, targets, succeeded):
-    registered=list(registered)
-    targets=list(targets)
-    succeeded=list(succeeded)
-    all_registered_applied=bool(registered) and all(
-        tenant_status.get(group_id)=="APPLIED" for group_id in registered
-    )
-    requested_ok=len(succeeded)==len(targets)
-    if all_registered_applied:
-        return "APPLIED", True
-    if requested_ok:
-        return "PARTIAL_APPLIED", False
-    if succeeded:
-        return "PARTIAL_FAILED", False
-    return "FAILED", False
-
-
 def _finalize(change, targets, succeeded, *, actor=""):
     requested_ok = len(succeeded) == len(targets)
     registered = registered_tenant_ids()
@@ -176,7 +159,7 @@ def _finalize(change, targets, succeeded, *, actor=""):
             [change["id"]],
         )
         tenant_status = dict(status_cursor.fetchall())
-    status, all_registered_applied = rollout_status(
+    status, all_registered_applied = manager.rollout_status(
         registered, tenant_status, targets, succeeded
     )
     with transaction.atomic(using="default"):
