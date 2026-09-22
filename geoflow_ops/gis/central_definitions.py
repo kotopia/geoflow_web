@@ -160,7 +160,8 @@ def resolve(data, config, layers, *, include_unavailable=False):
 
 def reference_payload(data, layer_ids):
     ids=set(layer_ids)
-    fields=[field for field in data['fields'] if field.get('source_layer_id') in ids and field.get('physical_name')]
+    fields=[field for field in data['fields']
+            if field.get('active',True) and field.get('source_layer_id') in ids and field.get('physical_name')]
     bindings=[]; groups=[]
     layers={layer['id']:layer for layer in data['layers']}
     for field in fields:
