@@ -232,6 +232,23 @@ def effective_table_visible(field):
     return bool(field.get("visible", True) if field.get("table_visible") is None else field["table_visible"])
 
 
+def rollout_status(registered, tenant_status, targets, succeeded):
+    registered=list(registered)
+    targets=list(targets)
+    succeeded=list(succeeded)
+    all_registered_applied=bool(registered) and all(
+        tenant_status.get(group_id)=="APPLIED" for group_id in registered
+    )
+    requested_ok=len(succeeded)==len(targets)
+    if all_registered_applied:
+        return "APPLIED", True
+    if requested_ok:
+        return "PARTIAL_APPLIED", False
+    if succeeded:
+        return "PARTIAL_FAILED", False
+    return "FAILED", False
+
+
 def impact_for_group(cur, group_id):
     group_id = _uuid(group_id)
     cur.execute("SELECT count(*) FROM gis.definition_layer WHERE layer_group_id=%s", [group_id])
