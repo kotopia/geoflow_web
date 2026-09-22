@@ -205,7 +205,7 @@ def _finalize(change, targets, succeeded, *, actor=""):
 
 def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
     change = get_change(change_id)
-    if change["status"] not in ("APPROVED", "FAILED", "PARTIAL_FAILED"):
+    if change["status"] not in ("APPROVED", "APPLIED", "FAILED", "PARTIAL_FAILED"):
         raise DefinitionError("승인된 Schema 변경만 적용할 수 있습니다.")
 
     registered = registered_tenant_ids()
