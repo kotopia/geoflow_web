@@ -259,9 +259,8 @@ def snapshot(cur):
         FROM gis.definition_code ORDER BY field_id,sort_order,code'''),
       'scopes':rows(cur,'''SELECT group_id::text,catalog_level,catalog_item_id::text AS catalog_id,
         catalog_item_id::text FROM gis.definition_group_scope'''),
-      'group_layers':rows(cur,'''SELECT gl.group_id::text,gl.layer_id::text,l.standard_name AS layer_name,gl.sort_order
-        FROM gis.definition_group_layer gl JOIN gis.definition_layer l ON l.id=gl.layer_id
-        ORDER BY gl.group_id,gl.sort_order,l.standard_name'''),
+      'group_layers':rows(cur,'''SELECT gl.group_id::text,gl.layer_id::text,l.standard_name AS layer_name
+        FROM gis.definition_group_layer gl JOIN gis.definition_layer l ON l.id=gl.layer_id'''),
       'group_fields':rows(cur,'''SELECT gf.group_id::text,gf.layer_id::text,l.standard_name AS layer_name,
         gf.field_id::text,gf.sort_order,gf.required,gf.visible,gf.readonly,gf.layout
         FROM gis.definition_group_field gf JOIN gis.definition_layer l ON l.id=gf.layer_id'''),
@@ -272,7 +271,7 @@ def snapshot(cur):
       'kinds':KINDS,'widgets':WIDGETS,
     }
     revision_source={key:data[key] for key in (
-        'groups','layers','layer_catalogs','fields','field_layers','codes',
+        'groups','layer_groups','layers','layer_catalogs','fields','field_layers','codes',
         'scopes','group_layers','group_fields','rules'
     )}
     data['definition_revision']=hashlib.sha256(
