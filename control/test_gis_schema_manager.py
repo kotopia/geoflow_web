@@ -264,6 +264,10 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
                 WHERE table_schema='gis' AND table_name='wtl_test_ps' AND column_name='new_depth'"""
         )
         self.assertEqual(self.cur.fetchone()[0], "numeric")
+        self.assertTrue(manager.change_already_applied(
+            self.cur, {"operation":"ADD_COLUMN","table_name":"wtl_test_ps",
+                       "new_name":"new_depth","new_type":"numeric"}
+        ))
 
         manager.apply_change_to_tenant(
             self.cur,
@@ -279,6 +283,10 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
                 WHERE table_schema='gis' AND table_name='wtl_test_ps' AND column_name='depth_value'"""
         )
         self.assertEqual(self.cur.fetchone()[0], 1)
+        self.assertTrue(manager.change_already_applied(
+            self.cur, {"operation":"RENAME_COLUMN","table_name":"wtl_test_ps",
+                       "old_name":"new_depth","new_name":"depth_value"}
+        ))
 
         manager.apply_change_to_tenant(
             self.cur,
@@ -293,6 +301,10 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
                 WHERE table_schema='gis' AND table_name='wtl_test_ps' AND column_name='depth_value'"""
         )
         self.assertEqual(self.cur.fetchone()[0], 0)
+        self.assertTrue(manager.change_already_applied(
+            self.cur, {"operation":"DROP_COLUMN","table_name":"wtl_test_ps",
+                       "old_name":"depth_value"}
+        ))
 
         with self.assertRaises(DefinitionError):
             manager.apply_change_to_tenant(
