@@ -239,7 +239,9 @@ def mutate(cur, data):
 
 def snapshot(cur):
     data = {
-      'groups':rows(cur,'''SELECT id::text,name,group_code,display_name,sort_order,active,description\n        FROM gis.definition_group ORDER BY sort_order,COALESCE(display_name,name),name'''),
+      'groups':rows(cur,'SELECT id::text,name FROM gis.definition_group ORDER BY name'),
+      'layer_groups':rows(cur,'''SELECT id::text,group_code,group_name,display_name,sort_order,active,description
+        FROM gis.definition_layer_group ORDER BY sort_order,display_name,group_code'''),
       'layers':rows(cur,'''SELECT id::text,standard_name,physical_name,label,domain_code,geometry_kind,
         feature_role,scope_type,sort_order,active,layer_group_id::text,description,updated_at
         FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
