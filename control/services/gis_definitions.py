@@ -232,17 +232,17 @@ def mutate(cur, data):
 
 def snapshot(cur):
     data = {
-      'groups':rows(cur,'SELECT id::text,name FROM gis.definition_group ORDER BY name'),
+      'groups':rows(cur,'''SELECT id::text,name,group_code,display_name,sort_order,active,description\n        FROM gis.definition_group ORDER BY sort_order,COALESCE(display_name,name),name'''),
       'layers':rows(cur,'''SELECT id::text,standard_name,physical_name,label,domain_code,geometry_kind,
-        feature_role,scope_type,sort_order,active FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
+        feature_role,scope_type,sort_order,active,description,updated_at FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
       'catalogs':rows(cur,"SELECT id::text,code,name FROM catalog.category_node WHERE level=2 AND active ORDER BY ord,code"),
       'layer_catalogs':rows(cur,'''SELECT lc.layer_id::text,l.standard_name AS layer_name,lc.catalog_level,
         lc.catalog_item_id::text AS catalog_id,lc.catalog_item_id::text FROM gis.definition_layer_catalog lc
         JOIN gis.definition_layer l ON l.id=lc.layer_id ORDER BY l.standard_name,lc.catalog_level,lc.catalog_item_id'''),
       'fields':rows(cur,'''SELECT f.id::text,f.source_layer_id::text,l.standard_name AS source_layer,
         f.physical_name,f.standard_name,f.label,f.storage_data_type,f.storage_udt_name,f.kind,f.widget_type,
-        f.max_length,f.precision,f.scale,f.nullable,f.storage_default,f.visible,f.required,f.readonly,
-        f.default_value,f.sort_order,f.unit,f.description,f.layout,
+        f.max_length,f.precision,f.scale,f.nullable,f.storage_default,f.visible,f.form_visible,f.table_visible,f.required,f.readonly,
+        f.default_value,f.sort_order,f.unit,f.description,f.layout,f.active,f.updated_at,
         (SELECT count(*) FROM gis.definition_code c WHERE c.field_id=f.id AND c.enabled) AS code_count
         FROM gis.definition_field f LEFT JOIN gis.definition_layer l ON l.id=f.source_layer_id
         ORDER BY COALESCE(l.sort_order,2147483647),f.sort_order,f.label'''),
