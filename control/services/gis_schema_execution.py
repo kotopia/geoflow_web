@@ -211,8 +211,16 @@ def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
         if confirmation != expected:
             raise DefinitionError(f"영구 삭제 확인 문구가 필요합니다: {expected}")
 
-    succeeded = []
+    with connections["default"].cursor() as status_cursor:
+        status_cursor.execute(
+            "SELECT tenant_group_id::text,status FROM gis.schema_change_tenant WHERE change_id=%s",
+            [_uuid(change_id)],
+        )
+        previous_status = dict(status_cursor.fetchall())
+    succeeded = [group_id for group_id in requested if previous_status.get(group_id) == "APPLIED"]
     for group_id in requested:
+        if group_id in succeeded:
+            continue
         before = {}
         try:
             with tenant_cursor(group_id, write=True) as cur:
