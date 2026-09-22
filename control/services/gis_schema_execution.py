@@ -151,13 +151,41 @@ def _record_target(change_id, group_id, *, status, error="", before=None, after=
 
 
 def _finalize(change, targets, succeeded, *, actor=""):
-    all_ok = len(succeeded) == len(targets)
-    status = "APPLIED" if all_ok else ("PARTIAL_FAILED" if succeeded else "FAILED")
+    requested_ok = len(succeeded) == len(targets)
+    registered = registered_tenant_ids()
+    with connections["default"].cursor() as status_cursor:
+        status_cursor.execute(
+            "SELECT tenant_group_id::text,status FROM gis.schema_change_tenant WHERE change_id=%s",
+            [change["id"]],
+        )
+        tenant_status = dict(status_cursor.fetchall())
+    all_registered_applied = bool(registered) and all(
+        tenant_status.get(group_id) == "APPLIED" for group_id in registered
+    )
+    if all_registered_applied:
+        status = "APPLIED"
+    elif requested_ok:
+        status = "PARTIAL_APPLIED"
+    elif succeeded:
+        status = "PARTIAL_FAILED"
+    else:
+        status = "FAILED"
     with transaction.atomic(using="default"):
         with connections["default"].cursor() as cur:
             cur.execute("UPDATE gis.schema_change SET status=%s WHERE id=%s", [status, change["id"]])
-            if all_ok:
-                if change["operation"] == "RENAME_COLUMN" and change.get("field_id"):
+            if all_registered_applied:
+                if change["operation"] == "ADD_COLUMN" and change.get("field_id"):
+                    before = manager.field_state(cur, change["field_id"])
+                    cur.execute(
+                        "UPDATE gis.definition_field SET active=true,updated_at=now() WHERE id=%s",
+                        [change["field_id"]],
+                    )
+                    manager.audit(
+                        cur, actor=actor, target_type="FIELD", target_id=change["field_id"],
+                        change_type="SCHEMA_ADD_APPLIED", before=before,
+                        after=manager.field_state(cur, change["field_id"]), schema_applied=True,
+                    )
+                elif change["operation"] == "RENAME_COLUMN" and change.get("field_id"):
                     before = manager.field_state(cur, change["field_id"])
                     cur.execute(
                         """UPDATE gis.definition_field
@@ -197,15 +225,16 @@ def _finalize(change, targets, succeeded, *, actor=""):
             manager.audit(
                 cur, actor=actor, target_type="SCHEMA", target_id=change["id"],
                 change_type="APPLY_SCHEMA_CHANGE",
-                after={"status": status, "targets": targets, "succeeded": succeeded},
-                schema_applied=all_ok,
+                after={"status": status, "targets": targets, "succeeded": succeeded,
+                       "all_registered_applied": all_registered_applied},
+                schema_applied=all_registered_applied,
             )
     return status
 
 
 def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
     change = get_change(change_id)
-    if change["status"] not in ("APPROVED", "APPLIED", "FAILED", "PARTIAL_FAILED"):
+    if change["status"] not in ("APPROVED", "PARTIAL_APPLIED", "APPLIED", "FAILED", "PARTIAL_FAILED"):
         raise DefinitionError("승인된 Schema 변경만 적용할 수 있습니다.")
 
     registered = registered_tenant_ids()
