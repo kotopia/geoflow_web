@@ -416,10 +416,10 @@ def mutate_admin(cur, data, *, actor=""):
         code = identifier(data.get("group_code") or ("group_" + uid.replace("-", "")), "그룹 코드")
         name = _label(data.get("name") or data.get("label"))
         display = _label(data.get("display_name") or name)
-        cur.execute("""INSERT INTO gis.definition_group
-            (id,name,group_code,display_name,sort_order,active,description,updated_at)
+        cur.execute("""INSERT INTO gis.definition_layer_group
+            (id,group_code,group_name,display_name,sort_order,active,description,updated_at)
             VALUES (%s,%s,%s,%s,%s,%s,%s,now())
-            ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,group_code=EXCLUDED.group_code,
+            ON CONFLICT(id) DO UPDATE SET group_code=EXCLUDED.group_code,group_name=EXCLUDED.group_name,
               display_name=EXCLUDED.display_name,sort_order=EXCLUDED.sort_order,
               active=EXCLUDED.active,description=EXCLUDED.description,updated_at=now()""",
             [uid, name, code, display, _int(data.get("sort_order")),
@@ -439,8 +439,7 @@ def mutate_admin(cur, data, *, actor=""):
             raise DefinitionError(
                 f"그룹에 레이어 {impact['group_layers']}개/필드 연결 {impact['group_fields']}개가 있어 삭제할 수 없습니다."
             )
-        cur.execute("DELETE FROM gis.definition_group_scope WHERE group_id=%s", [uid])
-        cur.execute("DELETE FROM gis.definition_group WHERE id=%s", [uid])
+        cur.execute("DELETE FROM gis.definition_layer_group WHERE id=%s", [uid])
         audit(cur, actor=actor, target_type="GROUP", target_id=uid,
               change_type="DELETE_EMPTY_GROUP", before=before, after=None)
         return uid
