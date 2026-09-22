@@ -220,8 +220,9 @@ class CentralPostgresTests(unittest.TestCase):
         first=defs.snapshot(self.cur)
         saved=next(field for field in first['fields'] if field['id']==field_id)
         self.assertEqual((saved['label'],saved['kind'],saved['widget_type']),('관종 수정','text','combo'))
-        self.assertEqual((saved['visible'],saved['required'],saved['readonly'],saved['sort_order']),
-                         (True,True,True,20))
+        self.assertEqual((saved['visible'],saved['form_visible'],saved['table_visible'],
+                          saved['required'],saved['readonly'],saved['sort_order']),
+                         (True,True,True,True,True,20))
         self.assertEqual((saved['storage_data_type'],saved['max_length']),('character varying(10)',10))
         self.assertEqual(saved['layout'], {'section':'기본','width':6})
 
@@ -237,6 +238,7 @@ class CentralPostgresTests(unittest.TestCase):
         persisted=next(field for field in reloaded['fields'] if field['id']==field_id)
         self.assertEqual((persisted['label'],persisted['widget_type'],persisted['sort_order']),
                          ('관종 수정','combo',20))
+        self.assertEqual((persisted['form_visible'],persisted['table_visible']),(True,True))
         self.assertEqual(persisted['layout'], {'section':'기본','width':6})
 
     def test_standard_field_ignores_layout_payload_but_additional_field_validates_it(self):
