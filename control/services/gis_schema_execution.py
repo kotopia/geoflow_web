@@ -37,8 +37,10 @@ def registered_tenant_ids():
 def get_change(change_id, *, lock=False):
     query = """SELECT sc.id::text,sc.operation,sc.layer_id::text,l.physical_name AS table_name,
                       sc.field_id::text,sc.old_name,sc.new_name,sc.old_type,sc.new_type,
-                      sc.status,sc.preview_sql,sc.impact
+                      sc.status,sc.preview_sql,sc.impact,f.nullable AS field_nullable,
+                      f.storage_default AS field_default
                  FROM gis.schema_change sc JOIN gis.definition_layer l ON l.id=sc.layer_id
+                 LEFT JOIN gis.definition_field f ON f.id=sc.field_id
                 WHERE sc.id=%s"""
     if lock:
         query += " FOR UPDATE"
