@@ -54,9 +54,29 @@ def get_change(change_id, *, lock=False):
 def inspect_tenant(change, group_id):
     column_name = change.get("old_name") or change.get("new_name")
     with tenant_cursor(group_id, write=False) as cur:
-        return manager.tenant_column_state(
+        state = manager.tenant_column_state(
             cur, table_name=change["table_name"], column_name=column_name
         )
+        state["project_definition_refs"] = 0
+        state["attachment_refs"] = 0
+        field_id = change.get("field_id")
+        if field_id:
+            cur.execute("SELECT to_regclass('gis.project_definition')")
+            if cur.fetchone()[0]:
+                cur.execute(
+                    """SELECT count(*) FROM gis.project_definition
+                        WHERE additions ? %s OR private_items ? %s OR overrides ? %s""",
+                    [field_id, field_id, field_id],
+                )
+                state["project_definition_refs"] = int(cur.fetchone()[0])
+            cur.execute("SELECT to_regclass('ops.attachments')")
+            if cur.fetchone()[0]:
+                cur.execute(
+                    "SELECT count(*) FROM ops.attachments WHERE purpose=%s",
+                    ["gis_form:" + field_id],
+                )
+                state["attachment_refs"] = int(cur.fetchone()[0])
+        return state
 
 
 def inspect_all(change):
