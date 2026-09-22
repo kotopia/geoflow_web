@@ -1,6 +1,6 @@
 import unittest
 
-from geoflow_ops.gis.central_definitions import resolve
+from geoflow_ops.gis.central_definitions import reference_payload, resolve
 
 
 LAYER = {
@@ -67,6 +67,21 @@ class DefinitionVisibilityTests(unittest.TestCase):
         self.assertFalse(result["visible"])
         self.assertFalse(result["form_visible"])
         self.assertTrue(result["table_visible"])
+
+    def test_inactive_field_is_excluded_from_reference_payload(self):
+        inactive = field(active=False)
+        data = base_data([inactive])
+        data["codes"] = [{
+            "id": "33333333-3333-3333-3333-333333333333",
+            "field_id": inactive["id"],
+            "code": "A",
+            "label": "A",
+            "sort_order": 1,
+            "enabled": True,
+        }]
+        payload = reference_payload(data, [LAYER["id"]])
+        self.assertEqual(payload["bindings"], [])
+        self.assertEqual(payload["groups"], [])
 
     def test_legacy_visible_remains_fallback(self):
         payload = resolve(
