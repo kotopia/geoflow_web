@@ -286,8 +286,9 @@ def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
             _record_target(change_id, group_id, status="APPLIED", before=before, after=after)
             succeeded.append(group_id)
         except Exception as exc:
+            message=f"{type(exc).__name__}: {str(exc)}".strip()
             _record_target(
-                change_id, group_id, status="FAILED", error=type(exc).__name__, before=before, after={}
+                change_id, group_id, status="FAILED", error=message, before=before, after={}
             )
 
     status = _finalize(change, requested, succeeded, actor=actor)
