@@ -32,7 +32,12 @@ class GisSchemaManagerValidationTests(unittest.TestCase):
     def test_data_type_is_whitelisted(self):
         for value in ("text", "varchar", "integer", "numeric", "double precision", "jsonb"):
             self.assertEqual(manager.data_type(value), value)
-        for value in ("geometry", "serial", "text; drop table x", "varchar(100)", "public.text"):
+        self.assertEqual(manager.data_type("varchar(100)"), "varchar(100)")
+        self.assertEqual(manager.data_type("character varying(50)"), "varchar(50)")
+        self.assertEqual(manager.data_type("numeric(10,2)"), "numeric(10,2)")
+        self.assertEqual(manager.storage_type(db_type="varchar", max_length="255"), "varchar(255)")
+        self.assertEqual(manager.storage_type(db_type="numeric", precision="8", scale="3"), "numeric(8,3)")
+        for value in ("geometry", "serial", "text; drop table x", "varchar(0)", "numeric(2,3)", "public.text"):
             with self.assertRaises(DefinitionError):
                 manager.data_type(value)
 
@@ -132,7 +137,11 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
         self.addCleanup(self.db.rollback)
         self.cur = self.db.cursor()
         self.addCleanup(self.cur.close)
-        self.cur.execute("DROP SCHEMA IF EXISTS gis CASCADE")
+        self.cur.execute("DROP SCHEMA IF EXISTS gis CASCADE; DROP SCHEMA IF EXISTS catalog CASCADE")
+        self.cur.execute("""CREATE SCHEMA catalog;
+            CREATE TABLE catalog.category_node(
+              id uuid PRIMARY KEY,code text,name text,level smallint,ord integer,active boolean
+            )""")
         self.cur.execute((ROOT / "docs/architecture/gis-central-definitions.sql").read_text())
 
     def test_group_layer_field_lifecycle_and_pending_schema_change(self):
@@ -259,6 +268,89 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
             'ALTER TABLE gis."wtl_test_ps" ADD COLUMN "new_depth" numeric;',
         )
         self.assertGreaterEqual(len(manager.change_log_snapshot(self.cur)), 6)
+
+
+    def test_catalog_layer_many_to_many_and_physical_field_request_flow(self):
+        water, sewer = str(uuid4()), str(uuid4())
+        self.cur.execute(
+            """INSERT INTO catalog.category_node(id,code,name,level,ord,active)
+               VALUES (%s,'WATER','상수도',2,1,true),(%s,'SEWER','하수도',2,2,true)""",
+            [water, sewer],
+        )
+        layer_id = manager.mutate_admin(
+            self.cur,
+            {
+                "action": "layer_admin",
+                "standard_name": "SURVEY_TEST",
+                "physical_name": "survey_test",
+                "label": "공용 측량",
+                "geometry_kind": "POINT",
+                "catalog_ids": json.dumps([water, sewer]),
+                "active": "true",
+            },
+            actor="test-admin",
+        )
+        self.cur.execute(
+            """SELECT catalog_item_id::text FROM gis.definition_layer_catalog
+               WHERE layer_id=%s AND catalog_level=2 ORDER BY catalog_item_id""",
+            [layer_id],
+        )
+        self.assertEqual(set(row[0] for row in self.cur.fetchall()), {water, sewer})
+
+        field_id = manager.mutate_admin(
+            self.cur,
+            {
+                "action": "physical_field_create_admin",
+                "source_layer_id": layer_id,
+                "physical_name": "depth_value",
+                "standard_name": "DEPTH_VALUE",
+                "label": "깊이",
+                "storage_data_type": "numeric",
+                "precision": "10",
+                "scale": "2",
+                "kind": "decimal",
+                "widget_type": "decimal",
+                "form_visible": "true",
+                "table_visible": "true",
+            },
+            actor="test-admin",
+        )
+        field = manager.field_state(self.cur, field_id)
+        self.assertEqual(field["storage_data_type"], "numeric(10,2)")
+        self.assertEqual((field["precision"], field["scale"]), (10, 2))
+        self.assertFalse(field["active"])
+        changes = manager.schema_change_snapshot(self.cur)
+        add = next(x for x in changes if x["field_id"] == field_id)
+        self.assertEqual(add["operation"], "ADD_COLUMN")
+        self.assertIn("numeric(10,2)", add["preview_sql"])
+
+        manager.mutate_admin(
+            self.cur,
+            {
+                "action": "physical_field_update_admin",
+                "id": field_id,
+                "physical_name": "depth_m",
+                "label": "깊이(m)",
+                "storage_data_type": "numeric",
+                "precision": "10",
+                "scale": "2",
+                "kind": "decimal",
+                "widget_type": "decimal",
+            },
+            actor="test-admin",
+        )
+        renamed = [x for x in manager.schema_change_snapshot(self.cur) if x["field_id"] == field_id and x["operation"] == "RENAME_COLUMN"]
+        self.assertEqual(len(renamed), 1)
+        self.assertEqual(manager.field_state(self.cur, field_id)["physical_name"], "depth_value")
+
+        manager.mutate_admin(
+            self.cur,
+            {"action": "physical_field_delete_admin", "id": field_id},
+            actor="test-admin",
+        )
+        self.assertFalse(manager.field_state(self.cur, field_id)["active"])
+        dropped = [x for x in manager.schema_change_snapshot(self.cur) if x["field_id"] == field_id and x["operation"] == "DROP_COLUMN"]
+        self.assertEqual(len(dropped), 1)
 
 
     def test_physical_add_rename_drop_are_limited_to_gis_schema(self):
