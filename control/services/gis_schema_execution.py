@@ -168,9 +168,13 @@ def _finalize(change, targets, succeeded, *, actor=""):
             if all_registered_applied:
                 if change["operation"] == "ADD_COLUMN" and change.get("field_id"):
                     before = manager.field_state(cur, change["field_id"])
+                    spec, max_length, precision, scale = manager.storage_parts(change["new_type"])
                     cur.execute(
-                        "UPDATE gis.definition_field SET active=true,updated_at=now() WHERE id=%s",
-                        [change["field_id"]],
+                        """UPDATE gis.definition_field
+                              SET storage_data_type=%s,max_length=%s,precision=%s,scale=%s,
+                                  active=true,updated_at=now()
+                            WHERE id=%s""",
+                        [spec, max_length, precision, scale, change["field_id"]],
                     )
                     manager.audit(
                         cur, actor=actor, target_type="FIELD", target_id=change["field_id"],
@@ -192,11 +196,12 @@ def _finalize(change, targets, succeeded, *, actor=""):
                     )
                 elif change["operation"] == "ALTER_TYPE" and change.get("field_id"):
                     before = manager.field_state(cur, change["field_id"])
+                    spec, max_length, precision, scale = manager.storage_parts(change["new_type"])
                     cur.execute(
                         """UPDATE gis.definition_field
-                              SET storage_data_type=%s,updated_at=now()
+                              SET storage_data_type=%s,max_length=%s,precision=%s,scale=%s,updated_at=now()
                             WHERE id=%s""",
-                        [change["new_type"], change["field_id"]],
+                        [spec, max_length, precision, scale, change["field_id"]],
                     )
                     manager.audit(
                         cur, actor=actor, target_type="FIELD", target_id=change["field_id"],
