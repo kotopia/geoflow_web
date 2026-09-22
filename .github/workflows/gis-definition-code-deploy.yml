@@ -209,7 +209,7 @@ jobs:
             # qgis-plugin-test-repository-publish.yml. They never require a
             # central/tenant database transition in this deployment job.
             case "$changed_path" in
-              integrations/qgis/geoflow_connector/*|scripts/ci/run_gis_unit_tests.py|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
+              integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
             esac
             if [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin_write.py' ] && \
