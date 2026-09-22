@@ -5,7 +5,6 @@ import unittest
 from uuid import uuid4
 
 from control.services import gis_schema_manager as manager
-from control.services import gis_schema_execution
 from geoflow_ops.gis.form_definitions import DefinitionError
 
 
@@ -82,19 +81,19 @@ class GisSchemaManagerValidationTests(unittest.TestCase):
 
     def test_staged_rollout_status_requires_all_registered_tenants(self):
         registered=["a","b"]
-        status, complete=gis_schema_execution.rollout_status(
+        status, complete=manager.rollout_status(
             registered, {"a":"APPLIED"}, ["a"], ["a"]
         )
         self.assertEqual(status,"PARTIAL_APPLIED")
         self.assertFalse(complete)
 
-        status, complete=gis_schema_execution.rollout_status(
+        status, complete=manager.rollout_status(
             registered, {"a":"APPLIED","b":"APPLIED"}, ["b"], ["b"]
         )
         self.assertEqual(status,"APPLIED")
         self.assertTrue(complete)
 
-        status, complete=gis_schema_execution.rollout_status(
+        status, complete=manager.rollout_status(
             registered, {"a":"APPLIED","b":"FAILED"}, ["a","b"], ["a"]
         )
         self.assertEqual(status,"PARTIAL_FAILED")
