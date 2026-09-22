@@ -818,13 +818,18 @@ def mutate_admin(cur, data, *, actor=""):
         return uid
 
     if action == "schema_change_admin":
-        payload = dict(data)
+        payload = data.dict() if hasattr(data, "dict") else dict(data)
         if payload.get("new_type"):
-            payload["new_type"] = storage_type(
-                db_type=payload.get("new_type"),
-                max_length=payload.get("max_length"),
-                precision=payload.get("precision"),
-                scale=payload.get("scale"),
+            raw_type = str(payload.get("new_type") or "").strip().lower()
+            has_dimensions = any(payload.get(key) not in (None, "") for key in ("max_length", "precision", "scale"))
+            payload["new_type"] = (
+                storage_type(
+                    db_type=raw_type,
+                    max_length=payload.get("max_length"),
+                    precision=payload.get("precision"),
+                    scale=payload.get("scale"),
+                )
+                if has_dimensions else data_type(raw_type)
             )
         return create_schema_change(cur, payload, actor=actor)
 
