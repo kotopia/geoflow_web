@@ -101,6 +101,19 @@ class GeoPackageSnapshotV2Tests(SimpleTestCase):
         self.assertIn("_is_spatial_data_type(data_type)", inspect.getsource(gpkg._central_layer_fields))
         self.assertIn("_is_spatial_data_type(data_type)", inspect.getsource(gpkg_snapshot_v2._central_layer_fields))
 
+    def test_table_visible_overrides_legacy_visible_for_qgis_attribute_table(self):
+        plan={"form_definition":{"fields":[{"id":"field-uuid","layer_id":"layer-uuid",
+            "field_name":"saa_cde","storage_data_type":"character varying(50)",
+            "storage":{"kind":"column","key":"saa_cde"},"readonly":False,
+            "visible":True,"form_visible":True,"table_visible":False,
+            "display_order":10,"label":"상수관 용도","field_identifier":"SAA_CDE","unit":"",
+            "widget_type":"combo","required":False,"description":""}]}}
+        from . import gpkg, gpkg_snapshot_v2
+        legacy = gpkg._central_layer_fields(plan,"layer-uuid")
+        snapshot = gpkg_snapshot_v2._central_layer_fields(plan,"layer-uuid")
+        self.assertFalse(next(row for row in legacy if row.name=="saa_cde").visible)
+        self.assertFalse(next(row for row in snapshot if row.name=="saa_cde").visible)
+
     def test_profile_field_contract_carries_native_form_metadata(self):
         plan={"form_definition":{"fields":[{"id":"field-uuid","layer_id":"layer-uuid",
             "field_name":"saa_cde","storage_data_type":"character varying(50)",
