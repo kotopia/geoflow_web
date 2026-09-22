@@ -2,11 +2,12 @@ import logging
 from django.db import connections, transaction, IntegrityError, DatabaseError
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 from control.decorators import require_central_admin
 from control.services import gis_definitions as definitions
 from control.services.gis_admin import guard_definition_deletion
 from control.services import gis_schema_manager
+from control.services import gis_schema_execution
 
 logger=logging.getLogger(__name__)
 
@@ -48,3 +49,37 @@ def dashboard(request):
         error='중앙 업무정의를 읽거나 저장하지 못했습니다.'
     if request.method=='POST': return JsonResponse({'ok':False,'error':error},status=400)
     return render(request,'control/gis/definitions.html',{'error':error,'ready':False},status=503)
+
+
+@require_central_admin
+@require_POST
+def schema_change_command(request, change_id, command):
+    """Central-admin-only command boundary for GIS schema changes."""
+    try:
+        actor=gis_schema_manager.actor_name(request)
+        if command=='inspect':
+            change=gis_schema_execution.get_change(str(change_id))
+            return JsonResponse({'ok':True,'impact':gis_schema_execution.inspect_all(change)})
+        if command=='approve':
+            impact=gis_schema_execution.approve(
+                str(change_id),actor=actor,
+                allow_data_loss=request.POST.get('allow_data_loss') in ('1','true','on'),
+            )
+            return JsonResponse({'ok':True,'impact':impact})
+        if command=='apply':
+            tenant_ids=request.POST.getlist('tenant_group_id')
+            result=gis_schema_execution.apply(
+                str(change_id),tenant_ids,actor=actor,
+                confirmation=request.POST.get('confirmation',''),
+            )
+            return JsonResponse({'ok':result['status']=='APPLIED',**result},
+                                status=200 if result['status']=='APPLIED' else 409)
+        return JsonResponse({'ok':False,'error':'지원하지 않는 Schema 명령입니다.'},status=400)
+    except definitions.DefinitionError as exc:
+        return JsonResponse({'ok':False,'error':str(exc)},status=409)
+    except DatabaseError:
+        logger.exception('GIS schema change database failure')
+        return JsonResponse({'ok':False,'error':'GIS Schema 변경 처리 중 DB 오류가 발생했습니다.'},status=503)
+    except Exception:
+        logger.exception('GIS schema change execution failure')
+        return JsonResponse({'ok':False,'error':'GIS Schema 변경을 완료하지 못했습니다.'},status=500)
