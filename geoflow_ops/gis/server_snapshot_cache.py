@@ -74,6 +74,31 @@ def _namespace_dir(
     return root / alias_hash / project_hash / fingerprint[:24]
 
 
+def purge_project_server_snapshots(*, alias: str, project_id: str, cache_root: Path | None = None) -> int:
+    """Delete only cached QGIS snapshots for one tenant/project namespace."""
+    root = cache_root or _cache_root()
+    alias_hash = hashlib.sha256(str(alias).encode("utf-8")).hexdigest()[:16]
+    project_hash = hashlib.sha256(str(project_id).encode("utf-8")).hexdigest()[:16]
+    project_root = root / alias_hash / project_hash
+    if not project_root.exists():
+        return 0
+    removed = 0
+    for path in sorted(project_root.rglob("*"), reverse=True):
+        try:
+            if path.is_file():
+                path.unlink()
+                removed += 1
+            elif path.is_dir():
+                path.rmdir()
+        except OSError:
+            pass
+    try:
+        project_root.rmdir()
+    except OSError:
+        pass
+    return removed
+
+
 def _revision_paths(namespace: Path, revision: int) -> tuple[Path, Path]:
     stem = f"revision-{int(revision):020d}"
     return namespace / f"{stem}.gpkg", namespace / f"{stem}.json"
