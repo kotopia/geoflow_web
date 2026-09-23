@@ -49,10 +49,11 @@ jobs:
           python="$repo/.venv/bin/python"
           cd "$repo"
           export PGOPTIONS='-c default_transaction_read_only=on'
-          "$python" "$repo/manage.py" diagnose_qgis_project_load || true
+          "$python" -
           echo '--- recent QGIS/GIS service errors ---'
           sudo -n journalctl -u "$service" --since '2 hours ago' --no-pager 2>/dev/null \
             | grep -E 'QGIS|qgis|GeoPackage|metadata|manifest|form-definition|reference-catalog|Traceback|ProgrammingError|UndefinedColumn|DatabaseError' \
             | tail -n 300 || true
           REMOTE
+          cat scripts/ops/diagnose_qgis_flow_dip.py
           )
