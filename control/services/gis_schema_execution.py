@@ -261,6 +261,36 @@ def tenant_failure_details(change_id):
     return result
 
 
+def apply_type_from_field_save(change_id, *, actor=""):
+    """Approve/retry and apply an existing ALTER TYPE request to every active tenant."""
+    change = get_change(change_id)
+    if change["operation"] != "ALTER_TYPE":
+        raise DefinitionError("DB 타입 변경 요청이 아닙니다.")
+    if change["status"] == "APPLIED":
+        return {
+            "status": "APPLIED",
+            "change_id": change_id,
+            "old_type": change.get("old_type"),
+            "new_type": change["new_type"],
+            "failures": [],
+        }
+
+    if change["status"] in ("PENDING", "FAILED", "PARTIAL_FAILED"):
+        approve(change_id, actor=actor)
+        change = get_change(change_id)
+
+    result = apply(change_id, registered_tenant_ids(), actor=actor)
+    failures = tenant_failure_details(change_id)
+    final_change = get_change(change_id)
+    return {
+        **result,
+        "change_id": change_id,
+        "old_type": final_change.get("old_type"),
+        "new_type": final_change["new_type"],
+        "failures": failures,
+    }
+
+
 def apply_rename_from_field_save(change_id, *, actor=""):
     """Approve/retry and apply an existing RENAME request to every active tenant."""
     change = get_change(change_id)
@@ -338,7 +368,13 @@ def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
                     column_name=change.get("old_name") or change.get("new_name"),
                 )
                 if not before.get("table_exists"):
-                    raise DefinitionError("대상 GIS 테이블이 없습니다.")
+                    after = before
+                    _record_target(
+                        change_id, group_id, status="APPLIED",
+                        before=before, after=after,
+                    )
+                    succeeded.append(group_id)
+                    continue
                 already_applied = manager.change_already_applied(cur, change)
                 if not already_applied:
                     if change["operation"] in ("RENAME_COLUMN", "DROP_COLUMN", "ALTER_TYPE") and not before.get("column"):
