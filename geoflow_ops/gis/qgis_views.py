@@ -239,8 +239,8 @@ def qgis_project_package_api(request, project_id):
 
     if changeset_supported:
         requested_revision = project_current_revision(alias, str(project.id))
-        layer_manifest = project_geopackage_layer_manifest(alias, plan)
         try:
+            layer_manifest = project_geopackage_layer_manifest(alias, plan)
             artifact = get_or_build_server_snapshot(
                 alias=alias,
                 project_id=str(project.id),
@@ -249,7 +249,31 @@ def qgis_project_package_api(request, project_id):
                 requested_revision=requested_revision,
             )
         except ValueError as exc:
+            logger.warning(
+                "QGIS_PACKAGE_VALIDATION_FAIL project_id=%s alias=%s definition_revision=%s "
+                "layers=%s error_type=%s",
+                project.id, alias, (plan.get("definition") or {}).get("revision") or "",
+                ",".join(str(row.get("physical_name") or "") for row in plan.get("layers") or []),
+                type(exc).__name__,
+            )
             return JsonResponse({"error": str(exc)}, status=422)
+        except DatabaseError as exc:
+            logger.exception(
+                "QGIS_PACKAGE_DB_FAIL project_id=%s alias=%s endpoint=qgis-package "
+                "definition_revision=%s layers=%s error_type=%s",
+                project.id, alias, (plan.get("definition") or {}).get("revision") or "",
+                ",".join(str(row.get("physical_name") or "") for row in plan.get("layers") or []),
+                type(exc).__name__,
+            )
+            return JsonResponse(
+                {
+                    "error": "qgis_package_materialization_failed",
+                    "message": "QGIS 프로젝트 패키지를 생성하지 못했습니다. 서버 GIS 정의와 물리 스키마를 확인하세요.",
+                    "exception_type": type(exc).__name__,
+                },
+                status=503,
+                json_dumps_params={"ensure_ascii": False},
+            )
 
         cache_status = "HIT" if artifact.cache_hit else "MISS"
         _dev_snapshot_diag(
