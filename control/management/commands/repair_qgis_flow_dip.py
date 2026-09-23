@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections, transaction
 
 from control.models import GroupDBConfig
 from control.services import gis_schema_manager as manager
 from control.services.gis_admin import tenant_cursor
+from control.services.tenant_db_secret_resolver import resolve_tenant_db_password
 from geoflow_ops.gis.layer_plan import project_layer_plan
 from geoflow_ops.gis.gpkg_syncable import build_syncable_project_geopackage_file
 from geoflow_ops.gis.server_snapshot_cache import purge_project_server_snapshots
@@ -18,6 +21,49 @@ LAYER_STANDARD = "WTL_FLOW_PS"
 OLD_NAME = "flow_dip"
 NEW_NAME = "flo_dip"
 PROJECT_ID = "86f52715-3cca-4124-9cc6-cb7c6a7e9c4e"
+
+
+@contextmanager
+def _django_tenant_alias(config):
+    """Register one tenant as a Django DB alias for QGIS runtime verification only."""
+    alias=str(config.db_alias or "").strip()
+    if not alias or alias=="default":
+        raise CommandError("검증용 tenant DB alias가 올바르지 않습니다.")
+    password=resolve_tenant_db_password(str(config.db_password or "").strip())
+    if not password:
+        raise CommandError(f"tenant DB credential을 확인할 수 없습니다: {alias}")
+
+    existing=settings.DATABASES.get(alias)
+    db_config=dict(settings.DATABASES["default"])
+    db_config.update({
+        "ENGINE":"django.contrib.gis.db.backends.postgis",
+        "NAME":config.db_name,
+        "USER":config.db_user,
+        "PASSWORD":password,
+        "HOST":config.db_host,
+        "PORT":config.db_port,
+        "CONN_MAX_AGE":0,
+    })
+    settings.DATABASES[alias]=db_config
+    connections.databases[alias]=db_config
+    try:
+        with connections[alias].cursor() as cur:
+            cur.execute("SELECT current_database()")
+            row=cur.fetchone()
+            if not row or row[0] != config.db_name:
+                raise CommandError(f"tenant DB identity mismatch: {alias}")
+        yield alias
+    finally:
+        try:
+            connections[alias].close()
+        except Exception:
+            pass
+        if existing is None:
+            settings.DATABASES.pop(alias,None)
+            connections.databases.pop(alias,None)
+        else:
+            settings.DATABASES[alias]=existing
+            connections.databases[alias]=existing
 
 
 def _row(cur, query, params):
@@ -298,19 +344,18 @@ class Command(BaseCommand):
 
         project_checks=[]
         for cfg in GroupDBConfig.objects.using("default").select_related("group").filter(group__status="active").exclude(db_alias="default"):
-            built=None
             with tenant_cursor(cfg.group_id,write=False) as cur:
                 cur.execute("SELECT to_regclass('prj.projects')")
                 if cur.fetchone()[0] is None:
                     continue
                 cur.execute("SELECT code,name FROM prj.projects WHERE id=%s",[PROJECT_ID])
                 row=cur.fetchone()
-                if not row:
-                    continue
+            if not row:
+                continue
 
-                # tenant_cursor owns the dynamic Django alias lifetime. Keep
-                # every helper using connections[cfg.db_alias] inside this context.
-                plan=project_layer_plan(cfg.db_alias,PROJECT_ID)
+            built=None
+            with _django_tenant_alias(cfg) as alias:
+                plan=project_layer_plan(alias,PROJECT_ID)
                 matching=[
                     {
                         "id":f.get("id"),"layer_id":f.get("layer_id"),
@@ -330,11 +375,14 @@ class Command(BaseCommand):
 
                 try:
                     built,layer_meta,snapshot_revision=build_syncable_project_geopackage_file(
-                        cfg.db_alias,project_id=PROJECT_ID,plan=plan
+                        alias,project_id=PROJECT_ID,plan=plan
                     )
+                    layer_meta_json=json.dumps(layer_meta,ensure_ascii=False,default=str)
+                    if OLD_NAME in layer_meta_json:
+                        raise CommandError("GeoPackage metadata에 flow_dip 문자열이 남아 있습니다.")
                     project_checks.append({
                         "tenant_name":cfg.group.name or cfg.group.code,
-                        "alias":cfg.db_alias,
+                        "alias":alias,
                         "project_code":row[0],
                         "project_name":row[1],
                         "definition_revision":(plan.get("definition") or {}).get("revision"),
@@ -344,8 +392,8 @@ class Command(BaseCommand):
                         "snapshot_revision":snapshot_revision,
                         "form_flow_dip_count":form_json.count(OLD_NAME),
                         "form_flo_dip_count":form_json.count(NEW_NAME),
-                        "package_flow_dip_count":json.dumps(layer_meta,ensure_ascii=False,default=str).count(OLD_NAME),
-                        "package_flo_dip_count":json.dumps(layer_meta,ensure_ascii=False,default=str).count(NEW_NAME),
+                        "package_flow_dip_count":layer_meta_json.count(OLD_NAME),
+                        "package_flo_dip_count":layer_meta_json.count(NEW_NAME),
                         "status":"SUCCESS",
                     })
                 finally:
