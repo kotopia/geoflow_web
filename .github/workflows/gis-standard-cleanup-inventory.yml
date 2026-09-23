@@ -1,0 +1,62 @@
+name: GIS standard cleanup inventory
+
+on:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - scripts/ops/inventory_gis_standard_cleanup.py
+      - .github/workflows/gis-standard-cleanup-inventory.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly-inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_inventory_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_inventory_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_inventory_key" >/dev/null
+      - name: Inventory central and tenant GIS schemas read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_inventory_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' < <(cat <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ]
+          cd "$repo"
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          "$python" -
+          REMOTE
+          cat scripts/ops/inventory_gis_standard_cleanup.py
+          )
