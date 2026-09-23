@@ -231,6 +231,66 @@ def _finalize(change, targets, succeeded, *, actor=""):
     return status
 
 
+def tenant_failure_details(change_id):
+    with connections["default"].cursor() as cur:
+        cur.execute(
+            """SELECT s.tenant_group_id::text,s.error_message
+                 FROM gis.schema_change_tenant s
+                WHERE s.change_id=%s AND s.status='FAILED'
+                ORDER BY s.tenant_group_id""",
+            [_uuid(change_id)],
+        )
+        failures = cur.fetchall()
+    if not failures:
+        return []
+    names = {
+        str(row["group_id"]): row["group__name"] or row["group__code"]
+        for row in GroupDBConfig.objects.using("default")
+        .select_related("group")
+        .filter(group_id__in=[item[0] for item in failures])
+        .values("group_id", "group__name", "group__code")
+    }
+    result = []
+    for group_id, error in failures:
+        safe_error = str(error or "").replace("\n", " ").strip()
+        result.append({
+            "tenant_group_id": group_id,
+            "tenant_name": names.get(group_id, group_id),
+            "error": safe_error[:1000],
+        })
+    return result
+
+
+def apply_rename_from_field_save(change_id, *, actor=""):
+    """Approve/retry and apply an existing RENAME request to every active tenant."""
+    change = get_change(change_id)
+    if change["operation"] != "RENAME_COLUMN":
+        raise DefinitionError("물리 필드명 변경 요청이 아닙니다.")
+    if change["status"] == "APPLIED":
+        return {
+            "status": "APPLIED",
+            "change_id": change_id,
+            "old_name": change["old_name"],
+            "new_name": change["new_name"],
+            "failures": [],
+        }
+
+    if change["status"] in ("PENDING", "FAILED", "PARTIAL_FAILED"):
+        approve(change_id, actor=actor)
+        change = get_change(change_id)
+
+    result = apply(change_id, registered_tenant_ids(), actor=actor)
+    failures = tenant_failure_details(change_id)
+    final_change = get_change(change_id)
+    return {
+        **result,
+        "change_id": change_id,
+        "old_name": final_change["old_name"],
+        "new_name": final_change["new_name"],
+        "failures": failures,
+    }
+
+
 def apply(change_id, tenant_group_ids, *, actor="", confirmation=""):
     change = get_change(change_id)
     if change["status"] not in ("APPROVED", "PARTIAL_APPLIED", "APPLIED", "FAILED", "PARTIAL_FAILED"):
