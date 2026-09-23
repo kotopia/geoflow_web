@@ -111,6 +111,26 @@ class ResolutionTests(unittest.TestCase):
         self.assertNotIn('레이어 정의 생성', admin)
         self.assertNotIn('필드 일괄 편집', admin)
 
+    def test_standard_field_selection_ui_contract(self):
+        template=(ROOT/'control/templates/control/gis/definitions.html').read_text()
+        for marker in (
+            '조회 업무범위','연결 업무범위','data-layer-catalog-checkbox',
+            'data-bs-auto-close="outside"','name="standard-field-selection"',
+            'data-standard-field-row','table-primary','aria-selected',
+            '수정할 필드를 목록에서 선택하세요.','선택 필드:',
+            '신규 필드 생성','delete-selected-standard-field',
+            'selected-standard-field-delete-form','활성 상태'
+        ):
+            self.assertIn(marker, template)
+        self.assertIn('function selectStandardField(fieldId)', template)
+        self.assertIn("if(b.id==='new-standard-field'){editingStandardField='';", template)
+        standard_table = template.split("$('standard-table').innerHTML=",1)[1].split('function selectStandardField',1)[0]
+        self.assertNotIn('data-edit-standard-field', standard_table)
+        self.assertNotIn('<th>관리</th>', standard_table)
+        self.assertNotIn('미반영/비활성', standard_table)
+        self.assertIn('>활성<', standard_table)
+        self.assertIn('>비활성<', standard_table)
+
     def test_legacy_layout_normalization_only_recovers_json_objects(self):
         self.assertEqual(normalize_layout('{"section":"기본"}'), {'section':'기본'})
         self.assertEqual(normalize_layout(['기본']), {})

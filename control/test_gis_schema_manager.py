@@ -343,14 +343,36 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
         self.assertEqual(len(renamed), 1)
         self.assertEqual(manager.field_state(self.cur, field_id)["physical_name"], "depth_value")
 
+        other_field_id = manager.mutate_admin(
+            self.cur,
+            {
+                "action": "physical_field_create_admin",
+                "source_layer_id": layer_id,
+                "physical_name": "other_value",
+                "standard_name": "OTHER_VALUE",
+                "label": "다른 필드",
+                "storage_data_type": "integer",
+                "kind": "integer",
+                "widget_type": "integer",
+            },
+            actor="test-admin",
+        )
+        self.cur.execute(
+            "UPDATE gis.definition_field SET active=true WHERE id=%s",
+            [other_field_id],
+        )
+
         manager.mutate_admin(
             self.cur,
             {"action": "physical_field_delete_admin", "id": field_id},
             actor="test-admin",
         )
         self.assertFalse(manager.field_state(self.cur, field_id)["active"])
+        self.assertTrue(manager.field_state(self.cur, other_field_id)["active"])
         dropped = [x for x in manager.schema_change_snapshot(self.cur) if x["field_id"] == field_id and x["operation"] == "DROP_COLUMN"]
         self.assertEqual(len(dropped), 1)
+        other_dropped = [x for x in manager.schema_change_snapshot(self.cur) if x["field_id"] == other_field_id and x["operation"] == "DROP_COLUMN"]
+        self.assertEqual(other_dropped, [])
 
 
     def test_add_column_applies_dimensions_default_and_nullability(self):
