@@ -2,7 +2,7 @@ name: GIS standard cleanup inventory
 
 on:
   push:
-    branches: [feature/gis-standard-cleanup-20260923]
+    branches: [release/stabilized-deploy]
     paths:
       - scripts/ops/inventory_gis_standard_cleanup.py
       - .github/workflows/gis-standard-cleanup-inventory.yml
