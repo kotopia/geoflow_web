@@ -139,49 +139,52 @@ class Command(BaseCommand):
 
         project_checks=[]
         for cfg in GroupDBConfig.objects.using("default").select_related("group").filter(group__status="active").exclude(db_alias="default"):
+            built=None
             with tenant_cursor(cfg.group_id,write=False) as cur:
                 cur.execute("SELECT to_regclass('prj.projects')")
                 if cur.fetchone()[0] is None:
                     continue
                 cur.execute("SELECT code,name FROM prj.projects WHERE id=%s",[PROJECT_ID])
                 row=cur.fetchone()
-            if not row:
-                continue
-            plan=project_layer_plan(cfg.db_alias,PROJECT_ID)
-            matching=[
-                {
-                    "id":f.get("id"),"layer_id":f.get("layer_id"),
-                    "field_name":f.get("field_name"),
-                    "storage_data_type":f.get("storage_data_type"),
-                }
-                for f in (plan.get("form_definition") or {}).get("fields",[])
-                if str(f.get("field_name") or "") in (OLD_NAME,NEW_NAME)
-            ]
-            if any(x["field_name"]==OLD_NAME for x in matching):
-                raise CommandError("Final Form Definition에 flow_dip가 남아 있습니다.")
-            if not any(x["field_name"]==NEW_NAME for x in matching):
-                raise CommandError("Final Form Definition에 flo_dip가 없습니다.")
+                if not row:
+                    continue
 
-            built=None
-            try:
-                built,layer_meta,snapshot_revision=build_syncable_project_geopackage_file(
-                    cfg.db_alias,project_id=PROJECT_ID,plan=plan
-                )
-                project_checks.append({
-                    "tenant_name":cfg.group.name or cfg.group.code,
-                    "alias":cfg.db_alias,
-                    "project_code":row[0],
-                    "project_name":row[1],
-                    "definition_revision":(plan.get("definition") or {}).get("revision"),
-                    "matching_fields":matching,
-                    "package_layers":len(layer_meta),
-                    "package_bytes":built.stat().st_size,
-                    "snapshot_revision":snapshot_revision,
-                    "status":"SUCCESS",
-                })
-            finally:
-                if built is not None:
-                    built.unlink(missing_ok=True)
+                # tenant_cursor owns the dynamic Django alias lifetime. Keep
+                # every helper using connections[cfg.db_alias] inside this context.
+                plan=project_layer_plan(cfg.db_alias,PROJECT_ID)
+                matching=[
+                    {
+                        "id":f.get("id"),"layer_id":f.get("layer_id"),
+                        "field_name":f.get("field_name"),
+                        "storage_data_type":f.get("storage_data_type"),
+                    }
+                    for f in (plan.get("form_definition") or {}).get("fields",[])
+                    if str(f.get("field_name") or "") in (OLD_NAME,NEW_NAME)
+                ]
+                if any(x["field_name"]==OLD_NAME for x in matching):
+                    raise CommandError("Final Form Definition에 flow_dip가 남아 있습니다.")
+                if not any(x["field_name"]==NEW_NAME for x in matching):
+                    raise CommandError("Final Form Definition에 flo_dip가 없습니다.")
+
+                try:
+                    built,layer_meta,snapshot_revision=build_syncable_project_geopackage_file(
+                        cfg.db_alias,project_id=PROJECT_ID,plan=plan
+                    )
+                    project_checks.append({
+                        "tenant_name":cfg.group.name or cfg.group.code,
+                        "alias":cfg.db_alias,
+                        "project_code":row[0],
+                        "project_name":row[1],
+                        "definition_revision":(plan.get("definition") or {}).get("revision"),
+                        "matching_fields":matching,
+                        "package_layers":len(layer_meta),
+                        "package_bytes":built.stat().st_size,
+                        "snapshot_revision":snapshot_revision,
+                        "status":"SUCCESS",
+                    })
+                finally:
+                    if built is not None:
+                        built.unlink(missing_ok=True)
 
         if not project_checks:
             raise CommandError("검증 대상 QGIS 프로젝트를 찾지 못했습니다.")
