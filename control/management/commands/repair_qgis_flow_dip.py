@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connections
+from django.db import connections, transaction
 
 from control.models import GroupDBConfig
 from control.services import gis_schema_manager as manager
 from control.services.gis_admin import tenant_cursor
 from geoflow_ops.gis.layer_plan import project_layer_plan
 from geoflow_ops.gis.gpkg_syncable import build_syncable_project_geopackage_file
+from geoflow_ops.gis.server_snapshot_cache import purge_project_server_snapshots
 
 
 LAYER_STANDARD = "WTL_FLOW_PS"
@@ -132,42 +133,43 @@ class Command(BaseCommand):
         if not options["apply"]:
             return self._finish(report,options.get("report_file"))
 
-        with connections["default"].cursor() as cur:
-            before=manager.field_state(cur,field["id"])
-            if not before:
-                raise CommandError("중앙 Definition field를 찾을 수 없습니다.")
-            if before["physical_name"] == OLD_NAME:
-                cur.execute(
-                    """UPDATE gis.definition_field
-                          SET physical_name=%s,updated_at=now()
-                        WHERE id=%s AND physical_name=%s""",
-                    [NEW_NAME,field["id"],OLD_NAME],
-                )
-                if cur.rowcount != 1:
-                    raise CommandError("중앙 Definition metadata update가 적용되지 않았습니다.")
-                manager.audit(
-                    cur,
-                    actor=actor,
-                    target_type="FIELD",
-                    target_id=field["id"],
-                    change_type="METADATA_PHYSICAL_NAME_REPAIR",
-                    before=before,
-                    after=manager.field_state(cur,field["id"]),
-                    schema_applied=False,
-                )
-            elif before["physical_name"] != NEW_NAME:
-                raise CommandError(f"예상하지 못한 중앙 physical_name: {before['physical_name']}")
+        with transaction.atomic(using="default"):
+            with connections["default"].cursor() as cur:
+                before=manager.field_state(cur,field["id"])
+                if not before:
+                    raise CommandError("중앙 Definition field를 찾을 수 없습니다.")
+                if before["physical_name"] == OLD_NAME:
+                    cur.execute(
+                        """UPDATE gis.definition_field
+                              SET physical_name=%s,updated_at=now()
+                            WHERE id=%s AND physical_name=%s""",
+                        [NEW_NAME,field["id"],OLD_NAME],
+                    )
+                    if cur.rowcount != 1:
+                        raise CommandError("중앙 Definition metadata update가 적용되지 않았습니다.")
+                    manager.audit(
+                        cur,
+                        actor=actor,
+                        target_type="FIELD",
+                        target_id=field["id"],
+                        change_type="METADATA_PHYSICAL_NAME_REPAIR",
+                        before=before,
+                        after=manager.field_state(cur,field["id"]),
+                        schema_applied=False,
+                    )
+                elif before["physical_name"] != NEW_NAME:
+                    raise CommandError(f"예상하지 못한 중앙 physical_name: {before['physical_name']}")
 
-            # Close stale rename requests without executing tenant DDL.
-            cur.execute(
-                """UPDATE gis.schema_change
-                      SET status='CANCELLED'
-                    WHERE field_id=%s AND operation='RENAME_COLUMN'
-                      AND old_name=%s AND new_name=%s
-                      AND status IN ('PENDING','APPROVED','PARTIAL_APPLIED','PARTIAL_FAILED','FAILED')""",
-                [field["id"],OLD_NAME,NEW_NAME],
-            )
-            report["cancelled_stale_schema_changes"]=cur.rowcount
+                # Close stale rename requests without executing tenant DDL.
+                cur.execute(
+                    """UPDATE gis.schema_change
+                          SET status='CANCELLED'
+                        WHERE field_id=%s AND operation='RENAME_COLUMN'
+                          AND old_name=%s AND new_name=%s
+                          AND status IN ('PENDING','APPROVED','PARTIAL_APPLIED','PARTIAL_FAILED','FAILED')""",
+                    [field["id"],OLD_NAME,NEW_NAME],
+                )
+                report["cancelled_stale_schema_changes"]=cur.rowcount
 
         # project_definition normally references field UUIDs, not physical names.
         # If an old name survived inside GIS-owned JSON, replace only exact JSON
@@ -180,8 +182,8 @@ class Command(BaseCommand):
                 }
             if isinstance(value,list):
                 return [replace_exact(item) for item in value]
-            if value==OLD_NAME:
-                return NEW_NAME
+            if isinstance(value,str):
+                return value.replace(OLD_NAME,NEW_NAME)
             return value
 
         project_definition_updates=[]
@@ -225,6 +227,26 @@ class Command(BaseCommand):
                         "project_id":project_id,
                     })
         report["project_definition_updates"]=project_definition_updates
+
+        cache_purge=[]
+        for cfg in GroupDBConfig.objects.using("default").select_related("group").filter(
+            group__status="active"
+        ).exclude(db_alias="default"):
+            with tenant_cursor(cfg.group_id,write=False) as cur:
+                cur.execute("SELECT to_regclass('prj.projects')")
+                if cur.fetchone()[0] is None:
+                    continue
+                cur.execute("SELECT 1 FROM prj.projects WHERE id=%s",[PROJECT_ID])
+                if not cur.fetchone():
+                    continue
+                removed=purge_project_server_snapshots(alias=cfg.db_alias,project_id=PROJECT_ID)
+                cache_purge.append({
+                    "tenant_name":cfg.group.name or cfg.group.code,
+                    "alias":cfg.db_alias,
+                    "project_id":PROJECT_ID,
+                    "removed_files":removed,
+                })
+        report["snapshot_cache_purge"]=cache_purge
 
         with connections["default"].cursor() as cur:
             final=manager.field_state(cur,field["id"])
