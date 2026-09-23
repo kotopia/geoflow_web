@@ -58,9 +58,19 @@ def _physical_field_update(request):
                     }
 
         if rename:
-            result=gis_schema_execution.apply_rename_from_field_save(
-                rename['change_id'],actor=actor
-            )
+            try:
+                result=gis_schema_execution.apply_rename_from_field_save(
+                    rename['change_id'],actor=actor
+                )
+            except definitions.DefinitionError as exc:
+                with connections['default'].cursor() as cur:
+                    payload=_definition_payload(cur)
+                return JsonResponse({
+                    'ok':False,
+                    'error':'물리 필드명 변경에 실패했습니다. 기존 필드명은 유지됩니다. '+str(exc),
+                    'id':uid,
+                    'data':payload,
+                },status=409)
             with connections['default'].cursor() as cur:
                 payload=_definition_payload(cur)
             if result['status'] != 'APPLIED':
