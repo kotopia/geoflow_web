@@ -1,0 +1,58 @@
+name: QGIS production project load diagnostic
+
+on:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - control/management/commands/diagnose_qgis_project_load.py
+      - .github/workflows/qgis-production-project-load-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-qgis-load-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_qgis_diag_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_qgis_diag_key" "$HOME/.ssh/known_hosts"
+      - name: Run production QGIS materialization diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_qgis_diag_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' < <(cat <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          python="$repo/.venv/bin/python"
+          cd "$repo"
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          "$python" "$repo/manage.py" diagnose_qgis_project_load || true
+          echo '--- recent QGIS/GIS service errors ---'
+          sudo -n journalctl -u "$service" --since '2 hours ago' --no-pager 2>/dev/null \
+            | grep -E 'QGIS|qgis|GeoPackage|metadata|manifest|form-definition|reference-catalog|Traceback|ProgrammingError|UndefinedColumn|DatabaseError' \
+            | tail -n 300 || true
+          REMOTE
+          )
