@@ -144,6 +144,32 @@ class ResolutionTests(unittest.TestCase):
         self.assertIn('apply(change_id, registered_tenant_ids(), actor=actor)', execution)
         self.assertIn("result.message||'저장했습니다.'", template)
 
+    def test_one_stop_alter_type_and_cleanup_contract(self):
+        views=(ROOT/'control/views_gis_admin.py').read_text()
+        execution=(ROOT/'control/services/gis_schema_execution.py').read_text()
+        manager_source=(ROOT/'control/services/gis_schema_manager.py').read_text()
+        cleanup=(ROOT/'control/management/commands/cleanup_gis_standard_fields.py').read_text()
+        deploy=(ROOT/'.github/workflows/gis-definition-code-deploy.yml').read_text()
+
+        self.assertIn('apply_type_from_field_save', views)
+        self.assertIn('DB 타입 변경에 실패했습니다. 기존 정의와 컬럼 타입은 유지됩니다.', views)
+        self.assertIn("DB 타입을 {alter_type['old_type']} → {alter_type['new_type']}으로 변경했습니다.", views)
+        self.assertIn('def apply_type_from_field_save', execution)
+        self.assertIn('def validate_alter_type_pair', manager_source)
+        self.assertIn('USING {}::{}', manager_source)
+        self.assertIn('char_length({}) > %s', manager_source)
+
+        water_pos=cleanup.index('# STEP 3: WATER')
+        rename_pos=cleanup.index('# STEP 4: SEWER rename')
+        drop_pos=cleanup.index('# STEP 5: SEWER physical DROP')
+        verify_pos=cleanup.index('# STEP 6: central + tenant invariants')
+        self.assertLess(water_pos,rename_pos)
+        self.assertLess(rename_pos,drop_pos)
+        self.assertLess(drop_pos,verify_pos)
+        self.assertIn('SEWER_DROP_FIELDS = ("mng_cde", "ftr_idn", "gid", "off_cde", "hjd_cde", "bjd_cde", "sht_num")', cleanup)
+        self.assertIn('SEWER_RENAMES = (("ist_ymd", "date"), ("sys_chk", "status"))', cleanup)
+        self.assertIn('cleanup_gis_standard_fields --apply', deploy)
+
     def test_legacy_layout_normalization_only_recovers_json_objects(self):
         self.assertEqual(normalize_layout('{"section":"기본"}'), {'section':'기본'})
         self.assertEqual(normalize_layout(['기본']), {})

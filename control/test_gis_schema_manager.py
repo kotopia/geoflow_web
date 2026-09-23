@@ -590,6 +590,104 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
         self.assertEqual(changes, [])
 
 
+    def test_safe_alter_type_conversions_and_dimensions(self):
+        self.cur.execute("""CREATE TABLE gis.type_change_ps(
+            n numeric(10,2),
+            i integer,
+            txt varchar(20),
+            n2 numeric(10,2)
+        )""")
+        self.cur.execute(
+            "INSERT INTO gis.type_change_ps(n,i,txt,n2) VALUES (12.00,7,'abcdef',3.25)"
+        )
+
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "ALTER_TYPE",
+                "table_name": "type_change_ps",
+                "old_name": "n",
+                "new_type": "integer",
+            },
+        )
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "ALTER_TYPE",
+                "table_name": "type_change_ps",
+                "old_name": "i",
+                "new_type": "numeric(10,2)",
+            },
+        )
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "ALTER_TYPE",
+                "table_name": "type_change_ps",
+                "old_name": "txt",
+                "new_type": "varchar(50)",
+            },
+        )
+        manager.apply_change_to_tenant(
+            self.cur,
+            {
+                "operation": "ALTER_TYPE",
+                "table_name": "type_change_ps",
+                "old_name": "n2",
+                "new_type": "numeric(12,3)",
+            },
+        )
+
+        states = {}
+        for name in ("n", "i", "txt", "n2"):
+            states[name] = manager.tenant_column_state(
+                self.cur, table_name="type_change_ps", column_name=name
+            )["column"]
+        self.assertEqual(manager._canonical_db_type(states["n"]), "integer")
+        self.assertEqual(manager._canonical_db_type(states["i"]), "numeric(10,2)")
+        self.assertEqual(manager._canonical_db_type(states["txt"]), "varchar(50)")
+        self.assertEqual(manager._canonical_db_type(states["n2"]), "numeric(12,3)")
+
+        self.cur.execute("SELECT n,i,txt,n2 FROM gis.type_change_ps")
+        row = self.cur.fetchone()
+        self.assertEqual(row[0], 12)
+        self.assertEqual(str(row[1]), "7.00")
+        self.assertEqual(row[2], "abcdef")
+        self.assertEqual(str(row[3]), "3.250")
+
+    def test_varchar_shrink_never_truncates_existing_values(self):
+        self.cur.execute("CREATE TABLE gis.text_change_ps(v varchar(20))")
+        self.cur.execute("INSERT INTO gis.text_change_ps(v) VALUES ('1234567890')")
+        with self.assertRaisesRegex(DefinitionError, "길이를 초과하는 값"):
+            manager.apply_change_to_tenant(
+                self.cur,
+                {
+                    "operation": "ALTER_TYPE",
+                    "table_name": "text_change_ps",
+                    "old_name": "v",
+                    "new_type": "varchar(5)",
+                },
+            )
+        state = manager.tenant_column_state(
+            self.cur, table_name="text_change_ps", column_name="v"
+        )["column"]
+        self.assertEqual(manager._canonical_db_type(state), "varchar(20)")
+        self.cur.execute("SELECT v FROM gis.text_change_ps")
+        self.assertEqual(self.cur.fetchone()[0], "1234567890")
+
+    def test_unsupported_automatic_type_conversion_is_blocked(self):
+        self.cur.execute("CREATE TABLE gis.unsupported_type_ps(v text)")
+        with self.assertRaisesRegex(DefinitionError, "자동 변환을 지원하지 않는"):
+            manager.apply_change_to_tenant(
+                self.cur,
+                {
+                    "operation": "ALTER_TYPE",
+                    "table_name": "unsupported_type_ps",
+                    "old_name": "v",
+                    "new_type": "integer",
+                },
+            )
+
     def test_physical_add_rename_drop_are_limited_to_gis_schema(self):
         self.cur.execute("CREATE TABLE gis.wtl_test_ps(id uuid PRIMARY KEY)")
         manager.apply_change_to_tenant(

@@ -33,6 +33,7 @@ def _physical_field_update(request):
     actor=gis_schema_manager.actor_name(request)
     field_id=request.POST.get('id')
     rename=None
+    alter_type=None
     try:
         with transaction.atomic(using='default'):
             with connections['default'].cursor() as cur:
@@ -46,6 +47,19 @@ def _physical_field_update(request):
                     request.POST.get('physical_name') or before['physical_name'],
                     'DB 필드명',
                 )
+                requested_type=gis_schema_manager.storage_type(
+                    data_kind=request.POST.get('data_type_kind'),
+                    db_type=request.POST.get('storage_data_type') or before.get('storage_data_type'),
+                    max_length=request.POST.get('max_length') if request.POST.get('max_length') not in (None,'') else before.get('max_length'),
+                    precision=request.POST.get('precision') if request.POST.get('precision') not in (None,'') else before.get('precision'),
+                    scale=request.POST.get('scale') if request.POST.get('scale') not in (None,'') else before.get('scale'),
+                )
+                current_type=gis_schema_manager.storage_type(
+                    db_type=before.get('storage_data_type') or before.get('storage_udt_name') or 'text',
+                    max_length=before.get('max_length'),
+                    precision=before.get('precision'),
+                    scale=before.get('scale'),
+                )
                 uid=gis_schema_manager.mutate_admin(cur,request.POST,actor=actor)
                 if requested_name != before['physical_name']:
                     pending=gis_schema_manager.find_incomplete_rename(cur,uid)
@@ -55,6 +69,15 @@ def _physical_field_update(request):
                         'change_id':pending['id'],
                         'old_name':before['physical_name'],
                         'new_name':requested_name,
+                    }
+                elif requested_type != current_type:
+                    pending=gis_schema_manager.find_incomplete_alter_type(cur,uid)
+                    if not pending:
+                        raise definitions.DefinitionError('DB 타입 변경 요청을 찾을 수 없습니다.')
+                    alter_type={
+                        'change_id':pending['id'],
+                        'old_type':current_type,
+                        'new_type':requested_type,
                     }
 
         if rename:
@@ -91,6 +114,39 @@ def _physical_field_update(request):
                 'rename':result,
             })
 
+        if alter_type:
+            try:
+                result=gis_schema_execution.apply_type_from_field_save(
+                    alter_type['change_id'],actor=actor
+                )
+            except definitions.DefinitionError as exc:
+                with connections['default'].cursor() as cur:
+                    payload=_definition_payload(cur)
+                return JsonResponse({
+                    'ok':False,
+                    'error':'DB 타입 변경에 실패했습니다. 기존 정의와 컬럼 타입은 유지됩니다. '+str(exc),
+                    'id':uid,
+                    'data':payload,
+                },status=409)
+            with connections['default'].cursor() as cur:
+                payload=_definition_payload(cur)
+            if result['status'] != 'APPLIED':
+                details='; '.join(
+                    f"{item['tenant_name']}: {item['error']}" for item in result.get('failures',[])
+                )
+                error='DB 타입 변경에 실패했습니다. 기존 정의와 컬럼 타입은 유지됩니다.'
+                if details:
+                    error += ' ' + details
+                return JsonResponse(
+                    {'ok':False,'error':error,'id':uid,'data':payload,'alter_type':result},
+                    status=409,
+                )
+            return JsonResponse({
+                'ok':True,'id':uid,'data':payload,
+                'message':f"DB 타입을 {alter_type['old_type']} → {alter_type['new_type']}으로 변경했습니다.",
+                'alter_type':result,
+            })
+
         with connections['default'].cursor() as cur:
             payload=_definition_payload(cur)
         return JsonResponse({'ok':True,'id':uid,'data':payload,'message':'저장했습니다.'})
@@ -101,7 +157,7 @@ def _physical_field_update(request):
         return JsonResponse({'ok':False,'error':'GIS 물리 필드 수정 중 DB 오류가 발생했습니다.'},status=503)
     except Exception:
         logger.exception('GIS physical field update failure')
-        return JsonResponse({'ok':False,'error':'물리 필드명 변경을 완료하지 못했습니다. 기존 필드명은 유지됩니다.'},status=500)
+        return JsonResponse({'ok':False,'error':'GIS 물리 필드 변경을 완료하지 못했습니다. 기존 정의와 컬럼 상태는 유지됩니다.'},status=500)
 
 
 @require_central_admin
