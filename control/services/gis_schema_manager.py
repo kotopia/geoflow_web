@@ -88,6 +88,44 @@ def storage_parts(type_value):
     return spec, None, None, None
 
 
+def type_base(type_value):
+    spec = data_type(type_value)
+    if spec.startswith("varchar("):
+        return "varchar"
+    if spec.startswith("numeric("):
+        return "numeric"
+    return spec
+
+
+def type_varchar_length(type_value):
+    spec = data_type(type_value)
+    if spec.startswith("varchar("):
+        return int(spec[8:-1])
+    return None
+
+
+def validate_alter_type_pair(source_type, target_type):
+    source = type_base(source_type)
+    target = type_base(target_type)
+    if source == target:
+        return source, target
+    numeric_family = {"integer", "bigint", "numeric", "double precision"}
+    if source in numeric_family and target in numeric_family:
+        return source, target
+    if (source, target) in {("varchar", "text"), ("text", "varchar"), ("date", "timestamp")}:
+        return source, target
+    raise DefinitionError(
+        f"자동 변환을 지원하지 않는 DB 타입 변경입니다: {data_type(source_type)} → {data_type(target_type)}"
+    )
+
+
+def alter_type_needs_using(source_type, target_type):
+    source, target = validate_alter_type_pair(source_type, target_type)
+    return source != target and source in {"integer", "bigint", "numeric", "double precision"} and target in {
+        "integer", "bigint", "numeric", "double precision"
+    }
+
+
 def _bool(value, default=False):
     if value is None:
         return default
@@ -491,11 +529,86 @@ def apply_change_to_tenant(cur, change):
             sql.Identifier("gis"), sql.Identifier(table_name),
             sql.Identifier(identifier(change["old_name"], "컬럼명")))
     elif operation == "ALTER_TYPE":
+        column_name = identifier(change["old_name"], "컬럼명")
+        state = tenant_column_state(cur, table_name=table_name, column_name=column_name)
+        if not state.get("column"):
+            raise DefinitionError(f"대상 GIS 컬럼 {column_name}이 없습니다.")
+        source_type = _canonical_db_type(state["column"])
+        target_type = data_type(change["new_type"])
+        validate_alter_type_pair(source_type, target_type)
+
+        target_length = type_varchar_length(target_type)
+        if target_length is not None and type_base(source_type) in {"varchar", "text"}:
+            cur.execute(
+                sql.SQL("SELECT count(*) FROM {}.{} WHERE {} IS NOT NULL AND char_length({}) > %s").format(
+                    sql.Identifier("gis"), sql.Identifier(table_name),
+                    sql.Identifier(column_name), sql.Identifier(column_name)
+                ),
+                [target_length],
+            )
+            too_long = int(cur.fetchone()[0])
+            if too_long:
+                raise DefinitionError(
+                    f"{column_name} 컬럼에 varchar({target_length}) 길이를 초과하는 값이 {too_long}건 있습니다."
+                )
+
         stmt = sql.SQL("ALTER TABLE {}.{} ALTER COLUMN {} TYPE {}").format(
             sql.Identifier("gis"), sql.Identifier(table_name),
-            sql.Identifier(identifier(change["old_name"], "컬럼명")),
-            sql.SQL(data_type(change["new_type"])))
+            sql.Identifier(column_name), sql.SQL(target_type))
+        if alter_type_needs_using(source_type, target_type):
+            stmt += sql.SQL(" USING {}::{}").format(
+                sql.Identifier(column_name), sql.SQL(target_type))
+        cur.execute(stmt)
+        return
     cur.execute(stmt)
+
+
+def find_incomplete_alter_type(cur, field_id):
+    field_id = _uuid(field_id, "필드")
+    cur.execute(
+        """SELECT id::text,old_name,old_type,new_type,status
+             FROM gis.schema_change
+            WHERE field_id=%s AND operation='ALTER_TYPE'
+              AND status IN ('PENDING','APPROVED','PARTIAL_APPLIED','PARTIAL_FAILED','FAILED')
+            ORDER BY created_at DESC,id DESC""",
+        [field_id],
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "id": row[0], "old_name": row[1], "old_type": row[2],
+        "new_type": row[3], "status": row[4],
+    }
+
+
+def ensure_alter_type_change(cur, *, field_id, layer_id, column_name, old_type, new_type, actor=""):
+    field_id = _uuid(field_id, "필드")
+    column_name = identifier(column_name, "컬럼명")
+    old_type = data_type(old_type)
+    new_type = data_type(new_type)
+    validate_alter_type_pair(old_type, new_type)
+    existing = find_incomplete_alter_type(cur, field_id)
+    if existing:
+        if existing["old_name"] == column_name and data_type(existing["new_type"]) == new_type:
+            return existing["id"], False
+        raise DefinitionError(
+            f"이 필드에는 미완료 DB 타입 변경 요청이 있습니다: "
+            f"{existing.get('old_type') or old_type} → {existing['new_type']}"
+        )
+    return create_schema_change(
+        cur,
+        {
+            "operation": "ALTER_TYPE",
+            "layer_id": layer_id,
+            "field_id": field_id,
+            "old_name": column_name,
+            "old_type": old_type,
+            "new_type": new_type,
+        },
+        actor=actor,
+    ), True
 
 
 def find_incomplete_rename(cur, field_id):
@@ -845,10 +958,13 @@ def mutate_admin(cur, data, *, actor=""):
                 actor=actor,
             )
         elif type_changed:
-            create_schema_change(
+            ensure_alter_type_change(
                 cur,
-                {"operation": "ALTER_TYPE", "layer_id": current["source_layer_id"], "field_id": uid,
-                 "old_name": current["physical_name"], "new_type": desired_type},
+                field_id=uid,
+                layer_id=current["source_layer_id"],
+                column_name=current["physical_name"],
+                old_type=current_type,
+                new_type=desired_type,
                 actor=actor,
             )
         return uid
