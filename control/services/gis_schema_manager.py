@@ -498,6 +498,45 @@ def apply_change_to_tenant(cur, change):
     cur.execute(stmt)
 
 
+def find_incomplete_rename(cur, field_id):
+    field_id = _uuid(field_id, "필드")
+    cur.execute(
+        """SELECT id::text,old_name,new_name,status
+             FROM gis.schema_change
+            WHERE field_id=%s AND operation='RENAME_COLUMN'
+              AND status IN ('PENDING','APPROVED','PARTIAL_APPLIED','PARTIAL_FAILED','FAILED')
+            ORDER BY created_at DESC,id DESC""",
+        [field_id],
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return None
+    row = rows[0]
+    return {"id": row[0], "old_name": row[1], "new_name": row[2], "status": row[3]}
+
+
+def ensure_rename_change(cur, *, field_id, layer_id, old_name, new_name, actor=""):
+    existing = find_incomplete_rename(cur, field_id)
+    if existing:
+        if existing["old_name"] == old_name and existing["new_name"] == new_name:
+            return existing["id"], False
+        raise DefinitionError(
+            f"이 필드에는 미완료 물리 필드명 변경 요청이 있습니다: "
+            f"{existing['old_name']} → {existing['new_name']}"
+        )
+    return create_schema_change(
+        cur,
+        {
+            "operation": "RENAME_COLUMN",
+            "layer_id": layer_id,
+            "field_id": field_id,
+            "old_name": old_name,
+            "new_name": new_name,
+        },
+        actor=actor,
+    ), True
+
+
 def schema_change_snapshot(cur):
     cur.execute(
         """SELECT sc.id::text,sc.operation,sc.layer_id::text,l.standard_name,l.physical_name,
@@ -791,16 +830,18 @@ def mutate_admin(cur, data, *, actor=""):
         name_changed = desired_name != current["physical_name"]
         type_changed = desired_type != current_type
         if name_changed and type_changed:
-            raise DefinitionError("물리 필드명과 DB 타입은 한 번에 하나씩 변경하세요. 첫 변경 적용 후 다음 변경을 진행하세요.")
+            raise DefinitionError("물리 필드명과 DB 타입은 동시에 변경할 수 없습니다. 필드명 변경을 먼저 저장한 뒤 DB 타입을 변경하세요.")
         base = data.dict() if hasattr(data, "dict") else dict(data)
         if "form_visible" in base:
             base["visible"] = base["form_visible"]
         mutate_admin(cur, {**current, **base, "action": "field_admin", "id": uid}, actor=actor)
         if name_changed:
-            create_schema_change(
+            ensure_rename_change(
                 cur,
-                {"operation": "RENAME_COLUMN", "layer_id": current["source_layer_id"], "field_id": uid,
-                 "old_name": current["physical_name"], "new_name": desired_name},
+                field_id=uid,
+                layer_id=current["source_layer_id"],
+                old_name=current["physical_name"],
+                new_name=desired_name,
                 actor=actor,
             )
         elif type_changed:

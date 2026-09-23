@@ -131,6 +131,19 @@ class ResolutionTests(unittest.TestCase):
         self.assertIn('>활성<', standard_table)
         self.assertIn('>비활성<', standard_table)
 
+    def test_one_stop_rename_wiring_and_messages(self):
+        views=(ROOT/'control/views_gis_admin.py').read_text()
+        execution=(ROOT/'control/services/gis_schema_execution.py').read_text()
+        template=(ROOT/'control/templates/control/gis/definitions.html').read_text()
+        self.assertIn("request.POST.get('action')=='physical_field_update_admin'", views)
+        self.assertIn('apply_rename_from_field_save', views)
+        self.assertIn('물리 필드명 변경에 실패했습니다. 기존 필드명은 유지됩니다.', views)
+        self.assertIn('물리 필드명을 {rename[\'old_name\']} → {rename[\'new_name\']}로 변경했습니다.', views)
+        self.assertIn('def apply_rename_from_field_save', execution)
+        self.assertIn('approve(change_id, actor=actor)', execution)
+        self.assertIn('apply(change_id, registered_tenant_ids(), actor=actor)', execution)
+        self.assertIn("result.message||'저장했습니다.'", template)
+
     def test_legacy_layout_normalization_only_recovers_json_objects(self):
         self.assertEqual(normalize_layout('{"section":"기본"}'), {'section':'기본'})
         self.assertEqual(normalize_layout(['기본']), {})

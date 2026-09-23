@@ -375,6 +375,155 @@ class GisSchemaManagerPostgresTests(unittest.TestCase):
         self.assertEqual(other_dropped, [])
 
 
+    def test_rename_request_reuse_conflict_and_tenant_data_preservation(self):
+        water = str(uuid4())
+        self.cur.execute(
+            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) VALUES (%s,'WATER','상수도',2,1,true)",
+            [water],
+        )
+        layer_id = manager.mutate_admin(
+            self.cur,
+            {
+                "action": "layer_admin",
+                "standard_name": "WTL_RENAME_PS",
+                "physical_name": "wtl_rename_ps",
+                "label": "Rename 테스트",
+                "geometry_kind": "POINT",
+                "catalog_ids": json.dumps([water]),
+                "active": "true",
+            },
+            actor="test-admin",
+        )
+        field_id = str(uuid4())
+        self.cur.execute(
+            """INSERT INTO gis.definition_field(
+                 id,source_layer_id,physical_name,standard_name,label,storage_data_type,
+                 storage_udt_name,kind,widget_type,active)
+               VALUES (%s,%s,'gid','GID','GID','bigint','int8','integer','integer',true)""",
+            [field_id, layer_id],
+        )
+
+        first, created = manager.ensure_rename_change(
+            self.cur, field_id=field_id, layer_id=layer_id,
+            old_name="gid", new_name="gid_test", actor="test-admin",
+        )
+        self.assertTrue(created)
+        second, created = manager.ensure_rename_change(
+            self.cur, field_id=field_id, layer_id=layer_id,
+            old_name="gid", new_name="gid_test", actor="test-admin",
+        )
+        self.assertEqual(second, first)
+        self.assertFalse(created)
+        with self.assertRaisesRegex(DefinitionError, "미완료 물리 필드명 변경 요청"):
+            manager.ensure_rename_change(
+                self.cur, field_id=field_id, layer_id=layer_id,
+                old_name="gid", new_name="gid_other", actor="test-admin",
+            )
+        self.cur.execute(
+            """SELECT count(*) FROM gis.schema_change
+               WHERE field_id=%s AND operation='RENAME_COLUMN'""",
+            [field_id],
+        )
+        self.assertEqual(self.cur.fetchone()[0], 1)
+        self.assertEqual(manager.field_state(self.cur, field_id)["physical_name"], "gid")
+
+        import psycopg2
+        suffix = uuid4().hex[:10]
+        tenant_names = [f"geoflow_tenant_a_{suffix}", f"geoflow_tenant_b_{suffix}"]
+        admin = psycopg2.connect(
+            host="127.0.0.1", port=55440, dbname="postgres",
+            user="geoflow_test", password="geoflow_test",
+        )
+        admin.autocommit = True
+        self.addCleanup(admin.close)
+        for dbname in tenant_names:
+            admin.cursor().execute(f'CREATE DATABASE "{dbname}"')
+            self.addCleanup(lambda name=dbname: admin.cursor().execute(
+                f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'
+            ))
+        change = {
+            "operation": "RENAME_COLUMN",
+            "table_name": "wtl_rename_ps",
+            "old_name": "gid",
+            "new_name": "gid_test",
+        }
+        for index, dbname in enumerate(tenant_names, start=1):
+            db = psycopg2.connect(
+                host="127.0.0.1", port=55440, dbname=dbname,
+                user="geoflow_test", password="geoflow_test",
+            )
+            self.addCleanup(db.close)
+            cur = db.cursor()
+            cur.execute("CREATE SCHEMA gis")
+            cur.execute("CREATE TABLE gis.wtl_rename_ps(gid bigint, label text)")
+            cur.execute(
+                "INSERT INTO gis.wtl_rename_ps(gid,label) VALUES (%s,%s)",
+                [index, f"row-{index}"],
+            )
+            manager.apply_change_to_tenant(cur, change)
+            db.commit()
+            cur.execute(
+                """SELECT count(*) FROM information_schema.columns
+                   WHERE table_schema='gis' AND table_name='wtl_rename_ps' AND column_name='gid'"""
+            )
+            self.assertEqual(cur.fetchone()[0], 0)
+            cur.execute(
+                """SELECT count(*) FROM information_schema.columns
+                   WHERE table_schema='gis' AND table_name='wtl_rename_ps' AND column_name='gid_test'"""
+            )
+            self.assertEqual(cur.fetchone()[0], 1)
+            cur.execute("SELECT gid_test,label FROM gis.wtl_rename_ps")
+            self.assertEqual(cur.fetchone(), (index, f"row-{index}"))
+            self.assertTrue(manager.change_already_applied(cur, change))
+
+        # Tenant DDL alone must never move the central Source of Truth.
+        self.assertEqual(manager.field_state(self.cur, field_id)["physical_name"], "gid")
+
+    def test_name_and_type_change_message_is_explicit(self):
+        water = str(uuid4())
+        self.cur.execute(
+            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) VALUES (%s,'WATER','상수도',2,1,true)",
+            [water],
+        )
+        layer_id = manager.mutate_admin(
+            self.cur,
+            {
+                "action": "layer_admin",
+                "standard_name": "WTL_BOTH_PS",
+                "physical_name": "wtl_both_ps",
+                "label": "동시변경 테스트",
+                "geometry_kind": "POINT",
+                "catalog_ids": json.dumps([water]),
+            },
+            actor="test-admin",
+        )
+        field_id = str(uuid4())
+        self.cur.execute(
+            """INSERT INTO gis.definition_field(
+                 id,source_layer_id,physical_name,standard_name,label,storage_data_type,
+                 storage_udt_name,kind,widget_type,active)
+               VALUES (%s,%s,'gid','GID','GID','bigint','int8','integer','integer',true)""",
+            [field_id, layer_id],
+        )
+        with self.assertRaisesRegex(
+            DefinitionError,
+            "물리 필드명과 DB 타입은 동시에 변경할 수 없습니다",
+        ):
+            manager.mutate_admin(
+                self.cur,
+                {
+                    "action": "physical_field_update_admin",
+                    "id": field_id,
+                    "physical_name": "gid_test",
+                    "label": "GID",
+                    "storage_data_type": "integer",
+                    "kind": "integer",
+                    "widget_type": "integer",
+                },
+                actor="test-admin",
+            )
+
+
     def test_add_column_applies_dimensions_default_and_nullability(self):
         self.cur.execute("CREATE TABLE gis.wtl_dimension_ps(id uuid PRIMARY KEY)")
         manager.apply_change_to_tenant(
