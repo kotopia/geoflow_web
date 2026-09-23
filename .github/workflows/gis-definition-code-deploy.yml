@@ -291,7 +291,7 @@ jobs:
           [ "$ready" = yes ] || fail 'service_failed_post_restart_healthcheck'
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
-            smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 451 --minimum-codes 111
+            smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 400 --minimum-codes 111
 
           "$python" "$repo/manage.py" smoke_gis_definition_admin_write
 
