@@ -49,11 +49,12 @@ jobs:
           python="$repo/.venv/bin/python"
           cd "$repo"
           export PGOPTIONS='-c default_transaction_read_only=on'
-          "$python" -
-          echo '--- recent QGIS/GIS service errors ---'
-          sudo -n journalctl -u "$service" --since '2 hours ago' --no-pager 2>/dev/null \
-            | grep -E 'QGIS|qgis|GeoPackage|metadata|manifest|form-definition|reference-catalog|Traceback|ProgrammingError|UndefinedColumn|DatabaseError' \
-            | tail -n 300 || true
+          cat > /tmp/qgis-flow-dip-diag.py
+          "$python" /tmp/qgis-flow-dip-diag.py
+          rm -f /tmp/qgis-flow-dip-diag.py
           REMOTE
           cat scripts/ops/diagnose_qgis_flow_dip.py
           )
+          ssh -i "$HOME/.ssh/geoflow_qgis_diag_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "sudo -n journalctl -u geoflow-stabilized.service --since '2 hours ago' --no-pager 2>/dev/null | grep -E 'QGIS|qgis|GeoPackage|metadata|manifest|form-definition|reference-catalog|Traceback|ProgrammingError|UndefinedColumn|DatabaseError' | tail -n 300 || true"
