@@ -177,6 +177,12 @@ jobs:
             if [ "$rollback_needed" -eq 1 ]; then
               if [ "$schema_committed" -eq 1 ]; then
                 echo 'production_release_code_rollback_blocked=central_schema_committed'
+                sudo -n systemctl restart "$service" || true
+                if systemctl is-active --quiet "$service"; then
+                  echo 'production_release_service_recovered_after_schema_failure=yes'
+                else
+                  echo 'production_release_service_recovery_failed_after_schema_failure=yes'
+                fi
                 echo 'production_release_requires_operator=yes'
                 return
               fi
