@@ -170,6 +170,22 @@ class ResolutionTests(unittest.TestCase):
         self.assertIn('SEWER_RENAMES = (("ist_ymd", "date"), ("sys_chk", "status"))', cleanup)
         self.assertIn('cleanup_gis_standard_fields --apply', deploy)
 
+    def test_qgis_flow_dip_repair_and_logging_contract(self):
+        repair=(ROOT/'control/management/commands/repair_qgis_flow_dip.py').read_text()
+        qgis_views=(ROOT/'geoflow_ops/gis/qgis_views.py').read_text()
+        deploy=(ROOT/'.github/workflows/gis-definition-code-deploy.yml').read_text()
+
+        self.assertIn('LAYER_STANDARD = "WTL_FLOW_PS"', repair)
+        self.assertIn('OLD_NAME = "flow_dip"', repair)
+        self.assertIn('NEW_NAME = "flo_dip"', repair)
+        self.assertIn('apply_rename_from_field_save', repair)
+        self.assertIn('build_syncable_project_geopackage_file', repair)
+        self.assertIn('Final Form Definition에 flow_dip가 남아 있습니다.', repair)
+        self.assertIn('QGIS_PACKAGE_DB_FAIL', qgis_views)
+        self.assertIn('project_id=%s alias=%s endpoint=qgis-package', qgis_views)
+        self.assertIn('qgis_package_materialization_failed', qgis_views)
+        self.assertIn('repair_qgis_flow_dip --apply', deploy)
+
     def test_legacy_layout_normalization_only_recovers_json_objects(self):
         self.assertEqual(normalize_layout('{"section":"기본"}'), {'section':'기본'})
         self.assertEqual(normalize_layout(['기본']), {})
