@@ -202,6 +202,8 @@ def qgis_project_manifest_api(request, project_id):
         kwargs={"project_id": project.id},
     )
     changeset_supported = changeset_runtime_enabled(alias)
+    from .photo_policy_views import central_photo_snapshot
+    photo_snapshot = central_photo_snapshot()
     manifest = build_qgis_manifest(
         project={
             "id": project.id,
@@ -226,6 +228,9 @@ def qgis_project_manifest_api(request, project_id):
         ),
         survey_links_url=survey_links_url,
         survey_link_changeset_url=survey_link_changeset_url,
+        photo_policy_revision=photo_snapshot["revision"] if photo_snapshot else "",
+        photo_policy_url=(reverse("gis:project_photo_policies_api", kwargs={"project_id":project.id})
+                          if photo_snapshot else ""),
     )
     return JsonResponse(manifest, json_dumps_params={"ensure_ascii": False})
 
