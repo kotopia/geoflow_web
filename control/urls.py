@@ -25,11 +25,13 @@ from .views_signup_admin import (
 from .views_categories import categories_page, category_options
 from procurement import views_central as central_bids
 from . import views_gis_admin
+from . import views_gis_photo
 
 app_name = "control"
 
 urlpatterns = [
     path("central/gis/definitions/", views_gis_admin.dashboard, name="gis_definitions"),
+    path("central/gis/photo-catalog/api/", views_gis_photo.catalog_api, name="gis_photo_catalog_api"),
     path("central/gis/schema/<uuid:change_id>/<str:command>/", views_gis_admin.schema_change_command, name="gis_schema_change_command"),
     path("central/bids/", central_bids.dashboard, name="central_bids"),
     path("central/bids/status/", central_bids.status, name="central_bids_status"),

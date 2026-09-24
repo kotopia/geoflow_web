@@ -27,6 +27,8 @@ def build_qgis_manifest(
     reference_catalog_url: str = "",
     survey_links_url: str = "",
     survey_link_changeset_url: str = "",
+    photo_policy_revision: str = "",
+    photo_policy_url: str = "",
 ) -> dict[str, Any]:
     """Build the server-authoritative QGIS GeoPackage manifest."""
 
@@ -121,6 +123,8 @@ def build_qgis_manifest(
         },
         "definition": plan.get("definition") or {},
         "catalog_scopes": plan.get("capabilities") or [],
+        "photo_policy_revision": photo_policy_revision,
+        "photo_policy_url": photo_policy_url,
         "layers": layers,
         "layer_count": len(layers),
         "qfield": {

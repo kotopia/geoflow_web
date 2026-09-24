@@ -1,5 +1,7 @@
 from django.urls import path
 from . import form_definition_views
+from . import photo_policy_views
+from . import feature_photo_views
 
 from . import (
     qfield_connection_views,
@@ -25,6 +27,11 @@ app_name = "gis"
 urlpatterns = [
     path("projects/<uuid:project_id>/form-configuration/", form_definition_views.project_configuration, name="project_form_configuration"),
     path("projects/<uuid:project_id>/api/form-definition/", form_definition_views.definition_api, name="project_form_definition_api"),
+    path("projects/<uuid:project_id>/api/photo-policies/", photo_policy_views.project_photo_policies_api, name="project_photo_policies_api"),
+    path("projects/<uuid:project_id>/api/layers/<uuid:layer_id>/features/<uuid:feature_id>/photos/",
+         feature_photo_views.feature_photos_api, name="feature_photos_api"),
+    path("projects/<uuid:project_id>/api/layers/<uuid:layer_id>/features/<uuid:feature_id>/photos/<uuid:photo_id>/",
+         feature_photo_views.feature_photo_item_api, name="feature_photo_item_api"),
     path(
         "qgis/plugins/<str:channel>/plugins.xml",
         qgis_plugin_repository_views.qgis_plugin_repository_xml,

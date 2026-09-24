@@ -7,6 +7,7 @@ import json
 from django.db import connections
 
 from control.services import gis_definitions as central
+from control.services import gis_photo_policy
 from .form_definitions import DefinitionError
 
 
@@ -193,6 +194,9 @@ def validate_attributes(plan,standard_name,attrs):
     if isinstance(extension,str):
         try: extension=json.loads(extension)
         except (TypeError,ValueError): raise DefinitionError('확장 필드 JSON이 올바르지 않습니다.') from None
+    if isinstance(extension,dict) and 'photo' in extension:
+        try: gis_photo_policy.capture_mode(extension)
+        except gis_photo_policy.PhotoPolicyError as exc: raise DefinitionError(str(exc)) from exc
     extension=(extension.get('gis_form') or {}) if isinstance(extension,dict) else {}
     values={}
     for field in fields:
