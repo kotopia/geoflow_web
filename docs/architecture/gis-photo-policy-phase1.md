@@ -11,7 +11,7 @@ Definition이 설치된 뒤 별도 승인된 절차에서만 적용하고, 테�
   중앙 `definition_layer.id`를 참조한다. L3는 레이어를 추가하지 않는다.
 - 동일 레이어에 여러 업무범위가 맞으면 L3 지정 정책이 L2 기본보다 우선한다.
   최고 우선순위 정책이 둘 이상이면 `PHOTO_POLICY_CONFLICT`를 반환한다.
-- 객체 `ext_data.photo.capture_mode`는 `DIRECT` 또는 `INDIRECT`만 허용한다.
+- 객체 `ext_data.photo.capture_mode`는 `DIRECT`, `INDIRECT`, `GENERAL`만 허용한다.
   키가 없으면 해당 정책의 기본값을 사용한다. 기존 객체는 작업 세션 값으로 바꾸지 않는다.
 - 중앙 정책/템플릿/슬롯은 중앙 DB에만 존재한다. 실제 `gis.feature_photo`는
   테넌트 DB에 있고 `ops.attachments`에 행을 만들지 않는다.
@@ -26,6 +26,8 @@ Definition이 설치된 뒤 별도 승인된 절차에서만 적용하고, 테�
   중앙 사진 스키마가 아직 없다면 두 값은 빈 문자열이고 기존 로딩은 유지된다.
 - 중앙 관리자의 `GET/POST /control/central/gis/photo-catalog/api/`는
   정의 조회/추가/수정/비활성화다. 중앙 관리자 권한과 CSRF를 사용한다.
+- 운영 배포는 같은 API로 Template → Slot → Policy 생성·수정·재조회·비활성화를
+  수행하고 전체 트랜잭션을 rollback하는 `smoke_gis_photo_catalog` 검사를 통과해야 한다.
 
 ## 사진 API와 S3
 

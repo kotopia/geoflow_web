@@ -48,6 +48,7 @@ def snapshot(cur):
     slots = _dicts(cur)
     cur.execute("""SELECT p.id::text,p.lv2_id::text,p.lv3_id::text,p.layer_id::text,
         p.default_capture_mode,p.direct_template_id::text,p.indirect_template_id::text,
+        p.general_template_id::text,
         p.allow_extra_photo,p.active,p.sort_order,p.description
         FROM gis.photo_policy p ORDER BY p.sort_order,p.id""")
     policies = _dicts(cur)
@@ -113,7 +114,8 @@ def mutate(cur, payload):
     item_id = uid(payload["id"], "정의 ID") if payload.get("id") else str(uuid4())
     if action == "deactivate":
         if kind == "template" and _exists(cur,"""SELECT 1 FROM gis.photo_policy WHERE active AND
-            (direct_template_id=%s OR indirect_template_id=%s)""",[item_id,item_id]):
+            (direct_template_id=%s OR indirect_template_id=%s OR general_template_id=%s)""",
+            [item_id,item_id,item_id]):
             raise PhotoPolicyError("활성 사진 정책에서 사용하는 템플릿입니다. 먼저 정책을 변경하세요.")
         cur.execute(f"UPDATE gis.{table} SET active=false,updated_at=now() WHERE id=%s", [item_id])
         if cur.rowcount != 1:
@@ -135,7 +137,9 @@ def mutate(cur, payload):
             raise PhotoPolicyError("템플릿 코드 또는 촬영방식을 확인하세요.")
         if _exists(cur,"""SELECT 1 FROM gis.photo_policy WHERE active AND
           ((direct_template_id=%s AND %s <> 'DIRECT') OR
-           (indirect_template_id=%s AND %s <> 'INDIRECT'))""",[item_id,mode,item_id,mode]):
+           (indirect_template_id=%s AND %s <> 'INDIRECT') OR
+           (general_template_id=%s AND %s <> 'GENERAL'))""",
+            [item_id,mode,item_id,mode,item_id,mode]):
             raise PhotoPolicyError("정책에서 사용하는 템플릿의 촬영방식은 변경할 수 없습니다.")
         cur.execute("""INSERT INTO gis.photo_template(id,code,name,description,capture_mode,sort_order)
           VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
@@ -168,8 +172,9 @@ def mutate(cur, payload):
         layer = uid(payload.get("layer_id"), "레이어")
         direct = uid(payload["direct_template_id"]) if payload.get("direct_template_id") else None
         indirect = uid(payload["indirect_template_id"]) if payload.get("indirect_template_id") else None
+        general = uid(payload["general_template_id"]) if payload.get("general_template_id") else None
         mode = payload.get("default_capture_mode", "DIRECT")
-        if mode not in ("DIRECT", "INDIRECT") or not (direct or indirect):
+        if mode not in ("DIRECT", "INDIRECT", "GENERAL") or not (direct or indirect or general):
             raise PhotoPolicyError("기본 방식과 템플릿을 확인하세요.")
         if not _exists(cur,"SELECT 1 FROM catalog.category_node WHERE id=%s AND level=2 AND active",[lv2]):
             raise PhotoPolicyError("활성 L2 업무범위를 찾을 수 없습니다.")
@@ -184,23 +189,25 @@ def mutate(cur, payload):
             JOIN gis.definition_layer l ON l.id=lc.layer_id AND l.active
             WHERE lc.catalog_level=2 AND lc.catalog_item_id=%s AND lc.layer_id=%s""",[lv2,layer]):
             raise PhotoPolicyError("L2에 연결된 활성 레이어만 선택할 수 있습니다.")
-        for template_id, expected in ((direct,"DIRECT"),(indirect,"INDIRECT")):
+        for template_id, expected in ((direct,"DIRECT"),(indirect,"INDIRECT"),(general,"GENERAL")):
             if template_id and not _exists(cur,
                 "SELECT 1 FROM gis.photo_template WHERE id=%s AND active AND capture_mode=%s",[template_id,expected]):
                 raise PhotoPolicyError("방식에 맞는 활성 템플릿이 아닙니다.")
-        if not (direct if mode == "DIRECT" else indirect):
+        selected = {"DIRECT":direct, "INDIRECT":indirect, "GENERAL":general}[mode]
+        if not selected:
             raise PhotoPolicyError("기본 방식에 적용할 템플릿이 없습니다.")
         cur.execute("""INSERT INTO gis.photo_policy(id,lv2_id,lv3_id,layer_id,
-          default_capture_mode,direct_template_id,indirect_template_id,
+          default_capture_mode,direct_template_id,indirect_template_id,general_template_id,
           allow_extra_photo,sort_order,description)
-          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
+          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
           lv2_id=EXCLUDED.lv2_id,lv3_id=EXCLUDED.lv3_id,layer_id=EXCLUDED.layer_id,
           default_capture_mode=EXCLUDED.default_capture_mode,
           direct_template_id=EXCLUDED.direct_template_id,
           indirect_template_id=EXCLUDED.indirect_template_id,
+          general_template_id=EXCLUDED.general_template_id,
           allow_extra_photo=EXCLUDED.allow_extra_photo,sort_order=EXCLUDED.sort_order,
           description=EXCLUDED.description,updated_at=now()""",
-          [item_id,lv2,lv3,layer,mode,direct,indirect,
+          [item_id,lv2,lv3,layer,mode,direct,indirect,general,
            payload.get("allow_extra_photo",True) is True,order,description])
     return item_id
 
@@ -217,8 +224,8 @@ def capture_mode(ext_data, default="DIRECT"):
     if not isinstance(photo, dict):
         raise PhotoPolicyError("사진 촬영방식이 올바르지 않습니다.")
     mode = photo.get("capture_mode", default)
-    if mode not in ("DIRECT","INDIRECT"):
-        raise PhotoPolicyError("사진 촬영방식은 DIRECT 또는 INDIRECT여야 합니다.")
+    if mode not in ("DIRECT","INDIRECT","GENERAL"):
+        raise PhotoPolicyError("사진 촬영방식은 DIRECT, INDIRECT 또는 GENERAL이어야 합니다.")
     return mode
 
 
@@ -240,7 +247,8 @@ def resolve(data, scope_rows, layer_id, ext_data=None):
         raise PhotoPolicyConflict("동일한 레이어에 같은 우선순위 사진 정책이 여러 개 적용됩니다.")
     policy = next(iter(winners.values()))
     mode = capture_mode(ext_data or {}, policy["default_capture_mode"])
-    selected = policy["direct_template_id"] if mode == "DIRECT" else policy["indirect_template_id"]
+    selected = policy[{"DIRECT":"direct_template_id", "INDIRECT":"indirect_template_id",
+                       "GENERAL":"general_template_id"}[mode]]
     templates = {t["id"]:t for t in data["templates"] if t["active"]}
     if selected is None or selected not in templates:
         raise PhotoPolicyError("선택한 방식의 활성 사진 템플릿이 없습니다.")

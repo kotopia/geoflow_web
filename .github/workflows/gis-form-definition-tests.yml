@@ -27,11 +27,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install psycopg2-binary==2.9.10 Django==5.2.4
-      - run: python -m unittest geoflow_ops.gis.test_form_definitions geoflow_ops.gis.test_central_definitions geoflow_ops.gis.test_definition_visibility control.test_gis_schema_manager -v
+      - run: python -m unittest geoflow_ops.gis.test_form_definitions geoflow_ops.gis.test_central_definitions geoflow_ops.gis.test_definition_visibility control.test_gis_schema_manager control.test_gis_photo_policy -v
         env:
           GEOFLOW_FORMS_ISOLATED_PG: '1'
       - name: Compile changed GIS Python modules
-        run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py control/management/commands/cleanup_gis_standard_fields.py control/management/commands/repair_qgis_flow_dip.py geoflow_ops/gis/central_definitions.py
+        run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py control/services/gis_photo_policy.py control/management/commands/smoke_gis_photo_catalog.py control/management/commands/cleanup_gis_standard_fields.py control/management/commands/repair_qgis_flow_dip.py geoflow_ops/gis/central_definitions.py
       - name: Validate central GIS admin JavaScript syntax
         run: |
           python - <<'PYCODE'
@@ -42,6 +42,9 @@ jobs:
           Path('/tmp/gis-definitions-admin.js').write_text(source[start:end])
           PYCODE
           node --check /tmp/gis-definitions-admin.js
+          awk '/^<script>$/{on=1;next}/^<\/script>$/{on=0}on' \
+            control/templates/control/gis/photo_catalog.html > /tmp/gis-photo-catalog.js
+          node --check /tmp/gis-photo-catalog.js
       - name: Validate remote deployment shell without executing it
         run: |
           python - <<'PYCODE'
