@@ -2,7 +2,8 @@
 from unittest import TestCase
 
 from control.services.gis_photo_policy import (
-    PhotoPolicyConflict, PhotoPolicyError, capture_mode, resolve, validate_extra_schema,
+    PhotoPolicyConflict, PhotoPolicyError, _json_object, capture_mode, resolve,
+    validate_extra_schema,
 )
 
 
@@ -79,3 +80,11 @@ class PhotoPolicyResolutionTests(TestCase):
         self.assertEqual(validate_extra_schema({"fields":fields})["fields"],fields)
         with self.assertRaises(PhotoPolicyError):
             validate_extra_schema({"fields":fields+fields})
+
+    def test_database_json_string_is_normalized_for_api(self):
+        self.assertEqual(
+            _json_object('{"fields":[{"key":"PIPE_COUNT"}]}', "사진 항목 추가 입력"),
+            {"fields": [{"key": "PIPE_COUNT"}]},
+        )
+        with self.assertRaises(PhotoPolicyError):
+            _json_object("[]", "사진 항목 추가 입력")

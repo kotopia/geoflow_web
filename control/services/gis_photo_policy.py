@@ -36,6 +36,17 @@ def _dicts(cur):
     return [dict(zip(names, row)) for row in cur.fetchall()]
 
 
+def _json_object(value, label):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise PhotoPolicyError(f"{label} JSON이 올바르지 않습니다.") from exc
+    if not isinstance(value, dict):
+        raise PhotoPolicyError(f"{label} JSON이 객체가 아닙니다.")
+    return value
+
+
 def snapshot(cur):
     if not ready(cur):
         raise PhotoPolicyError("중앙 사진 정책 스키마가 준비되지 않았습니다.")
@@ -46,6 +57,8 @@ def snapshot(cur):
         min_count,max_count,sort_order,active,extra_schema
         FROM gis.photo_slot ORDER BY template_id,sort_order,code""")
     slots = _dicts(cur)
+    for slot in slots:
+        slot["extra_schema"] = _json_object(slot["extra_schema"], "사진 항목 추가 입력")
     cur.execute("""SELECT p.id::text,p.lv2_id::text,p.lv3_id::text,p.layer_id::text,
         p.default_capture_mode,p.direct_template_id::text,p.indirect_template_id::text,
         p.general_template_id::text,
