@@ -12,6 +12,8 @@ from . import central_definitions as central
 from control.services.gis_definitions import field_values
 from .views import _require_gis_view, _require_project_gis_access
 from .qgis_views import _require_qgis_context, _require_project
+from .photo_policy_views import central_photo_snapshot, _paired_scopes
+from control.services import gis_photo_policy
 from geoflow_ops.services.project_access import project_access_policy
 
 logger=logging.getLogger(__name__)
@@ -90,9 +92,17 @@ def project_configuration(request,project_id):
                     overrides=EXCLUDED.overrides''', [str(project_id),config['group_id'],
                     json.dumps(config['additions']),json.dumps(config['private_items']),json.dumps(config['overrides'])])
             context['definition']=central.resolve(data,config,plan['layers'],include_unavailable=True)
+            photo_data = central_photo_snapshot()
+            context['photo_policies'] = []
+            if photo_data:
+                scopes = _paired_scopes(alias, project.id)
+                for layer in plan['layers']:
+                    policy = gis_photo_policy.resolve(photo_data, scopes, layer['id'], {})
+                    if policy:
+                        context['photo_policies'].append({'layer': layer, 'policy': policy})
             context['selected_group']=config['group_id']
         if request.method=='POST': return redirect('gis:project_form_configuration',project_id=project_id)
-    except definitions.DefinitionError as exc: context['error']=str(exc)
+    except (definitions.DefinitionError, gis_photo_policy.PhotoPolicyError) as exc: context['error']=str(exc)
     except DatabaseError:
         logger.warning('GIS project form configuration unavailable')
         context['error']='폼 구성을 읽거나 저장하지 못했습니다.'

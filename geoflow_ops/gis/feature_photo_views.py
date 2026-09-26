@@ -121,6 +121,9 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                     WHERE project_id=%s AND layer_id=%s AND feature_id=%s AND deleted_at IS NULL
                     ORDER BY sort_order,created_at,id""",[project.id,layer_id,feature_id])
                 photos = _rows(cur)
+            for photo in photos:
+                if isinstance(photo.get("extra_data"), str):
+                    photo["extra_data"] = json.loads(photo["extra_data"])
             if request.GET.get("download_urls") == "1":
                 for photo in photos:
                     photo["download_url"] = generate_presigned_get_url(photo["object_key"],

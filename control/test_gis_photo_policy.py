@@ -38,6 +38,7 @@ class PhotoPolicyResolutionTests(TestCase):
         self.assertEqual(result["policy_id"],"exposed")
         self.assertEqual(result["capture_mode"],"DIRECT")
         self.assertEqual(result["template"]["slots"][0]["id"],"buried")
+        self.assertEqual(set(result["modes"]), {"DIRECT", "INDIRECT", "GENERAL"})
 
     def test_l2_fallback_and_indirect_feature(self):
         result = resolve(sample(),[("water","survey")],"valve",

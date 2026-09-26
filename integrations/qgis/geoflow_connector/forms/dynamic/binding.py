@@ -261,3 +261,46 @@ class DynamicFormBinding:
         self.load(self.layer.getFeature(self.feature_id), force=True)
         self.page.note.setText("로컬 저장 성공 · 서버 전송 결과는 동기화 상태에서 확인하세요.")
         return True
+
+    def photo_capture_mode(self):
+        if self.feature_id is None or "ext_data" not in self.layer.fields().names():
+            return ""
+        raw = _clean(self.layer.getFeature(self.feature_id)["ext_data"])
+        try:
+            value = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (TypeError, ValueError):
+            value = {}
+        return str(((value.get("photo") or {}).get("capture_mode") or "")) if isinstance(value, dict) else ""
+
+    def set_photo_capture_mode(self, mode):
+        if mode not in {"DIRECT", "INDIRECT", "GENERAL"} or not self.can_save or self.feature_id is None:
+            return False
+        current = self.layer.getFeature(self.feature_id)
+        names = set(self.layer.fields().names())
+        if not current.isValid() or "ext_data" not in names or self.layer.isModified():
+            return False
+        raw = _clean(current["ext_data"])
+        try:
+            extension = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (TypeError, ValueError):
+            extension = {}
+        if not isinstance(extension, dict):
+            extension = {}
+        photo = dict(extension.get("photo") or {})
+        photo["capture_mode"] = mode
+        extension["photo"] = photo
+        if not self.layer.startEditing():
+            return False
+        self.layer.beginEditCommand("GeoFlow 사진 촬영방식")
+        ok = self.layer.changeAttributeValue(
+            self.feature_id, self.layer.fields().indexFromName("ext_data"),
+            json.dumps(extension, ensure_ascii=False, separators=(",", ":")),
+        )
+        if not ok:
+            self.layer.destroyEditCommand()
+            return False
+        self.layer.endEditCommand()
+        if not self.layer.commitChanges(False):
+            return False
+        self.load(self.layer.getFeature(self.feature_id), force=True)
+        return True

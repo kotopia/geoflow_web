@@ -12,6 +12,7 @@ from qgis.PyQt.uic import loadUiType
 
 from .connector_adapter import ConnectorAdapter
 from .form_header import FormHeader
+from .photo_section import PhotoSection
 from ..api.references import fields_with_worker_references, worker_reference_codes
 from ..forms.dynamic.binding import DynamicFormBinding
 from ..forms.dynamic.contract import layer_fields
@@ -188,8 +189,11 @@ class Main(QWidget, FORM_CLASS):
             service = self._definition_service()
             definition = getattr(service, "definition", {}) or {}
             revision = definition.get("revision", "")
+            photo_service = getattr(self.plugin, "_photo_policy_service", None)
+            photo_signature = (getattr(photo_service, "state", ""),
+                               getattr(photo_service, "revision", ""))
             signature = (state.get("instance"), state["epoch"], state["ready"],
-                         state["project_id"], state["can_write"], revision)
+                         state["project_id"], state["can_write"], revision, photo_signature)
             if signature != self._signature:
                 self._stop_selection_tool()
                 for layer_id in list(self.pages):
@@ -306,6 +310,8 @@ class Main(QWidget, FORM_CLASS):
         scroll.setWidgetResizable(True)
         scroll.setWidget(page.form)
         layout.addWidget(scroll)
+        page.photos = PhotoSection(self.plugin, page, layer, page)
+        page.form._root_layout.addWidget(page.photos)
         layout.setStretch(1, 1)
         page.form.setEnabled(bool(state["can_write"] and not layer.readOnly()))
         self.pages[layer.id()] = page
@@ -356,6 +362,7 @@ class Main(QWidget, FORM_CLASS):
         else:
             page.note.setText("객체를 선택하세요 · 미저장 입력은 보존되어 있습니다.")
         self.save_button.setEnabled(False)
+        page.photos.clear()
         page.header.pushButtonUpdate.setEnabled(False)
 
     def _empty_map_clicked(self):
@@ -386,6 +393,7 @@ class Main(QWidget, FORM_CLASS):
             return
         page.feature_id = feature.id()
         page.binding.load(feature)
+        page.photos.set_feature(feature)
         page.note.setText(f"{page.standard} · 객체 {feature.id()} · 중앙 Dynamic Form")
         self.save_button.setEnabled(page.binding.can_save)
         page.header.pushButtonUpdate.setEnabled(page.binding.can_save)
