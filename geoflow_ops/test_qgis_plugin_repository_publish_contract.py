@@ -27,7 +27,7 @@ class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("environment: production", workflow)
         self.assertIn("PUBLISH_QGIS_PLUGIN:test:geoflow-upload:qgis-plugins", workflow)
-        self.assertIn("geoflow_connector-1.2.0.zip", workflow)
+        self.assertIn("geoflow_connector-1.2.4.zip", workflow)
         self.assertIn("release/stabilized-deploy", workflow)
         self.assertNotIn("tenants/", workflow)
         self.assertNotIn("aws s3 sync", workflow)

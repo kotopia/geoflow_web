@@ -151,6 +151,7 @@ class SnapshotReuseMixin:
             layer.setCustomProperty("geoflow/project_id", project_id)
             layer.setCustomProperty("geoflow/standard_name", standard_name)
             layer.setCustomProperty("geoflow/physical_name", physical_name)
+            layer.setCustomProperty("geoflow/definition_layer_id", str(layer_def.get("id") or ""))
             layer.setCustomProperty("geoflow/package_path", package_path)
             layer.setCustomProperty("geoflow/local_editing", can_write)
             layer.setCustomProperty("geoflow/sync_supported", sync_supported)

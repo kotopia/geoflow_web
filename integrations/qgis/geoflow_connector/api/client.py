@@ -241,18 +241,27 @@ class GeoFlowHttpClient:
         )
 
     def post_json(self, path: str, payload: dict) -> dict:
+        return self._send_json(path, payload, "POST")
+
+    def patch_json(self, path: str, payload: dict) -> dict:
+        return self._send_json(path, payload, "PATCH")
+
+    def delete_json(self, path: str) -> dict:
+        return self._send_json(path, None, "DELETE")
+
+    def _send_json(self, path: str, payload, method: str) -> dict:
         csrf = self._cookie_value("csrftoken")
         if not csrf:
             raise GeoFlowClientError("GeoFlow CSRF cookie is unavailable. Log in again.")
         body = json.dumps(
-            payload,
+            payload or {},
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
         request = urllib.request.Request(
             self._url(path),
             data=body,
-            method="POST",
+            method=method,
             headers={
                 "Content-Type": "application/json; charset=utf-8",
                 "Content-Length": str(len(body)),
@@ -300,6 +309,27 @@ class GeoFlowHttpClient:
         if not isinstance(response_payload, dict) or not response_payload.get("ok"):
             raise GeoFlowClientError("GeoFlow Changeset returned an invalid response.")
         return response_payload
+
+    def put_presigned_file(self, url: str, file_path: str, headers: dict) -> None:
+        if not str(url).startswith("https://"):
+            raise GeoFlowClientError("안전하지 않은 사진 업로드 주소를 거부했습니다.")
+        if not os.path.isfile(file_path):
+            raise GeoFlowClientError("사진 파일을 찾을 수 없습니다.")
+        with open(file_path, "rb") as handle:
+            body = handle.read()
+        request = urllib.request.Request(
+            str(url), data=body, method="PUT",
+            headers={**{str(k): str(v) for k, v in (headers or {}).items()},
+                     "Content-Length": str(len(body))},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=max(self.timeout, 120)) as response:
+                if response.status not in (200, 201, 204):
+                    raise GeoFlowClientError(f"S3 사진 업로드 실패: HTTP {response.status}")
+        except urllib.error.HTTPError as exc:
+            raise GeoFlowClientError(f"S3 사진 업로드 실패: HTTP {exc.code}") from None
+        except urllib.error.URLError as exc:
+            raise GeoFlowClientError(f"S3 사진 업로드 연결 실패: {exc.reason}") from None
 
     @staticmethod
     def _checkpoint_sqlite_bytes(file_path: str) -> bytes:

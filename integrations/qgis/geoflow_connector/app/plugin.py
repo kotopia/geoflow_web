@@ -111,6 +111,7 @@ class GeoFlowConnectorPlugin:
         qgs_project.writeEntry("GeoFlow", "project_code", project_code)
         qgs_project.writeEntry("GeoFlow", "definition_version", str(definition.get("version") or ""))
         qgs_project.writeEntry("GeoFlow", "definition_revision", str(definition.get("revision") or ""))
+        qgs_project.writeEntry("GeoFlow", "photo_policy_revision", str(manifest.get("photo_policy_revision") or ""))
         qgs_project.writeEntry("GeoFlow", "manifest_version", str(manifest.get("manifest_version") or ""))
         qgs_project.writeEntry("GeoFlow", "package_path", package_path)
         qgs_project.writeEntry("GeoFlow", "sync_supported", "1" if sync_supported else "0")

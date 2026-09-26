@@ -260,14 +260,21 @@ def resolve(data, scope_rows, layer_id, ext_data=None):
         raise PhotoPolicyConflict("동일한 레이어에 같은 우선순위 사진 정책이 여러 개 적용됩니다.")
     policy = next(iter(winners.values()))
     mode = capture_mode(ext_data or {}, policy["default_capture_mode"])
-    selected = policy[{"DIRECT":"direct_template_id", "INDIRECT":"indirect_template_id",
-                       "GENERAL":"general_template_id"}[mode]]
+    mode_keys = {"DIRECT":"direct_template_id", "INDIRECT":"indirect_template_id",
+                 "GENERAL":"general_template_id"}
+    selected = policy[mode_keys[mode]]
     templates = {t["id"]:t for t in data["templates"] if t["active"]}
     if selected is None or selected not in templates:
         raise PhotoPolicyError("선택한 방식의 활성 사진 템플릿이 없습니다.")
     if templates[selected]["capture_mode"] != mode:
         raise PhotoPolicyError("사진 템플릿의 촬영방식이 정책과 일치하지 않습니다.")
-    slots = [s for s in data["slots"] if s["template_id"] == selected and s["active"]]
+    def expanded(template_id):
+        if not template_id or template_id not in templates:
+            return None
+        return {**templates[template_id], "slots":[s for s in data["slots"]
+            if s["template_id"] == template_id and s["active"]]}
+    modes = {name:expanded(policy.get(key)) for name,key in mode_keys.items()}
+    modes = {name:template for name,template in modes.items() if template is not None}
     return {"policy_id":policy["id"], "capture_mode":mode,
             "allow_extra_photo":policy["allow_extra_photo"],
-            "template":{**templates[selected],"slots":slots}}
+            "template":modes[mode], "modes":modes}

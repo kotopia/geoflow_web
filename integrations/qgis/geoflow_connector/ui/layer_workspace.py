@@ -29,6 +29,7 @@ from ..layers.model import domain_label, editor_widget_spec, form_field_label, g
 from .layer_name_delegate import LayerNameDelegate, COUNT_ROLE
 from ..api.references import ReferenceService, field_options
 from ..api.definitions import DefinitionService
+from ..api.photos import PhotoPolicyService
 
 
 def _qt_value(enum_name: str, member_name: str, legacy_name: str):
@@ -246,6 +247,8 @@ class LayerWorkspaceMixin:
         self._reference_service.changed.connect(self._reference_changed)
         self._definition_service = DefinitionService()
         self._definition_service.changed.connect(self._definition_changed)
+        self._photo_policy_service = PhotoPolicyService()
+        self._photo_policy_service.changed.connect(self._definition_changed)
 
     def initGui(self):
         super().initGui()
@@ -262,6 +265,7 @@ class LayerWorkspaceMixin:
     def unload(self):
         self._reference_service.clear()
         self._definition_service.clear()
+        self._photo_policy_service.clear()
         if self._layer_workspace is not None:
             if self._workspace_panel is not None:
                 self._workspace_panel.shutdown()
@@ -302,6 +306,7 @@ class LayerWorkspaceMixin:
     def _load_reference_catalog(self, manifest: dict, client) -> None:
         self._reference_service.open(manifest, client)
         self._definition_service.open(manifest, client)
+        self._photo_policy_service.open(manifest, client)
 
     def _definition_changed(self):
         # Form pages rebuild only through the existing project-scoped adapter.
@@ -336,6 +341,7 @@ class LayerWorkspaceMixin:
         """One explicit refresh for all open forms, preserving their edit buffers."""
         self._reference_service.refresh()
         self._definition_service.refresh()
+        self._photo_policy_service.refresh()
 
     def _configure_layer_fields(
         self,
