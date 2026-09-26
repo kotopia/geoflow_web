@@ -13,6 +13,7 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('CACHE_PREFIX = "GeoFlowConnector/photoPolicies/"', source)
         self.assertIn('(base.scheme, base.netloc)', source)
         self.assertIn('photo_policy_revision_mismatch', source)
+        self.assertIn('fetch_ready revision=', source)
 
     def test_photo_ui_uses_gis_api_without_aws_credentials_or_ops_attachments(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
@@ -34,6 +35,12 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('PhotoSection', source)
         self.assertIn('page.form._root_layout.addWidget(page.photos)', source)
         self.assertIn('page.photos.set_feature(feature)', source)
+
+    def test_layer_uuid_and_visibility_are_runtime_diagnosable(self):
+        source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        self.assertIn("definition_layer_id", source)
+        self.assertIn("policy_found=", source)
+        self.assertIn("visible=", source)
 
     def test_mode_switch_protects_unsaved_form_and_uploads_are_bounded(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")

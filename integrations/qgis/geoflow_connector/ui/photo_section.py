@@ -8,6 +8,11 @@ from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
+from qgis.core import QgsMessageLog, Qgis
+
+
+def _log(message):
+    QgsMessageLog.logMessage("photo_section " + str(message), "GeoFlow", Qgis.MessageLevel.Info)
 
 
 class PhotoSection(QGroupBox):
@@ -39,6 +44,7 @@ class PhotoSection(QGroupBox):
         self.cards_layout.setContentsMargins(0, 0, 0, 0)
         self.root.addWidget(self.cards)
         self.setVisible(False)
+        _log(f"created layer={layer.name()} definition_layer_id={layer.customProperty('geoflow/definition_layer_id', '') or '-'}")
 
     def _base_path(self):
         project_id = str(((self.plugin.active_context or {}).get("manifest", {}).get("project") or {}).get("id") or "")
@@ -55,6 +61,11 @@ class PhotoSection(QGroupBox):
         layer_id = str(self.layer.customProperty("geoflow/definition_layer_id", "") or "")
         self.policy = service.policy(layer_id) if service and service.state == "ready" else None
         self.setVisible(bool(self.policy and self.feature_uuid))
+        modes = list((self.policy or {}).get("modes") or {})
+        _log(f"set_feature feature_uuid={self.feature_uuid or '-'} layer_id={layer_id or '-'} "
+             f"service={getattr(service, 'state', 'missing')} policy_found={'yes' if self.policy else 'no'} "
+             f"modes={','.join(modes) or '-'} visible={'yes' if self.isVisible() else 'no'} "
+             f"readonly={'yes' if self.layer.readOnly() else 'no'}")
         if not self.isVisible():
             return
         modes = self.policy.get("modes") or {self.policy.get("capture_mode"): self.policy.get("template")}

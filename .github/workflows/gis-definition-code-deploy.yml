@@ -20,6 +20,7 @@ on:
       - control/management/commands/smoke_gis_definition_admin.py
       - control/management/commands/smoke_gis_definition_admin_write.py
       - control/management/commands/smoke_gis_photo_catalog.py
+      - control/management/commands/diagnose_gis_photo_runtime.py
       - control/management/commands/repair_gis_definition_layouts.py
       - control/management/commands/cleanup_gis_standard_fields.py
       - control/management/commands/repair_qgis_flow_dip.py
@@ -239,6 +240,7 @@ jobs:
             if [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin_write.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_gis_photo_catalog.py' ] && \
+               [ "$changed_path" != 'control/management/commands/diagnose_gis_photo_runtime.py' ] && \
                [ "$changed_path" != 'control/management/commands/repair_gis_definition_layouts.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_qgis_project_runtime.py' ]; then
               case "$changed_path" in
@@ -342,6 +344,9 @@ jobs:
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_qgis_project_runtime
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            diagnose_gis_photo_runtime
 
           public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
           echo "production_release_public_login_status=$public_login"
