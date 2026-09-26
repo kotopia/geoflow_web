@@ -40,6 +40,8 @@ on:
       - geoflow_ops/gis/qgis_sync_v2.py
       - geoflow_ops/gis/qgis_manifest.py
       - geoflow_ops/gis/qgis_views.py
+      - geoflow_ops/gis/qgis_plugin_repository.py
+      - geoflow_ops/gis/test_qgis_plugin_repository.py
       - geoflow_ops/gis/qfield_package.py
       - geoflow_ops/gis/qfield_device_views.py
       - geoflow_ops/gis/qfield_persistent.py
