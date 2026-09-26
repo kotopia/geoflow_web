@@ -7,6 +7,7 @@ class QgisManifestTests(SimpleTestCase):
     def _package_layers(self):
         return [
             {
+                "id": "11111111-1111-4111-8111-111111111111",
                 "standard_name": "WTL_PIPE_LM",
                 "physical_name": "wtl_pipe_lm",
                 "label": "WTL_PIPE_LM",
@@ -89,6 +90,7 @@ class QgisManifestTests(SimpleTestCase):
         self.assertEqual(manifest["transport"]["package_url"], "/gis/projects/x/api/qgis-package/")
         self.assertEqual(manifest["layer_count"], 1)
         layer = manifest["layers"][0]
+        self.assertEqual(layer["id"], "11111111-1111-4111-8111-111111111111")
         self.assertEqual(layer["row_count"], 2)
         self.assertEqual(layer["primary_key"], "id")
         self.assertEqual(layer["local_fid"], "fid")

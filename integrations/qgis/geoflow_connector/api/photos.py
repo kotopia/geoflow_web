@@ -3,7 +3,11 @@ import json
 from urllib.parse import urljoin, urlsplit
 
 from qgis.PyQt.QtCore import QObject, QSettings, pyqtSignal
-from qgis.core import QgsApplication, QgsTask
+from qgis.core import QgsApplication, QgsMessageLog, QgsTask, Qgis
+
+
+def _log(message):
+    QgsMessageLog.logMessage("photo_policy " + str(message), "GeoFlow", Qgis.MessageLevel.Info)
 
 
 class PhotoPolicyService(QObject):
@@ -49,6 +53,7 @@ class PhotoPolicyService(QObject):
             return
         self.clear()
         self.client, self.project_id, self.revision, self.url = client, project_id, revision, url
+        _log(f"open project_id={project_id} revision={revision} url={url or '-'}")
         if not project_id or not revision or not url:
             self.state, self.error = "unavailable", "이 프로젝트에는 사진 정책이 없습니다."
             self.changed.emit()
@@ -60,6 +65,7 @@ class PhotoPolicyService(QObject):
             cached = None
         if isinstance(cached, dict) and cached.get("photo_policy_revision") == revision:
             self.payload, self.state = cached, "ready"
+            _log(f"cache_ready revision={revision} layers={len(cached.get('layers') or [])}")
             self.changed.emit()
             return
         self.refresh()
@@ -87,9 +93,11 @@ class PhotoPolicyService(QObject):
                 error = ValueError("photo_policy_revision_mismatch")
             if error is not None:
                 self.state, self.error = "error", "사진 정책을 불러오지 못했습니다. 기존 편집 내용은 보존됩니다."
+                _log(f"fetch_error revision={revision} error={type(error).__name__}")
             else:
                 self.payload, self.state = payload, "ready"
                 QSettings().setValue(self._cache_key(), json.dumps(payload, ensure_ascii=False))
+                _log(f"fetch_ready revision={revision} layers={len(payload.get('layers') or [])}")
             self.changed.emit()
 
         try:
@@ -101,4 +109,5 @@ class PhotoPolicyService(QObject):
         layer_id = str(layer_definition_id or "")
         row = next((row for row in self.payload.get("layers", [])
                     if str(row.get("layer_id") or "") == layer_id), None)
+        _log(f"lookup state={self.state} layer_id={layer_id or '-'} found={'yes' if row else 'no'}")
         return (row or {}).get("policy")

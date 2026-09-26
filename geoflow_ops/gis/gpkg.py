@@ -45,6 +45,7 @@ class PackageLayer:
     domain: str
     geometry_kind: str
     fields: tuple[PackageField, ...]
+    id: str = ""
 
 
 def _quote_ident(value: str) -> str:
@@ -224,6 +225,7 @@ def _layer_specs(alias: str, plan: dict[str, Any]) -> tuple[PackageLayer, ...]:
                 domain=str(row.get("domain") or ""),
                 geometry_kind=str(row.get("geometry_kind") or ""),
                 fields=_central_layer_fields(plan, str(row.get("id") or "")),
+                id=str(row.get("id") or ""),
             )
         )
     return tuple(specs)
@@ -232,6 +234,7 @@ def _layer_specs(alias: str, plan: dict[str, Any]) -> tuple[PackageLayer, ...]:
 def project_geopackage_layer_manifest(alias: str, plan: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
+            "id": layer.id,
             "standard_name": layer.standard_name,
             "physical_name": layer.physical_name,
             "label": layer.label,
