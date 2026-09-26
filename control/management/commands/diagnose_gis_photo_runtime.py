@@ -86,10 +86,13 @@ class Command(BaseCommand):
         self.stdout.write(json.dumps(report, ensure_ascii=False, default=str, sort_keys=True))
         if not report["projects"]:
             raise CommandError("target_photo_projects_not_found")
+        resolved_standards = set()
         for project in report["projects"]:
             for layer in project["layers"]:
-                if not layer["policy"]:
-                    raise CommandError("target_photo_policy_not_resolved")
                 if not layer["manifest_layer_id"] or layer["manifest_layer_id"] != layer["plan_layer_id"]:
                     raise CommandError("qgis_manifest_definition_layer_id_mismatch")
+                if layer["policy"]:
+                    resolved_standards.add(layer["standard_name"])
+        if TARGETS - resolved_standards:
+            raise CommandError("target_photo_policy_not_resolved")
         self.stdout.write("gis_photo_runtime_diagnostic=ok")
