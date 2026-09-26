@@ -28,7 +28,7 @@ const name=id=>field(id)?.label||'삭제된 필드', lname=id=>layer(id)?.label|
 const hidden=(n,v)=>`<input type="hidden" name="${n}" value="${esc(v)}">`;
 const del=(action,values)=>`<form data-action="${action}" class="d-inline">${Object.entries(values).map(([k,v])=>hidden(k,v)).join('')}<button class="btn btn-sm btn-outline-danger">삭제</button></form>`;
 const deactivateField=id=>`<form data-action="delete_field" class="d-inline">${hidden('id',id)}<button class="btn btn-sm btn-outline-warning">비활성화</button></form>`;
-function tab(id){document.querySelectorAll('.gis-pane').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x.dataset.tab===id));}
+function tab(id){document.querySelectorAll('.gis-pane').forEach(x=>x.hidden=x.id!==id);document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x.dataset.tab===id));sessionStorage.setItem('gis-definition-tab',id);}
 function renderGroups(){
  if(!d.groups.some(x=>x.id===group)) group=d.groups[0]?.id||'';
  $('group-list').innerHTML=d.groups.map(x=>`<button class="btn w-100 text-start mb-1 ${x.id===group?'btn-primary':'btn-light'}" data-group="${x.id}">${esc(x.name)}</button>`).join('');
@@ -185,6 +185,8 @@ document.addEventListener('submit',async e=>{const f=e.target;if(!f.dataset.acti
 render();
 const firstCatalog=d.catalogs.find(c=>d.layer_catalogs.some(l=>l.catalog_id===c.id));
 if(firstCatalog){$('filter-catalog').value=firstCatalog.id;renderFilters();const firstLayer=d.layers.find(l=>matchesLayer(l.id,firstCatalog.id));if(firstLayer){$('filter-layer').value=firstLayer.id;renderFilters();}}
+const savedTab=document.querySelector(`[data-tab="${CSS.escape(sessionStorage.getItem('gis-definition-tab')||'groups')}"]`);
+if(savedTab)savedTab.click();
 })();
 </script>
 {% endif %}{% endblock %}

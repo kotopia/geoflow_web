@@ -34,17 +34,26 @@ CREATE TABLE IF NOT EXISTS gis.photo_policy (
  lv3_id uuid REFERENCES catalog.category_facet_option(id),
  layer_id uuid NOT NULL REFERENCES gis.definition_layer(id),
  default_capture_mode text NOT NULL DEFAULT 'DIRECT'
-   CHECK(default_capture_mode IN ('DIRECT','INDIRECT')),
+   CHECK(default_capture_mode IN ('DIRECT','INDIRECT','GENERAL')),
  direct_template_id uuid REFERENCES gis.photo_template(id),
  indirect_template_id uuid REFERENCES gis.photo_template(id),
+ general_template_id uuid REFERENCES gis.photo_template(id),
  allow_extra_photo boolean NOT NULL DEFAULT true,
  active boolean NOT NULL DEFAULT true,
  sort_order integer NOT NULL DEFAULT 0,
  description text NOT NULL DEFAULT '',
  created_at timestamptz NOT NULL DEFAULT now(),
  updated_at timestamptz NOT NULL DEFAULT now(),
- CHECK(direct_template_id IS NOT NULL OR indirect_template_id IS NOT NULL)
+ CHECK(direct_template_id IS NOT NULL OR indirect_template_id IS NOT NULL OR general_template_id IS NOT NULL)
 );
+ALTER TABLE gis.photo_policy ADD COLUMN IF NOT EXISTS general_template_id uuid
+ REFERENCES gis.photo_template(id);
+ALTER TABLE gis.photo_policy DROP CONSTRAINT IF EXISTS photo_policy_default_capture_mode_check;
+ALTER TABLE gis.photo_policy ADD CONSTRAINT photo_policy_default_capture_mode_check
+ CHECK(default_capture_mode IN ('DIRECT','INDIRECT','GENERAL'));
+ALTER TABLE gis.photo_policy DROP CONSTRAINT IF EXISTS photo_policy_check;
+ALTER TABLE gis.photo_policy ADD CONSTRAINT photo_policy_check
+ CHECK(direct_template_id IS NOT NULL OR indirect_template_id IS NOT NULL OR general_template_id IS NOT NULL);
 CREATE UNIQUE INDEX IF NOT EXISTS photo_policy_l2_default_uq
  ON gis.photo_policy(lv2_id,layer_id) WHERE lv3_id IS NULL AND active;
 CREATE UNIQUE INDEX IF NOT EXISTS photo_policy_l3_uq

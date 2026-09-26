@@ -11,18 +11,22 @@ def sample():
         "templates":[
             {"id":"direct","active":True,"capture_mode":"DIRECT","name":"직접"},
             {"id":"indirect","active":True,"capture_mode":"INDIRECT","name":"간접"},
+            {"id":"general","active":True,"capture_mode":"GENERAL","name":"일반"},
         ],
         "slots":[
             {"id":"buried","template_id":"direct","active":True,"min_count":1},
             {"id":"depth","template_id":"indirect","active":True,"min_count":1},
+            {"id":"overview","template_id":"general","active":True,"min_count":0},
         ],
         "policies":[
             {"id":"water","lv2_id":"water","lv3_id":None,"layer_id":"valve",
              "active":True,"default_capture_mode":"DIRECT","direct_template_id":"direct",
-             "indirect_template_id":"indirect","allow_extra_photo":True},
+             "indirect_template_id":"indirect","general_template_id":"general",
+             "allow_extra_photo":True},
             {"id":"exposed","lv2_id":"water","lv3_id":"exposed","layer_id":"valve",
              "active":True,"default_capture_mode":"DIRECT","direct_template_id":"direct",
-             "indirect_template_id":"indirect","allow_extra_photo":False},
+             "indirect_template_id":"indirect","general_template_id":"general",
+             "allow_extra_photo":False},
         ],
     }
 
@@ -39,6 +43,17 @@ class PhotoPolicyResolutionTests(TestCase):
                          {"photo":{"capture_mode":"INDIRECT"}})
         self.assertEqual(result["policy_id"],"water")
         self.assertEqual(result["template"]["slots"][0]["id"],"depth")
+
+    def test_general_feature_selects_general_template(self):
+        result = resolve(sample(), [("water", "survey")], "valve",
+                         {"photo": {"capture_mode": "GENERAL"}})
+        self.assertEqual(result["capture_mode"], "GENERAL")
+        self.assertEqual(result["template"]["id"], "general")
+        self.assertEqual(result["template"]["slots"][0]["id"], "overview")
+
+    def test_missing_feature_mode_uses_policy_default(self):
+        result = resolve(sample(), [("water", "survey")], "valve", {})
+        self.assertEqual(result["capture_mode"], "DIRECT")
 
     def test_scopes_are_not_cross_joined(self):
         result = resolve(sample(),[("water","survey"),("road","exposed")],"valve")

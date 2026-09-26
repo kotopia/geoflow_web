@@ -19,6 +19,7 @@ on:
       - control/management/commands/deploy_gis_photo_phase1.py
       - control/management/commands/smoke_gis_definition_admin.py
       - control/management/commands/smoke_gis_definition_admin_write.py
+      - control/management/commands/smoke_gis_photo_catalog.py
       - control/management/commands/repair_gis_definition_layouts.py
       - control/management/commands/cleanup_gis_standard_fields.py
       - control/management/commands/repair_qgis_flow_dip.py
@@ -235,6 +236,7 @@ jobs:
             esac
             if [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin_write.py' ] && \
+               [ "$changed_path" != 'control/management/commands/smoke_gis_photo_catalog.py' ] && \
                [ "$changed_path" != 'control/management/commands/repair_gis_definition_layouts.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_qgis_project_runtime.py' ]; then
               case "$changed_path" in
@@ -333,6 +335,8 @@ jobs:
             smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 400 --minimum-codes 111
 
           "$python" "$repo/manage.py" smoke_gis_definition_admin_write
+
+          "$python" "$repo/manage.py" smoke_gis_photo_catalog
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_qgis_project_runtime

@@ -1,181 +1,66 @@
 <section id="photo-catalog" class="gis-pane" hidden>
  <div class="card card-body">
-  <h2 class="h5">사진 카탈로그</h2>
-  <p class="text-muted">프로젝트 업무범위와 기존 레이어에 사진 항목을 연결합니다. 레이어 구성은 변경되지 않습니다.</p>
-  <div id="photo-message" role="status"></div>
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+   <div><h2 class="h5 mb-1">사진 카탈로그</h2><p class="text-muted mb-0">업무와 레이어별 사진 정책을 관리합니다.</p></div>
+   <button type="button" id="photo-template-open" class="btn btn-outline-primary">사진 템플릿 관리</button>
+  </div>
+  <div id="photo-message" role="status" aria-live="polite"></div>
   <div class="row g-2 mb-3">
    <label class="col-md-4">상위 업무 (L1)<select id="photo-l1" class="form-select"></select></label>
    <label class="col-md-4">업무 분야 (L2)<select id="photo-l2" class="form-select"></select></label>
    <label class="col-md-4">세부 업무 (L3)<select id="photo-l3" class="form-select"></select></label>
   </div>
-  <div class="row g-3">
-   <div class="col-lg-5"><div class="border rounded p-3 h-100">
-    <h3 class="h6">① 사진 템플릿</h3><div id="photo-template-list" class="mb-2"></div>
-    <form id="photo-template-form"><input type="hidden" name="id">
-     <label class="form-label w-100">이름<input name="name" class="form-control" maxlength="120" required></label>
-     <label class="form-label w-100">촬영방식<select name="capture_mode" class="form-select"><option>DIRECT</option><option>INDIRECT</option><option>GENERAL</option></select></label>
-     <label class="form-label w-100">설명<input name="description" class="form-control"></label>
-     <label class="form-label w-100">순서<input name="sort_order" type="number" class="form-control" value="0"></label>
-     <button class="btn btn-primary btn-sm">템플릿 저장</button> <button type="button" class="btn btn-outline-secondary btn-sm" id="photo-template-new">새 템플릿</button>
-     <button type="button" class="btn btn-outline-warning btn-sm" id="photo-template-deactivate" hidden>비활성화</button>
-    </form>
-   </div></div>
-   <div class="col-lg-7"><div class="border rounded p-3 h-100">
-    <h3 class="h6">② 템플릿 사진 항목</h3><div id="photo-slot-list" class="mb-2"></div>
-    <form id="photo-slot-form"><input type="hidden" name="id">
-     <label class="form-label w-100">항목 이름<input name="name" class="form-control" maxlength="120" required></label>
-     <div class="row g-2"><label class="col-md-4">필수 장수<input name="min_count" type="number" min="0" max="100" class="form-control" value="1"></label>
-     <label class="col-md-4">최대 장수<input name="max_count" type="number" min="0" max="100" class="form-control" value="1"></label>
-     <label class="col-md-4">순서<input name="sort_order" type="number" class="form-control" value="0"></label></div>
-     <label class="form-label w-100 mt-2">설명<input name="description" class="form-control"></label>
-     <h4 class="h6 mt-3">사진별 추가 입력</h4><div id="photo-extra-fields"></div>
-     <button type="button" id="photo-extra-add" class="btn btn-outline-secondary btn-sm mb-2">+ 입력 항목</button><br>
-     <button class="btn btn-primary btn-sm">사진 항목 저장</button> <button type="button" class="btn btn-outline-secondary btn-sm" id="photo-slot-new">새 항목</button>
-     <button type="button" class="btn btn-outline-warning btn-sm" id="photo-slot-deactivate" hidden>비활성화</button>
-    </form>
-   </div></div>
-  </div>
-  <div class="border rounded p-3 mt-3">
-   <h3 class="h6">③ 업무·레이어별 적용 정책</h3><div id="photo-policy-list" class="mb-2"></div>
-   <form id="photo-policy-form"><input type="hidden" name="id"><div class="row g-2">
-    <label class="col-md-4">적용 레이어<select name="layer_id" id="photo-policy-layer" class="form-select" required></select></label>
-    <label class="col-md-4">DIRECT 템플릿<select name="direct_template_id" id="photo-direct-template" class="form-select"></select></label>
-    <label class="col-md-4">INDIRECT 템플릿<select name="indirect_template_id" id="photo-indirect-template" class="form-select"></select></label>
-    <label class="col-md-4">기본 촬영방식<select name="default_capture_mode" class="form-select"><option>DIRECT</option><option>INDIRECT</option></select></label>
-    <label class="col-md-4">순서<input type="number" name="sort_order" class="form-control" value="0"></label>
-    <label class="col-md-4 d-flex align-items-center"><input type="checkbox" name="allow_extra_photo" class="form-check-input me-2" checked> 일반 사진 허용</label>
-   </div><label class="form-label w-100 mt-2">설명<input name="description" class="form-control"></label>
-   <button class="btn btn-primary btn-sm">정책 저장</button> <button type="button" class="btn btn-outline-secondary btn-sm" id="photo-policy-new">새 정책</button>
-   <button type="button" class="btn btn-outline-warning btn-sm" id="photo-policy-deactivate" hidden>비활성화</button>
-   </form>
-  </div>
+  <div id="photo-policy-table" class="table-responsive border rounded"></div>
+  <p class="form-text mt-2 mb-0">DIRECT·INDIRECT·GENERAL 중 사용하는 방식만 켜고 템플릿을 선택합니다. 자유사진은 정해진 사진 항목 외에 추가하는 사진입니다.</p>
  </div>
 </section>
+<dialog id="photo-template-dialog" class="photo-template-dialog">
+ <div class="d-flex justify-content-between align-items-center border-bottom p-3"><div><h2 class="h5 mb-0">사진 템플릿 관리</h2><span class="small text-muted">템플릿은 업무와 관계없이 재사용됩니다.</span></div><button type="button" id="photo-template-close" class="btn-close" aria-label="닫기"></button></div>
+ <div id="photo-modal-message" class="px-3 pt-3" role="status" aria-live="polite"></div>
+ <div class="row g-0 photo-dialog-body">
+  <aside class="col-lg-4 border-end p-3"><div class="d-flex justify-content-between align-items-center mb-2"><h3 class="h6 mb-0">템플릿 목록</h3><button type="button" id="photo-template-new" class="btn btn-sm btn-outline-primary">+ 새 템플릿</button></div><div id="photo-template-list" class="list-group"></div></aside>
+  <main class="col-lg-8 p-3">
+   <section class="border rounded p-3 mb-3"><h3 class="h6">템플릿 기본정보</h3><form id="photo-template-form" onsubmit="return false"><input type="hidden" name="id"><div class="row g-2"><label class="col-md-6">이름<input name="name" class="form-control" maxlength="120" required></label><label class="col-md-3">촬영방식<select name="capture_mode" class="form-select"><option>DIRECT</option><option>INDIRECT</option><option>GENERAL</option></select></label><label class="col-md-3">순서<input name="sort_order" type="number" class="form-control" value="0"></label></div><label class="w-100 mt-2">설명<input name="description" class="form-control"></label><div class="mt-2"><button type="button" id="photo-template-save" class="btn btn-primary btn-sm">템플릿 저장</button> <button type="button" id="photo-template-deactivate" class="btn btn-outline-warning btn-sm" hidden>비활성화</button></div></form></section>
+   <section id="photo-slot-section" class="border rounded p-3" hidden><div class="d-flex justify-content-between align-items-center mb-2"><h3 class="h6 mb-0">사진 항목</h3><button type="button" id="photo-slot-new" class="btn btn-sm btn-outline-primary">+ 사진 항목</button></div><div id="photo-slot-list" class="list-group mb-3"></div><form id="photo-slot-form" onsubmit="return false"><input type="hidden" name="id"><div class="row g-2"><label class="col-md-5">항목 이름<input name="name" class="form-control" maxlength="120" required></label><label class="col-md-2">필수 장수<input name="min_count" type="number" min="0" max="100" class="form-control" value="1"></label><label class="col-md-2">최대 장수<input name="max_count" type="number" min="0" max="100" class="form-control" value="1"></label><label class="col-md-3">순서<input name="sort_order" type="number" class="form-control" value="0"></label></div><label class="w-100 mt-2">설명<input name="description" class="form-control"></label><h4 class="h6 mt-3">사진별 추가 입력</h4><div id="photo-extra-fields"></div><button type="button" id="photo-extra-add" class="btn btn-outline-secondary btn-sm mb-2">+ 입력 항목</button><div><button type="button" id="photo-slot-save" class="btn btn-primary btn-sm">사진 항목 저장</button> <button type="button" id="photo-slot-deactivate" class="btn btn-outline-warning btn-sm" hidden>비활성화</button></div></form></section>
+  </main>
+ </div>
+</dialog>
+<style>
+.photo-template-dialog{width:min(1100px,95vw);max-width:none;padding:0;border:0;border-radius:.5rem;box-shadow:0 1rem 3rem rgba(0,0,0,.3)}.photo-template-dialog::backdrop{background:rgba(0,0,0,.5)}.photo-dialog-body{max-height:75vh;overflow:auto}#photo-policy-table table{min-width:1180px;margin:0}#photo-policy-table th{white-space:nowrap;background:var(--bs-tertiary-bg)}#photo-policy-table td{vertical-align:middle}.photo-mode-cell{min-width:210px}.photo-mode-cell .form-select{min-width:160px}.photo-template-dialog .list-group-item.active small{color:inherit!important}
+</style>
 <script>
 (()=>{
  'use strict';
- const root=document.getElementById('photo-catalog');
- const $=id=>document.getElementById(id);
- const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const option=(v,n)=>`<option value="${esc(v)}">${esc(n)}</option>`;
- const code=prefix=>prefix+'_'+crypto.randomUUID().replaceAll('-','').slice(0,12).toUpperCase();
- const api='/control/central/gis/photo-catalog/api/';
- let data=null, loaded=false, selectedTemplate='',selectedSlot='',selectedPolicy='';
- function message(value,kind='danger'){$('photo-message').innerHTML=`<div class="alert alert-${kind}">${esc(value)}</div>`;}
- async function load(){
-  const resp=await fetch(api,{credentials:'same-origin'});const result=await resp.json();
-  if(!resp.ok||!result.ok)throw Error(result.error||'사진 카탈로그 조회 실패');
-  data=result;loaded=true;render();
- }
- function l2Options(){const childIds=data.catalog.parents.filter(p=>p.parent_id===$('photo-l1').value).map(p=>p.child_id);return data.catalog.nodes.filter(n=>n.level===2&&childIds.includes(n.id));}
- function preserve(id,items,renderOption){const old=$(id).value;$(id).innerHTML=items.map(renderOption).join('');if(items.some(x=>x.id===old))$(id).value=old;}
- function scopes(){
-  preserve('photo-l1',data.catalog.nodes.filter(n=>n.level===1),n=>option(n.id,n.name));
-  preserve('photo-l2',l2Options(),n=>option(n.id,n.name));
-  const lv2=$('photo-l2').value;
-  const old=$('photo-l3').value;
-  $('photo-l3').innerHTML=option('','L2 기본 정책')+data.catalog.lv3.filter(o=>o.lv2_id===lv2).map(o=>option(o.id,o.name)).join('');
-  if(data.catalog.lv3.some(o=>o.id===old&&o.lv2_id===lv2))$('photo-l3').value=old;
-  preserve('photo-policy-layer',data.catalog.layers.filter(l=>l.lv2_id===lv2),l=>option(l.id,`${l.standard_name} · ${l.label}`));
- }
- function rowButton(kind,item,label){return `<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1" data-photo-kind="${kind}" data-photo-id="${esc(item.id)}">${esc(label)}</button>`;}
- function render(){
-  scopes();
-  $('photo-template-list').innerHTML=data.templates.filter(t=>t.active).map(t=>rowButton('template',t,`${t.name} (${t.capture_mode})`)).join('')||'<span class="text-muted">템플릿 없음</span>';
-  if(!data.templates.some(t=>t.id===selectedTemplate&&t.active))selectedTemplate='';
-  $('photo-slot-list').innerHTML=data.slots.filter(s=>s.active&&s.template_id===selectedTemplate).map(s=>rowButton('slot',s,`${s.name} · 필수 ${s.min_count}/${s.max_count}`)).join('')||'<span class="text-muted">템플릿을 선택하면 사진 항목을 편집할 수 있습니다.</span>';
-  for(const [id,mode] of [['photo-direct-template','DIRECT'],['photo-indirect-template','INDIRECT']]){
-   const old=$(id).value;
-   $(id).innerHTML=option('','사용 안 함')+data.templates.filter(t=>t.active&&t.capture_mode===mode).map(t=>option(t.id,t.name)).join('');
-   if(data.templates.some(t=>t.id===old&&t.active&&t.capture_mode===mode))$(id).value=old;
-  }
-  const l2=$('photo-l2').value,l3=$('photo-l3').value;
-  $('photo-policy-list').innerHTML=data.policies.filter(p=>p.active&&p.lv2_id===l2&&p.lv3_id===(l3||null)).map(p=>{
-   const layer=data.catalog.layers.find(x=>x.id===p.layer_id);
-   return rowButton('policy',p,layer?.label||p.layer_id);
-  }).join('')||'<span class="text-muted">이 업무의 사진 정책이 없습니다.</span>';
- }
- function reset(kind){
-  $(`photo-${kind}-form`).reset();$(`photo-${kind}-form`).elements.id.value='';
-  $(`photo-${kind}-deactivate`).hidden=true;
-  if(kind==='template'){selectedTemplate='';selectedSlot='';}
-  if(kind==='slot'){$('photo-extra-fields').innerHTML='';selectedSlot='';}
-  if(kind==='policy')selectedPolicy='';
-  render();
- }
- function extraField(field={}){
-  const el=document.createElement('div');el.className='row g-2 mb-2 photo-extra-row';
-  el.dataset.key=field.key||code('F');
-  el.innerHTML=`<label class="col-md-5">이름<input class="form-control photo-extra-label" maxlength="120" value="${esc(field.label)}" required></label>
-   <label class="col-md-4">유형<select class="form-select photo-extra-kind">${['text','integer','decimal','boolean','date','datetime'].map(k=>option(k,k)).join('')}</select></label>
-   <label class="col-md-2 align-self-end"><input type="checkbox" class="photo-extra-required" ${field.required?'checked':''}> 필수</label>
-   <div class="col-md-1 align-self-end"><button type="button" class="btn btn-outline-danger btn-sm photo-extra-remove" aria-label="입력 항목 제거">×</button></div>`;
-  el.querySelector('select').value=field.kind||'text';$('photo-extra-fields').appendChild(el);
- }
- function edit(kind,id){
-  const item=data[kind==='policy'?'policies':`${kind}s`].find(x=>x.id===id);if(!item)return;
-  const form=$(`photo-${kind}-form`);form.reset();
-  for(const [key,value] of Object.entries(item))if(form.elements[key]&&key!=='extra_schema'){
-   if(form.elements[key].type==='checkbox')form.elements[key].checked=!!value;
-   else form.elements[key].value=value??'';
-  }
-  if(kind==='template'){selectedTemplate=id;selectedSlot='';$('photo-extra-fields').innerHTML='';}
-  if(kind==='slot'){
-   selectedSlot=id;$('photo-extra-fields').innerHTML='';
-   (item.extra_schema?.fields||[]).forEach(extraField);
-  }
-  if(kind==='policy'){selectedPolicy=id;$('photo-l2').value=item.lv2_id;scopes();$('photo-l3').value=item.lv3_id||'';}
-  $(`photo-${kind}-deactivate`).hidden=false;render();
-  if(kind==='policy'){
-   form.elements.layer_id.value=item.layer_id;
-   form.elements.direct_template_id.value=item.direct_template_id||'';
-   form.elements.indirect_template_id.value=item.indirect_template_id||'';
-  }
- }
- async function save(payload){
-  const resp=await fetch(api,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]').value},body:JSON.stringify(payload)});
-  const result=await resp.json();if(!resp.ok||!result.ok)throw Error(result.error||'저장 실패');
-  data=result;render();message('사진 정의를 저장했습니다.','success');return result.id;
- }
- root.addEventListener('click',async e=>{
-  if(e.target.id==='photo-extra-add'){extraField();return;}
-  if(e.target.classList.contains('photo-extra-remove')){e.target.closest('.photo-extra-row').remove();return;}
-  const button=e.target.closest('[data-photo-kind]');if(button){edit(button.dataset.photoKind,button.dataset.photoId);return;}
-  for(const kind of ['template','slot','policy']){
-   if(e.target.id===`photo-${kind}-new`){reset(kind);return;}
-   if(e.target.id===`photo-${kind}-deactivate`){
-    if(!confirm('이 정의를 비활성화하시겠습니까?'))return;
-    try{await save({action:'deactivate',kind,id:$(`photo-${kind}-form`).elements.id.value});reset(kind);}catch(err){message(err.message);}
-    return;
-   }
-  }
- });
- root.addEventListener('submit',async e=>{
-  const form=e.target;if(!['photo-template-form','photo-slot-form','photo-policy-form'].includes(form.id))return;
-  e.preventDefault();const kind=form.id.slice(6,-5), values=Object.fromEntries(new FormData(form));
-  const payload={action:'save',kind,...values};
-  if(!values.id)delete payload.id;
-  if(kind==='template')payload.code=values.id?data.templates.find(t=>t.id===values.id).code:code('TPL');
-  if(kind==='slot'){
-   if(!selectedTemplate){message('먼저 사진 템플릿을 선택하세요.');return;}
-   payload.template_id=selectedTemplate;
-   payload.code=values.id?data.slots.find(s=>s.id===values.id).code:code('SLOT');
-   payload.extra_schema={fields:Array.from(root.querySelectorAll('.photo-extra-row')).map(row=>({
-    key:row.dataset.key,label:row.querySelector('.photo-extra-label').value,
-    kind:row.querySelector('.photo-extra-kind').value,required:row.querySelector('.photo-extra-required').checked
-   }))};
-  }
-  if(kind==='policy'){
-   payload.lv2_id=$('photo-l2').value;payload.lv3_id=$('photo-l3').value||null;
-   payload.allow_extra_photo=form.elements.allow_extra_photo.checked;
-  }
-  try{const id=await save(payload);edit(kind,id);}catch(err){message(err.message);}
- });
- $('photo-l1').addEventListener('change',()=>{scopes();render();});
- $('photo-l2').addEventListener('change',()=>{scopes();render();});
- $('photo-l3').addEventListener('change',render);
- document.querySelector('[data-tab="photo-catalog"]').addEventListener('click',()=>{
-  if(!loaded)load().catch(err=>message(err.message));
- });
+ const root=document.getElementById('photo-catalog'),dialog=document.getElementById('photo-template-dialog');
+ const $=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const option=(v,n)=>`<option value="${esc(v)}">${esc(n)}</option>`,api='/control/central/gis/photo-catalog/api/';
+ const code=prefix=>prefix+'_'+((crypto.randomUUID?.()||String(Date.now())).replaceAll('-','').slice(0,12).toUpperCase());
+ let data=null,loaded=false,selectedTemplate='',selectedSlot='';
+ function notice(value,kind='danger',modal=false){$(modal?'photo-modal-message':'photo-message').innerHTML=`<div class="alert alert-${kind} py-2">${esc(value)}</div>`;}
+ async function request(payload){const options=payload?{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]')?.value||'','Accept':'application/json'},body:JSON.stringify(payload)}:{credentials:'same-origin',headers:{'Accept':'application/json'}};const resp=await fetch(api,options);let result;try{result=await resp.json();}catch(_){throw Error(`사진 카탈로그 요청 실패 (HTTP ${resp.status})`);}if(!resp.ok||!result.ok)throw Error(result.error||`저장 실패 (HTTP ${resp.status})`);data=result;loaded=true;return result;}
+ function fillScopes(){const old1=$('photo-l1').value,old2=$('photo-l2').value,old3=$('photo-l3').value,l1=data.catalog.nodes.filter(n=>n.level===1);$('photo-l1').innerHTML=l1.map(n=>option(n.id,n.name)).join('');if(l1.some(n=>n.id===old1))$('photo-l1').value=old1;const children=new Set(data.catalog.parents.filter(p=>p.parent_id===$('photo-l1').value).map(p=>p.child_id)),l2=data.catalog.nodes.filter(n=>n.level===2&&children.has(n.id));$('photo-l2').innerHTML=l2.map(n=>option(n.id,n.name)).join('');if(l2.some(n=>n.id===old2))$('photo-l2').value=old2;const l3=data.catalog.lv3.filter(n=>n.lv2_id===$('photo-l2').value);$('photo-l3').innerHTML=option('','L2 기본 정책')+l3.map(n=>option(n.id,n.name)).join('');if(l3.some(n=>n.id===old3))$('photo-l3').value=old3;}
+ function scope(){return {lv2:$('photo-l2').value,lv3:$('photo-l3').value||null};}
+ function policyFor(layerId){const s=scope();return data.policies.find(p=>p.active&&p.lv2_id===s.lv2&&p.lv3_id===s.lv3&&p.layer_id===layerId);}
+ function templateOptions(mode,selected){return option('','템플릿 선택')+data.templates.filter(t=>t.active&&t.capture_mode===mode).map(t=>`<option value="${esc(t.id)}" ${t.id===selected?'selected':''}>${esc(t.name)}</option>`).join('');}
+ function modeCell(mode,p){const key=mode.toLowerCase()+'_template_id',selected=p?.[key]||'';return `<td class="photo-mode-cell"><div class="form-check mb-1"><input class="form-check-input photo-mode-use" type="checkbox" data-mode="${mode}" ${selected?'checked':''}><label class="form-check-label">${mode} 사용</label></div><select class="form-select form-select-sm photo-mode-template" data-mode="${mode}" ${selected?'':'disabled'}>${templateOptions(mode,selected)}</select></td>`;}
+ function enabledModes(row){return Array.from(row.querySelectorAll('.photo-mode-use:checked')).map(x=>x.dataset.mode);}
+ function refreshDefault(row,preferred){const select=row.querySelector('.photo-default-mode'),modes=enabledModes(row),old=preferred||select.value;select.innerHTML=modes.map(m=>option(m,m)).join('');if(modes.includes(old))select.value=old;select.disabled=!modes.length;}
+ function renderPolicies(){const s=scope(),layers=data.catalog.layers.filter(l=>l.lv2_id===s.lv2);$('photo-policy-table').innerHTML=`<table class="table table-sm align-middle"><thead><tr><th>적용 레이어</th><th>DIRECT</th><th>INDIRECT</th><th>GENERAL</th><th>기본 방식</th><th>자유사진</th><th></th></tr></thead><tbody>${layers.map(l=>{const p=policyFor(l.id);return `<tr data-photo-layer="${l.id}" data-policy-id="${p?.id||''}"><td><strong>${esc(l.label)}</strong><br><code>${esc(l.standard_name)}</code></td>${modeCell('DIRECT',p)}${modeCell('INDIRECT',p)}${modeCell('GENERAL',p)}<td><select class="form-select form-select-sm photo-default-mode"></select></td><td class="text-center"><input type="checkbox" class="form-check-input photo-extra-allow" ${p?.allow_extra_photo!==false?'checked':''} aria-label="자유사진 추가 허용"></td><td><button type="button" class="btn btn-primary btn-sm photo-policy-save">저장</button>${p?'<button type="button" class="btn btn-outline-warning btn-sm ms-1 photo-policy-deactivate">비활성화</button>':''}</td></tr>`}).join('')}</tbody></table>`;root.querySelectorAll('[data-photo-layer]').forEach(row=>refreshDefault(row,policyFor(row.dataset.photoLayer)?.default_capture_mode));}
+ function renderTemplateList(){const active=data.templates.filter(t=>t.active);if(!active.some(t=>t.id===selectedTemplate))selectedTemplate='';$('photo-template-list').innerHTML=active.map(t=>`<button type="button" class="list-group-item list-group-item-action ${t.id===selectedTemplate?'active':''}" data-template-id="${t.id}">${esc(t.name)}<small class="d-block text-muted">${t.capture_mode}</small></button>`).join('')||'<span class="text-muted">등록된 템플릿이 없습니다.</span>';$('photo-slot-section').hidden=!selectedTemplate;const slots=data.slots.filter(s=>s.active&&s.template_id===selectedTemplate);if(!slots.some(s=>s.id===selectedSlot))selectedSlot='';$('photo-slot-list').innerHTML=slots.map(s=>`<button type="button" class="list-group-item list-group-item-action ${s.id===selectedSlot?'active':''}" data-slot-id="${s.id}">${esc(s.name)} <small>필수 ${s.min_count} / 최대 ${s.max_count}</small></button>`).join('')||'<span class="text-muted">사진 항목이 없습니다.</span>';}
+ function render(){fillScopes();renderPolicies();renderTemplateList();}
+ function resetTemplate(){selectedTemplate='';selectedSlot='';const f=$('photo-template-form');f.reset();f.elements.id.value='';$('photo-template-deactivate').hidden=true;$('photo-slot-section').hidden=true;renderTemplateList();}
+ function resetSlot(){selectedSlot='';const f=$('photo-slot-form');f.reset();f.elements.id.value='';$('photo-extra-fields').innerHTML='';$('photo-slot-deactivate').hidden=true;renderTemplateList();}
+ function editTemplate(id){const t=data.templates.find(x=>x.id===id);if(!t)return;selectedTemplate=id;selectedSlot='';const f=$('photo-template-form');f.reset();for(const k of ['id','name','capture_mode','sort_order','description'])f.elements[k].value=t[k]??'';$('photo-template-deactivate').hidden=false;resetSlot();renderTemplateList();}
+ function editSlot(id){const s=data.slots.find(x=>x.id===id);if(!s)return;selectedSlot=id;const f=$('photo-slot-form');f.reset();for(const k of ['id','name','min_count','max_count','sort_order','description'])f.elements[k].value=s[k]??'';$('photo-extra-fields').innerHTML='';(s.extra_schema?.fields||[]).forEach(extraField);$('photo-slot-deactivate').hidden=false;renderTemplateList();}
+ function extraField(field={}){const el=document.createElement('div');el.className='row g-2 mb-2 photo-extra-row';el.dataset.key=field.key||code('F');el.innerHTML=`<label class="col-md-5">이름<input class="form-control photo-extra-label" maxlength="120" value="${esc(field.label)}" required></label><label class="col-md-4">유형<select class="form-select photo-extra-kind">${['text','integer','decimal','boolean','date','datetime'].map(k=>option(k,k)).join('')}</select></label><label class="col-md-2 align-self-end"><input type="checkbox" class="photo-extra-required" ${field.required?'checked':''}> 필수</label><div class="col-md-1 align-self-end"><button type="button" class="btn btn-outline-danger btn-sm photo-extra-remove" aria-label="입력 항목 제거">×</button></div>`;el.querySelector('select').value=field.kind||'text';$('photo-extra-fields').appendChild(el);}
+ async function saveTemplate(){const f=$('photo-template-form');if(!f.reportValidity())return;const v=Object.fromEntries(new FormData(f)),payload={action:'save',kind:'template',...v,code:v.id?data.templates.find(t=>t.id===v.id).code:code('TPL')};if(!v.id)delete payload.id;try{const result=await request(payload);editTemplate(result.id);renderPolicies();notice('✓ 사진 템플릿을 저장했습니다.','success',true);}catch(e){notice('저장 실패 · '+e.message,'danger',true);}}
+ async function saveSlot(){const f=$('photo-slot-form');if(!selectedTemplate){notice('먼저 템플릿을 선택하세요.','danger',true);return;}if(!f.reportValidity())return;const v=Object.fromEntries(new FormData(f)),payload={action:'save',kind:'slot',...v,template_id:selectedTemplate,code:v.id?data.slots.find(s=>s.id===v.id).code:code('SLOT'),extra_schema:{fields:Array.from(dialog.querySelectorAll('.photo-extra-row')).map(row=>({key:row.dataset.key,label:row.querySelector('.photo-extra-label').value,kind:row.querySelector('.photo-extra-kind').value,required:row.querySelector('.photo-extra-required').checked}))}};if(!v.id)delete payload.id;try{const result=await request(payload);editSlot(result.id);notice('✓ 사진 항목을 저장했습니다.','success',true);}catch(e){notice('저장 실패 · '+e.message,'danger',true);}}
+ async function savePolicy(row){const modes=enabledModes(row),templates={};for(const mode of ['DIRECT','INDIRECT','GENERAL']){const on=modes.includes(mode),value=row.querySelector(`.photo-mode-template[data-mode="${mode}"]`).value;if(on&&!value){notice(`${mode} 템플릿을 선택하세요.`);return;}templates[mode.toLowerCase()+'_template_id']=on?value:null;}if(!modes.length){notice('사진 방식 하나 이상을 사용으로 설정하세요.');return;}const s=scope(),payload={action:'save',kind:'policy',id:row.dataset.policyId||undefined,lv2_id:s.lv2,lv3_id:s.lv3,layer_id:row.dataset.photoLayer,default_capture_mode:row.querySelector('.photo-default-mode').value,allow_extra_photo:row.querySelector('.photo-extra-allow').checked,sort_order:0,description:'',...templates};if(!payload.id)delete payload.id;try{await request(payload);render();root.querySelector(`[data-photo-layer="${row.dataset.photoLayer}"]`)?.scrollIntoView({block:'nearest'});notice('✓ 사진 정책을 저장했습니다.','success');}catch(e){notice('저장 실패 · '+e.message);}}
+ async function deactivate(kind,id,modal=false){if(!id||!confirm('이 정의를 비활성화하시겠습니까?'))return;try{await request({action:'deactivate',kind,id});if(kind==='template')resetTemplate();else if(kind==='slot')resetSlot();else render();notice('비활성화했습니다.','success',modal);}catch(e){notice('처리 실패 · '+e.message,'danger',modal);}}
+ root.addEventListener('change',e=>{if(['photo-l1','photo-l2','photo-l3'].includes(e.target.id)){render();return;}if(e.target.classList.contains('photo-mode-use')){const row=e.target.closest('tr'),sel=row.querySelector(`.photo-mode-template[data-mode="${e.target.dataset.mode}"]`);sel.disabled=!e.target.checked;if(!e.target.checked)sel.value='';refreshDefault(row);}});
+ root.addEventListener('click',e=>{const row=e.target.closest('[data-photo-layer]');if(e.target.id==='photo-template-open'){renderTemplateList();dialog.showModal();}else if(e.target.classList.contains('photo-policy-save'))savePolicy(row);else if(e.target.classList.contains('photo-policy-deactivate'))deactivate('policy',row.dataset.policyId);});
+ dialog.addEventListener('click',e=>{const t=e.target.closest('[data-template-id]'),s=e.target.closest('[data-slot-id]');if(t)editTemplate(t.dataset.templateId);else if(s)editSlot(s.dataset.slotId);else if(e.target.id==='photo-template-close')dialog.close();else if(e.target.id==='photo-template-new')resetTemplate();else if(e.target.id==='photo-template-save')saveTemplate();else if(e.target.id==='photo-template-deactivate')deactivate('template',$('photo-template-form').elements.id.value,true);else if(e.target.id==='photo-slot-new')resetSlot();else if(e.target.id==='photo-slot-save')saveSlot();else if(e.target.id==='photo-slot-deactivate')deactivate('slot',$('photo-slot-form').elements.id.value,true);else if(e.target.id==='photo-extra-add')extraField();else if(e.target.classList.contains('photo-extra-remove'))e.target.closest('.photo-extra-row').remove();});
+ for(const f of [$('photo-template-form'),$('photo-slot-form')])f.addEventListener('submit',e=>e.preventDefault());
+ document.querySelector('[data-tab="photo-catalog"]').addEventListener('click',async()=>{if(!loaded)try{await request();render();}catch(e){notice(e.message);}});
 })();
 </script>
