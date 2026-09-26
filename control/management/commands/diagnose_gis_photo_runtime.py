@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 from control.models import GroupDBConfig
 from control.services import gis_photo_policy
 from control.services.gis_admin import tenant_cursor
+from control.management.commands.repair_qgis_flow_dip import _django_tenant_alias
 from geoflow_ops.gis import central_definitions, layer_plan
 from geoflow_ops.gis.gpkg import project_geopackage_layer_manifest
 
@@ -49,7 +50,8 @@ class Command(BaseCommand):
                 cur.execute("SELECT DISTINCT project_id::text FROM prj.scope_item ORDER BY project_id::text")
                 project_ids = [row[0] for row in cur.fetchall()]
             for project_id in project_ids:
-                plan = layer_plan.project_layer_plan(config.db_alias, project_id)
+                with _django_tenant_alias(config):
+                    plan = layer_plan.project_layer_plan(config.db_alias, project_id)
                 targets = [row for row in plan.get("layers") or []
                            if str(row.get("standard_name") or "").upper() in TARGETS]
                 if not targets:
@@ -57,8 +59,9 @@ class Command(BaseCommand):
                 with tenant_cursor(config.group_id, write=False) as cur:
                     cur.execute("SELECT lv2_id::text,lv3_id::text FROM prj.scope_item WHERE project_id=%s", [project_id])
                     scopes = cur.fetchall()
-                package = {str(row.get("standard_name") or "").upper(): row
-                           for row in project_geopackage_layer_manifest(config.db_alias, plan)}
+                with _django_tenant_alias(config):
+                    package = {str(row.get("standard_name") or "").upper(): row
+                               for row in project_geopackage_layer_manifest(config.db_alias, plan)}
                 item = {"tenant": config.db_alias, "project_id": project_id,
                         "scopes": scopes, "photo_policy_url": f"/gis/projects/{project_id}/api/photo-policies/",
                         "layers": []}
