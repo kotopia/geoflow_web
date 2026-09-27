@@ -17,8 +17,8 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.uic import loadUiType
 
 from .photo_annotations import (
-    MAX_ANNOTATIONS, PathAnnotationItem, TextAnnotationItem, annotation_document,
-    create_annotation, is_editable_document,
+    MAX_ANNOTATIONS, IconAnnotationItem, PathAnnotationItem, TextAnnotationItem,
+    annotation_document, create_annotation, is_editable_document,
 )
 from .photo_icons import ICON_NAMES, annotation_icon, feather_icon
 from .photo_normalizer import encode_qimage, normalize_photo
@@ -67,6 +67,17 @@ class AnnotationScene(QGraphicsScene):
         if cursor is not None and cursor != self.points[-1]:
             path.lineTo(cursor)
         self.preview.setPath(path)
+
+    def _shape_rect(self, end, modifiers):
+        if not (modifiers & Qt.KeyboardModifier.ShiftModifier):
+            return QRectF(self.start, end).normalized()
+        dx, dy = end.x() - self.start.x(), end.y() - self.start.y()
+        size = max(abs(dx), abs(dy))
+        constrained = QPointF(
+            self.start.x() + (size if dx >= 0 else -size),
+            self.start.y() + (size if dy >= 0 else -size),
+        )
+        return QRectF(self.start, constrained).normalized()
 
     def finish_polyline(self):
         if self.studio.tool != "polyline" or len(self.points) < 2:
@@ -133,7 +144,7 @@ class AnnotationScene(QGraphicsScene):
                 self.points = [self.start, point]
             path = QPainterPath(self.points[0])
             if self.studio.tool in {"rectangle", "ellipse"}:
-                rect = QRectF(self.start, point).normalized()
+                rect = self._shape_rect(point, event.modifiers())
                 path.addRect(rect) if self.studio.tool == "rectangle" else path.addEllipse(rect)
             else:
                 for sampled in self.points[1:]: path.lineTo(sampled)
@@ -150,7 +161,7 @@ class AnnotationScene(QGraphicsScene):
         if tool == "line":
             data = {"type": "line", "start": [self.start.x(), self.start.y()], "end": [end.x(), end.y()]}
         elif tool in {"rectangle", "ellipse"}:
-            rect = QRectF(self.start, end).normalized()
+            rect = self._shape_rect(end, event.modifiers())
             data = {"type": tool, "x": rect.x(), "y": rect.y(), "width": rect.width(), "height": rect.height(),
                     "fill": "#00000000"}
         elif tool == "freehand":
@@ -181,6 +192,8 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self._change_before = None
         self._source_pixmap = QPixmap()
         self._legacy_edit, self._showing_original = False, False
+        self._loaded_state = None
+        self._allow_reject = False
         self.default_color, self.default_width = "#ef4444", 5
         self.default_font_size, self.default_icon_size = 28, 76
         self.scene = AnnotationScene(self)
@@ -191,7 +204,8 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self.graphicsView.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._build_toolbar(); self._setup_properties()
         self._button(self.replaceButton, "refresh-cw", "사진 변경", self.replace_photo)
-        self._button(self.saveButton, "save", "편집본 저장", self.save_edit)
+        self._button(self.saveButton, "check", "편집 적용", self.save_edit)
+        self.saveButton.setText("편집 적용")
         self._button(self.cancelButton, "x", "닫기", self.reject)
         self.replaceButton.setEnabled(can_write); self.saveButton.setEnabled(can_write)
         self.originalButton.clicked.connect(lambda: self.set_representation("original"))
@@ -258,7 +272,7 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self.frontButton.clicked.connect(lambda: self.change_z(1))
         self.backButton.clicked.connect(lambda: self.change_z(-1))
         self.deleteAnnotationButton.clicked.connect(self.delete_selected)
-        self.propertyPanel.setEnabled(False)
+        self.propertyPanel.setVisible(False)
 
     def selected_annotation(self):
         for item in self.scene.selectedItems():
@@ -268,7 +282,9 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
 
     def annotation_selection_changed(self, item=None):
         selected = self.selected_annotation() or item
-        self.propertyPanel.setEnabled(bool(selected and self.can_write and not self._showing_original))
+        visible = bool(selected and self.can_write and not self._showing_original)
+        self.propertyPanel.setVisible(visible)
+        self.propertyPanel.setEnabled(visible)
         if not selected: return
         widgets = (self.colorCombo, self.strokeWidthSpin, self.opacitySpin,
                    self.fontSizeSpin, self.rotationSpin, self.boldCheck)
@@ -278,12 +294,23 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self.colorCombo.setCurrentIndex(index)
         self.strokeWidthSpin.setValue(selected.stroke_width)
         self.opacitySpin.setValue(selected.opacity())
-        self.fontSizeSpin.setEnabled(isinstance(selected, TextAnnotationItem))
-        self.boldCheck.setEnabled(isinstance(selected, TextAnnotationItem))
+        kind = selected.annotation_type
+        is_text = isinstance(selected, TextAnnotationItem)
+        is_icon = isinstance(selected, IconAnnotationItem)
+        has_stroke = kind in {"line", "polyline", "freehand", "rectangle", "ellipse"}
+        has_rotation = kind in {"rectangle", "ellipse", "text", "icon"}
+        for widget in (self.strokeLabel, self.strokeWidthSpin): widget.setVisible(has_stroke)
+        for widget in (self.fontLabel, self.fontSizeSpin): widget.setVisible(is_text or is_icon)
+        for widget in (self.boldLabel, self.boldCheck): widget.setVisible(is_text)
+        for widget in (self.rotationLabel, self.rotationSpin): widget.setVisible(has_rotation)
+        self.fillButton.setVisible(kind in {"rectangle", "ellipse"})
+        self.fontLabel.setText("아이콘 크기" if is_icon else "글자 크기")
+        self.fontSizeSpin.setMaximum(400 if is_icon else 160)
         if isinstance(selected, TextAnnotationItem):
             self.fontSizeSpin.setValue(selected.font_size); self.boldCheck.setChecked(selected.bold)
+        elif isinstance(selected, IconAnnotationItem):
+            self.fontSizeSpin.setValue(selected.icon_size)
         self.rotationSpin.setValue(selected.rotation())
-        self.fillButton.setEnabled(selected.annotation_type in {"rectangle", "ellipse"})
         for widget in widgets: widget.blockSignals(False)
 
     def _mutate_selected(self, callback):
@@ -312,7 +339,10 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
     def change_font_size(self, value):
         self.default_font_size = int(value)
         def apply(item):
-            if isinstance(item, TextAnnotationItem): item.font_size = int(value); item.apply_text_style()
+            if isinstance(item, TextAnnotationItem):
+                item.font_size = int(value); item.apply_text_style()
+            elif isinstance(item, IconAnnotationItem):
+                item.icon_size = max(20, min(400, int(value))); item.refresh_pixmap()
         self._mutate_selected(apply)
 
     def change_bold(self, checked):
@@ -349,6 +379,15 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         if pixmap.isNull(): raise ValueError("사진을 읽을 수 없습니다.")
         return pixmap
 
+    def _photo_pixmap(self, photo, representation):
+        key = "_local_original_bytes" if representation == "original" else "_local_display_bytes"
+        data = photo.get(key)
+        if data:
+            pixmap = QPixmap(); pixmap.loadFromData(data)
+            if pixmap.isNull(): raise ValueError("로컬 사진을 읽을 수 없습니다.")
+            return pixmap
+        return self._download_pixmap(self._photo_url(photo, representation))
+
     def load_current(self, representation="edited"):
         if not self.photos: return
         photo = self.photos[self.index]
@@ -358,10 +397,10 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
             except ValueError: edit_data = {}
         editable = is_editable_document(edit_data)
         self._legacy_edit = bool(photo.get("edited_object_key") and not editable)
-        original = self._download_pixmap(self._photo_url(photo, "original"))
+        original = self._photo_pixmap(photo, "original")
         self.restore_canvas(original, edit_data if editable else None)
         if self._legacy_edit and representation == "edited":
-            self.restore_canvas(self._download_pixmap(self._photo_url(photo, "edited")), None)
+            self.restore_canvas(self._photo_pixmap(photo, "edited"), None)
         self._showing_original = representation == "original"
         self.set_annotation_visibility(not self._showing_original)
         self.undo_stack.clear(); self.redo_stack.clear(); self._change_before = None
@@ -369,11 +408,12 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self.statusLabel.setText(f"{self.index+1} / {len(self.photos)} · {photo.get('original_name') or '사진'}{suffix}")
         self.originalButton.setChecked(self._showing_original); self.editedButton.setChecked(not self._showing_original)
         self.annotation_selection_changed(); QTimer.singleShot(0, self.fit_to_window)
+        self._loaded_state = self.annotation_state()
 
     def set_representation(self, representation):
         photo = self.photos[self.index]
         if self._legacy_edit:
-            pixmap = self._download_pixmap(self._photo_url(photo, representation))
+            pixmap = self._photo_pixmap(photo, representation)
             self.restore_canvas(pixmap, None)
         self._showing_original = representation == "original"
         self.set_annotation_visibility(not self._showing_original)
@@ -388,7 +428,7 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
                 "기존 편집본은 개별 객체 정보가 없어 직접 수정할 수 없습니다. 새 편집을 시작하시겠습니까?")
             if answer != QMessageBox.StandardButton.Yes: return False
             photo = self.photos[self.index]
-            self.restore_canvas(self._download_pixmap(self._photo_url(photo, "original")), None)
+            self.restore_canvas(self._photo_pixmap(photo, "original"), None)
             self._legacy_edit = False
         self._showing_original = False; self.set_annotation_visibility(True)
         self.originalButton.setChecked(False); self.editedButton.setChecked(True)
@@ -517,6 +557,8 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         document["render"] = {"format": "image/jpeg", "width": width, "height": height,
                               "quality": quality, "max_bytes": 500 * 1024}
         self.save_callback(self.photos[self.index], data, "image/jpeg", document)
+        self._loaded_state = document
+        self._allow_reject = True
         self.accept()
 
     def replace_photo(self):
@@ -526,4 +568,33 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
             return
         path, _ = QFileDialog.getOpenFileName(self, "GIS 사진 변경", "", "Images (*.jpg *.jpeg *.png *.webp)")
         if not path: return
-        self.replace_callback(self.photos[self.index], path, normalize_photo(path)); self.accept()
+        self.replace_callback(self.photos[self.index], path, normalize_photo(path))
+        self._allow_reject = True
+        self.accept()
+
+    def has_unapplied_changes(self):
+        return self.can_write and self._loaded_state is not None \
+            and self.annotation_state() != self._loaded_state
+
+    def reject(self):
+        if self._allow_reject or not self.has_unapplied_changes():
+            return super().reject()
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("사진 편집")
+        dialog.setText("사진 편집 내용을 적용하지 않았습니다.")
+        apply_button = dialog.addButton("적용 후 닫기", QMessageBox.ButtonRole.AcceptRole)
+        discard_button = dialog.addButton("편집 취소", QMessageBox.ButtonRole.DestructiveRole)
+        dialog.addButton("계속 편집", QMessageBox.ButtonRole.RejectRole)
+        dialog.exec()
+        if dialog.clickedButton() is apply_button:
+            self.save_edit()
+        elif dialog.clickedButton() is discard_button:
+            self._allow_reject = True
+            super().reject()
+
+    def closeEvent(self, event):
+        if self._allow_reject or not self.has_unapplied_changes():
+            event.accept()
+            return super().closeEvent(event)
+        event.ignore()
+        self.reject()

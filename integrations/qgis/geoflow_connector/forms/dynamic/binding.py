@@ -91,6 +91,8 @@ class DynamicFormBinding:
         self.source_original = {}
         self.loading = False
         self.dirty = set()
+        self.original_capture_mode = ""
+        self.pending_capture_mode = None
         self._last_dirty_signature = ()
         form.changed.connect(self.changed)
 
@@ -121,6 +123,23 @@ class DynamicFormBinding:
                 values[field["id"]] = None
         return values
 
+    def _feature_extension(self, feature):
+        if "ext_data" not in feature.fields().names():
+            return {}
+        raw = _clean(feature["ext_data"])
+        try:
+            value = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (ValueError, TypeError):
+            value = {}
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _notify_dirty(self):
+        callback = getattr(self.page, "update_dirty", None)
+        if callable(callback):
+            callback()
+        else:
+            self.page.dirty = bool(self.dirty or self.capture_mode_dirty())
+
     def load(self, feature, *, force=False):
         if not force and self.has_actual_changes():
             return
@@ -130,9 +149,15 @@ class DynamicFormBinding:
             self.source_original = self._feature_values(feature)
             self.form.load_values(self.source_original)
             self.original = self.form.values()
+            extension = self._feature_extension(feature)
+            self.original_capture_mode = str(
+                ((extension.get("photo") or {}).get("capture_mode") or "")
+            )
+            self.pending_capture_mode = None
             self.dirty.clear()
             self._last_dirty_signature = ()
             self.page.dirty = False
+            self._notify_dirty()
         finally:
             self.loading = False
 
@@ -145,11 +170,14 @@ class DynamicFormBinding:
             self.feature_id = None
             self.original = {}
             self.source_original = {}
+            self.original_capture_mode = ""
+            self.pending_capture_mode = None
             self.form.load_values({})
             self.dirty.clear()
             self._last_dirty_signature = ()
             self.page.dirty = False
             self.page.feature_id = None
+            self._notify_dirty()
         finally:
             self.loading = False
         return True
@@ -175,7 +203,7 @@ class DynamicFormBinding:
             if canonical_value(field, original) != canonical_value(field, current):
                 differences[field_id] = (original, current)
         self.dirty = set(differences)
-        self.page.dirty = bool(self.dirty)
+        self.page.dirty = bool(self.dirty or self.capture_mode_dirty())
         signature = tuple(
             (field_id, repr(original), repr(current))
             for field_id, (original, current) in sorted(differences.items())
@@ -189,7 +217,26 @@ class DynamicFormBinding:
                     Qgis.MessageLevel.Info,
                 )
         self._last_dirty_signature = signature
+        self._notify_dirty()
         return self.page.dirty
+
+    def has_form_changes(self):
+        self.has_actual_changes()
+        return bool(self.dirty)
+
+    def capture_mode_dirty(self):
+        return self.pending_capture_mode is not None \
+            and self.pending_capture_mode != self.original_capture_mode
+
+    def discard(self):
+        """Discard widget and capture-mode drafts and reload committed layer values."""
+        if self.feature_id is None:
+            return self.clear()
+        feature = self.layer.getFeature(self.feature_id)
+        if not feature.isValid():
+            return False
+        self.load(feature, force=True)
+        return True
 
     def save(self):
         if not self.can_save or self.feature_id is None:
@@ -207,7 +254,8 @@ class DynamicFormBinding:
         values = self.form.values()
         changed = set(self.dirty)
         creating = self.layer.isModified() and sole_new_feature(self.layer, self.feature_id)
-        if not changed and not creating:
+        capture_changed = self.capture_mode_dirty()
+        if not changed and not capture_changed and not creating:
             self.page.dirty = False
             self.page.note.setText("변경 없음 · 현재 객체와 입력값이 일치합니다.")
             return True
@@ -217,15 +265,7 @@ class DynamicFormBinding:
         if not self.layer.isEditable() and not self.layer.startEditing():
             return False
         names = set(self.layer.fields().names())
-        extension = {}
-        if "ext_data" in names:
-            raw = _clean(current["ext_data"])
-            try:
-                extension = json.loads(raw) if isinstance(raw, str) else (raw or {})
-            except (ValueError, TypeError):
-                extension = {}
-        if not isinstance(extension, dict):
-            extension = {}
+        extension = self._feature_extension(current)
         form_data = dict(extension.get("gis_form") or {})
         self.layer.beginEditCommand("GeoFlow 중앙 Dynamic Form")
         ok = True
@@ -241,8 +281,15 @@ class DynamicFormBinding:
                 form_data[storage["key"]] = values[field["id"]]
             else:
                 ok = False
-        if any(next(row for row in self.form.fields if row["id"] == key)["storage"]["kind"] == "ext_data"
-               for key in changed) and "ext_data" in names:
+        ext_form_changed = any(
+            next(row for row in self.form.fields if row["id"] == key)["storage"]["kind"] == "ext_data"
+            for key in changed
+        )
+        if capture_changed:
+            photo = dict(extension.get("photo") or {})
+            photo["capture_mode"] = self.pending_capture_mode
+            extension["photo"] = photo
+        if (ext_form_changed or capture_changed) and "ext_data" in names:
             extension["gis_form"] = form_data
             ok = ok and self.layer.changeAttributeValue(
                 self.feature_id, self.layer.fields().indexFromName("ext_data"),
@@ -263,44 +310,15 @@ class DynamicFormBinding:
         return True
 
     def photo_capture_mode(self):
-        if self.feature_id is None or "ext_data" not in self.layer.fields().names():
-            return ""
-        raw = _clean(self.layer.getFeature(self.feature_id)["ext_data"])
-        try:
-            value = json.loads(raw) if isinstance(raw, str) else (raw or {})
-        except (TypeError, ValueError):
-            value = {}
-        return str(((value.get("photo") or {}).get("capture_mode") or "")) if isinstance(value, dict) else ""
+        if self.pending_capture_mode is not None:
+            return self.pending_capture_mode
+        return self.original_capture_mode
 
     def set_photo_capture_mode(self, mode):
         if mode not in {"DIRECT", "INDIRECT", "GENERAL"} or not self.can_save or self.feature_id is None:
             return False
-        current = self.layer.getFeature(self.feature_id)
-        names = set(self.layer.fields().names())
-        if not current.isValid() or "ext_data" not in names or self.layer.isModified():
+        if "ext_data" not in self.layer.fields().names():
             return False
-        raw = _clean(current["ext_data"])
-        try:
-            extension = json.loads(raw) if isinstance(raw, str) else (raw or {})
-        except (TypeError, ValueError):
-            extension = {}
-        if not isinstance(extension, dict):
-            extension = {}
-        photo = dict(extension.get("photo") or {})
-        photo["capture_mode"] = mode
-        extension["photo"] = photo
-        if not self.layer.startEditing():
-            return False
-        self.layer.beginEditCommand("GeoFlow 사진 촬영방식")
-        ok = self.layer.changeAttributeValue(
-            self.feature_id, self.layer.fields().indexFromName("ext_data"),
-            json.dumps(extension, ensure_ascii=False, separators=(",", ":")),
-        )
-        if not ok:
-            self.layer.destroyEditCommand()
-            return False
-        self.layer.endEditCommand()
-        if not self.layer.commitChanges(False):
-            return False
-        self.load(self.layer.getFeature(self.feature_id), force=True)
+        self.pending_capture_mode = mode if mode != self.original_capture_mode else None
+        self._notify_dirty()
         return True

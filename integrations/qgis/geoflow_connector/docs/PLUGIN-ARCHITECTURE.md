@@ -1,4 +1,20 @@
-# GeoFlow Connector 1.3.4
+# GeoFlow Connector 1.3.5
+
+## Object edit session
+
+The dynamic form and its photo tab share one feature-scoped edit session. Form
+values and `ext_data.photo.capture_mode` remain local widget drafts, while photo
+adds, replacements, annotation edits, and deletes remain in a retryable in-memory
+queue. Only **현재 객체 저장** commits the QGIS edit buffer and then executes the
+existing photo presign/finalize/delete APIs. A failed remote operation remains in
+the queue and is shown as unsaved so the user can retry; successful operations are
+not silently replayed.
+
+Object switches and QGIS shutdown use the same save/discard/continue guard.
+Discard reloads committed feature values and removes pending photo bytes. S3,
+tenant photo metadata, and the QGIS feature buffer cannot form one database
+transaction, so the client reports partial failures and resumes from cached
+presign/upload stages rather than claiming atomicity.
 
 Photo Studio persists image-coordinate annotation objects in
 `gis.feature_photo.edit_data` (`version=2`, `format=annotation-json`) while the

@@ -5,8 +5,8 @@ import os
 
 from qgis.PyQt.QtCore import QDate, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
-    QDialog, QLabel, QPlainTextEdit, QPushButton, QScrollArea, QTabWidget,
-    QToolBar, QVBoxLayout, QWidget,
+    QDialog, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
+    QTabWidget, QToolBar, QVBoxLayout, QWidget,
 )
 from qgis.PyQt.uic import loadUiType
 
@@ -37,6 +37,7 @@ class Main(QWidget, FORM_CLASS):
         self._signature = None
         self._closed = self._refreshing = self._split_initialized = False
         self._shutting_down = False
+        self._selection_guarding = False
         self.pages, self.archives = {}, []
         from ..forms.common.lifecycle import BusinessFormSettings
         self._form_settings = BusinessFormSettings()
@@ -61,7 +62,7 @@ class Main(QWidget, FORM_CLASS):
         self.open_button = QPushButton("Connector 열기")
         self.select_button = QPushButton("객체 선택")
         self.add_button = QPushButton("추가")
-        self.save_button = QPushButton("저장")
+        self.save_button = QPushButton("현재 객체 저장")
         self.zoom_button = QPushButton("범위 이동")
         self.retained_button = QPushButton("보존 입력")
         self.reference_diagnostic_button = QPushButton("중앙 정의 진단")
@@ -238,6 +239,17 @@ class Main(QWidget, FORM_CLASS):
 
     def _selection_changed(self, layer_id):
         if not self._closed and not getattr(self.plugin, "_opening", False):
+            current = self.formStack.currentWidget()
+            if (not self._selection_guarding and current in self.pages.values()
+                    and current.layer_id != layer_id and self._update_page_dirty(current)):
+                self._selection_guarding = True
+                try:
+                    if not self._guard_object_transition(None, None):
+                        self.adapter.select_layer(current.layer_id)
+                        self._display_layer(current.layer_id)
+                        return
+                finally:
+                    self._selection_guarding = False
             self.refresh_connection()
             self._display_layer(layer_id)
 
@@ -295,11 +307,13 @@ class Main(QWidget, FORM_CLASS):
             self._split_initialized = True
             QTimer.singleShot(0, lambda: self.workspaceSplitter.setSizes([200, 500]) if not self._closed else None)
         self.formStack.setCurrentWidget(page)
+        self._update_page_dirty(page)
 
     def _create_form(self, layer, standard, fields):
         state, service = self.adapter.state(), self._definition_service()
         page = QWidget()
         page.project_name, page.standard = state["project_name"], standard
+        page.project_id, page.layer_id = state.get("project_id", ""), layer.id()
         page.readonly, page.feature_id, page.dirty = layer.readOnly(), None, False
         layout = QVBoxLayout(page)
         page.note = QLabel(f"{standard} · 객체를 선택하세요")
@@ -339,6 +353,102 @@ class Main(QWidget, FORM_CLASS):
         self.pages[layer.id()] = page
         self.formStack.addWidget(page)
         page.binding = DynamicFormBinding(page, layer, page.form, state["can_write"])
+        page.update_dirty = lambda p=page: self._update_page_dirty(p)
+        page.photos.dirtyChanged.connect(lambda _dirty, p=page: self._update_page_dirty(p))
+        self._update_page_dirty(page)
+
+    def _update_page_dirty(self, page):
+        binding = getattr(page, "binding", None)
+        photos = getattr(page, "photos", None)
+        form_dirty = bool(binding and (binding.dirty or binding.capture_mode_dirty()))
+        photo_dirty = bool(photos and photos.has_pending_changes())
+        page.dirty = form_dirty or photo_dirty
+        suffix = " *" if page.dirty else ""
+        if self.formStack.currentWidget() is page:
+            self.save_button.setText("현재 객체 저장" + suffix)
+        page.header.pushButtonUpdate.setText("현재 객체 저장" + suffix)
+        return page.dirty
+
+    def _discard_page(self, page):
+        page.photos.discard_pending(reload=False)
+        ok = page.binding.discard()
+        if ok and page.feature_id is not None:
+            page.photos.refresh_policy()
+        self._update_page_dirty(page)
+        return ok
+
+    def _save_page(self, page):
+        if not page.binding.save():
+            self._update_page_dirty(page)
+            return False
+        result = page.photos.commit_pending()
+        self._update_page_dirty(page)
+        if not result["ok"]:
+            page.note.setText(
+                f"저장하지 못한 항목이 있습니다. 완료 {result['completed']}건 · "
+                + " / ".join(result["errors"][:3])
+            )
+            return False
+        self.plugin._run_auto_sync()
+        page.note.setText("현재 객체의 기본정보와 사진을 저장했습니다.")
+        return True
+
+    def _dirty_page(self, incoming_page=None, incoming_feature_id=None):
+        for page in self.pages.values():
+            self._update_page_dirty(page)
+            if not page.dirty:
+                continue
+            if page is incoming_page and page.feature_id == incoming_feature_id:
+                continue
+            return page
+        return None
+
+    def _guard_object_transition(self, incoming_page, feature_id):
+        page = self._dirty_page(incoming_page, feature_id)
+        if page is None:
+            return True
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("GeoFlow · 객체 이동")
+        dialog.setText("현재 객체에 저장하지 않은 변경사항이 있습니다.")
+        save = dialog.addButton("저장 후 이동", QMessageBox.ButtonRole.AcceptRole)
+        discard = dialog.addButton("변경 취소 후 이동", QMessageBox.ButtonRole.DestructiveRole)
+        dialog.addButton("계속 편집", QMessageBox.ButtonRole.RejectRole)
+        dialog.exec()
+        if dialog.clickedButton() is save:
+            return self._save_page(page)
+        if dialog.clickedButton() is discard:
+            return self._discard_page(page)
+        page.note.setText("현재 객체 편집을 계속합니다.")
+        self.adapter.select_layer(page.layer_id)
+        self._display_layer(page.layer_id)
+        layer = self.adapter.layers_by_id().get(page.layer_id)
+        if layer is not None and page.feature_id is not None:
+            layer.selectByIds([page.feature_id])
+        for other_id, other_layer in self.adapter.layers_by_id().items():
+            if other_id != page.layer_id and other_layer.selectedFeatureIds():
+                other_layer.removeSelection()
+        return False
+
+    def guard_transition(self, label):
+        dirty = [page for page in self.pages.values() if self._update_page_dirty(page)]
+        if not dirty:
+            return True
+        closing = label == "QGIS 종료"
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("GeoFlow · " + label)
+        dialog.setText("저장하지 않은 변경사항이 있습니다.")
+        save = dialog.addButton("저장 후 종료" if closing else "저장 후 이동",
+                                QMessageBox.ButtonRole.AcceptRole)
+        discard = dialog.addButton("변경 취소 후 종료" if closing else "변경 취소 후 이동",
+                                   QMessageBox.ButtonRole.DestructiveRole)
+        dialog.addButton("종료 취소" if closing else "계속 편집",
+                         QMessageBox.ButtonRole.RejectRole)
+        dialog.exec()
+        if dialog.clickedButton() is save:
+            return all(self._save_page(page) for page in dirty)
+        if dialog.clickedButton() is discard:
+            return all(self._discard_page(page) for page in dirty)
+        return False
 
     # ============================================================
     # 레이어별 로컬 속성폼 배치 편집
@@ -379,6 +489,8 @@ class Main(QWidget, FORM_CLASS):
         page = self.pages.get(layer_id)
         if page is None:
             return
+        if not self._guard_object_transition(None, None):
+            return
         if page.binding.clear():
             page.note.setText("객체를 선택하세요")
         else:
@@ -403,16 +515,17 @@ class Main(QWidget, FORM_CLASS):
         if self.adapter.layers_by_id().get(layer_id) is not layer:
             return
         self.adapter.select_layer(layer_id)
+        if self.adapter.selected_layer_id() != layer_id:
+            return
         self._display_layer(layer_id)
         page = self.pages.get(layer_id)
         if page is None:
             return
+        if not self._guard_object_transition(page, feature.id()):
+            return
         if hasattr(self.plugin, "presentation"):
             from .presentation import PanelMode
             self.plugin.presentation.set_mode(PanelMode.FULL)
-        if page.binding.has_actual_changes() and page.feature_id != feature.id():
-            page.note.setText(f"{page.standard} · 이전 객체 {page.feature_id}의 임시 입력 보존 (새 객체 연결 거부)")
-            return
         page.feature_id = feature.id()
         page.binding.load(feature)
         page.photos.set_feature(feature)
@@ -435,7 +548,7 @@ class Main(QWidget, FORM_CLASS):
 
     def save_current(self):
         page = self.pages.get(self.adapter.selected_layer_id())
-        return page.binding.save() if page is not None else False
+        return self._save_page(page) if page is not None else False
 
     def get_manh_layer(self):
         return self.adapter.layers().get("WTL_MANH_PS")

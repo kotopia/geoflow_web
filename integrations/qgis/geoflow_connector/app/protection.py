@@ -95,8 +95,9 @@ def checkpoint(engine):
             values[str(field_id)] = json_safe(value)
         rows.append({'project_id': json_safe(getattr(page, 'project_id', '')),
                      'project_name': json_safe(page.project_name),
-                     'layer_id': json_safe(page.layer_id), 'standard': json_safe(page.standard),
-                     'feature_id': json_safe(page.feature_id),
+                     'layer_id': json_safe(getattr(page, 'layer_id', '')),
+                     'standard': json_safe(page.standard),
+                     'feature_id': json_safe(getattr(page, 'feature_id', None)),
                      'widgets': values})
     directory = Path(engine._app_data_location()) / 'GeoFlowConnector' / 'form-drafts'
     directory.mkdir(parents=True, exist_ok=True)
