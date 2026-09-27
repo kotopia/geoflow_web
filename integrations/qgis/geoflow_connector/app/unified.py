@@ -261,6 +261,9 @@ class UnifiedMixin:
     def guard_transition(self, label):
         if self._opening or self._sync_in_progress:
             return False
+        work = getattr(self, "work", None)
+        if work is not None and not work.guard_transition(label):
+            return False
         try:
             report = protection.inspect(self)
         except Exception as exc:

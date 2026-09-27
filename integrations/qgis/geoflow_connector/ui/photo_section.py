@@ -1,5 +1,6 @@
 """Responsive GIS-photo tab for the central QGIS dynamic form."""
 import os
+from uuid import uuid4
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QPixmap
@@ -59,6 +60,7 @@ class ResponsivePhotoLabel(QLabel):
 
 class PhotoSection(QGroupBox, FORM_CLASS):
     availabilityChanged = pyqtSignal(bool)
+    dirtyChanged = pyqtSignal(bool)
     MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
             ".webp": "image/webp"}
 
@@ -67,6 +69,10 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.setupUi(self)
         self.plugin, self.page, self.layer = plugin, page, layer
         self.policy, self.photos, self.feature_uuid, self.mode = None, [], "", ""
+        self.pending_add = []
+        self.pending_replace = {}
+        self.pending_edit = {}
+        self.pending_delete = set()
         self.root, self.note = self.rootLayout, self.statusLabel
         self.retry_button, self.mode_row = self.retryButton, self.modeRow
         self.mode_select, self.cards = self.modeCombo, self.cardsHost
@@ -109,6 +115,71 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         except Exception:
             self.feature_uuid = ""
         self.refresh_policy()
+
+    def has_pending_changes(self):
+        return bool(self.pending_add or self.pending_replace or self.pending_edit
+                    or self.pending_delete)
+
+    def _notify_dirty(self):
+        dirty = self.has_pending_changes()
+        self.dirtyChanged.emit(dirty)
+        callback = getattr(self.page, "update_dirty", None)
+        if callable(callback):
+            callback()
+
+    def _reset_pending(self):
+        self.pending_add.clear()
+        self.pending_replace.clear()
+        self.pending_edit.clear()
+        self.pending_delete.clear()
+        self._notify_dirty()
+
+    def discard_pending(self, *, reload=True):
+        self._reset_pending()
+        if reload and self.feature_uuid and self.policy:
+            self.reload()
+        else:
+            self.render() if self.policy else None
+
+    def _photo_id(self, photo):
+        return str(photo.get("id") or "")
+
+    def _view_photo(self, photo):
+        """Overlay pending operations without mutating the server snapshot."""
+        row = dict(photo)
+        photo_id = self._photo_id(row)
+        replacement = self.pending_replace.get(photo_id)
+        edit = self.pending_edit.get(photo_id)
+        if replacement:
+            row.update(original_name=replacement["original_name"], edit_data={},
+                       edited_object_key=None, edited_mime_type=None)
+            row["_local_original_bytes"] = replacement["data"]
+            row["_local_display_bytes"] = replacement["data"]
+            row["_pending_replace"] = True
+        if edit:
+            row["edit_data"] = edit["edit_data"]
+            row["_local_display_bytes"] = edit["data"]
+            row["_pending_edit"] = True
+        if photo_id in self.pending_delete:
+            row["_pending_delete"] = True
+        return row
+
+    def _display_photos(self):
+        server = [self._view_photo(row) for row in self.photos]
+        local = []
+        for operation in self.pending_add:
+            row = {
+                "id": operation["local_id"], "slot_id": operation["slot_id"],
+                "original_name": operation["original_name"],
+                "extra_data": operation["extra_data"], "edit_data": operation.get("edit_data") or {},
+                "_local_original_bytes": operation["data"],
+                "_local_display_bytes": operation.get("edit_bytes") or operation["data"],
+                "_pending_add": True,
+            }
+            if operation.get("edit_bytes"):
+                row["_pending_edit"] = True
+            local.append(row)
+        return server + local
 
     def refresh_policy(self):
         """Re-evaluate the latest selected feature after async policy changes."""
@@ -177,6 +248,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
 
     def clear(self):
         self.feature_uuid, self.photos = "", []
+        self._reset_pending()
         self._clear_policy_ui()
         self.retry_button.setVisible(False)
         self._set_available(False)
@@ -186,28 +258,13 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.mode_select.setCurrentText(self.mode)
         self.mode_select.blockSignals(False)
 
-    def _save_pending_form(self):
-        if not self.page.binding.has_actual_changes():
-            return True
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("촬영방식 변경")
-        dialog.setText("일반 속성에 저장하지 않은 입력이 있습니다.")
-        save = dialog.addButton("저장 후 변경", QMessageBox.ButtonRole.AcceptRole)
-        dialog.addButton("변경 취소", QMessageBox.ButtonRole.RejectRole)
-        dialog.exec()
-        return dialog.clickedButton() is save and self.page.binding.save()
-
     def _current_mode_photos(self):
         modes = (self.policy or {}).get("modes") or {}
         slots = {str(row.get("id")) for row in (modes.get(self.mode) or {}).get("slots") or []}
-        return [p for p in self.photos if str(p.get("slot_id") or "") in slots]
+        return [p for p in self._display_photos() if str(p.get("slot_id") or "") in slots]
 
     def _mode_changed(self, mode):
         if not mode or mode == self.mode:
-            return
-        if not self._save_pending_form():
-            self.note.setText("촬영방식 변경을 취소했습니다. 일반 속성 입력은 그대로 보존됩니다.")
-            self._restore_mode()
             return
         old_photos = self._current_mode_photos()
         delete_old = False
@@ -229,21 +286,22 @@ class PhotoSection(QGroupBox, FORM_CLASS):
                 self._restore_mode()
                 return
         if not self.page.binding.set_photo_capture_mode(mode):
-            self.note.setText("촬영방식 저장 실패 · QGIS의 다른 미저장 편집을 먼저 저장하거나 취소하세요.")
+            self.note.setText("촬영방식을 변경할 수 없습니다.")
             self._restore_mode()
             return
         if delete_old:
-            try:
-                for photo in old_photos:
-                    self.plugin.active_client.delete_json(self._base_path() + str(photo["id"]) + "/")
-            except Exception as exc:
-                self.note.setText("촬영방식은 변경했지만 기존 사진 삭제에 실패했습니다 · " + str(exc))
-                self.reload()
-                return
+            for photo in old_photos:
+                photo_id = self._photo_id(photo)
+                if photo.get("_pending_add"):
+                    self.pending_add[:] = [row for row in self.pending_add
+                                           if row["local_id"] != photo_id]
+                else:
+                    self.pending_delete.add(photo_id)
         self.mode = mode
-        self.plugin._run_auto_sync()
-        self.note.setText("촬영방식을 저장·동기화했습니다." + (" 기존 사진을 삭제했습니다." if delete_old else " 기존 사진은 보존됩니다."))
-        self.reload()
+        self.note.setText("촬영방식 변경이 저장 대기 중입니다." +
+                          (" 기존 사진은 삭제 예정입니다." if delete_old else " 기존 사진은 보존됩니다."))
+        self._notify_dirty()
+        self.render()
 
     def reload(self):
         try:
@@ -270,7 +328,8 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         active_slots = {str(slot.get("id")): slot for slot in template.get("slots") or []}
         for slot in active_slots.values():
             self.cards_layout.addWidget(self._slot_card(slot))
-        legacy = [p for p in self.photos if p.get("slot_id") and str(p.get("slot_id")) not in active_slots]
+        display_photos = self._display_photos()
+        legacy = [p for p in display_photos if p.get("slot_id") and str(p.get("slot_id")) not in active_slots]
         if legacy:
             toggle = QToolButton(self.cards)
             toggle.setText(f"이전 촬영방식 사진 {len(legacy)}장")
@@ -294,24 +353,25 @@ class PhotoSection(QGroupBox, FORM_CLASS):
 
     def _slot_card(self, slot):
         slot_id = str((slot or {}).get("id") or "")
-        photos = [p for p in self.photos if str(p.get("slot_id") or "") == slot_id]
+        photos = [p for p in self._display_photos() if str(p.get("slot_id") or "") == slot_id]
+        effective = [p for p in photos if not p.get("_pending_delete")]
         minimum, maximum = int((slot or {}).get("min_count") or 0), int((slot or {}).get("max_count") or 100)
         title = str((slot or {}).get("name") or "추가 사진")
-        box = QGroupBox(f"{title}  {len(photos)} / {minimum}" + (" ✓" if len(photos) >= minimum else " !"))
+        box = QGroupBox(f"{title}  {len(effective)} / {minimum}" + (" ✓" if len(effective) >= minimum else " !"))
         box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         lay = QVBoxLayout(box)
         for photo in photos:
             lay.addWidget(self._photo_card(photo))
         extras = {}
         schema = ((slot or {}).get("extra_schema") or {}).get("fields") or []
-        if schema and len(photos) < maximum:
+        if schema and len(effective) < maximum:
             form = QFormLayout()
             for field in schema:
                 widget = QCheckBox() if field.get("kind") == "boolean" else QLineEdit()
                 extras[field["key"]] = (field, widget)
                 form.addRow(str(field.get("label") or field["key"]), widget)
             lay.addLayout(form)
-        if len(photos) < maximum:
+        if len(effective) < maximum:
             add = QPushButton("+ 사진 추가")
             add.setEnabled(self._can_write())
             add.clicked.connect(lambda _=False, s=slot, e=extras: self.upload(s, e))
@@ -332,6 +392,10 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         delete.clicked.connect(lambda _=False, p=photo: self.delete_photo(p))
         replace.setEnabled(self._can_write())
         delete.setEnabled(self._can_write())
+        if photo.get("_pending_delete"):
+            delete.setIcon(feather_icon("rotate-ccw"))
+            delete.setToolTip("삭제 취소")
+            delete.setAccessibleName("삭제 취소")
         buttons.addWidget(studio)
         buttons.addWidget(replace)
         buttons.addWidget(delete)
@@ -340,7 +404,13 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         preview = ResponsivePhotoLabel(card)
         try:
             image = QPixmap()
-            image.loadFromData(self.plugin.active_client.get_bytes(str(photo.get("display_download_url") or photo.get("download_url") or "")))
+            local = photo.get("_local_display_bytes")
+            if local:
+                image.loadFromData(local)
+            else:
+                image.loadFromData(self.plugin.active_client.get_bytes(
+                    str(photo.get("display_download_url") or photo.get("download_url") or "")
+                ))
             preview.setSourcePixmap(image)
         except Exception:
             preview.setText("미리보기를 불러올 수 없습니다.")
@@ -351,24 +421,37 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         original.setStyleSheet("color: #6b7280; font-size: 11px;")
         original.setToolTip(str(photo.get("original_name") or ""))
         lay.addWidget(original)
+        pending = []
+        if photo.get("_pending_add"): pending.append("추가")
+        if photo.get("_pending_replace"): pending.append("변경")
+        if photo.get("_pending_edit"): pending.append("편집")
+        if photo.get("_pending_delete"): pending.append("삭제 예정")
+        if pending:
+            badge = QLabel("● 미저장 · " + ", ".join(pending))
+            badge.setStyleSheet("color: #d97706; font-weight: 600;")
+            lay.addWidget(badge)
+        card.setEnabled(not photo.get("_pending_delete") or self._can_write())
         return card
 
     def open_studio(self, selected):
-        photos = [p for p in self.photos if p.get("original_download_url") or p.get("download_url")]
+        photos = [p for p in self._display_photos() if not p.get("_pending_delete")]
         PhotoStudioDialog(self.plugin.active_client, photos, selected, can_write=self._can_write(),
                           save_callback=self._save_edit, replace_callback=self._replace_photo,
                           parent=self).exec()
 
     def _save_edit(self, photo, output_bytes, mime_type, edit_data):
-        try:
-            client = self.plugin.active_client
-            signed = client.post_json(self._base_path(), {"action": "edit_presign", "photo_id": photo["id"], "mime_type": mime_type})
-            client.put_presigned_bytes(signed["presigned_url"], output_bytes, signed.get("headers") or {})
-            client.post_json(self._base_path(), {"action": "edit_finalize", "photo_id": photo["id"],
-                "edit_id": signed["edit_id"], "mime_type": mime_type, "edit_data": edit_data})
-            self.reload()
-        except Exception as exc:
-            QMessageBox.critical(self, "사진 편집 저장 실패", str(exc))
+        photo_id = self._photo_id(photo)
+        pending_add = next((row for row in self.pending_add if row["local_id"] == photo_id), None)
+        if pending_add is not None:
+            pending_add.update(edit_bytes=output_bytes, edit_mime_type=mime_type,
+                               edit_data=edit_data, edit_signed=None, edit_uploaded=False)
+        else:
+            self.pending_edit[photo_id] = {
+                "data": output_bytes, "mime_type": mime_type, "edit_data": edit_data,
+                "signed": None, "uploaded": False,
+            }
+        self.note.setText("사진 편집이 적용되었습니다. 상단 저장을 눌러 최종 반영하세요.")
+        self._notify_dirty(); self.render()
 
     def replace_photo_dialog(self, photo):
         if QMessageBox.question(self, "사진 변경", "사진을 변경하면 기존 편집본이 초기화됩니다. 계속하시겠습니까?") != QMessageBox.StandardButton.Yes:
@@ -381,15 +464,24 @@ class PhotoSection(QGroupBox, FORM_CLASS):
                 QMessageBox.critical(self, "사진 변경 실패", str(exc))
 
     def _replace_photo(self, photo, path, normalized):
-        client = self.plugin.active_client
-        signed = client.post_json(self._base_path(), {"action": "replace_presign",
-                                  "photo_id": photo["id"], "mime_type": normalized.mime_type})
-        client.put_presigned_bytes(signed["presigned_url"], normalized.data, signed.get("headers") or {})
-        client.post_json(self._base_path(), {"action": "replace_finalize", "photo_id": photo["id"],
-            "replace_id": signed["replace_id"], "mime_type": normalized.mime_type,
-            "original_name": os.path.basename(path), "captured_at": normalized.captured_at,
-            "image_metadata": normalized.image_metadata})
-        self.reload()
+        photo_id = self._photo_id(photo)
+        pending_add = next((row for row in self.pending_add if row["local_id"] == photo_id), None)
+        if pending_add is not None:
+            pending_add.update(
+                data=normalized.data, mime_type=normalized.mime_type,
+                original_name=os.path.basename(path), captured_at=normalized.captured_at,
+                image_metadata=normalized.image_metadata, signed=None, uploaded=False,
+                edit_bytes=None, edit_data=None,
+            )
+        else:
+            self.pending_replace[photo_id] = {
+                "data": normalized.data, "mime_type": normalized.mime_type,
+                "original_name": os.path.basename(path), "captured_at": normalized.captured_at,
+                "image_metadata": normalized.image_metadata, "signed": None, "uploaded": False,
+            }
+            self.pending_edit.pop(photo_id, None)
+        self.note.setText("사진 변경이 저장 대기 중입니다.")
+        self._notify_dirty(); self.render()
 
     def upload(self, slot, extras):
         path, _ = QFileDialog.getOpenFileName(self, "GIS 사진 선택", "", "Images (*.jpg *.jpeg *.png *.webp)")
@@ -416,23 +508,168 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             extra_data[key] = value
         try:
             normalized = normalize_photo(path)
-            client, slot_id = self.plugin.active_client, (slot or {}).get("id")
-            signed = client.post_json(self._base_path(), {"action": "presign", "mime_type": normalized.mime_type, "slot_id": slot_id})
-            client.put_presigned_bytes(signed["presigned_url"], normalized.data, signed.get("headers") or {})
-            client.post_json(self._base_path(), {"action": "finalize", "id": signed["id"],
-                "mime_type": normalized.mime_type, "original_name": os.path.basename(path),
-                "slot_id": slot_id, "extra_data": extra_data,
+            slot_id = (slot or {}).get("id")
+            self.pending_add.append({
+                "local_id": "pending:" + str(uuid4()), "slot_id": slot_id,
+                "data": normalized.data, "mime_type": normalized.mime_type,
+                "original_name": os.path.basename(path), "extra_data": extra_data,
                 "captured_at": normalized.captured_at,
-                "image_metadata": normalized.image_metadata})
-            self.reload()
+                "image_metadata": normalized.image_metadata,
+                "signed": None, "uploaded": False, "edit_bytes": None,
+                "edit_data": None,
+            })
+            self.note.setText("사진이 저장 대기 중입니다. 상단 저장을 눌러 최종 반영하세요.")
+            self._notify_dirty(); self.render()
         except Exception as exc:
-            QMessageBox.critical(self, "사진 업로드 실패", str(exc))
+            QMessageBox.critical(self, "사진 준비 실패", str(exc))
 
     def delete_photo(self, photo):
-        if QMessageBox.question(self, "사진 삭제", "이 사진을 삭제하시겠습니까?") != QMessageBox.StandardButton.Yes:
-            return
-        try:
-            self.plugin.active_client.delete_json(self._base_path() + str(photo["id"]) + "/")
+        photo_id = self._photo_id(photo)
+        if photo.get("_pending_add"):
+            self.pending_add[:] = [row for row in self.pending_add if row["local_id"] != photo_id]
+            self.note.setText("저장 대기 사진을 취소했습니다.")
+        elif photo_id in self.pending_delete:
+            self.pending_delete.remove(photo_id)
+            self.note.setText("사진 삭제 예약을 취소했습니다.")
+        else:
+            if QMessageBox.question(self, "사진 삭제", "상단 저장 시 이 사진을 삭제합니다. 계속하시겠습니까?") != QMessageBox.StandardButton.Yes:
+                return
+            self.pending_delete.add(photo_id)
+            self.note.setText("사진이 삭제 예정입니다. 상단 저장 전에는 서버에서 삭제되지 않습니다.")
+        self._notify_dirty(); self.render()
+
+    def _upload_signed(self, operation, presign_payload):
+        """Resume a staged S3 upload without creating another key after retry."""
+        client = self.plugin.active_client
+        if operation.get("signed") is None:
+            operation["signed"] = client.post_json(self._base_path(), presign_payload)
+        if not operation.get("uploaded"):
+            signed = operation["signed"]
+            try:
+                client.put_presigned_bytes(
+                    signed["presigned_url"], operation["data"], signed.get("headers") or {}
+                )
+            except Exception:
+                # A later retry receives a fresh 15-minute URL. The immutable
+                # unfinalized key, if the network result was ambiguous, remains
+                # eligible for the server's normal orphan cleanup lifecycle.
+                operation["signed"] = None
+                raise
+            operation["uploaded"] = True
+        return operation["signed"]
+
+    def _remote_photo_exists(self, photo_id):
+        payload = self.plugin.active_client.get_json(self._base_path())
+        return any(str(row.get("id")) == str(photo_id)
+                   for row in (payload.get("photos") or []))
+
+    def _commit_edit_operation(self, photo_id, operation):
+        signed = self._upload_signed(operation, {
+            "action": "edit_presign", "photo_id": photo_id,
+            "mime_type": operation["mime_type"],
+        })
+        self.plugin.active_client.post_json(self._base_path(), {
+            "action": "edit_finalize", "photo_id": photo_id,
+            "edit_id": signed["edit_id"], "mime_type": operation["mime_type"],
+            "edit_data": operation["edit_data"],
+        })
+
+    def commit_pending(self):
+        """Commit pending photos using retryable stages; DB/S3 are not one transaction."""
+        if not self.has_pending_changes():
+            return {"ok": True, "completed": 0, "errors": [], "remaining": 0}
+        errors = []
+        completed = 0
+
+        for operation in list(self.pending_add):
+            try:
+                photo_id = operation.get("finalized_id")
+                if not photo_id:
+                    signed = self._upload_signed(operation, {
+                        "action": "presign", "mime_type": operation["mime_type"],
+                        "slot_id": operation["slot_id"],
+                    })
+                    if not self._remote_photo_exists(signed["id"]):
+                        self.plugin.active_client.post_json(self._base_path(), {
+                            "action": "finalize", "id": signed["id"],
+                            "mime_type": operation["mime_type"],
+                            "original_name": operation["original_name"],
+                            "slot_id": operation["slot_id"], "extra_data": operation["extra_data"],
+                            "captured_at": operation["captured_at"],
+                            "image_metadata": operation["image_metadata"],
+                        })
+                    photo_id = operation["finalized_id"] = signed["id"]
+                if operation.get("edit_bytes"):
+                    edit_operation = {
+                        "data": operation["edit_bytes"],
+                        "mime_type": operation.get("edit_mime_type") or "image/jpeg",
+                        "edit_data": operation["edit_data"],
+                        "signed": operation.get("edit_signed"),
+                        "uploaded": operation.get("edit_uploaded", False),
+                    }
+                    try:
+                        self._commit_edit_operation(photo_id, edit_operation)
+                    finally:
+                        operation["edit_signed"] = edit_operation.get("signed")
+                        operation["edit_uploaded"] = edit_operation.get("uploaded", False)
+                self.pending_add.remove(operation); completed += 1
+            except Exception as exc:
+                errors.append("사진 추가: " + str(exc))
+
+        for photo_id, operation in list(self.pending_replace.items()):
+            if photo_id in self.pending_delete:
+                continue
+            try:
+                signed = self._upload_signed(operation, {
+                    "action": "replace_presign", "photo_id": photo_id,
+                    "mime_type": operation["mime_type"],
+                })
+                self.plugin.active_client.post_json(self._base_path(), {
+                    "action": "replace_finalize", "photo_id": photo_id,
+                    "replace_id": signed["replace_id"], "mime_type": operation["mime_type"],
+                    "original_name": operation["original_name"],
+                    "captured_at": operation["captured_at"],
+                    "image_metadata": operation["image_metadata"],
+                })
+                del self.pending_replace[photo_id]; completed += 1
+            except Exception as exc:
+                errors.append("사진 변경: " + str(exc))
+
+        for photo_id, operation in list(self.pending_edit.items()):
+            if photo_id in self.pending_delete:
+                continue
+            try:
+                self._commit_edit_operation(photo_id, operation)
+                del self.pending_edit[photo_id]; completed += 1
+            except Exception as exc:
+                errors.append("사진 편집: " + str(exc))
+
+        for photo_id in list(self.pending_delete):
+            try:
+                self.plugin.active_client.delete_json(self._base_path() + photo_id + "/")
+                self.pending_delete.remove(photo_id)
+                self.pending_replace.pop(photo_id, None)
+                self.pending_edit.pop(photo_id, None)
+                completed += 1
+            except Exception as exc:
+                try:
+                    removed = not self._remote_photo_exists(photo_id)
+                except Exception:
+                    removed = False
+                if removed:
+                    self.pending_delete.remove(photo_id)
+                    self.pending_replace.pop(photo_id, None)
+                    self.pending_edit.pop(photo_id, None)
+                    completed += 1
+                else:
+                    errors.append("사진 삭제: " + str(exc))
+
+        self._notify_dirty()
+        if not errors:
             self.reload()
-        except Exception as exc:
-            QMessageBox.critical(self, "사진 삭제 실패", str(exc))
+        else:
+            self.render()
+        return {
+            "ok": not errors, "completed": completed, "errors": errors,
+            "remaining": int(self.has_pending_changes()),
+        }

@@ -56,7 +56,7 @@
     <layout class="QHBoxLayout" name="actionLayout">
      <item><widget class="QToolButton" name="replaceButton"><property name="text"><string>사진 변경</string></property></widget></item>
      <item><spacer name="actionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
-     <item><widget class="QToolButton" name="saveButton"><property name="text"><string>저장</string></property></widget></item>
+     <item><widget class="QToolButton" name="saveButton"><property name="text"><string>편집 적용</string></property></widget></item>
      <item><widget class="QToolButton" name="cancelButton"><property name="text"><string>닫기</string></property></widget></item>
     </layout>
    </item>

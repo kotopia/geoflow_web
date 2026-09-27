@@ -85,6 +85,12 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         self.assertIn("if self._approved:", unified)
         self.assertIn("event.accept()", unified)
         self.assertIn("복구 JSON을 저장하지 못해 전환을 중단했습니다.", unified)
+        protection = (ROOT / "app/protection.py").read_text(encoding="utf-8")
+        self.assertIn("getattr(page, 'layer_id', '')", protection)
+        host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
+        self.assertIn("저장 후 종료", host)
+        self.assertIn("변경 취소 후 종료", host)
+        self.assertIn("종료 취소", host)
 
 
 if __name__ == "__main__":

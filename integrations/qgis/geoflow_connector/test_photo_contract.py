@@ -27,9 +27,10 @@ class PhotoPhase2ContractTests(unittest.TestCase):
 
     def test_capture_mode_is_stored_in_official_ext_data_key(self):
         source = (ROOT / "forms/dynamic/binding.py").read_text(encoding="utf-8")
-        self.assertIn('photo["capture_mode"] = mode', source)
+        self.assertIn('photo["capture_mode"] = self.pending_capture_mode', source)
         self.assertIn('extension["photo"] = photo', source)
         self.assertIn('{"DIRECT", "INDIRECT", "GENERAL"}', source)
+        self.assertIn("pending_capture_mode", source)
 
     def test_form_host_places_photos_in_policy_gated_dedicated_tab(self):
         source = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
@@ -68,12 +69,12 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn("policy_found=", source)
         self.assertIn("visible=", source)
 
-    def test_mode_switch_protects_unsaved_form_and_uploads_are_bounded(self):
+    def test_mode_switch_is_pending_and_uploads_are_bounded(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
-        self.assertIn("binding.has_actual_changes()", source)
+        self.assertIn("binding.set_photo_capture_mode(mode)", source)
         self.assertIn("normalize_photo(path)", source)
         self.assertIn('{"decimal", "number"}', source)
-        self.assertIn("저장 후 변경", source)
+        self.assertIn("저장 대기 중입니다", source)
         self.assertIn("기존 사진 보존", source)
         self.assertIn("기존 사진 삭제 후 변경", source)
 
@@ -148,9 +149,47 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
         self.assertIn("self.undo_stack.append(before)", studio)
         self.assertIn("self.redo_stack.append(self.annotation_state())", studio)
-        self.assertIn("self._photo_url(photo, \"original\")", studio)
+        self.assertIn("self._photo_pixmap(photo, \"original\")", studio)
         self.assertIn('document["render"]', studio)
         self.assertIn("encode_qimage(self.render_image())", studio)
+
+    def test_phase6_object_session_queues_photos_until_top_save(self):
+        section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
+        for queue in ("pending_add", "pending_replace", "pending_edit", "pending_delete"):
+            self.assertIn(queue, section)
+        self.assertIn("def commit_pending(self):", section)
+        self.assertIn("def discard_pending", section)
+        self.assertIn("page.photos.commit_pending()", host)
+        self.assertIn("현재 객체 저장", host)
+        self.assertIn("저장 후 이동", host)
+        self.assertIn("변경 취소 후 이동", host)
+        self.assertIn("계속 편집", host)
+        upload_draft = section.split("def upload(self, slot, extras):", 1)[1].split(
+            "def delete_photo", 1
+        )[0]
+        edit_draft = section.split("def _save_edit", 1)[1].split(
+            "def replace_photo_dialog", 1
+        )[0]
+        replace_draft = section.split("def _replace_photo", 1)[1].split(
+            "def upload", 1
+        )[0]
+        for draft in (upload_draft, edit_draft, replace_draft):
+            self.assertNotIn("post_json", draft)
+            self.assertNotIn("put_presigned_bytes", draft)
+
+    def test_phase6_studio_visibility_shift_and_handles(self):
+        studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
+        handles = (ROOT / "ui/photo_annotation_handles.py").read_text(encoding="utf-8")
+        self.assertIn("self.propertyPanel.setVisible(False)", studio)
+        self.assertIn("self.propertyPanel.setVisible(visible)", studio)
+        self.assertIn("Qt.KeyboardModifier.ShiftModifier", studio)
+        self.assertIn("size = max(abs(dx), abs(dy))", studio)
+        self.assertIn("편집 적용", studio)
+        self.assertIn("적용 후 닫기", studio)
+        self.assertIn('self.role == "vertex"', handles)
+        self.assertIn('self.role == "rotate"', handles)
+        self.assertIn("SizeFDiagCursor", handles)
 
     def test_phase4_normalization_exif_and_replace_contract(self):
         normalizer = (ROOT / "ui/photo_normalizer.py").read_text(encoding="utf-8")
