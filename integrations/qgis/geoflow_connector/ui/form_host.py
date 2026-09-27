@@ -306,12 +306,23 @@ class Main(QWidget, FORM_CLASS):
         page.form = DynamicForm(
             service.definition, fields, page, layer=standard, form_layout=local_layout
         )
-        scroll = QScrollArea()
+        page.tabs = QTabWidget(page)
+        scroll = QScrollArea(page.tabs)
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(page.form)
-        layout.addWidget(scroll)
+        page.tabs.addTab(scroll, "기본정보")
         page.photos = PhotoSection(self.plugin, page, layer, page)
-        page.form._root_layout.addWidget(page.photos)
+        photo_scroll = QScrollArea(page.tabs)
+        photo_scroll.setWidgetResizable(True)
+        photo_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        photo_scroll.setWidget(page.photos)
+        page.photo_tab_index = page.tabs.addTab(photo_scroll, "사진")
+        page.tabs.setTabVisible(page.photo_tab_index, False)
+        page.photos.availabilityChanged.connect(
+            lambda visible, p=page: p.tabs.setTabVisible(p.photo_tab_index, visible)
+        )
+        layout.addWidget(page.tabs)
         layout.setStretch(1, 1)
         page.form.setEnabled(bool(state["can_write"] and not layer.readOnly()))
         self.pages[layer.id()] = page
