@@ -4,11 +4,15 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from PIL import ExifTags, Image
+try:
+    from PIL import ExifTags, Image
+except ImportError:  # QGIS/Qt remains the supported runtime fallback.
+    ExifTags = Image = None
 
 from .ui.photo_normalizer import MAX_PHOTO_BYTES, normalize_photo
 
 
+@unittest.skipUnless(Image is not None, "optional Pillow image-fixture dependency")
 class PhotoNormalizerTests(unittest.TestCase):
     def test_large_smartphone_jpegs_normalize_below_500kb(self):
         with tempfile.TemporaryDirectory() as directory:
