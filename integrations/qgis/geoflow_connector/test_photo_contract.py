@@ -108,11 +108,19 @@ class PhotoPhase2ContractTests(unittest.TestCase):
     def test_phase4_ui_shells_and_photo_studio_contract(self):
         tab = ROOT / "ui/forms/photo_tab.ui"
         studio_ui = ROOT / "ui/forms/photo_studio.ui"
-        ET.parse(tab); ET.parse(studio_ui)
+        ET.parse(tab)
+        studio_tree = ET.parse(studio_ui)
         tab_text = tab.read_text(encoding="utf-8")
         self.assertIn('name="modeCombo"', tab_text)
         self.assertIn('name="cardsScrollArea"', tab_text)
         self.assertIn("ScrollBarAlwaysOff", tab_text)
+        dialog = studio_tree.find("./widget[@class='QDialog']")
+        self.assertIsNotNone(dialog)
+        property_names = {
+            element.get("name") for element in dialog.findall("./property")
+        }
+        self.assertIn("geometry", property_names)
+        self.assertNotIn("size", property_names)
         studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
         for tool in ('"line"', '"polyline"', '"freehand"', '"rect"', '"ellipse"', '"text"'):
             self.assertIn(tool, studio)
