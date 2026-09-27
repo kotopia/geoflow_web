@@ -67,6 +67,10 @@ class PhotoSection(QGroupBox):
         self.note = QLabel("사진 정책을 확인하는 중입니다.")
         self.note.setWordWrap(True)
         self.root.addWidget(self.note)
+        self.retry_button = QPushButton("다시 시도", self)
+        self.retry_button.clicked.connect(self._retry_policy)
+        self.retry_button.setVisible(False)
+        self.root.addWidget(self.retry_button)
         self.mode_row = QWidget(self)
         mode_layout = QHBoxLayout(self.mode_row)
         mode_layout.setContentsMargins(0, 0, 0, 0)
@@ -98,22 +102,72 @@ class PhotoSection(QGroupBox):
         self.setVisible(available)
         self.availabilityChanged.emit(available)
 
+    def _clear_policy_ui(self):
+        self.policy, self.mode = None, ""
+        self.mode_select.blockSignals(True)
+        self.mode_select.clear()
+        self.mode_select.blockSignals(False)
+        self.mode_select.setEnabled(False)
+        self.mode_row.setVisible(False)
+        self._clear_cards()
+
+    def _retry_policy(self):
+        service = getattr(self.plugin, "_photo_policy_service", None)
+        if service is not None:
+            service.refresh()
+
     def set_feature(self, feature):
         try:
             self.feature_uuid = str(feature["id"] or "")
         except Exception:
             self.feature_uuid = ""
+        self.refresh_policy()
+
+    def refresh_policy(self):
+        """Re-evaluate the latest selected feature after async policy changes."""
         service = getattr(self.plugin, "_photo_policy_service", None)
         layer_id = str(self.layer.customProperty("geoflow/definition_layer_id", "") or "")
-        self.policy = service.policy(layer_id) if service and service.state == "ready" else None
-        self._set_available(self.policy and self.feature_uuid)
-        modes = list((self.policy or {}).get("modes") or {})
-        _log(f"set_feature feature_uuid={self.feature_uuid or '-'} layer_id={layer_id or '-'} "
-             f"service={getattr(service, 'state', 'missing')} policy_found={'yes' if self.policy else 'no'} "
-             f"modes={','.join(modes) or '-'} visible={'yes' if self.isVisible() else 'no'} "
-             f"readonly={'yes' if self.layer.readOnly() else 'no'}")
-        if not self.isVisible():
+        active_project_id = str(((self.plugin.active_context or {}).get("manifest", {}).get("project") or {}).get("id") or "")
+        service_project_id = str(getattr(service, "project_id", "") or "")
+        state = getattr(service, "state", "missing")
+        if service_project_id != active_project_id:
+            _log(f"refresh_ignored project_id={active_project_id or '-'} service_project_id={service_project_id or '-'}")
             return
+
+        self.retry_button.setVisible(False)
+        if not self.feature_uuid:
+            self._clear_policy_ui()
+            self._set_available(False)
+            return
+        if state in {"idle", "loading"}:
+            self._clear_policy_ui()
+            self.note.setText("사진 정책을 불러오는 중입니다.")
+            self._set_available(True)
+            self._log_refresh(state, layer_id)
+            return
+        if state == "error":
+            self._clear_policy_ui()
+            self.note.setText("사진 정책을 불러오지 못했습니다.")
+            self.retry_button.setVisible(True)
+            self._set_available(True)
+            self._log_refresh(state, layer_id)
+            return
+        if state == "unavailable":
+            self._clear_policy_ui()
+            self.note.setText("이 프로젝트에는 사진 정책이 없습니다.")
+            self._set_available(False)
+            self._log_refresh(state, layer_id)
+            return
+
+        self.policy = service.policy(layer_id) if state == "ready" else None
+        if not self.policy:
+            self._clear_policy_ui()
+            self.note.setText("이 레이어에 적용된 사진 정책이 없습니다.")
+            self._set_available(False)
+            self._log_refresh(state, layer_id)
+            return
+
+        self._set_available(True)
         modes = self.policy.get("modes") or {self.policy.get("capture_mode"): self.policy.get("template")}
         saved = self.page.binding.photo_capture_mode()
         self.mode = saved if saved in modes else str(self.policy.get("capture_mode") or next(iter(modes), ""))
@@ -122,12 +176,22 @@ class PhotoSection(QGroupBox):
         self.mode_select.addItems(list(modes))
         self.mode_select.setCurrentText(self.mode)
         self.mode_select.blockSignals(False)
-        self.mode_select.setEnabled(self._can_write())
+        self.mode_select.setEnabled(self._can_write() and len(modes) > 1)
         self.mode_row.setVisible(len(modes) > 1)
+        self._log_refresh(state, layer_id, list(modes))
         self.reload()
+
+    def _log_refresh(self, state, layer_id, modes=None):
+        _log(f"refreshed project_id={getattr(getattr(self.plugin, '_photo_policy_service', None), 'project_id', '') or '-'} "
+             f"revision={getattr(getattr(self.plugin, '_photo_policy_service', None), 'revision', '') or '-'} "
+             f"feature_id={self.feature_uuid or '-'} layer_id={layer_id or '-'} service={state} "
+             f"policy_found={'yes' if self.policy else 'no'} modes={','.join(modes or []) or '-'} "
+             f"visible={'yes' if self.isVisible() else 'no'} readonly={'yes' if self.layer.readOnly() else 'no'}")
 
     def clear(self):
         self.feature_uuid, self.photos = "", []
+        self._clear_policy_ui()
+        self.retry_button.setVisible(False)
         self._set_available(False)
 
     def _restore_mode(self):

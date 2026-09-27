@@ -93,6 +93,9 @@ class Main(QWidget, FORM_CLASS):
         self.adapter.changed.connect(self.refresh_connection)
         self.adapter.selectionChanged.connect(self._selection_changed)
         self.adapter.objectSelected.connect(self._object_selected)
+        self._photo_policy_service = getattr(plugin, "_photo_policy_service", None)
+        if self._photo_policy_service is not None:
+            self._photo_policy_service.changed.connect(self._photo_policy_changed)
         self._retained_window = None
         self.formStack.currentChanged.connect(self._sync_header)
         self.placeholderHeader.layoutButton.setEnabled(False)
@@ -189,11 +192,8 @@ class Main(QWidget, FORM_CLASS):
             service = self._definition_service()
             definition = getattr(service, "definition", {}) or {}
             revision = definition.get("revision", "")
-            photo_service = getattr(self.plugin, "_photo_policy_service", None)
-            photo_signature = (getattr(photo_service, "state", ""),
-                               getattr(photo_service, "revision", ""))
             signature = (state.get("instance"), state["epoch"], state["ready"],
-                         state["project_id"], state["can_write"], revision, photo_signature)
+                         state["project_id"], state["can_write"], revision)
             if signature != self._signature:
                 self._stop_selection_tool()
                 for layer_id in list(self.pages):
@@ -240,6 +240,21 @@ class Main(QWidget, FORM_CLASS):
         if not self._closed and not getattr(self.plugin, "_opening", False):
             self.refresh_connection()
             self._display_layer(layer_id)
+
+    def _photo_policy_changed(self):
+        """Refresh only the selected photo section; never rebuild a dirty form."""
+        if self._closed or getattr(self.plugin, "_opening", False):
+            return
+        state = self.adapter.state()
+        service = self._photo_policy_service
+        if (not state.get("ready") or service is None or
+                str(getattr(service, "project_id", "")) != str(state.get("project_id") or "")):
+            return
+        layer_id = self.adapter.selected_layer_id()
+        page = self.pages.get(layer_id)
+        if page is None or page.feature_id is None or not page.photos.feature_uuid:
+            return
+        page.photos.refresh_policy()
 
     def _display_layer(self, layer_id):
         layer = self.adapter.layers_by_id().get(layer_id)
@@ -442,6 +457,11 @@ class Main(QWidget, FORM_CLASS):
         self.adapter.changed.disconnect(self.refresh_connection)
         self.adapter.selectionChanged.disconnect(self._selection_changed)
         self.adapter.objectSelected.disconnect(self._object_selected)
+        if self._photo_policy_service is not None:
+            try:
+                self._photo_policy_service.changed.disconnect(self._photo_policy_changed)
+            except (RuntimeError, TypeError):
+                pass
         self.adapter.close()
         try:
             self.plugin.mapCanvas.mapToolSet.disconnect(self._sync_select_tool_state)
