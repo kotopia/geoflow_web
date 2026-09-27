@@ -88,7 +88,7 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         editor = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
         self.assertIn("ScrollHandDrag", editor)
         self.assertIn("wheelEvent", editor)
-        for tool in ('"line"', '"arrow"', '"rect"', '"ellipse"', '"text"'):
+        for tool in ('"line"', '"arrow"', '"rectangle"', '"ellipse"', '"text"'):
             if tool != '"arrow"':
                 self.assertIn(tool, editor)
         self.assertIn("undo_stack", editor)
@@ -122,10 +122,35 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn("geometry", property_names)
         self.assertNotIn("size", property_names)
         studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
-        for tool in ('"line"', '"polyline"', '"freehand"', '"rect"', '"ellipse"', '"text"'):
+        for tool in ('"line"', '"polyline"', '"freehand"', '"rectangle"', '"ellipse"', '"text"'):
             self.assertIn(tool, studio)
         self.assertIn("QTimer.singleShot(0, self.fit_to_window)", studio)
         self.assertIn("annotation_icon(name)", studio)
+
+    def test_phase5_annotations_are_persistent_and_reeditable(self):
+        studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
+        annotations = (ROOT / "ui/photo_annotations.py").read_text(encoding="utf-8")
+        handles = (ROOT / "ui/photo_annotation_handles.py").read_text(encoding="utf-8")
+        ui = (ROOT / "ui/forms/photo_studio.ui").read_text(encoding="utf-8")
+        self.assertIn('"format": "annotation-json"', annotations)
+        self.assertIn("is_editable_document(edit_data)", studio)
+        self.assertIn("restore_state(document)", studio)
+        self.assertIn("annotation_state()", studio)
+        self.assertIn("ItemIsSelectable", annotations)
+        self.assertIn("ItemIsMovable", annotations)
+        self.assertIn("ItemIgnoresTransformations", handles)
+        self.assertIn("delete_vertex", annotations)
+        self.assertIn("add_vertex", annotations)
+        self.assertIn('name="propertyPanel"', ui)
+        self.assertIn("기존 raster 편집본", studio)
+
+    def test_phase5_undo_render_and_original_are_separate(self):
+        studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
+        self.assertIn("self.undo_stack.append(before)", studio)
+        self.assertIn("self.redo_stack.append(self.annotation_state())", studio)
+        self.assertIn("self._photo_url(photo, \"original\")", studio)
+        self.assertIn('document["render"]', studio)
+        self.assertIn("encode_qimage(self.render_image())", studio)
 
     def test_phase4_normalization_exif_and_replace_contract(self):
         normalizer = (ROOT / "ui/photo_normalizer.py").read_text(encoding="utf-8")

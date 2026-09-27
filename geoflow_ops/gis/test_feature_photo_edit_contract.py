@@ -19,6 +19,15 @@ class FeaturePhotoEditContractTests(unittest.TestCase):
         self.assertIn("_replacement_key", source)
         self.assertIn('action in {"replace_presign", "replace_finalize"}', source)
 
+    def test_annotation_edit_data_is_validated_without_new_schema(self):
+        source = (ROOT / "geoflow_ops/gis/feature_photo_views.py").read_text(encoding="utf-8")
+        validator = (ROOT / "geoflow_ops/gis/photo_edit_data.py").read_text(encoding="utf-8")
+        self.assertIn("validate_edit_data", source)
+        self.assertIn("MAX_ANNOTATIONS = 200", validator)
+        self.assertIn("MAX_POINTS = 2000", validator)
+        self.assertIn('format_name == "raster-jpeg"', validator)
+        self.assertIn('format_name != "annotation-json"', validator)
+
     def test_tenant_migration_is_additive_and_has_no_drop_table(self):
         source = (ROOT / "geoflow_ops/migrations/0041_gis_feature_photo_edited_representation.py").read_text(encoding="utf-8")
         self.assertIn("ADD COLUMN IF NOT EXISTS edited_object_key", source)

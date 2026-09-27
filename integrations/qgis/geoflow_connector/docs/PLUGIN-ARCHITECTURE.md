@@ -1,4 +1,12 @@
-# GeoFlow Connector 1.3.3
+# GeoFlow Connector 1.3.4
+
+Photo Studio persists image-coordinate annotation objects in
+`gis.feature_photo.edit_data` (`version=2`, `format=annotation-json`) while the
+separately uploaded JPEG remains a bounded display artifact. Reopening a photo
+loads its original master plus the annotation document, so line/polyline,
+freehand, shape, text, and icon objects remain selectable and editable. Legacy
+`raster-png` and Connector 1.3.3 `raster-jpeg` documents remain viewable and
+can be replaced only through an explicit new-edit confirmation.
 
 The 1.1.2 interaction shell is retained: one Dock, login and project pages,
 Layer Workspace, Form Host and Form Header, splitter presentation, visibility
