@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PhotoStudioForm</class>
+ <widget class="QDialog" name="PhotoStudioForm">
+  <property name="windowTitle"><string>GeoFlow · Photo Studio</string></property>
+  <property name="size"><size><width>1100</width><height>800</height></size></property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <item><widget class="QToolBar" name="studioToolbar"><property name="toolButtonStyle"><enum>Qt::ToolButtonIconOnly</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property></widget></item>
+   <item><widget class="QGraphicsView" name="graphicsView"/></item>
+   <item>
+    <layout class="QHBoxLayout" name="statusLayout">
+     <item><widget class="QLabel" name="statusLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+     <item><spacer name="statusSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+     <item><widget class="QToolButton" name="originalButton"><property name="text"><string>원본</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+     <item><widget class="QToolButton" name="editedButton"><property name="text"><string>편집본</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="actionLayout">
+     <item><widget class="QToolButton" name="replaceButton"><property name="text"><string>사진 변경</string></property></widget></item>
+     <item><spacer name="actionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+     <item><widget class="QToolButton" name="saveButton"><property name="text"><string>저장</string></property></widget></item>
+     <item><widget class="QToolButton" name="cancelButton"><property name="text"><string>닫기</string></property></widget></item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/><connections/>
+</ui>

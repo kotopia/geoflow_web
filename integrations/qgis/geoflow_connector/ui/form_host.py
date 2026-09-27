@@ -328,11 +328,7 @@ class Main(QWidget, FORM_CLASS):
         scroll.setWidget(page.form)
         page.tabs.addTab(scroll, "기본정보")
         page.photos = PhotoSection(self.plugin, page, layer, page)
-        photo_scroll = QScrollArea(page.tabs)
-        photo_scroll.setWidgetResizable(True)
-        photo_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        photo_scroll.setWidget(page.photos)
-        page.photo_tab_index = page.tabs.addTab(photo_scroll, "사진")
+        page.photo_tab_index = page.tabs.addTab(page.photos, "사진")
         page.tabs.setTabVisible(page.photo_tab_index, False)
         page.photos.availabilityChanged.connect(
             lambda visible, p=page: p.tabs.setTabVisible(p.photo_tab_index, visible)

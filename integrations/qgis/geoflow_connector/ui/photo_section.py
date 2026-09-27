@@ -1,18 +1,22 @@
 """Responsive GIS-photo tab for the central QGIS dynamic form."""
-import mimetypes
 import os
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QPixmap
 from qgis.PyQt.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QMessageBox, QPushButton, QSizePolicy, QToolButton,
-    QVBoxLayout, QWidget,
+    QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+    QLineEdit, QMessageBox, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
+    QWidget,
 )
+from qgis.PyQt.uic import loadUiType
 from qgis.core import QgsMessageLog, Qgis
 
-from .photo_editor import PhotoEditorDialog
-from .photo_viewer import PhotoViewerDialog
+from .photo_icons import feather_icon
+from .photo_normalizer import normalize_photo
+from .photo_studio import PhotoStudioDialog
+
+
+FORM_CLASS, _ = loadUiType(os.path.join(os.path.dirname(__file__), "forms", "photo_tab.ui"))
 
 
 def _log(message):
@@ -53,39 +57,22 @@ class ResponsivePhotoLabel(QLabel):
         super().mousePressEvent(event)
 
 
-class PhotoSection(QGroupBox):
+class PhotoSection(QGroupBox, FORM_CLASS):
     availabilityChanged = pyqtSignal(bool)
     MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
             ".webp": "image/webp"}
 
     def __init__(self, plugin, page, layer, parent=None):
-        super().__init__("사진", parent)
+        super().__init__(parent)
+        self.setupUi(self)
         self.plugin, self.page, self.layer = plugin, page, layer
         self.policy, self.photos, self.feature_uuid, self.mode = None, [], "", ""
-        self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(10, 10, 10, 10)
-        self.note = QLabel("사진 정책을 확인하는 중입니다.")
-        self.note.setWordWrap(True)
-        self.root.addWidget(self.note)
-        self.retry_button = QPushButton("다시 시도", self)
+        self.root, self.note = self.rootLayout, self.statusLabel
+        self.retry_button, self.mode_row = self.retryButton, self.modeRow
+        self.mode_select, self.cards = self.modeCombo, self.cardsHost
+        self.cards_layout = self.cardsLayout
         self.retry_button.clicked.connect(self._retry_policy)
-        self.retry_button.setVisible(False)
-        self.root.addWidget(self.retry_button)
-        self.mode_row = QWidget(self)
-        mode_layout = QHBoxLayout(self.mode_row)
-        mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.addWidget(QLabel("촬영방식"))
-        self.mode_select = QComboBox(self.mode_row)
         self.mode_select.currentTextChanged.connect(self._mode_changed)
-        mode_layout.addWidget(self.mode_select)
-        mode_layout.addStretch(1)
-        self.root.addWidget(self.mode_row)
-        self.cards = QWidget(self)
-        self.cards_layout = QVBoxLayout(self.cards)
-        self.cards_layout.setContentsMargins(0, 0, 0, 0)
-        self.cards_layout.setSpacing(10)
-        self.root.addWidget(self.cards)
-        self.root.addStretch(1)
         self.setVisible(False)
         _log(f"created layer={layer.name()} definition_layer_id={layer.customProperty('geoflow/definition_layer_id', '') or '-'}")
 
@@ -303,6 +290,7 @@ class PhotoSection(QGroupBox):
             self.cards_layout.addWidget(legacy_host)
         if self.policy.get("allow_extra_photo"):
             self.cards_layout.addWidget(self._slot_card(None))
+        self.cards_layout.addStretch(1)
 
     def _slot_card(self, slot):
         slot_id = str((slot or {}).get("id") or "")
@@ -334,14 +322,18 @@ class PhotoSection(QGroupBox):
         card = QGroupBox(self.cards)
         lay = QVBoxLayout(card)
         buttons = QHBoxLayout()
-        view, edit, delete = QPushButton("원본보기"), QPushButton("편집"), QPushButton("삭제")
-        view.clicked.connect(lambda _=False, p=photo: self.open_viewer(p))
-        edit.clicked.connect(lambda _=False, p=photo: self.edit_photo(p))
+        studio, replace, delete = QToolButton(card), QToolButton(card), QToolButton(card)
+        for button, icon, tooltip in ((studio, "edit-2", "보기/편집"),
+                                      (replace, "refresh-cw", "사진 변경"),
+                                      (delete, "trash-2", "삭제")):
+            button.setIcon(feather_icon(icon)); button.setToolTip(tooltip); button.setAccessibleName(tooltip)
+        studio.clicked.connect(lambda _=False, p=photo: self.open_studio(p))
+        replace.clicked.connect(lambda _=False, p=photo: self.replace_photo_dialog(p))
         delete.clicked.connect(lambda _=False, p=photo: self.delete_photo(p))
-        edit.setEnabled(self._can_write())
+        replace.setEnabled(self._can_write())
         delete.setEnabled(self._can_write())
-        buttons.addWidget(view)
-        buttons.addWidget(edit)
+        buttons.addWidget(studio)
+        buttons.addWidget(replace)
         buttons.addWidget(delete)
         buttons.addStretch(1)
         lay.addLayout(buttons)
@@ -352,7 +344,7 @@ class PhotoSection(QGroupBox):
             preview.setSourcePixmap(image)
         except Exception:
             preview.setText("미리보기를 불러올 수 없습니다.")
-        preview.clicked.connect(lambda p=photo: self.open_viewer(p))
+        preview.clicked.connect(lambda p=photo: self.open_studio(p))
         lay.addWidget(preview)
         original = QLabel("원본: " + str(photo.get("original_name") or "사진"))
         original.setWordWrap(True)
@@ -361,36 +353,47 @@ class PhotoSection(QGroupBox):
         lay.addWidget(original)
         return card
 
-    def open_viewer(self, selected):
+    def open_studio(self, selected):
         photos = [p for p in self.photos if p.get("original_download_url") or p.get("download_url")]
-        PhotoViewerDialog(self.plugin.active_client, photos, selected, self).exec()
+        PhotoStudioDialog(self.plugin.active_client, photos, selected, can_write=self._can_write(),
+                          save_callback=self._save_edit, replace_callback=self._replace_photo,
+                          parent=self).exec()
 
-    def edit_photo(self, photo):
+    def _save_edit(self, photo, output_bytes, mime_type, edit_data):
         try:
-            raw = self.plugin.active_client.get_bytes(str(photo.get("display_download_url") or photo.get("download_url") or ""))
-            dialog = PhotoEditorDialog(raw, self)
-            accepted = getattr(getattr(dialog, "DialogCode", dialog), "Accepted")
-            if dialog.exec() != accepted or not dialog.output_bytes:
-                return
             client = self.plugin.active_client
-            signed = client.post_json(self._base_path(), {"action": "edit_presign", "photo_id": photo["id"], "mime_type": "image/png"})
-            client.put_presigned_bytes(signed["presigned_url"], dialog.output_bytes, signed.get("headers") or {})
+            signed = client.post_json(self._base_path(), {"action": "edit_presign", "photo_id": photo["id"], "mime_type": mime_type})
+            client.put_presigned_bytes(signed["presigned_url"], output_bytes, signed.get("headers") or {})
             client.post_json(self._base_path(), {"action": "edit_finalize", "photo_id": photo["id"],
-                "edit_id": signed["edit_id"], "mime_type": "image/png", "edit_data": dialog.edit_data})
+                "edit_id": signed["edit_id"], "mime_type": mime_type, "edit_data": edit_data})
             self.reload()
         except Exception as exc:
             QMessageBox.critical(self, "사진 편집 저장 실패", str(exc))
 
+    def replace_photo_dialog(self, photo):
+        if QMessageBox.question(self, "사진 변경", "사진을 변경하면 기존 편집본이 초기화됩니다. 계속하시겠습니까?") != QMessageBox.StandardButton.Yes:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "GIS 사진 변경", "", "Images (*.jpg *.jpeg *.png *.webp)")
+        if path:
+            try:
+                self._replace_photo(photo, path, normalize_photo(path))
+            except Exception as exc:
+                QMessageBox.critical(self, "사진 변경 실패", str(exc))
+
+    def _replace_photo(self, photo, path, normalized):
+        client = self.plugin.active_client
+        signed = client.post_json(self._base_path(), {"action": "replace_presign",
+                                  "photo_id": photo["id"], "mime_type": normalized.mime_type})
+        client.put_presigned_bytes(signed["presigned_url"], normalized.data, signed.get("headers") or {})
+        client.post_json(self._base_path(), {"action": "replace_finalize", "photo_id": photo["id"],
+            "replace_id": signed["replace_id"], "mime_type": normalized.mime_type,
+            "original_name": os.path.basename(path), "captured_at": normalized.captured_at,
+            "image_metadata": normalized.image_metadata})
+        self.reload()
+
     def upload(self, slot, extras):
         path, _ = QFileDialog.getOpenFileName(self, "GIS 사진 선택", "", "Images (*.jpg *.jpeg *.png *.webp)")
         if not path:
-            return
-        if os.path.getsize(path) > 25 * 1024 * 1024:
-            QMessageBox.warning(self, "사진 추가", "사진은 25MB 이하여야 합니다.")
-            return
-        mime = self.MIME.get(os.path.splitext(path)[1].lower()) or mimetypes.guess_type(path)[0]
-        if mime not in self.MIME.values():
-            QMessageBox.warning(self, "사진 추가", "JPG, PNG, WebP 사진만 업로드할 수 있습니다.")
             return
         extra_data = {}
         for key, (field, widget) in extras.items():
@@ -412,12 +415,15 @@ class PhotoSection(QGroupBox):
                     return
             extra_data[key] = value
         try:
+            normalized = normalize_photo(path)
             client, slot_id = self.plugin.active_client, (slot or {}).get("id")
-            signed = client.post_json(self._base_path(), {"action": "presign", "mime_type": mime, "slot_id": slot_id})
-            client.put_presigned_file(signed["presigned_url"], path, signed.get("headers") or {})
+            signed = client.post_json(self._base_path(), {"action": "presign", "mime_type": normalized.mime_type, "slot_id": slot_id})
+            client.put_presigned_bytes(signed["presigned_url"], normalized.data, signed.get("headers") or {})
             client.post_json(self._base_path(), {"action": "finalize", "id": signed["id"],
-                "mime_type": mime, "original_name": os.path.basename(path), "slot_id": slot_id,
-                "extra_data": extra_data})
+                "mime_type": normalized.mime_type, "original_name": os.path.basename(path),
+                "slot_id": slot_id, "extra_data": extra_data,
+                "captured_at": normalized.captured_at,
+                "image_metadata": normalized.image_metadata})
             self.reload()
         except Exception as exc:
             QMessageBox.critical(self, "사진 업로드 실패", str(exc))

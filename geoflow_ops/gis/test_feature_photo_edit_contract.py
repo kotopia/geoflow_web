@@ -14,7 +14,10 @@ class FeaturePhotoEditContractTests(unittest.TestCase):
         self.assertIn("display_download_url", source)
         self.assertIn("edit_presign", source)
         self.assertIn("edit_finalize", source)
-        self.assertNotIn("SET object_key=", source)
+        # Editing never overwrites the original. Explicit photo replacement is
+        # a separate confirmed action and writes a new immutable object key.
+        self.assertIn("_replacement_key", source)
+        self.assertIn('action in {"replace_presign", "replace_finalize"}', source)
 
     def test_tenant_migration_is_additive_and_has_no_drop_table(self):
         source = (ROOT / "geoflow_ops/migrations/0041_gis_feature_photo_edited_representation.py").read_text(encoding="utf-8")
