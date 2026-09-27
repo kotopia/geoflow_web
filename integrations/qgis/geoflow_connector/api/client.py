@@ -317,6 +317,14 @@ class GeoFlowHttpClient:
             raise GeoFlowClientError("사진 파일을 찾을 수 없습니다.")
         with open(file_path, "rb") as handle:
             body = handle.read()
+        self.put_presigned_bytes(url, body, headers)
+
+    def put_presigned_bytes(self, url: str, body: bytes, headers: dict) -> None:
+        """Upload an in-memory edited image without writing it beside project data."""
+        if not str(url).startswith("https://"):
+            raise GeoFlowClientError("안전하지 않은 사진 업로드 주소를 거부했습니다.")
+        if not isinstance(body, bytes) or not body or len(body) > 25 * 1024 * 1024:
+            raise GeoFlowClientError("편집 사진은 25MB 이하여야 합니다.")
         request = urllib.request.Request(
             str(url), data=body, method="PUT",
             headers={**{str(k): str(v) for k, v in (headers or {}).items()},

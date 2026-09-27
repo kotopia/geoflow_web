@@ -102,6 +102,14 @@ def _key(alias, project_id, layer_id, feature_id, photo_id, extension):
     return f"tenants/{alias}/gis/{project_id}/{layer_id}/{feature_id}/{photo_id}.{extension}"
 
 
+def _edited_key(alias, project_id, layer_id, feature_id, photo_id, edit_id, extension):
+    if not _TENANT.fullmatch(alias):
+        raise definitions.PhotoPolicyError("테넌트 키가 올바르지 않습니다.")
+    photo_id, edit_id = definitions.uid(photo_id, "사진"), definitions.uid(edit_id, "편집본")
+    return (f"tenants/{alias}/gis/{project_id}/{layer_id}/{feature_id}/"
+            f"{photo_id}/edited/{edit_id}.{extension}")
+
+
 def _rows(cur):
     fields = [c[0] for c in cur.description]
     return [dict(zip(fields, row)) for row in cur.fetchall()]
@@ -117,7 +125,8 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
             with connections[alias].cursor() as cur:
                 cur.execute("""SELECT id::text,slot_id::text,object_key,original_name,mime_type,
                     size_bytes,sha256,captured_at,captured_by::text,sort_order,note,extra_data,
-                    created_at,updated_at FROM gis.feature_photo
+                    created_at,updated_at,edited_object_key,edited_mime_type,edited_size_bytes,
+                    edited_at,edited_by::text,edit_data FROM gis.feature_photo
                     WHERE project_id=%s AND layer_id=%s AND feature_id=%s AND deleted_at IS NULL
                     ORDER BY sort_order,created_at,id""",[project.id,layer_id,feature_id])
                 photos = _rows(cur)
@@ -126,13 +135,59 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                     photo["extra_data"] = json.loads(photo["extra_data"])
             if request.GET.get("download_urls") == "1":
                 for photo in photos:
-                    photo["download_url"] = generate_presigned_get_url(photo["object_key"],
+                    original_url = generate_presigned_get_url(photo["object_key"],
                         content_type=photo["mime_type"],disposition="inline")
+                    photo["original_download_url"] = original_url
+                    photo["download_url"] = original_url
+                    photo["display_download_url"] = (
+                        generate_presigned_get_url(photo["edited_object_key"],
+                            content_type=photo["edited_mime_type"],disposition="inline")
+                        if photo.get("edited_object_key") else original_url
+                    )
             response = JsonResponse({"ok":True,"photos":photos,"photo_policy_revision":data["revision"]})
             response["Cache-Control"] = "private, no-store"
             return response
         body = _body(request)
         action = body.get("action")
+        if action in {"edit_presign", "edit_finalize"}:
+            photo_id = definitions.uid(body.get("photo_id"), "사진")
+            mime = body.get("mime_type")
+            if mime not in _EXTENSIONS:
+                raise definitions.PhotoPolicyError("지원하지 않는 편집 사진 형식입니다.")
+            with connections[alias].cursor() as cur:
+                cur.execute("""SELECT 1 FROM gis.feature_photo
+                    WHERE id=%s AND project_id=%s AND layer_id=%s AND feature_id=%s
+                      AND deleted_at IS NULL""",
+                    [photo_id,project.id,layer_id,feature_id])
+                if cur.fetchone() is None:
+                    raise definitions.PhotoPolicyError("원본 사진을 찾을 수 없습니다.")
+            edit_id = (str(uuid4()) if action == "edit_presign"
+                       else definitions.uid(body.get("edit_id"), "편집본"))
+            key = _edited_key(alias,project.id,layer_id,feature_id,photo_id,edit_id,
+                              _EXTENSIONS[mime])
+            if action == "edit_presign":
+                signed = generate_presigned_put_url(key,mime_type=mime,expires_in=900)
+                return JsonResponse({"ok":True,"edit_id":edit_id,"object_key":key,**signed})
+            edit_data = body.get("edit_data") or {}
+            if not isinstance(edit_data, dict) or len(json.dumps(edit_data)) > 20000:
+                raise definitions.PhotoPolicyError("사진 편집 정보가 올바르지 않습니다.")
+            metadata = head_private_object(key)
+            if (metadata.content_type != mime or not metadata.encryption_matches
+                    or not 0 < metadata.size_bytes <= 25*1024*1024):
+                raise definitions.PhotoPolicyError("편집 사진의 형식·크기·암호화를 확인하세요.")
+            try:
+                edited_by = str(UUID(str(request.user.pk)))
+            except (TypeError, ValueError, AttributeError):
+                edited_by = None
+            with transaction.atomic(using=alias), connections[alias].cursor() as cur:
+                cur.execute("""UPDATE gis.feature_photo SET edited_object_key=%s,
+                    edited_mime_type=%s,edited_size_bytes=%s,edited_at=now(),edited_by=%s,
+                    edit_data=%s::jsonb,updated_at=now()
+                    WHERE id=%s AND project_id=%s AND layer_id=%s AND feature_id=%s
+                      AND deleted_at IS NULL""",
+                    [key,mime,metadata.size_bytes,edited_by,json.dumps(edit_data),photo_id,
+                     project.id,layer_id,feature_id])
+            return JsonResponse({"ok":True,"id":photo_id})
         if action == "presign":
             mime = body.get("mime_type")
             if mime not in _EXTENSIONS:
