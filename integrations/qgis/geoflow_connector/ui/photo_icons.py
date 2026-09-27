@@ -1,6 +1,6 @@
 """Single extensible registry for field annotation icons."""
 from qgis.PyQt.QtCore import QPointF, QRectF
-from qgis.PyQt.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
+from qgis.PyQt.QtGui import QBrush, QColor, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 ICON_NAMES = {
     "arrow": "화살표", "location": "위치 표시", "check": "체크",
@@ -8,6 +8,20 @@ ICON_NAMES = {
     "camera": "촬영 방향", "start": "시작점", "end": "끝점",
     **{f"number_{n}": f"번호 {n}" for n in range(1, 10)},
 }
+
+
+def feather_icon(name):
+    """Return an icon already compiled into the plugin's Feather resource."""
+    return QIcon(f":/geoflow/feather/{name}.svg")
+
+
+def annotation_icon(name, size=32):
+    image = QImage(size + 8, size + 8, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(0)
+    painter = QPainter(image)
+    draw_icon(painter, name, QPointF((size + 8) / 2, (size + 8) / 2), size)
+    painter.end()
+    return QIcon(QPixmap.fromImage(image))
 
 
 def draw_icon(painter, name, center, size=48):

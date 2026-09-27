@@ -23,6 +23,7 @@ from .qgis_views import _require_project, _require_qgis_context
 
 _EXTENSIONS = {"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp"}
 _TENANT = re.compile(r"^[a-zA-Z0-9_-]+$")
+_MAX_NORMALIZED_BYTES = 500 * 1024
 
 
 def _body(request):
@@ -110,6 +111,47 @@ def _edited_key(alias, project_id, layer_id, feature_id, photo_id, edit_id, exte
             f"{photo_id}/edited/{edit_id}.{extension}")
 
 
+def _replacement_key(alias, project_id, layer_id, feature_id, photo_id, replace_id, extension):
+    if not _TENANT.fullmatch(alias):
+        raise definitions.PhotoPolicyError("테넌트 키가 올바르지 않습니다.")
+    photo_id = definitions.uid(photo_id, "사진")
+    replace_id = definitions.uid(replace_id, "교체 사진")
+    return (f"tenants/{alias}/gis/{project_id}/{layer_id}/{feature_id}/"
+            f"{photo_id}/replacements/{replace_id}.{extension}")
+
+
+def _image_metadata(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise definitions.PhotoPolicyError("사진 metadata가 올바르지 않습니다.")
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError):
+        raise definitions.PhotoPolicyError("사진 metadata가 올바르지 않습니다.") from None
+    if len(encoded.encode("utf-8")) > 64000:
+        raise definitions.PhotoPolicyError("사진 metadata가 올바르지 않습니다.")
+    for key in ("exif", "gps", "normalization"):
+        if key in value and not isinstance(value[key], dict):
+            raise definitions.PhotoPolicyError("사진 metadata 구조가 올바르지 않습니다.")
+    return value
+
+
+def _public_image_metadata(value):
+    """Do not expose arbitrary vendor EXIF blocks through the photo list API."""
+    value = value if isinstance(value, dict) else {}
+    exif = value.get("exif") if isinstance(value.get("exif"), dict) else {}
+    return {
+        "captured_at": exif.get("DateTimeOriginal") or exif.get("DateTimeDigitized") or exif.get("DateTime"),
+        "camera": {key: exif.get(key) for key in ("Make", "Model", "LensModel") if exif.get(key) is not None},
+        "gps": value.get("gps") if isinstance(value.get("gps"), dict) else {},
+        "source_orientation": value.get("source_orientation"),
+        "original_width": value.get("original_width"), "original_height": value.get("original_height"),
+        "normalized_width": value.get("normalized_width"), "normalized_height": value.get("normalized_height"),
+        "normalization": value.get("normalization") if isinstance(value.get("normalization"), dict) else {},
+    }
+
+
 def _rows(cur):
     fields = [c[0] for c in cur.description]
     return [dict(zip(fields, row)) for row in cur.fetchall()]
@@ -126,13 +168,16 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                 cur.execute("""SELECT id::text,slot_id::text,object_key,original_name,mime_type,
                     size_bytes,sha256,captured_at,captured_by::text,sort_order,note,extra_data,
                     created_at,updated_at,edited_object_key,edited_mime_type,edited_size_bytes,
-                    edited_at,edited_by::text,edit_data FROM gis.feature_photo
+                    edited_at,edited_by::text,edit_data,image_metadata FROM gis.feature_photo
                     WHERE project_id=%s AND layer_id=%s AND feature_id=%s AND deleted_at IS NULL
                     ORDER BY sort_order,created_at,id""",[project.id,layer_id,feature_id])
                 photos = _rows(cur)
             for photo in photos:
                 if isinstance(photo.get("extra_data"), str):
                     photo["extra_data"] = json.loads(photo["extra_data"])
+                if isinstance(photo.get("image_metadata"), str):
+                    photo["image_metadata"] = json.loads(photo["image_metadata"])
+                photo["image_metadata"] = _public_image_metadata(photo.get("image_metadata"))
             if request.GET.get("download_urls") == "1":
                 for photo in photos:
                     original_url = generate_presigned_get_url(photo["object_key"],
@@ -173,7 +218,7 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                 raise definitions.PhotoPolicyError("사진 편집 정보가 올바르지 않습니다.")
             metadata = head_private_object(key)
             if (metadata.content_type != mime or not metadata.encryption_matches
-                    or not 0 < metadata.size_bytes <= 25*1024*1024):
+                    or not 0 < metadata.size_bytes <= _MAX_NORMALIZED_BYTES):
                 raise definitions.PhotoPolicyError("편집 사진의 형식·크기·암호화를 확인하세요.")
             try:
                 edited_by = str(UUID(str(request.user.pk)))
@@ -187,6 +232,47 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                       AND deleted_at IS NULL""",
                     [key,mime,metadata.size_bytes,edited_by,json.dumps(edit_data),photo_id,
                      project.id,layer_id,feature_id])
+            return JsonResponse({"ok":True,"id":photo_id})
+        if action in {"replace_presign", "replace_finalize"}:
+            photo_id = definitions.uid(body.get("photo_id"), "사진")
+            mime = body.get("mime_type")
+            if mime not in _EXTENSIONS:
+                raise definitions.PhotoPolicyError("지원하지 않는 교체 사진 형식입니다.")
+            with connections[alias].cursor() as cur:
+                cur.execute("""SELECT 1 FROM gis.feature_photo
+                    WHERE id=%s AND project_id=%s AND layer_id=%s AND feature_id=%s
+                      AND deleted_at IS NULL""", [photo_id,project.id,layer_id,feature_id])
+                if cur.fetchone() is None:
+                    raise definitions.PhotoPolicyError("변경할 사진을 찾을 수 없습니다.")
+            replace_id = (str(uuid4()) if action == "replace_presign"
+                          else definitions.uid(body.get("replace_id"), "교체 사진"))
+            key = _replacement_key(alias,project.id,layer_id,feature_id,photo_id,replace_id,
+                                   _EXTENSIONS[mime])
+            if action == "replace_presign":
+                signed = generate_presigned_put_url(key,mime_type=mime,expires_in=900)
+                return JsonResponse({"ok":True,"replace_id":replace_id,"object_key":key,**signed})
+            filename = str(body.get("original_name") or "").strip()
+            if not filename or len(filename) > 255:
+                raise definitions.PhotoPolicyError("원본 파일명을 확인하세요.")
+            captured_at = None
+            if body.get("captured_at"):
+                captured_at = parse_datetime(str(body["captured_at"]))
+                if captured_at is None or captured_at.utcoffset() is None:
+                    raise definitions.PhotoPolicyError("촬영 시각에는 시간대를 포함해야 합니다.")
+            image_metadata = _image_metadata(body.get("image_metadata"))
+            metadata = head_private_object(key)
+            if (metadata.content_type != mime or not metadata.encryption_matches
+                    or not 0 < metadata.size_bytes <= _MAX_NORMALIZED_BYTES):
+                raise definitions.PhotoPolicyError("교체 사진은 암호화된 500KB 이하 정규화 이미지여야 합니다.")
+            with transaction.atomic(using=alias), connections[alias].cursor() as cur:
+                cur.execute("""UPDATE gis.feature_photo SET object_key=%s,original_name=%s,
+                    mime_type=%s,size_bytes=%s,captured_at=%s,image_metadata=%s::jsonb,
+                    edited_object_key=NULL,edited_mime_type=NULL,edited_size_bytes=NULL,
+                    edited_at=NULL,edited_by=NULL,edit_data='{}'::jsonb,updated_at=now()
+                    WHERE id=%s AND project_id=%s AND layer_id=%s AND feature_id=%s
+                      AND deleted_at IS NULL""",
+                    [key,filename,mime,metadata.size_bytes,captured_at,json.dumps(image_metadata),
+                     photo_id,project.id,layer_id,feature_id])
             return JsonResponse({"ok":True,"id":photo_id})
         if action == "presign":
             mime = body.get("mime_type")
@@ -219,8 +305,9 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
         except (TypeError, ValueError, AttributeError):
             captured_by = None
         metadata = head_private_object(key)
-        if metadata.content_type != mime or not metadata.encryption_matches or not 0 < metadata.size_bytes <= 25*1024*1024:
-            raise definitions.PhotoPolicyError("업로드한 사진의 형식·크기·암호화를 확인하세요.")
+        if metadata.content_type != mime or not metadata.encryption_matches or not 0 < metadata.size_bytes <= _MAX_NORMALIZED_BYTES:
+            raise definitions.PhotoPolicyError("사진은 암호화된 500KB 이하 정규화 이미지여야 합니다.")
+        image_metadata = _image_metadata(body.get("image_metadata"))
         with transaction.atomic(using=alias), connections[alias].cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))",
                         ["gis.photo:"+str(project.id)+":"+layer_id+":"+feature_id])
@@ -232,11 +319,12 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                     raise definitions.PhotoPolicyError("사진 항목의 최대 장수를 초과했습니다.")
             cur.execute("""INSERT INTO gis.feature_photo(id,project_id,layer_id,feature_id,slot_id,
                 object_key,original_name,mime_type,size_bytes,captured_at,captured_by,
-                extra_data,note,sort_order)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)""",
+                extra_data,image_metadata,note,sort_order)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)""",
                 [photo_id,project.id,layer_id,feature_id,slot["id"] if slot else None,
                  key,filename,mime,metadata.size_bytes,captured_at,captured_by,json.dumps(extra),
-                 str(body.get("note") or "")[:2000],int(body.get("sort_order") or 0)])
+                 json.dumps(image_metadata),str(body.get("note") or "")[:2000],
+                 int(body.get("sort_order") or 0)])
         return JsonResponse({"ok":True,"id":photo_id},status=201)
     except (definitions.PhotoPolicyError, ValueError, IntegrityError, S3ObjectVerificationError) as exc:
         return JsonResponse({"ok":False,"error":str(exc)},status=409)

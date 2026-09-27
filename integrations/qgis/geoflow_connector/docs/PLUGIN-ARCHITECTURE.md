@@ -1,4 +1,4 @@
-# GeoFlow Connector 1.3.1
+# GeoFlow Connector 1.3.2
 
 The 1.1.2 interaction shell is retained: one Dock, login and project pages,
 Layer Workspace, Form Host and Form Header, splitter presentation, visibility
