@@ -82,6 +82,7 @@ class PhotoPolicyService(QObject):
         generation = self._generation
         session, url, revision = self.client.readonly_session_copy(), self.url, self.revision
         self.state, self.error = "loading", ""
+        _log(f"loading project_id={self.project_id} revision={revision}")
         self.changed.emit()
 
         def complete(error, payload=None):
@@ -93,11 +94,11 @@ class PhotoPolicyService(QObject):
                 error = ValueError("photo_policy_revision_mismatch")
             if error is not None:
                 self.state, self.error = "error", "사진 정책을 불러오지 못했습니다. 기존 편집 내용은 보존됩니다."
-                _log(f"fetch_error revision={revision} error={type(error).__name__}")
+                _log(f"error project_id={self.project_id} revision={revision} error={type(error).__name__}")
             else:
                 self.payload, self.state = payload, "ready"
                 QSettings().setValue(self._cache_key(), json.dumps(payload, ensure_ascii=False))
-                _log(f"fetch_ready revision={revision} layers={len(payload.get('layers') or [])}")
+                _log(f"ready project_id={self.project_id} revision={revision} layers={len(payload.get('layers') or [])}")
             self.changed.emit()
 
         try:

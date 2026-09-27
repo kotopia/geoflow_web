@@ -13,7 +13,7 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('CACHE_PREFIX = "GeoFlowConnector/photoPolicies/"', source)
         self.assertIn('(base.scheme, base.netloc)', source)
         self.assertIn('photo_policy_revision_mismatch', source)
-        self.assertIn('fetch_ready revision=', source)
+        self.assertIn('ready project_id=', source)
 
     def test_photo_ui_uses_gis_api_without_aws_credentials_or_ops_attachments(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
@@ -38,6 +38,27 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('setTabVisible(page.photo_tab_index, False)', source)
         self.assertIn('availabilityChanged.connect', source)
         self.assertIn('page.photos.set_feature(feature)', source)
+
+    def test_async_policy_ready_refreshes_current_feature_without_form_rebuild(self):
+        host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
+        section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        self.assertIn("changed.connect(self._photo_policy_changed)", host)
+        self.assertIn("page.photos.refresh_policy()", host)
+        self.assertIn("page.feature_id is None", host)
+        self.assertNotIn("photo_signature", host)
+        self.assertIn('if state in {"idle", "loading"}:', section)
+        self.assertIn('if state == "error":', section)
+        self.assertIn('if state == "unavailable":', section)
+        self.assertIn("service_project_id != active_project_id", section)
+
+    def test_policy_states_control_tab_mode_and_retry(self):
+        source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        self.assertIn("사진 정책을 불러오는 중입니다.", source)
+        self.assertIn("이 레이어에 적용된 사진 정책이 없습니다.", source)
+        self.assertIn("사진 정책을 불러오지 못했습니다.", source)
+        self.assertIn('QPushButton("다시 시도"', source)
+        self.assertIn("self.mode_select.clear()", source)
+        self.assertIn("self._can_write() and len(modes) > 1", source)
 
     def test_layer_uuid_and_visibility_are_runtime_diagnosable(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
