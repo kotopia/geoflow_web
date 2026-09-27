@@ -6,7 +6,44 @@
   <property name="geometry"><rect><x>0</x><y>0</y><width>1100</width><height>800</height></rect></property>
   <layout class="QVBoxLayout" name="rootLayout">
    <item><widget class="QToolBar" name="studioToolbar"><property name="toolButtonStyle"><enum>Qt::ToolButtonIconOnly</enum></property><property name="iconSize"><size><width>20</width><height>20</height></size></property></widget></item>
-   <item><widget class="QGraphicsView" name="graphicsView"/></item>
+   <item>
+    <widget class="QSplitter" name="studioSplitter">
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+     <widget class="QGraphicsView" name="graphicsView"/>
+     <widget class="QGroupBox" name="propertyPanel">
+      <property name="title"><string>선택 객체 속성</string></property>
+      <property name="minimumSize"><size><width>220</width><height>0</height></size></property>
+      <property name="maximumSize"><size><width>300</width><height>16777215</height></size></property>
+      <layout class="QVBoxLayout" name="propertyRootLayout">
+       <item>
+        <layout class="QFormLayout" name="propertyFormLayout">
+         <item row="0" column="0"><widget class="QLabel" name="colorLabel"><property name="text"><string>색상</string></property></widget></item>
+         <item row="0" column="1"><widget class="QComboBox" name="colorCombo"/></item>
+         <item row="1" column="0"><widget class="QLabel" name="strokeLabel"><property name="text"><string>선 두께</string></property></widget></item>
+         <item row="1" column="1"><widget class="QSpinBox" name="strokeWidthSpin"><property name="minimum"><number>1</number></property><property name="maximum"><number>40</number></property><property name="value"><number>5</number></property></widget></item>
+         <item row="2" column="0"><widget class="QLabel" name="opacityLabel"><property name="text"><string>투명도</string></property></widget></item>
+         <item row="2" column="1"><widget class="QDoubleSpinBox" name="opacitySpin"><property name="minimum"><double>0.050000000000000</double></property><property name="maximum"><double>1.000000000000000</double></property><property name="singleStep"><double>0.050000000000000</double></property><property name="value"><double>1.000000000000000</double></property></widget></item>
+         <item row="3" column="0"><widget class="QLabel" name="fontLabel"><property name="text"><string>글자 크기</string></property></widget></item>
+         <item row="3" column="1"><widget class="QSpinBox" name="fontSizeSpin"><property name="minimum"><number>8</number></property><property name="maximum"><number>160</number></property><property name="value"><number>28</number></property></widget></item>
+         <item row="4" column="0"><widget class="QLabel" name="rotationLabel"><property name="text"><string>회전</string></property></widget></item>
+         <item row="4" column="1"><widget class="QDoubleSpinBox" name="rotationSpin"><property name="minimum"><double>-360.000000000000000</double></property><property name="maximum"><double>360.000000000000000</double></property><property name="singleStep"><double>5.000000000000000</double></property></widget></item>
+         <item row="5" column="0"><widget class="QLabel" name="boldLabel"><property name="text"><string>굵게</string></property></widget></item>
+         <item row="5" column="1"><widget class="QCheckBox" name="boldCheck"/></item>
+        </layout>
+       </item>
+       <item><widget class="QToolButton" name="fillButton"><property name="text"><string>채우기 색상…</string></property></widget></item>
+       <item>
+        <layout class="QHBoxLayout" name="orderLayout">
+         <item><widget class="QToolButton" name="backButton"><property name="text"><string>뒤로</string></property></widget></item>
+         <item><widget class="QToolButton" name="frontButton"><property name="text"><string>앞으로</string></property></widget></item>
+         <item><widget class="QToolButton" name="deleteAnnotationButton"><property name="text"><string>삭제</string></property></widget></item>
+        </layout>
+       </item>
+       <item><spacer name="propertySpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
    <item>
     <layout class="QHBoxLayout" name="statusLayout">
      <item><widget class="QLabel" name="statusLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>

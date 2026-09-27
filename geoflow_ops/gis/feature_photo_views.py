@@ -19,6 +19,7 @@ from geoflow_ops.services.s3_service import (
     generate_presigned_put_url, head_private_object,
 )
 from .photo_policy_views import _feature_ext_data, _paired_scopes, central_photo_snapshot
+from .photo_edit_data import validate_edit_data
 from .qgis_views import _require_project, _require_qgis_context
 
 _EXTENSIONS = {"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp"}
@@ -177,6 +178,8 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                     photo["extra_data"] = json.loads(photo["extra_data"])
                 if isinstance(photo.get("image_metadata"), str):
                     photo["image_metadata"] = json.loads(photo["image_metadata"])
+                if isinstance(photo.get("edit_data"), str):
+                    photo["edit_data"] = json.loads(photo["edit_data"])
                 photo["image_metadata"] = _public_image_metadata(photo.get("image_metadata"))
             if request.GET.get("download_urls") == "1":
                 for photo in photos:
@@ -213,8 +216,9 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
             if action == "edit_presign":
                 signed = generate_presigned_put_url(key,mime_type=mime,expires_in=900)
                 return JsonResponse({"ok":True,"edit_id":edit_id,"object_key":key,**signed})
-            edit_data = body.get("edit_data") or {}
-            if not isinstance(edit_data, dict) or len(json.dumps(edit_data)) > 20000:
+            try:
+                edit_data = validate_edit_data(body.get("edit_data") or {})
+            except ValueError:
                 raise definitions.PhotoPolicyError("사진 편집 정보가 올바르지 않습니다.")
             metadata = head_private_object(key)
             if (metadata.content_type != mime or not metadata.encryption_matches

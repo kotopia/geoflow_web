@@ -24,12 +24,12 @@ def annotation_icon(name, size=32):
     return QIcon(QPixmap.fromImage(image))
 
 
-def draw_icon(painter, name, center, size=48):
+def draw_icon(painter, name, center, size=48, color="#ef4444"):
     """Render a registry icon with QPainter primitives, independent of DPI/resources."""
     x, y, r = center.x(), center.y(), size / 2
     painter.save()
     painter.setRenderHint(painter.RenderHint.Antialiasing, True)
-    painter.setPen(QPen(QColor("#ef4444"), max(3, int(size / 12))))
+    painter.setPen(QPen(QColor(color), max(3, int(size / 12))))
     painter.setBrush(QBrush(QColor(255, 255, 255, 210)))
     if name.startswith("number_"):
         painter.drawEllipse(QPointF(x, y), r, r)
