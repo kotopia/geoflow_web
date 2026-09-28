@@ -1,4 +1,9 @@
-"""Apply the reviewed central catalogue reset and tenant photo-column extension."""
+"""Apply the reviewed central catalogue reset and tenant photo-column extension.
+
+This command is also the explicit recovery entrypoint when a guarded deployment
+has installed the application code but stopped before the catalogue v2 schema
+transition completed.
+"""
 import importlib.util
 from pathlib import Path
 from uuid import uuid4

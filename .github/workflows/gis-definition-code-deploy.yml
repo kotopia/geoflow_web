@@ -301,6 +301,13 @@ jobs:
                 qgis_flow_dip_repair_required=yes ;;
             esac
           done <<< "$changed_paths"
+          # Catalogue v2 replaces the legacy central photo schema.  Running the
+          # Phase 1 bootstrap first against an existing Phase 1 installation
+          # would execute v2-only indexes before the v2 transition creates their
+          # tables.  Let the reviewed v2 transition own this upgrade instead.
+          if [ "$photo_catalog_v2_required" = yes ]; then
+            photo_phase1_required=no
+          fi
           git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
           rollback_needed=1
 
