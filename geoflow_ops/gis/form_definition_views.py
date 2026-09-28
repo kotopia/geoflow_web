@@ -97,7 +97,7 @@ def project_configuration(request,project_id):
             if photo_data:
                 scopes = _paired_scopes(alias, project.id)
                 for layer in plan['layers']:
-                    policy = gis_photo_policy.resolve(photo_data, scopes, layer['id'], {})
+                    policy = gis_photo_policy.resolve(photo_data, scopes, layer['id'])
                     if policy:
                         context['photo_policies'].append({'layer': layer, 'policy': policy})
             context['selected_group']=config['group_id']

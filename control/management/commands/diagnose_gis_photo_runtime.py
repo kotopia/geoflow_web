@@ -67,7 +67,7 @@ class Command(BaseCommand):
                         "layers": []}
                 for layer in targets:
                     standard = str(layer.get("standard_name") or "").upper()
-                    policy = gis_photo_policy.resolve(photo, scopes, str(layer.get("id") or ""), {})
+                    policy = gis_photo_policy.resolve(photo, scopes, str(layer.get("id") or ""))
                     feature_id = None
                     with tenant_cursor(config.group_id, write=False) as cur:
                         cur.execute(f'SELECT id::text FROM gis."{layer["physical_name"]}" WHERE project_id=%s LIMIT 1', [project_id])

@@ -25,12 +25,14 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         for forbidden in ('AWS_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY', 'ops.attachments'):
             self.assertNotIn(forbidden, source)
 
-    def test_capture_mode_is_stored_in_official_ext_data_key(self):
-        source = (ROOT / "forms/dynamic/binding.py").read_text(encoding="utf-8")
-        self.assertIn('photo["capture_mode"] = self.pending_capture_mode', source)
-        self.assertIn('extension["photo"] = photo', source)
-        self.assertIn('{"DIRECT", "INDIRECT", "GENERAL"}', source)
-        self.assertIn("pending_capture_mode", source)
+    def test_catalogue_selection_is_local_not_feature_ext_data(self):
+        binding = (ROOT / "forms/dynamic/binding.py").read_text(encoding="utf-8")
+        section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        self.assertNotIn("pending_capture_mode", binding)
+        self.assertNotIn('photo["capture_mode"]', binding)
+        self.assertIn("GeoFlowConnector/photoLastSelection/", section)
+        self.assertIn('settings.setValue(prefix + "template_id"', section)
+        self.assertIn('settings.setValue(prefix + "variant_id"', section)
 
     def test_form_host_places_photos_in_policy_gated_dedicated_tab(self):
         source = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
@@ -53,15 +55,15 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('if state == "unavailable":', section)
         self.assertIn("service_project_id != active_project_id", section)
 
-    def test_policy_states_control_tab_mode_and_retry(self):
+    def test_policy_states_control_tab_selectors_and_retry(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
         self.assertIn("사진 정책을 불러오는 중입니다.", source)
         self.assertIn("이 레이어에 적용된 사진 정책이 없습니다.", source)
         self.assertIn("사진 정책을 불러오지 못했습니다.", source)
         ui = (ROOT / "ui/forms/photo_tab.ui").read_text(encoding="utf-8")
         self.assertIn("다시 시도", ui)
-        self.assertIn("self.mode_select.clear()", source)
-        self.assertIn("self._can_write() and len(modes) > 1", source)
+        self.assertIn("self.template_select", source)
+        self.assertIn("self.variant_select", source)
 
     def test_layer_uuid_and_visibility_are_runtime_diagnosable(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
@@ -69,14 +71,16 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn("policy_found=", source)
         self.assertIn("visible=", source)
 
-    def test_mode_switch_is_pending_and_uploads_are_bounded(self):
+    def test_variant_selection_is_remembered_and_uploads_are_bounded(self):
         source = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
-        self.assertIn("binding.set_photo_capture_mode(mode)", source)
+        self.assertIn("def _template_changed", source)
+        self.assertIn("def _variant_changed", source)
+        self.assertIn("self._remember_selection()", source)
         self.assertIn("normalize_photo(path)", source)
         self.assertIn('{"decimal", "number"}', source)
         self.assertIn("저장 대기 중입니다", source)
-        self.assertIn("기존 사진 보존", source)
-        self.assertIn("기존 사진 삭제 후 변경", source)
+        self.assertIn('"template_id": operation["template_id"]', source)
+        self.assertIn('"variant_id": operation["variant_id"]', source)
 
     def test_responsive_cards_internal_viewer_and_editor_are_used(self):
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
@@ -112,7 +116,9 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         ET.parse(tab)
         studio_tree = ET.parse(studio_ui)
         tab_text = tab.read_text(encoding="utf-8")
-        self.assertIn('name="modeCombo"', tab_text)
+        self.assertIn('name="templateCombo"', tab_text)
+        self.assertIn('name="variantCombo"', tab_text)
+        self.assertIn('name="managerButton"', tab_text)
         self.assertIn('name="cardsScrollArea"', tab_text)
         self.assertIn("ScrollBarAlwaysOff", tab_text)
         dialog = studio_tree.find("./widget[@class='QDialog']")
@@ -127,6 +133,8 @@ class PhotoPhase2ContractTests(unittest.TestCase):
             self.assertIn(tool, studio)
         self.assertIn("QTimer.singleShot(0, self.fit_to_window)", studio)
         self.assertIn("annotation_icon(name)", studio)
+        section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        self.assertIn('feather_icon("camera")', section)
 
     def test_phase5_annotations_are_persistent_and_reeditable(self):
         studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")

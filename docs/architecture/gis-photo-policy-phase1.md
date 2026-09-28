@@ -1,4 +1,7 @@
-# GIS 사진 정책 Phase 1 계약
+# GIS 사진 정책 Phase 1 계약 (보관됨)
+
+> 이 문서는 최초 Phase 1 계약의 기록이다. 현재 계약은
+> `gis-photo-policy-v2.md`를 따른다.
 
 이 변경은 중앙 사진 Definition과 테넌트 GIS 사진 행을 추가한다. 운영 DB에는
 자동 적용하지 않는다. 중앙 SQL(`gis-photo-policy-central.sql`)은 중앙 GIS
@@ -14,7 +17,7 @@ Definition이 설치된 뒤 별도 승인된 절차에서만 적용하고, 테�
 - 객체 `ext_data.photo.capture_mode`는 `DIRECT`, `INDIRECT`, `GENERAL`만 허용한다.
   키가 없으면 해당 정책의 기본값을 사용한다. 기존 객체는 작업 세션 값으로 바꾸지 않는다.
 - 중앙 정책/템플릿/슬롯은 중앙 DB에만 존재한다. 실제 `gis.feature_photo`는
-  테넌트 DB에 있고 `ops.attachments`에 행을 만들지 않는다.
+  테넌트 DB에 있고 일반 첨부 구조에 행을 만들지 않는다.
 
 ## 읽기 계약
 
@@ -33,21 +36,12 @@ Definition이 설치된 뒤 별도 승인된 절차에서만 적용하고, 테�
 
 - `GET/POST /gis/projects/{project_id}/api/layers/{layer_id}/features/{feature_id}/photos/`
   와 개별 사진 `PATCH/DELETE .../photos/{photo_id}/`를 사용한다.
-- `POST {"action":"presign","mime_type":"image/jpeg","slot_id":null}`은
-  새 UUID와 전용 S3 key, 15분 유효 PUT URL을 반환한다. `slot_id`가 있으면
-  서버가 현재 유효한 템플릿의 슬롯인지 확인한다.
-- 업로드 후 `POST {"action":"finalize","id":"...","mime_type":"image/jpeg",
-  "original_name":"...","slot_id":null,"extra_data":{}}`를 보낸다.
-  서버가 S3 HEAD로 크기·Content-Type·암호화를 확인한 후 행을 기록한다.
+- presign은 새 UUID와 전용 S3 key, 15분 유효 PUT URL을 반환한다.
+- finalize에서 서버가 S3 HEAD로 크기·Content-Type·암호화를 확인한 후 행을 기록한다.
 - 전용 키는 `tenants/{tenant_alias}/gis/{project}/{layer}/{feature}/{photo}.{ext}`다.
-  `ops.attachments`의 객체 키 생성기는 사용하지 않는다.
-- 삭제는 테넌트 행을 soft delete한다. S3 객체는 즉시 파괴하지 않으며,
-  보존기간과 안전한 정리 작업은 후속 동기화 단계에서 확정한다.
+- 삭제는 테넌트 행을 soft delete한다. S3 객체는 즉시 파괴하지 않는다.
 
 ## 적용 및 되돌리기
 
-중앙 DDL과 테넌트 DDL은 additive다. 코드만 먼저 되돌려도 기존 GIS와 일반
-attachment 경로가 동작해야 한다. 기록된 사진이 있을 때 테이블을 DROP하는
-reverse migration은 제공하지 않는다. 정책 변경은 별도 revision을 바꾸므로
-QGIS는 사진 정의 캐시만 다시 받아야 한다. QGIS/QField 사진 UI와 offline queue,
-프로젝트별 정책 예외는 이 단계 범위가 아니다.
+중앙 DDL과 테넌트 DDL은 additive다. 기록된 사진이 있을 때 테이블을 DROP하는
+reverse migration은 제공하지 않는다. 정책 변경은 별도 revision을 바꾼다.

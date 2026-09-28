@@ -1,4 +1,4 @@
-"""Central GIS-only photo catalogue and deterministic project policy resolver."""
+"""Central GIS photo catalogue: policy -> templates -> variants -> slots."""
 from __future__ import annotations
 
 import hashlib
@@ -27,14 +27,16 @@ def uid(value, label="ID"):
 
 
 def ready(cur):
-    cur.execute("SELECT to_regclass('gis.photo_policy') IS NOT NULL AND "
-                "to_regclass('gis.photo_template') IS NOT NULL AND "
-                "to_regclass('gis.photo_slot') IS NOT NULL")
+    cur.execute("""SELECT to_regclass('gis.photo_policy') IS NOT NULL
+        AND to_regclass('gis.photo_template') IS NOT NULL
+        AND to_regclass('gis.photo_variant') IS NOT NULL
+        AND to_regclass('gis.photo_slot') IS NOT NULL
+        AND to_regclass('gis.photo_policy_template') IS NOT NULL""")
     return bool(cur.fetchone()[0])
 
 
 def _dicts(cur):
-    names = [c[0] for c in cur.description]
+    names = [column[0] for column in cur.description]
     return [dict(zip(names, row)) for row in cur.fetchall()]
 
 
@@ -52,24 +54,30 @@ def _json_object(value, label):
 def snapshot(cur):
     if not ready(cur):
         raise PhotoPolicyError("중앙 사진 정책 스키마가 준비되지 않았습니다.")
-    cur.execute("""SELECT id::text,code,name,description,capture_mode,active,sort_order
-        FROM gis.photo_template ORDER BY sort_order,code""")
+    cur.execute("""SELECT id::text,code,name,description,active,sort_order
+        FROM gis.photo_template ORDER BY sort_order,code,id""")
     templates = _dicts(cur)
-    cur.execute("""SELECT id::text,template_id::text,code,name,description,
+    cur.execute("""SELECT id::text,template_id::text,code,name,description,active,sort_order
+        FROM gis.photo_variant ORDER BY template_id,sort_order,code,id""")
+    variants = _dicts(cur)
+    cur.execute("""SELECT id::text,variant_id::text,code,name,description,
         min_count,max_count,sort_order,active,extra_schema
-        FROM gis.photo_slot ORDER BY template_id,sort_order,code""")
+        FROM gis.photo_slot ORDER BY variant_id,sort_order,code,id""")
     slots = _dicts(cur)
     for slot in slots:
         slot["extra_schema"] = _json_object(slot["extra_schema"], "사진 항목 추가 입력")
-    cur.execute("""SELECT p.id::text,p.lv2_id::text,p.lv3_id::text,p.layer_id::text,
-        p.default_capture_mode,p.direct_template_id::text,p.indirect_template_id::text,
-        p.general_template_id::text,
-        p.allow_extra_photo,p.active,p.sort_order,p.description
-        FROM gis.photo_policy p ORDER BY p.sort_order,p.id""")
+    cur.execute("""SELECT id::text,lv2_id::text,lv3_id::text,layer_id::text,
+        active,sort_order,description FROM gis.photo_policy ORDER BY sort_order,id""")
     policies = _dicts(cur)
-    revision = hashlib.sha256(json.dumps([templates, slots, policies], sort_keys=True,
-        ensure_ascii=False, separators=(",", ":"), default=str).encode()).hexdigest()
-    return {"templates": templates, "slots": slots, "policies": policies, "revision": revision}
+    cur.execute("""SELECT id::text,policy_id::text,template_id::text,sort_order,active
+        FROM gis.photo_policy_template ORDER BY policy_id,sort_order,id""")
+    policy_templates = _dicts(cur)
+    body = [templates, variants, slots, policies, policy_templates]
+    revision = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False,
+        separators=(",", ":"), default=str).encode()).hexdigest()
+    return {"templates": templates, "variants": variants, "slots": slots,
+            "policies": policies, "policy_templates": policy_templates,
+            "revision": revision}
 
 
 def catalog_options(cur):
@@ -101,7 +109,7 @@ def validate_extra_schema(value):
     for field in value["fields"]:
         if not isinstance(field, dict) or not isinstance(field.get("key"), str) or not field["key"].isidentifier():
             raise PhotoPolicyError("추가 입력 키가 올바르지 않습니다.")
-        if field["key"] in keys or field.get("kind") not in ("text","integer","decimal","boolean","date","datetime"):
+        if field["key"] in keys or field.get("kind") not in ("text", "integer", "decimal", "boolean", "date", "datetime"):
             raise PhotoPolicyError("추가 입력 키 또는 유형이 중복되거나 올바르지 않습니다.")
         if not isinstance(field.get("label"), str) or not field["label"].strip():
             raise PhotoPolicyError("추가 입력 표시명을 입력하세요.")
@@ -116,18 +124,32 @@ def _exists(cur, sql, params):
     return bool(cur.fetchone())
 
 
+def _code(value, label):
+    result = str(value or "").strip().upper()
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", result):
+        raise PhotoPolicyError(f"{label} 코드를 확인하세요.")
+    return result
+
+
+def _order(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError) as exc:
+        raise PhotoPolicyError("순서가 올바르지 않습니다.") from exc
+
+
 def mutate(cur, payload):
-    kind = payload.get("kind")
-    action = payload.get("action")
-    if kind not in ("template", "slot", "policy") or action not in ("save", "deactivate"):
+    kind, action = payload.get("kind"), payload.get("action")
+    if kind not in ("template", "variant", "slot", "policy") or action not in ("save", "deactivate"):
         raise PhotoPolicyError("지원하지 않는 사진 정의 작업입니다.")
-    table = {"template":"photo_template", "slot":"photo_slot", "policy":"photo_policy"}[kind]
+    table = {"template": "photo_template", "variant": "photo_variant",
+             "slot": "photo_slot", "policy": "photo_policy"}[kind]
     item_id = uid(payload["id"], "정의 ID") if payload.get("id") else str(uuid4())
     if action == "deactivate":
-        if kind == "template" and _exists(cur,"""SELECT 1 FROM gis.photo_policy WHERE active AND
-            (direct_template_id=%s OR indirect_template_id=%s OR general_template_id=%s)""",
-            [item_id,item_id,item_id]):
-            raise PhotoPolicyError("활성 사진 정책에서 사용하는 템플릿입니다. 먼저 정책을 변경하세요.")
+        if kind == "template" and _exists(cur, """SELECT 1 FROM gis.photo_policy_template pt
+                JOIN gis.photo_policy p ON p.id=pt.policy_id
+                WHERE pt.template_id=%s AND pt.active AND p.active""", [item_id]):
+            raise PhotoPolicyError("활성 사진 정책에서 사용하는 템플릿입니다. 먼저 정책 연결을 변경하세요.")
         cur.execute(f"UPDATE gis.{table} SET active=false,updated_at=now() WHERE id=%s", [item_id])
         if cur.rowcount != 1:
             raise PhotoPolicyError("사진 정의를 찾을 수 없습니다.")
@@ -135,58 +157,54 @@ def mutate(cur, payload):
 
     name = str(payload.get("name") or "").strip()
     description = str(payload.get("description") or "").strip()
-    if kind in ("template", "slot") and not 1 <= len(name) <= 120:
+    if kind in ("template", "variant", "slot") and not 1 <= len(name) <= 120:
         raise PhotoPolicyError("이름은 1~120자여야 합니다.")
-    try:
-        order = int(payload.get("sort_order") or 0)
-    except (TypeError, ValueError) as exc:
-        raise PhotoPolicyError("순서가 올바르지 않습니다.") from exc
+    order = _order(payload.get("sort_order"))
     if kind == "template":
-        code = str(payload.get("code") or "").strip().upper()
-        mode = payload.get("capture_mode")
-        if not re.fullmatch(r"[A-Z][A-Z0-9_]*",code) or mode not in ("DIRECT","INDIRECT","GENERAL"):
-            raise PhotoPolicyError("템플릿 코드 또는 촬영방식을 확인하세요.")
-        if _exists(cur,"""SELECT 1 FROM gis.photo_policy WHERE active AND
-          ((direct_template_id=%s AND %s <> 'DIRECT') OR
-           (indirect_template_id=%s AND %s <> 'INDIRECT') OR
-           (general_template_id=%s AND %s <> 'GENERAL'))""",
-            [item_id,mode,item_id,mode,item_id,mode]):
-            raise PhotoPolicyError("정책에서 사용하는 템플릿의 촬영방식은 변경할 수 없습니다.")
-        cur.execute("""INSERT INTO gis.photo_template(id,code,name,description,capture_mode,sort_order)
-          VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
-          code=EXCLUDED.code,name=EXCLUDED.name,description=EXCLUDED.description,
-          capture_mode=EXCLUDED.capture_mode,sort_order=EXCLUDED.sort_order,
-          updated_at=now()""", [item_id,code,name,description,mode,order])
-    elif kind == "slot":
+        cur.execute("""INSERT INTO gis.photo_template(id,code,name,description,sort_order)
+          VALUES (%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET code=EXCLUDED.code,
+          name=EXCLUDED.name,description=EXCLUDED.description,sort_order=EXCLUDED.sort_order,
+          active=true,updated_at=now()""", [item_id,_code(payload.get("code"), "템플릿"),name,description,order])
+    elif kind == "variant":
         template = uid(payload.get("template_id"), "템플릿")
-        code = str(payload.get("code") or "").strip().upper()
+        if not _exists(cur, "SELECT 1 FROM gis.photo_template WHERE id=%s AND active", [template]):
+            raise PhotoPolicyError("활성 템플릿을 찾을 수 없습니다.")
+        cur.execute("""INSERT INTO gis.photo_variant(id,template_id,code,name,description,sort_order)
+          VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
+          template_id=EXCLUDED.template_id,code=EXCLUDED.code,name=EXCLUDED.name,
+          description=EXCLUDED.description,sort_order=EXCLUDED.sort_order,active=true,updated_at=now()""",
+          [item_id,template,_code(payload.get("code"), "Variant"),name,description,order])
+    elif kind == "slot":
+        variant = uid(payload.get("variant_id"), "Variant")
         try:
-            minimum = int(payload.get("min_count", 1))
-            maximum = int(payload.get("max_count", 1))
+            minimum, maximum = int(payload.get("min_count", 1)), int(payload.get("max_count", 1))
         except (ValueError, TypeError) as exc:
             raise PhotoPolicyError("사진 수량이 올바르지 않습니다.") from exc
-        if not re.fullmatch(r"[A-Z][A-Z0-9_]*",code) or not 0 <= minimum <= maximum <= 100:
-            raise PhotoPolicyError("사진 코드 또는 수량이 올바르지 않습니다.")
+        if not 0 <= minimum <= maximum <= 100:
+            raise PhotoPolicyError("사진 수량이 올바르지 않습니다.")
         extra = validate_extra_schema(payload.get("extra_schema", {"fields": []}))
-        if not _exists(cur,"SELECT 1 FROM gis.photo_template WHERE id=%s AND active",[template]):
-            raise PhotoPolicyError("활성 템플릿을 찾을 수 없습니다.")
-        cur.execute("""INSERT INTO gis.photo_slot(id,template_id,code,name,description,
+        if not _exists(cur, "SELECT 1 FROM gis.photo_variant WHERE id=%s AND active", [variant]):
+            raise PhotoPolicyError("활성 Variant를 찾을 수 없습니다.")
+        cur.execute("""INSERT INTO gis.photo_slot(id,variant_id,code,name,description,
           min_count,max_count,sort_order,extra_schema) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-          ON CONFLICT(id) DO UPDATE SET code=EXCLUDED.code,name=EXCLUDED.name,
-          description=EXCLUDED.description,min_count=EXCLUDED.min_count,
+          ON CONFLICT(id) DO UPDATE SET variant_id=EXCLUDED.variant_id,code=EXCLUDED.code,
+          name=EXCLUDED.name,description=EXCLUDED.description,min_count=EXCLUDED.min_count,
           max_count=EXCLUDED.max_count,sort_order=EXCLUDED.sort_order,
-          extra_schema=EXCLUDED.extra_schema,updated_at=now()""",
-          [item_id,template,code,name,description,minimum,maximum,order,Json(extra)])
+          extra_schema=EXCLUDED.extra_schema,active=true,updated_at=now()""",
+          [item_id,variant,_code(payload.get("code"), "사진 항목"),name,description,
+           minimum,maximum,order,Json(extra)])
     else:
         lv2 = uid(payload.get("lv2_id"), "L2")
         lv3 = uid(payload["lv3_id"], "L3") if payload.get("lv3_id") else None
         layer = uid(payload.get("layer_id"), "레이어")
-        direct = uid(payload["direct_template_id"]) if payload.get("direct_template_id") else None
-        indirect = uid(payload["indirect_template_id"]) if payload.get("indirect_template_id") else None
-        general = uid(payload["general_template_id"]) if payload.get("general_template_id") else None
-        mode = payload.get("default_capture_mode", "DIRECT")
-        if mode not in ("DIRECT", "INDIRECT", "GENERAL") or not (direct or indirect or general):
-            raise PhotoPolicyError("기본 방식과 템플릿을 확인하세요.")
+        raw_templates = payload.get("template_ids")
+        if not isinstance(raw_templates, list) or not raw_templates:
+            raise PhotoPolicyError("적용할 템플릿을 하나 이상 선택하세요.")
+        template_ids = []
+        for value in raw_templates:
+            template_id = uid(value, "템플릿")
+            if template_id not in template_ids:
+                template_ids.append(template_id)
         if not _exists(cur,"SELECT 1 FROM catalog.category_node WHERE id=%s AND level=2 AND active",[lv2]):
             raise PhotoPolicyError("활성 L2 업무범위를 찾을 수 없습니다.")
         if lv3 and not _exists(cur,"""SELECT 1 FROM catalog.category_option_set s
@@ -200,79 +218,61 @@ def mutate(cur, payload):
             JOIN gis.definition_layer l ON l.id=lc.layer_id AND l.active
             WHERE lc.catalog_level=2 AND lc.catalog_item_id=%s AND lc.layer_id=%s""",[lv2,layer]):
             raise PhotoPolicyError("L2에 연결된 활성 레이어만 선택할 수 있습니다.")
-        for template_id, expected in ((direct,"DIRECT"),(indirect,"INDIRECT"),(general,"GENERAL")):
-            if template_id and not _exists(cur,
-                "SELECT 1 FROM gis.photo_template WHERE id=%s AND active AND capture_mode=%s",[template_id,expected]):
-                raise PhotoPolicyError("방식에 맞는 활성 템플릿이 아닙니다.")
-        selected = {"DIRECT":direct, "INDIRECT":indirect, "GENERAL":general}[mode]
-        if not selected:
-            raise PhotoPolicyError("기본 방식에 적용할 템플릿이 없습니다.")
-        cur.execute("""INSERT INTO gis.photo_policy(id,lv2_id,lv3_id,layer_id,
-          default_capture_mode,direct_template_id,indirect_template_id,general_template_id,
-          allow_extra_photo,sort_order,description)
-          VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET
-          lv2_id=EXCLUDED.lv2_id,lv3_id=EXCLUDED.lv3_id,layer_id=EXCLUDED.layer_id,
-          default_capture_mode=EXCLUDED.default_capture_mode,
-          direct_template_id=EXCLUDED.direct_template_id,
-          indirect_template_id=EXCLUDED.indirect_template_id,
-          general_template_id=EXCLUDED.general_template_id,
-          allow_extra_photo=EXCLUDED.allow_extra_photo,sort_order=EXCLUDED.sort_order,
-          description=EXCLUDED.description,updated_at=now()""",
-          [item_id,lv2,lv3,layer,mode,direct,indirect,general,
-           payload.get("allow_extra_photo",True) is True,order,description])
+        for template_id in template_ids:
+            if not _exists(cur, "SELECT 1 FROM gis.photo_template WHERE id=%s AND active", [template_id]):
+                raise PhotoPolicyError("활성 템플릿을 찾을 수 없습니다.")
+        cur.execute("""INSERT INTO gis.photo_policy(id,lv2_id,lv3_id,layer_id,sort_order,description)
+          VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET lv2_id=EXCLUDED.lv2_id,
+          lv3_id=EXCLUDED.lv3_id,layer_id=EXCLUDED.layer_id,sort_order=EXCLUDED.sort_order,
+          description=EXCLUDED.description,active=true,updated_at=now()""",
+          [item_id,lv2,lv3,layer,order,description])
+        cur.execute("UPDATE gis.photo_policy_template SET active=false,updated_at=now() WHERE policy_id=%s",
+                    [item_id])
+        for index, template_id in enumerate(template_ids):
+            cur.execute("""INSERT INTO gis.photo_policy_template
+              (id,policy_id,template_id,sort_order,active) VALUES (%s,%s,%s,%s,true)
+              ON CONFLICT(policy_id,template_id) DO UPDATE SET sort_order=EXCLUDED.sort_order,
+              active=true,updated_at=now()""", [str(uuid4()),item_id,template_id,index])
     return item_id
 
 
-def capture_mode(ext_data, default="DIRECT"):
-    if isinstance(ext_data, str):
-        try:
-            ext_data = json.loads(ext_data)
-        except ValueError as exc:
-            raise PhotoPolicyError("객체 확장 데이터가 올바르지 않습니다.") from exc
-    if not isinstance(ext_data, dict):
-        raise PhotoPolicyError("객체 확장 데이터가 올바르지 않습니다.")
-    photo = ext_data.get("photo", {})
-    if not isinstance(photo, dict):
-        raise PhotoPolicyError("사진 촬영방식이 올바르지 않습니다.")
-    mode = photo.get("capture_mode", default)
-    if mode not in ("DIRECT","INDIRECT","GENERAL"):
-        raise PhotoPolicyError("사진 촬영방식은 DIRECT, INDIRECT 또는 GENERAL이어야 합니다.")
-    return mode
-
-
-def resolve(data, scope_rows, layer_id, ext_data=None):
-    """Use paired scope rows, not the flattened manifest capability list."""
+def resolve(data, scope_rows, layer_id):
+    """Resolve one L3-specific/L2-default policy and return its ordered catalogue."""
     candidates = []
-    for p in data["policies"]:
-        if not p["active"] or p["layer_id"] != str(layer_id):
+    for policy in data["policies"]:
+        if not policy["active"] or policy["layer_id"] != str(layer_id):
             continue
         for lv2, lv3 in scope_rows:
-            if p["lv2_id"] == str(lv2) and (p["lv3_id"] is None or p["lv3_id"] == str(lv3)):
-                candidates.append((int(p["lv3_id"] is not None), p))
+            if policy["lv2_id"] == str(lv2) and (policy["lv3_id"] is None or policy["lv3_id"] == str(lv3)):
+                candidates.append((int(policy["lv3_id"] is not None), policy))
                 break
     if not candidates:
         return None
     priority = max(rank for rank, _ in candidates)
-    winners = {p["id"]:p for rank,p in candidates if rank == priority}
+    winners = {policy["id"]: policy for rank,policy in candidates if rank == priority}
     if len(winners) != 1:
         raise PhotoPolicyConflict("동일한 레이어에 같은 우선순위 사진 정책이 여러 개 적용됩니다.")
     policy = next(iter(winners.values()))
-    mode = capture_mode(ext_data or {}, policy["default_capture_mode"])
-    mode_keys = {"DIRECT":"direct_template_id", "INDIRECT":"indirect_template_id",
-                 "GENERAL":"general_template_id"}
-    selected = policy[mode_keys[mode]]
-    templates = {t["id"]:t for t in data["templates"] if t["active"]}
-    if selected is None or selected not in templates:
-        raise PhotoPolicyError("선택한 방식의 활성 사진 템플릿이 없습니다.")
-    if templates[selected]["capture_mode"] != mode:
-        raise PhotoPolicyError("사진 템플릿의 촬영방식이 정책과 일치하지 않습니다.")
-    def expanded(template_id):
-        if not template_id or template_id not in templates:
-            return None
-        return {**templates[template_id], "slots":[s for s in data["slots"]
-            if s["template_id"] == template_id and s["active"]]}
-    modes = {name:expanded(policy.get(key)) for name,key in mode_keys.items()}
-    modes = {name:template for name,template in modes.items() if template is not None}
-    return {"policy_id":policy["id"], "capture_mode":mode,
-            "allow_extra_photo":policy["allow_extra_photo"],
-            "template":modes[mode], "modes":modes}
+    templates_by_id = {row["id"]: row for row in data["templates"] if row["active"]}
+    variants = [row for row in data["variants"] if row["active"]]
+    slots = [row for row in data["slots"] if row["active"]]
+    links = sorted((row for row in data["policy_templates"]
+                    if row["active"] and row["policy_id"] == policy["id"]),
+                   key=lambda row: (row["sort_order"], row["id"]))
+    expanded = []
+    for link in links:
+        template = templates_by_id.get(link["template_id"])
+        if not template:
+            continue
+        template_variants = []
+        for variant in sorted((row for row in variants if row["template_id"] == template["id"]),
+                              key=lambda row: (row["sort_order"], row["code"], row["id"])):
+            template_variants.append({**variant, "slots": sorted(
+                (row for row in slots if row["variant_id"] == variant["id"]),
+                key=lambda row: (row["sort_order"], row["code"], row["id"]))})
+        if template_variants:
+            expanded.append({**template, "sort_order": link["sort_order"],
+                             "variants": template_variants})
+    if not expanded:
+        raise PhotoPolicyError("정책에 활성 사진 Template/Variant가 없습니다.")
+    return {"policy_id": policy["id"], "layer_id": str(layer_id), "templates": expanded}

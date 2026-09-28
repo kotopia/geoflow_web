@@ -1,4 +1,4 @@
-"""GIS-owned photo metadata and private S3 handoff; never ops.attachments."""
+"""GIS-owned photo metadata and private S3 handoff."""
 from __future__ import annotations
 
 import json
@@ -18,7 +18,7 @@ from geoflow_ops.services.s3_service import (
     S3ObjectVerificationError, generate_presigned_get_url,
     generate_presigned_put_url, head_private_object,
 )
-from .photo_policy_views import _feature_ext_data, _paired_scopes, central_photo_snapshot
+from .photo_policy_views import _require_feature, _paired_scopes, central_photo_snapshot
 from .photo_edit_data import validate_edit_data
 from .qgis_views import _require_project, _require_qgis_context
 
@@ -46,25 +46,33 @@ def _context(request, project_id, layer_id, feature_id, *, write=False):
     layer = next((l for l in plan["layers"] if str(l["id"]) == layer_id), None)
     if layer is None:
         raise definitions.PhotoPolicyError("프로젝트에서 사용할 수 없는 레이어입니다.")
-    ext = _feature_ext_data(alias,project.id,layer,feature_id)
+    _require_feature(alias,project.id,layer,feature_id)
     data = central_photo_snapshot()
     if data is None:
         raise definitions.PhotoPolicyError("사진 정책 스키마가 준비되지 않았습니다.")
-    effective = definitions.resolve(data,_paired_scopes(alias,project.id),layer_id,ext)
+    effective = definitions.resolve(data,_paired_scopes(alias,project.id),layer_id)
     return alias, project, data, effective, layer_id, feature_id
 
 
-def _slot(effective, slot_id):
-    if slot_id is None:
-        if effective and not effective["allow_extra_photo"]:
-            raise definitions.PhotoPolicyError("이 레이어에서는 일반 사진을 허용하지 않습니다.")
-        return None
-    slot_id = definitions.uid(slot_id,"사진 항목")
-    slots = effective["template"]["slots"] if effective else []
-    slot = next((s for s in slots if s["id"] == slot_id), None)
-    if slot is None:
-        raise definitions.PhotoPolicyError("현재 촬영방식의 사진 항목이 아닙니다.")
-    return slot
+def _selection(effective, template_id, variant_id, slot_id):
+    """Validate a complete structured selection or an unclassified extra photo."""
+    raw = (template_id, variant_id, slot_id)
+    if all(value in (None, "") for value in raw):
+        return None, None, None
+    if any(value in (None, "") for value in raw):
+        raise definitions.PhotoPolicyError("Template, Variant, 사진 항목을 모두 선택하세요.")
+    template_id = definitions.uid(template_id, "Template")
+    variant_id = definitions.uid(variant_id, "Variant")
+    slot_id = definitions.uid(slot_id, "사진 항목")
+    template = next((row for row in (effective or {}).get("templates", [])
+                     if row["id"] == template_id), None)
+    variant = next((row for row in (template or {}).get("variants", [])
+                    if row["id"] == variant_id), None)
+    slot = next((row for row in (variant or {}).get("slots", [])
+                 if row["id"] == slot_id), None)
+    if template is None or variant is None or slot is None:
+        raise definitions.PhotoPolicyError("현재 사진 정책의 Template/Variant/사진 항목이 아닙니다.")
+    return template, variant, slot
 
 
 def _extra(slot, value):
@@ -166,7 +174,8 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
             request,project_id,layer_id,feature_id,write=request.method == "POST")
         if request.method == "GET":
             with connections[alias].cursor() as cur:
-                cur.execute("""SELECT id::text,slot_id::text,object_key,original_name,mime_type,
+                cur.execute("""SELECT id::text,template_id::text,variant_id::text,slot_id::text,
+                    title,object_key,original_name,mime_type,
                     size_bytes,sha256,captured_at,captured_by::text,sort_order,note,extra_data,
                     created_at,updated_at,edited_object_key,edited_mime_type,edited_size_bytes,
                     edited_at,edited_by::text,edit_data,image_metadata FROM gis.feature_photo
@@ -282,7 +291,7 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
             mime = body.get("mime_type")
             if mime not in _EXTENSIONS:
                 raise definitions.PhotoPolicyError("지원하지 않는 사진 형식입니다.")
-            _slot(effective,body.get("slot_id"))
+            _selection(effective,body.get("template_id"),body.get("variant_id"),body.get("slot_id"))
             photo_id = str(uuid4())
             key = _key(alias,project.id,layer_id,feature_id,photo_id,_EXTENSIONS[mime])
             signed = generate_presigned_put_url(key,mime_type=mime,expires_in=900)
@@ -294,7 +303,8 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
         if mime not in _EXTENSIONS:
             raise definitions.PhotoPolicyError("지원하지 않는 사진 형식입니다.")
         key = _key(alias,project.id,layer_id,feature_id,photo_id,_EXTENSIONS[mime])
-        slot = _slot(effective,body.get("slot_id"))
+        template, variant, slot = _selection(
+            effective,body.get("template_id"),body.get("variant_id"),body.get("slot_id"))
         extra = _extra(slot,body.get("extra_data",{}))
         filename = str(body.get("original_name") or "").strip()
         if not filename or len(filename) > 255:
@@ -321,11 +331,13 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                     [project.id,layer_id,feature_id,slot["id"]])
                 if int(cur.fetchone()[0]) >= int(slot["max_count"]):
                     raise definitions.PhotoPolicyError("사진 항목의 최대 장수를 초과했습니다.")
-            cur.execute("""INSERT INTO gis.feature_photo(id,project_id,layer_id,feature_id,slot_id,
-                object_key,original_name,mime_type,size_bytes,captured_at,captured_by,
+            cur.execute("""INSERT INTO gis.feature_photo(id,project_id,layer_id,feature_id,
+                template_id,variant_id,slot_id,title,object_key,original_name,mime_type,size_bytes,captured_at,captured_by,
                 extra_data,image_metadata,note,sort_order)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)""",
-                [photo_id,project.id,layer_id,feature_id,slot["id"] if slot else None,
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)""",
+                [photo_id,project.id,layer_id,feature_id,
+                 template["id"] if template else None,variant["id"] if variant else None,
+                 slot["id"] if slot else None,str(body.get("title") or "")[:200],
                  key,filename,mime,metadata.size_bytes,captured_at,captured_by,json.dumps(extra),
                  json.dumps(image_metadata),str(body.get("note") or "")[:2000],
                  int(body.get("sort_order") or 0)])
@@ -356,7 +368,7 @@ def feature_photo_item_api(request, project_id, layer_id, feature_id, photo_id):
                     updated_at=now() WHERE id=%s""",[str(request.user.pk),photo_id])
             else:
                 body = _body(request)
-                if set(body)-{"note","sort_order","extra_data"}:
+                if set(body)-{"title","note","sort_order","extra_data"}:
                     raise definitions.PhotoPolicyError("수정할 수 없는 사진 항목입니다.")
                 # Existing photos remain editable after a feature switches mode;
                 # the old slot is retained until explicitly reclassified.
@@ -364,10 +376,11 @@ def feature_photo_item_api(request, project_id, layer_id, feature_id, photo_id):
                 if "extra_data" in body and row[0] and slot is None:
                     raise definitions.PhotoPolicyError("기존 사진 항목 정의를 찾을 수 없습니다.")
                 extra = _extra(slot,body.get("extra_data",{})) if "extra_data" in body else None
-                cur.execute("""UPDATE gis.feature_photo SET
+                cur.execute("""UPDATE gis.feature_photo SET title=COALESCE(%s,title),
                     note=COALESCE(%s,note),sort_order=COALESCE(%s,sort_order),
                     extra_data=COALESCE(%s::jsonb,extra_data),updated_at=now() WHERE id=%s""",
-                    [str(body["note"])[:2000] if "note" in body else None,
+                    [str(body["title"])[:200] if "title" in body else None,
+                     str(body["note"])[:2000] if "note" in body else None,
                      int(body["sort_order"]) if "sort_order" in body else None,
                      json.dumps(extra) if extra is not None else None,photo_id])
         return JsonResponse({"ok":True,"id":photo_id})
