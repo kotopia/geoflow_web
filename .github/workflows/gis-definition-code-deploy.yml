@@ -7,6 +7,7 @@ on:
       - control/views_gis_admin.py
       - control/views_gis_photo.py
       - control/services/gis_admin.py
+      - control/services/gis_catalog_navigation.py
       - control/services/gis_definitions.py
       - control/services/gis_photo_policy.py
       - control/services/gis_schema_manager.py
@@ -20,6 +21,7 @@ on:
       - control/management/commands/deploy_gis_photo_phase3.py
       - control/management/commands/deploy_gis_photo_phase4.py
       - control/management/commands/smoke_gis_definition_admin.py
+      - control/management/commands/inspect_gis_definition_rows.py
       - control/management/commands/smoke_gis_definition_admin_write.py
       - control/management/commands/smoke_gis_photo_catalog.py
       - control/management/commands/diagnose_gis_photo_runtime.py
@@ -29,6 +31,7 @@ on:
       - scripts/ops/inventory_gis_standard_cleanup.py
       - .github/workflows/gis-standard-cleanup-inventory.yml
       - control/templates/control/gis/**
+      - control/test_gis_admin_navigation.py
       - geoflow_ops/gis/form_definitions.py
       - geoflow_ops/gis/form_definition_views.py
       - geoflow_ops/gis/central_definitions.py
@@ -248,7 +251,10 @@ jobs:
             case "$changed_path" in
               integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
             esac
-            if [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin.py' ] && \
+            if [ "$changed_path" != 'control/services/gis_catalog_navigation.py' ] && \
+               [ "$changed_path" != 'control/test_gis_admin_navigation.py' ] && \
+               [ "$changed_path" != 'control/management/commands/inspect_gis_definition_rows.py' ] && \
+               [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin_write.py' ] && \
                [ "$changed_path" != 'control/management/commands/smoke_gis_photo_catalog.py' ] && \
                [ "$changed_path" != 'control/management/commands/diagnose_gis_photo_runtime.py' ] && \
@@ -308,6 +314,8 @@ jobs:
 
           backup_dir="/var/backups/geoflow/gis-central-ssot/$candidate_sha"
           sudo -n install -d -m 0700 -o "$(id -un)" "$backup_dir"
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            inspect_gis_definition_rows --write "$backup_dir/definition-row-counts-before.json"
           sudo -n systemctl stop "$service"
           if [ "$schema_transition_required" = yes ]; then
             # The command spans central and tenant databases. Once it starts an
@@ -372,6 +380,9 @@ jobs:
           "$python" "$repo/manage.py" smoke_gis_definition_admin_write
 
           "$python" "$repo/manage.py" smoke_gis_photo_catalog
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            inspect_gis_definition_rows --compare "$backup_dir/definition-row-counts-before.json"
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_qgis_project_runtime

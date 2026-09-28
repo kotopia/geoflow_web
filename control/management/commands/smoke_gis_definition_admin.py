@@ -17,6 +17,10 @@ TAB_LABELS = (
     "연결 규칙",
 )
 STANDARD_TABLE_MARKERS = (
+    'id="group-l1"',
+    'id="group-l2"',
+    'id="group-layer"',
+    'id="standard-l1"',
     'id="standard-field-search"',
     'id="standard-kind-filter"',
     'id="standard-widget-filter"',
@@ -24,6 +28,8 @@ STANDARD_TABLE_MARKERS = (
     'id="standard-required-filter"',
     'id="standard-readonly-filter"',
     'id="standard-field-table"',
+    'id="code-l1"',
+    'id="rule-l1"',
 )
 
 
