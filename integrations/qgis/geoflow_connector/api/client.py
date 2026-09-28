@@ -31,6 +31,27 @@ class GeoFlowClientError(RuntimeError):
         self.http_status = http_status
 
 
+class GeoFlowPresignedUrlExpired(GeoFlowClientError):
+    """An external signed download URL expired; contains no provider details."""
+
+    def __init__(self):
+        super().__init__("사진 접근 세션이 만료되었습니다.", http_status=403)
+
+
+def is_presigned_url_expired(error) -> bool:
+    """Recognize the narrow S3 expiration signature without treating all 403s alike."""
+    text = str(error).lower()
+    status = getattr(error, "http_status", None)
+    is_403 = status == 403 or "http 403" in text or "http error 403" in text
+    access_denied = "accessdenied" in text or "access denied" in text
+    request_expired = "request has expired" in text and access_denied
+    explicit_expiry = any(marker in text for marker in (
+        "requestexpired", "expiredtoken", "presigned url expired",
+        "presigned url has expired",
+    ))
+    return bool(is_403 and (request_expired or explicit_expiry))
+
+
 class GeoFlowChangesetConflict(GeoFlowClientError):
     """Structured server conflict; callers may repair only known-safe cases."""
 
@@ -145,8 +166,15 @@ class GeoFlowHttpClient:
                     raise GeoFlowClientError('GeoFlow session expired. Log in again.')
                 return response.read()
         except urllib.error.HTTPError as exc:
-            self._notify_access_loss(exc.code)
             body = exc.read().decode("utf-8", errors="replace")
+            same_origin = self._same_origin(request.full_url)
+            if (not same_origin and is_presigned_url_expired(
+                    GeoFlowClientError(
+                        f"HTTP {exc.code} {body[:300]}", http_status=exc.code
+                    ))):
+                raise GeoFlowPresignedUrlExpired() from None
+            if same_origin:
+                self._notify_access_loss(exc.code)
             raise GeoFlowClientError(
                 f"GeoFlow request failed: HTTP {exc.code} {body[:300]}", http_status=exc.code
             ) from None
@@ -158,6 +186,12 @@ class GeoFlowHttpClient:
             if cookie.name == name:
                 return cookie.value or ""
         return ""
+
+    def _same_origin(self, url: str) -> bool:
+        base = urllib.parse.urlsplit(self.base_url)
+        target = urllib.parse.urlsplit(str(url))
+        return (target.scheme.lower(), target.netloc.lower()) == \
+            (base.scheme.lower(), base.netloc.lower())
 
     def _notify_access_loss(self, status):
         # Existing server responses only; no additional authentication polling.

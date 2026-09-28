@@ -37,9 +37,9 @@ class PhotoPhase2ContractTests(unittest.TestCase):
     def test_form_host_places_photos_in_policy_gated_dedicated_tab(self):
         source = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
         self.assertIn('PhotoSection', source)
-        self.assertIn('page.tabs.addTab(scroll, "기본정보")', source)
-        self.assertIn('page.photo_tab_index = page.tabs.addTab(page.photos, "사진")', source)
-        self.assertIn('setTabVisible(page.photo_tab_index, False)', source)
+        self.assertIn('page.tabs = page.form.tabs', source)
+        self.assertIn('page.form.add_auxiliary_tab(page.photos, "사진", visible=False)', source)
+        self.assertIn('p.form.set_auxiliary_tab_visible(p.photos, visible)', source)
         self.assertIn('availabilityChanged.connect', source)
         self.assertIn('page.photos.set_feature(feature)', source)
 
@@ -84,12 +84,12 @@ class PhotoPhase2ContractTests(unittest.TestCase):
 
     def test_responsive_cards_internal_viewer_and_editor_are_used(self):
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
-        host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
+        tab = (ROOT / "ui/forms/photo_tab.ui").read_text(encoding="utf-8")
         self.assertIn("ResponsivePhotoLabel", section)
         self.assertIn("display_download_url", section)
         self.assertIn("PhotoStudioDialog", section)
         self.assertNotIn("QDesktopServices", section)
-        self.assertIn("ScrollBarAlwaysOff", host)
+        self.assertIn("ScrollBarAlwaysOff", tab)
         editor = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
         self.assertIn("ScrollHandDrag", editor)
         self.assertIn("wheelEvent", editor)
@@ -135,6 +135,31 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn("annotation_icon(name)", studio)
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
         self.assertIn('feather_icon("camera")', section)
+
+    def test_photo_studio_fixed_toolbar_is_designer_owned(self):
+        ui = (ROOT / "ui/forms/photo_studio.ui").read_text(encoding="utf-8")
+        studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
+        buttons = (
+            "btnPrevious", "btnNext", "btnZoomIn", "btnZoomOut", "btnFit",
+            "btnActualSize", "btnSelect", "btnPan", "btnLine", "btnRectangle",
+            "btnEllipse", "btnText", "btnIcon", "btnRotateLeft",
+            "btnRotateRight", "btnUndo", "btnRedo",
+        )
+        for name in buttons:
+            self.assertIn(f'name="{name}"', ui)
+        self.assertIn("Wire the fixed Designer widgets", studio)
+        self.assertIn("self._setup_line_menu()", studio)
+        self.assertIn("self._setup_icon_menu()", studio)
+
+    def test_expired_photo_urls_do_not_reclassify_normal_api_forbidden(self):
+        client = (ROOT / "api/client.py").read_text(encoding="utf-8")
+        studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")
+        self.assertIn("class GeoFlowPresignedUrlExpired", client)
+        self.assertIn("def is_presigned_url_expired", client)
+        self.assertIn("not same_origin and is_presigned_url_expired", client)
+        self.assertIn("GeoFlow 연결 세션이 만료되었습니다.", studio)
+        self.assertIn("if not self.session_expired:", studio)
+        self.assertIn("self._allow_reject = True", studio)
 
     def test_phase5_annotations_are_persistent_and_reeditable(self):
         studio = (ROOT / "ui/photo_studio.py").read_text(encoding="utf-8")

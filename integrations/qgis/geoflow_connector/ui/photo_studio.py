@@ -6,10 +6,6 @@ import os
 
 from qgis.PyQt.QtCore import QPointF, QRectF, Qt, QTimer
 from qgis.PyQt.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap, QTransform
-try:
-    from qgis.PyQt.QtGui import QAction
-except ImportError:  # QAction lives in QtWidgets on the QGIS 3 / Qt 5 stack.
-    from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtWidgets import (
     QColorDialog, QFileDialog, QGraphicsPathItem, QGraphicsScene, QGraphicsView,
     QInputDialog, QMenu, QMessageBox, QToolButton, QDialog,
@@ -22,6 +18,7 @@ from .photo_annotations import (
 )
 from .photo_icons import ICON_NAMES, annotation_icon, feather_icon
 from .photo_normalizer import encode_qimage, normalize_photo
+from ..api.client import GeoFlowPresignedUrlExpired, is_presigned_url_expired
 
 
 FORM_CLASS, _ = loadUiType(os.path.join(os.path.dirname(__file__), "forms", "photo_studio.ui"))
@@ -194,6 +191,7 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self._legacy_edit, self._showing_original = False, False
         self._loaded_state = None
         self._allow_reject = False
+        self.session_expired = False
         self.default_color, self.default_width = "#ef4444", 5
         self.default_font_size, self.default_icon_size = 28, 76
         self.scene = AnnotationScene(self)
@@ -210,54 +208,59 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self.replaceButton.setEnabled(can_write); self.saveButton.setEnabled(can_write)
         self.originalButton.clicked.connect(lambda: self.set_representation("original"))
         self.editedButton.clicked.connect(lambda: self.set_representation("edited"))
-        self.load_current("edited")
+        self._load_current_safely("edited")
 
     def _button(self, button, icon, tooltip, slot):
         button.setIcon(feather_icon(icon)); button.setToolTip(tooltip)
         button.setAccessibleName(tooltip); button.clicked.connect(slot)
 
-    def _action(self, icon, tooltip, slot, checkable=False):
-        action = QAction(feather_icon(icon), "", self)
-        action.setToolTip(tooltip); action.setStatusTip(tooltip); action.setCheckable(checkable)
-        action.triggered.connect(slot); self.studioToolbar.addAction(action)
-        return action
-
     def _build_toolbar(self):
-        self._action("chevron-left", "이전 사진", self.previous)
-        self._action("chevron-right", "다음 사진", self.next)
-        self._action("zoom-in", "확대", lambda: self.graphicsView.scale(1.25, 1.25))
-        self._action("zoom-out", "축소", lambda: self.graphicsView.scale(.8, .8))
-        self._action("maximize", "화면 맞춤", self.fit_to_window)
-        self._action("target", "100%", self.actual_size)
-        self.studioToolbar.addSeparator()
-        self._action("mouse-pointer", "선택", lambda: self.set_tool("select"))
-        self._action("move", "화면 이동", lambda: self.set_tool("pan"))
-        line_button = QToolButton(self); line_button.setIcon(feather_icon("minus"))
-        line_button.setToolTip("선 도구"); line_button.setAccessibleName("선 도구")
-        line_button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
-        menu = QMenu(line_button)
+        """Wire the fixed Designer widgets; no toolbar widget is created here."""
+        self._setup_toolbar_actions()
+        self._setup_line_menu()
+        self._setup_icon_menu()
+
+    def _setup_toolbar_actions(self):
+        for button, icon, tooltip, slot in (
+            (self.btnPrevious, "chevron-left", "이전 사진", self.previous),
+            (self.btnNext, "chevron-right", "다음 사진", self.next),
+            (self.btnZoomIn, "zoom-in", "확대", lambda: self.graphicsView.scale(1.25, 1.25)),
+            (self.btnZoomOut, "zoom-out", "축소", lambda: self.graphicsView.scale(.8, .8)),
+            (self.btnFit, "maximize", "화면 맞춤", self.fit_to_window),
+            (self.btnActualSize, "target", "100%", self.actual_size),
+            (self.btnSelect, "mouse-pointer", "선택", lambda: self.set_tool("select")),
+            (self.btnPan, "move", "화면 이동", lambda: self.set_tool("pan")),
+            (self.btnRectangle, "square", "사각형", lambda: self.set_tool("rectangle")),
+            (self.btnEllipse, "circle", "원", lambda: self.set_tool("ellipse")),
+            (self.btnText, "type", "텍스트", lambda: self.set_tool("text")),
+            (self.btnRotateLeft, "rotate-ccw", "선택 객체 왼쪽 90도", lambda: self.rotate_selected(-90)),
+            (self.btnRotateRight, "rotate-cw", "선택 객체 오른쪽 90도", lambda: self.rotate_selected(90)),
+            (self.btnUndo, "corner-up-left", "실행 취소", self.undo),
+            (self.btnRedo, "corner-up-right", "다시 실행", self.redo),
+        ):
+            self._button(button, icon, tooltip, slot)
+
+    def _setup_line_menu(self):
+        self.btnLine.setIcon(feather_icon("minus"))
+        self.btnLine.setToolTip("선 도구"); self.btnLine.setAccessibleName("선 도구")
+        self.btnLine.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        menu = QMenu(self.btnLine)
         for label, tool, icon in (("직선", "line", "minus"), ("폴리선", "polyline", "activity"),
                                   ("자유선", "freehand", "edit-2")):
             action = menu.addAction(feather_icon(icon), label)
             action.triggered.connect(lambda _=False, value=tool: self.set_tool(value))
-        line_button.setMenu(menu); line_button.clicked.connect(lambda: self.set_tool("line"))
-        self.studioToolbar.addWidget(line_button)
-        self._action("square", "사각형", lambda: self.set_tool("rectangle"))
-        self._action("circle", "원", lambda: self.set_tool("ellipse"))
-        self._action("type", "텍스트", lambda: self.set_tool("text"))
-        icon_button = QToolButton(self); icon_button.setIcon(feather_icon("grid"))
-        icon_button.setToolTip("아이콘"); icon_button.setAccessibleName("아이콘")
-        icon_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        icon_menu = QMenu(icon_button)
+        self.btnLine.setMenu(menu)
+        self.btnLine.clicked.connect(lambda: self.set_tool("line"))
+
+    def _setup_icon_menu(self):
+        self.btnIcon.setIcon(feather_icon("grid"))
+        self.btnIcon.setToolTip("아이콘"); self.btnIcon.setAccessibleName("아이콘")
+        self.btnIcon.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        icon_menu = QMenu(self.btnIcon)
         for name, label in ICON_NAMES.items():
             action = icon_menu.addAction(annotation_icon(name), label)
             action.triggered.connect(lambda _=False, value=name: self.set_tool("icon:" + value))
-        icon_button.setMenu(icon_menu); self.studioToolbar.addWidget(icon_button)
-        self.studioToolbar.addSeparator()
-        self._action("rotate-ccw", "선택 객체 왼쪽 90도", lambda: self.rotate_selected(-90))
-        self._action("rotate-cw", "선택 객체 오른쪽 90도", lambda: self.rotate_selected(90))
-        self._action("corner-up-left", "실행 취소", self.undo)
-        self._action("corner-up-right", "다시 실행", self.redo)
+        self.btnIcon.setMenu(icon_menu)
 
     def _setup_properties(self):
         for label, color in self.COLORS: self.colorCombo.addItem(label, color)
@@ -379,6 +382,32 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         if pixmap.isNull(): raise ValueError("사진을 읽을 수 없습니다.")
         return pixmap
 
+    def _handle_download_error(self, error):
+        if not isinstance(error, GeoFlowPresignedUrlExpired) \
+                and not is_presigned_url_expired(error):
+            return False
+        if not self.session_expired:
+            self.session_expired = True
+            self._allow_reject = True
+            QMessageBox.information(
+                self,
+                "GeoFlow 연결 세션 만료",
+                "GeoFlow 연결 세션이 만료되었습니다.\n\n"
+                "장시간 사용하지 않아 사진 접근 권한이 만료되었습니다.\n"
+                "현재 Photo Studio를 닫고 GeoFlow 플러그인에 다시 접속해 주세요.",
+            )
+            super().reject()
+        return True
+
+    def _load_current_safely(self, representation="edited"):
+        try:
+            self.load_current(representation)
+            return True
+        except Exception as error:
+            if self._handle_download_error(error):
+                return False
+            raise
+
     def _photo_pixmap(self, photo, representation):
         key = "_local_original_bytes" if representation == "original" else "_local_display_bytes"
         data = photo.get(key)
@@ -411,15 +440,19 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
         self._loaded_state = self.annotation_state()
 
     def set_representation(self, representation):
-        photo = self.photos[self.index]
-        if self._legacy_edit:
-            pixmap = self._photo_pixmap(photo, representation)
-            self.restore_canvas(pixmap, None)
-        self._showing_original = representation == "original"
-        self.set_annotation_visibility(not self._showing_original)
-        self.originalButton.setChecked(self._showing_original)
-        self.editedButton.setChecked(not self._showing_original)
-        self.annotation_selection_changed()
+        try:
+            photo = self.photos[self.index]
+            if self._legacy_edit:
+                pixmap = self._photo_pixmap(photo, representation)
+                self.restore_canvas(pixmap, None)
+            self._showing_original = representation == "original"
+            self.set_annotation_visibility(not self._showing_original)
+            self.originalButton.setChecked(self._showing_original)
+            self.editedButton.setChecked(not self._showing_original)
+            self.annotation_selection_changed()
+        except Exception as error:
+            if not self._handle_download_error(error):
+                raise
 
     def ensure_editable(self):
         if not self.can_write: return False
@@ -428,7 +461,13 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
                 "기존 편집본은 개별 객체 정보가 없어 직접 수정할 수 없습니다. 새 편집을 시작하시겠습니까?")
             if answer != QMessageBox.StandardButton.Yes: return False
             photo = self.photos[self.index]
-            self.restore_canvas(self._photo_pixmap(photo, "original"), None)
+            try:
+                original = self._photo_pixmap(photo, "original")
+            except Exception as error:
+                if self._handle_download_error(error):
+                    return False
+                raise
+            self.restore_canvas(original, None)
             self._legacy_edit = False
         self._showing_original = False; self.set_annotation_visibility(True)
         self.originalButton.setChecked(False); self.editedButton.setChecked(True)
@@ -535,8 +574,13 @@ class PhotoStudioDialog(QDialog, FORM_CLASS):
             self.graphicsView.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def actual_size(self): self.graphicsView.setTransform(QTransform())
-    def previous(self): self.index = (self.index - 1) % len(self.photos); self.load_current()
-    def next(self): self.index = (self.index + 1) % len(self.photos); self.load_current()
+    def previous(self):
+        self.index = (self.index - 1) % len(self.photos)
+        self._load_current_safely()
+
+    def next(self):
+        self.index = (self.index + 1) % len(self.photos)
+        self._load_current_safely()
 
     def render_image(self):
         from qgis.PyQt.QtGui import QImage

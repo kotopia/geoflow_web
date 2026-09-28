@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from qgis.PyQt.QtCore import pyqtSignal
-from qgis.PyQt.QtWidgets import QWidget, QVBoxLayout
+from qgis.PyQt.QtWidgets import QTabWidget, QWidget, QVBoxLayout
 
 from .layout import LayoutRenderer
 from .rules import allowed_code_ids, validate
@@ -24,7 +24,10 @@ class DynamicForm(QWidget):
         self.handles = {field["id"]: create_widget(field, self) for field in fields}
         self._root_layout = QVBoxLayout(self)
         self._root_layout.setContentsMargins(0, 0, 0, 0)
-        self._layout_widget = None
+        self.tabs = QTabWidget(self)
+        self._root_layout.addWidget(self.tabs)
+        self._form_pages = []
+        self._auxiliary_tabs = []
         self.set_form_layout(form_layout)
         for field_id, handle in self.handles.items():
             handle.connect_changed(lambda *args, key=field_id: self._changed(key))
@@ -35,16 +38,43 @@ class DynamicForm(QWidget):
     # ============================================================
     def set_form_layout(self, form_layout):
         self.form_layout = form_layout
-        if self._layout_widget is not None:
-            # 기존 블록 삭제에 입력 위젯이 함께 소멸하지 않도록 먼저 소유권을 옮긴다.
-            for handle in self.handles.values():
-                handle.widget.setParent(self)
-            self._root_layout.removeWidget(self._layout_widget)
-            self._layout_widget.deleteLater()
-        self._layout_widget = LayoutRenderer().render(
-            self.fields, self.handles, self, layer=self.layer, layout=form_layout
+        # Rebuild only central form pages. Auxiliary pages such as Photos stay
+        # attached to the same top-level tab host and are appended again last.
+        for widget, _title, _visible in self._auxiliary_tabs:
+            index = self.tabs.indexOf(widget)
+            if index >= 0:
+                self.tabs.removeTab(index)
+            widget.setParent(self.tabs)
+        for handle in self.handles.values():
+            handle.widget.setParent(self)
+        for page in self._form_pages:
+            index = self.tabs.indexOf(page)
+            if index >= 0:
+                self.tabs.removeTab(index)
+            page.deleteLater()
+        self._form_pages = LayoutRenderer().populate_tabs(
+            self.tabs, self.fields, self.handles, layer=self.layer, layout=form_layout
         )
-        self._root_layout.addWidget(self._layout_widget)
+        for widget, title, visible in self._auxiliary_tabs:
+            index = self.tabs.addTab(widget, title)
+            self.tabs.setTabVisible(index, visible)
+
+    def add_auxiliary_tab(self, widget, title, *, visible=True):
+        """Append a non-form page after every centrally defined form tab."""
+        self._auxiliary_tabs.append((widget, str(title), bool(visible)))
+        index = self.tabs.addTab(widget, str(title))
+        self.tabs.setTabVisible(index, bool(visible))
+        return index
+
+    def set_auxiliary_tab_visible(self, widget, visible):
+        visible = bool(visible)
+        self._auxiliary_tabs = [
+            (candidate, title, visible if candidate is widget else current)
+            for candidate, title, current in self._auxiliary_tabs
+        ]
+        index = self.tabs.indexOf(widget)
+        if index >= 0:
+            self.tabs.setTabVisible(index, visible)
 
     def _changed(self, field_id):
         self.handles[field_id].set_error(None)

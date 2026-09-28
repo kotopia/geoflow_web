@@ -504,9 +504,13 @@ class PhotoSection(QGroupBox, FORM_CLASS):
 
     def open_studio(self, selected):
         photos = [p for p in self._display_photos() if not p.get("_pending_delete")]
-        PhotoStudioDialog(self.plugin.active_client, photos, selected, can_write=self._can_write(),
-                          save_callback=self._save_edit, replace_callback=self._replace_photo,
-                          parent=self).exec()
+        dialog = PhotoStudioDialog(
+            self.plugin.active_client, photos, selected, can_write=self._can_write(),
+            save_callback=self._save_edit, replace_callback=self._replace_photo,
+            parent=self,
+        )
+        if not dialog.session_expired:
+            dialog.exec()
 
     def _save_edit(self, photo, output_bytes, mime_type, edit_data):
         photo_id = self._photo_id(photo)

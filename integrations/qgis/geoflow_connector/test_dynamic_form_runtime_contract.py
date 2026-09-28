@@ -55,9 +55,23 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         for state in ('[error="true"]', '[readonly="true"]', ":disabled",
                       ":hover", ":focus"):
             self.assertIn(state, qss)
-        for resource in ("chevron-down.svg", "calendar.svg", "check.svg",
-                         "arrow-up.png", "arrow-down.png"):
+        for resource in ("chevron-down.svg", "chevron-up.svg", "calendar.svg",
+                         "check.svg"):
             self.assertIn(":/geoflow/feather/" + resource, qss)
+
+    def test_main_navigation_uses_one_scoped_shared_style(self):
+        qss_path = ROOT / "resources/styles/geoflow_main.qss"
+        helper = (ROOT / "ui/main_style.py").read_text(encoding="utf-8")
+        dialog = (ROOT / "ui/dialog.py").read_text(encoding="utf-8")
+        workspace = (ROOT / "ui/layer_workspace.py").read_text(encoding="utf-8")
+        qss = qss_path.read_text(encoding="utf-8")
+
+        self.assertTrue(qss_path.is_file())
+        self.assertIn('setProperty("geoflowMain", True)', helper)
+        self.assertIn("geoflow_main.qss", helper)
+        self.assertIn("apply_main_style(self.project_panel)", dialog)
+        self.assertIn("apply_main_style(self)", workspace)
+        self.assertIn('[geoflowMain="true"]', qss)
 
     def test_validation_feedback_preserves_rule_validation_result(self):
         form = (ROOT / "forms/dynamic/form.py").read_text(encoding="utf-8")

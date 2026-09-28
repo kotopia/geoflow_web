@@ -20,6 +20,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ..api.client import GeoFlowClientError, GeoFlowHttpClient
 from ..api.defaults import PRODUCTION_SERVER_URL, migrate_legacy_connection_defaults
+from .main_style import apply_main_style
 
 
 def _password_echo_mode():
@@ -85,6 +86,7 @@ class GeoFlowConnectorDialog(QDialog):
         self.server_label.setText(self.server_url)
         self.email_edit.setText(email)
         self.project_panel = loadUi(str(ui_dir / "project_selection.ui"))
+        apply_main_style(self.project_panel)
         for name in ('project_list', 'open_button', 'sync_button', 'cache_pin_button', 'refresh_button'):
             setattr(self, name, getattr(self.project_panel, name))
 

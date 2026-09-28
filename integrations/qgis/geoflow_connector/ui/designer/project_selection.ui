@@ -207,9 +207,6 @@
      <property name="enabled">
       <bool>false</bool>
      </property>
-     <property name="styleSheet">
-      <string>QListWidget::item { padding: 8px; } QListWidget::item:selected { background: #d9efff; color: #173b57; }</string>
-     </property>
     </widget>
    </item>
    <item>
