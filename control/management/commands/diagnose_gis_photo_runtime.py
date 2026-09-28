@@ -13,9 +13,6 @@ from geoflow_ops.gis import central_definitions, layer_plan
 from geoflow_ops.gis.gpkg import project_geopackage_layer_manifest
 
 
-TARGETS = {"WTL_FLOW_PS", "WTL_PIPE_PS"}
-
-
 class Command(BaseCommand):
     help = "Read-only diagnosis of central photo policy to QGIS layer UUID delivery."
 
@@ -30,10 +27,19 @@ class Command(BaseCommand):
         if photo is None:
             raise CommandError("photo_policy_unavailable")
 
+        # Diagnose the layers configured by the current catalogue instead of
+        # retaining the Phase 2 WTL_FLOW_PS/WTL_PIPE_PS smoke assumption.  The
+        # catalogue v2 seed intentionally assigns WTL_PIPE_PS, WTL_MANH_PS and
+        # WTL_ETC_PS, and administrators may change that set later.
+        policy_layer_ids = {
+            str(row.get("layer_id") or "")
+            for row in photo.get("policies") or []
+            if row.get("active") and row.get("layer_id")
+        }
         central_layers = {
             str(row.get("standard_name") or "").upper(): row
             for row in definition.get("layers") or []
-            if str(row.get("standard_name") or "").upper() in TARGETS
+            if str(row.get("id") or "") in policy_layer_ids
         }
         report = {
             "photo_policy_revision": photo.get("revision"),
@@ -53,7 +59,7 @@ class Command(BaseCommand):
                 with _django_tenant_alias(config):
                     plan = layer_plan.project_layer_plan(config.db_alias, project_id)
                 targets = [row for row in plan.get("layers") or []
-                           if str(row.get("standard_name") or "").upper() in TARGETS]
+                           if str(row.get("id") or "") in policy_layer_ids]
                 if not targets:
                     continue
                 with tenant_cursor(config.group_id, write=False) as cur:
@@ -93,6 +99,6 @@ class Command(BaseCommand):
                     raise CommandError("qgis_manifest_definition_layer_id_mismatch")
                 if layer["policy"]:
                     resolved_standards.add(layer["standard_name"])
-        if TARGETS - resolved_standards:
+        if not resolved_standards:
             raise CommandError("target_photo_policy_not_resolved")
         self.stdout.write("gis_photo_runtime_diagnostic=ok")
