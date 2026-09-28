@@ -337,6 +337,7 @@ class Main(QWidget, FORM_CLASS):
         )
         page.tabs = page.form.tabs
         page.photos = PhotoSection(self.plugin, page, layer, page.tabs)
+        page.photos.bind_action_button(page.header.photoButton)
         page.form.add_auxiliary_tab(page.photos, "사진", visible=False)
         page.photos.availabilityChanged.connect(
             lambda visible, p=page: p.form.set_auxiliary_tab_visible(p.photos, visible)
