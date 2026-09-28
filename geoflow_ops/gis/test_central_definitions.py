@@ -215,6 +215,9 @@ class CentralPostgresTests(unittest.TestCase):
           CREATE TABLE catalog.category_node(
             id uuid PRIMARY KEY,code text,name text,level smallint,ord integer,active boolean,
             org_unit_id uuid,geom_hint text,created_at timestamptz,updated_at timestamptz);
+          CREATE TABLE catalog.category_parent(
+            parent_id uuid REFERENCES catalog.category_node(id),
+            child_id uuid PRIMARY KEY REFERENCES catalog.category_node(id));
           CREATE TABLE catalog.category_facet(
             id uuid PRIMARY KEY,code text,name text,ord integer,active boolean,
             created_at timestamptz,updated_at timestamptz);
@@ -222,9 +225,14 @@ class CentralPostgresTests(unittest.TestCase):
             id uuid PRIMARY KEY,facet_id uuid REFERENCES catalog.category_facet(id),code text,name text,
             ord integer,active boolean,default_unit text,geom_hint text,
             created_at timestamptz,updated_at timestamptz)''')
-        self.catalog=str(uuid4()); self.cur.execute(
-            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) VALUES (%s,'SEWERAGE','하수도',2,1,true)",
-            [self.catalog],
+        self.l1=str(uuid4()); self.catalog=str(uuid4()); self.cur.execute(
+            "INSERT INTO catalog.category_node(id,code,name,level,ord,active) "
+            "VALUES (%s,'UTILITY','업무유형',1,1,true),(%s,'SEWERAGE','하수도',2,1,true)",
+            [self.l1,self.catalog],
+        )
+        self.cur.execute(
+            "INSERT INTO catalog.category_parent(parent_id,child_id) VALUES (%s,%s)",
+            [self.l1,self.catalog],
         )
         self.cur.execute((ROOT/'docs/architecture/gis-central-definitions.sql').read_text())
         self.manhole=str(uuid4()); self.pipe=str(uuid4())
