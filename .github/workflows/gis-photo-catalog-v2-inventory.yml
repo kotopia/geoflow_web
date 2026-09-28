@@ -2,6 +2,11 @@ name: GIS photo catalogue v2 inventory
 
 on:
   workflow_dispatch:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - scripts/ops/inventory_gis_photo_catalog_v2.py
+      - .github/workflows/gis-photo-catalog-v2-inventory.yml
 
 permissions:
   contents: read
