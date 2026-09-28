@@ -1,0 +1,45 @@
+name: GeoFlow 500 read-only diagnostic launcher
+
+on:
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/geoflow-500-readonly-diagnostic-launcher.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-readonly-diagnostic:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Verify release has not advanced
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          echo 'readonly_diagnostic_launcher_exact_release=yes'
+
+      - name: Dispatch read-only diagnostic
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload='{"ref":"release/stabilized-deploy","inputs":{"ssh_port":"22"}}'
+          printf '%s' "$payload" | gh api \
+            --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            --input - \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/geoflow-500-readonly-diagnostic.yml/dispatches"
+          echo 'readonly_500_diagnostic_dispatched=yes'
