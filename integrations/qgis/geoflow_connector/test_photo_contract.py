@@ -82,6 +82,18 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('"template_id": operation["template_id"]', source)
         self.assertIn('"variant_id": operation["variant_id"]', source)
 
+    def test_feature_scoped_quick_capture_and_pending_reclassification(self):
+        header = (ROOT / "ui/form_header.py").read_text(encoding="utf-8")
+        section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
+        self.assertIn("QToolButton.ToolButtonPopupMode.MenuButtonPopup", header)
+        self.assertIn("bind_action_button(page.header.photoButton)", host)
+        self.assertIn("def quick_capture(self):", section)
+        self.assertIn("next_photo_slot", section)
+        self.assertIn("def reclassify_pending", section)
+        self.assertIn("사진 파일은 유지하고 분류만 변경했습니다.", section)
+        self.assertIn("self._set_available(self._tab_needed())", section)
+
     def test_responsive_cards_internal_viewer_and_editor_are_used(self):
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
         tab = (ROOT / "ui/forms/photo_tab.ui").read_text(encoding="utf-8")

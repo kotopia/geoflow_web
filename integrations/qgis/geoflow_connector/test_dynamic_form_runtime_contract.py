@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parent
 
 
 class DynamicRuntimeContractTests(unittest.TestCase):
+    def test_plugin_package_exposes_qgis_class_factory(self):
+        entrypoint = (ROOT / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("def classFactory(iface):", entrypoint)
+
     def test_112_shell_and_resources_are_packaged(self):
         for path in ("app/unified.py", "app/protection.py", "app/state.py", "ui/form_host.py",
                      "ui/form_header.py", "ui/presentation.py", "ui/designer/main_dock.ui",

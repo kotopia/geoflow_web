@@ -6,7 +6,7 @@ from qgis.PyQt.QtCore import Qt, QSettings, pyqtSignal
 from qgis.PyQt.QtGui import QPixmap
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QInputDialog, QLineEdit, QMessageBox, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
+    QInputDialog, QLineEdit, QMenu, QMessageBox, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
     QWidget,
 )
 from qgis.PyQt.uic import loadUiType
@@ -14,7 +14,7 @@ from qgis.core import QgsMessageLog, Qgis
 
 from .photo_icons import feather_icon
 from .photo_normalizer import normalize_photo
-from ..photo_selection import resolve_selection
+from ..photo_selection import next_photo_slot, photo_classification_options, resolve_selection
 from .photo_studio import PhotoStudioDialog
 
 
@@ -71,6 +71,8 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.plugin, self.page, self.layer = plugin, page, layer
         self.policy, self.photos, self.feature_uuid = None, [], ""
         self.template_id, self.variant_id = "", ""
+        self.last_slot_id = ""
+        self.action_button = None
         self.pending_add = []
         self.pending_replace = {}
         self.pending_edit = {}
@@ -104,6 +106,99 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.setVisible(available)
         self.availabilityChanged.emit(available)
 
+    def bind_action_button(self, button):
+        """Bind the form-header split button to this feature-scoped photo session."""
+        self.action_button = button
+        button.setIcon(feather_icon("camera"))
+        button.clicked.connect(self.quick_capture)
+        self._sync_action_button()
+
+    def _tab_needed(self):
+        return bool(self.manager_open or self.photos or self.has_pending_changes())
+
+    def _allow_extra(self):
+        return bool((self.policy or {}).get("allow_extra_photo", True))
+
+    def _sync_action_button(self):
+        button = self.action_button
+        if button is None:
+            return
+        ready = bool(self.feature_uuid and self.policy and self._template() and self._variant())
+        button.setVisible(bool(self.feature_uuid and self.policy))
+        button.setEnabled(bool(ready and self._can_write()))
+        photos = [row for row in self._display_photos() if not row.get("_pending_delete")]
+        variant = self._variant() or {}
+        required = sum(int(slot.get("min_count") or 0) for slot in variant.get("slots") or [])
+        slot_ids = {str(slot.get("id") or "") for slot in variant.get("slots") or []}
+        classified = sum(str(row.get("slot_id") or "") in slot_ids for row in photos)
+        button.setText(f"사진 {min(classified, required)}/{required}" if required else f"사진 {len(photos)}")
+        menu = QMenu(button)
+        current = menu.addAction(
+            "현재: " + str((self._template() or {}).get("name") or "사진") + " / "
+            + str((self._variant() or {}).get("name") or "기본")
+        )
+        current.setEnabled(False)
+        menu.addSeparator()
+        for slot in variant.get("slots") or []:
+            action = menu.addAction(str(slot.get("name") or "사진"))
+            action.triggered.connect(lambda _=False, s=slot: self.upload(s, {}))
+        if self._allow_extra():
+            action = menu.addAction("추가 사진")
+            action.triggered.connect(lambda _=False: self.upload(None, {}))
+        choices = menu.addMenu("촬영방식 변경")
+        for template in (self.policy or {}).get("templates") or []:
+            for variant_row in template.get("variants") or []:
+                label = str(template.get("name") or "사진") + " / " + str(variant_row.get("name") or "기본")
+                action = choices.addAction(label)
+                action.setCheckable(True)
+                action.setChecked(str(template.get("id")) == self.template_id and
+                                  str(variant_row.get("id")) == self.variant_id)
+                action.triggered.connect(
+                    lambda _=False, t=str(template.get("id") or ""),
+                    v=str(variant_row.get("id") or ""): self.select_capture_mode(t, v)
+                )
+        menu.addSeparator()
+        manage = menu.addAction("사진 관리")
+        manage.triggered.connect(self.open_manager)
+        button.setMenu(menu)
+
+    def quick_capture(self):
+        if not self.feature_uuid or not self.policy or not self._can_write():
+            return
+        slot = next_photo_slot(self._variant(), self._display_photos(), self.last_slot_id)
+        if slot is None and not self._allow_extra():
+            self.open_manager()
+            self.note.setText("현재 촬영방식의 사진 항목이 모두 완료되었습니다.")
+            return
+        if slot and ((slot.get("extra_schema") or {}).get("fields") or []):
+            self.open_manager()
+            self.note.setText("이 사진 항목은 추가 입력값이 필요합니다. 사진 관리에서 추가하세요.")
+            return
+        self.upload(slot, {})
+
+    def select_capture_mode(self, template_id, variant_id):
+        template = self._template(template_id)
+        variant = self._variant(template, variant_id)
+        if not template or not variant:
+            return
+        self.template_id = str(template["id"])
+        self.variant_id = str(variant["id"])
+        self.last_slot_id = ""
+        self._remember_selection()
+        self._fill_selectors()
+        self.note.setText("촬영방식을 변경했습니다. 저장 대기 사진은 사진 관리에서 재분류할 수 있습니다.")
+        self.render()
+
+    def open_manager(self):
+        if not self.policy or not self.feature_uuid:
+            return
+        self.manager_button.setChecked(True)
+        self.manager_open = True
+        self._set_available(True)
+        if getattr(self.page, "tabs", None) is not None:
+            self.page.tabs.setCurrentWidget(self)
+        self.render()
+
     def _clear_policy_ui(self):
         self.policy, self.template_id, self.variant_id = None, "", ""
         for combo in (self.template_select, self.variant_select):
@@ -117,6 +212,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.manager_open = False
         self.cardsScrollArea.setVisible(False)
         self._clear_cards()
+        self._sync_action_button()
 
     def _toggle_manager(self, opened):
         self.manager_open = bool(opened)
@@ -125,6 +221,8 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         template = self._template()
         self.variant_row.setVisible(opened and len((template or {}).get("variants") or []) > 1)
         self.cardsScrollArea.setVisible(opened)
+        self._set_available(self._tab_needed())
+        self._sync_action_button()
 
     def _manager_label(self):
         count = len([row for row in self._display_photos() if not row.get("_pending_delete")])
@@ -146,6 +244,13 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         settings.setValue(prefix + "template_id", self.template_id)
         settings.setValue(prefix + "variant_id", self.variant_id)
         settings.setValue(prefix + f"variants/{self.template_id}", self.variant_id)
+
+    def _fill_selectors(self):
+        template = self._template()
+        self.template_select.blockSignals(True)
+        self.template_select.setCurrentIndex(max(0, self.template_select.findData(self.template_id)))
+        self.template_select.blockSignals(False)
+        self._fill_variants(template, preferred=self.variant_id)
 
     def _template(self, template_id=None):
         wanted = str(template_id if template_id is not None else self.template_id)
@@ -254,14 +359,14 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         if state in {"idle", "loading"}:
             self._clear_policy_ui()
             self.note.setText("사진 정책을 불러오는 중입니다.")
-            self._set_available(True)
+            self._set_available(False)
             self._log_refresh(state, layer_id)
             return
         if state == "error":
             self._clear_policy_ui()
             self.note.setText("사진 정책을 불러오지 못했습니다.")
             self.retry_button.setVisible(True)
-            self._set_available(True)
+            self._set_available(False)
             self._log_refresh(state, layer_id)
             return
         if state == "unavailable":
@@ -279,7 +384,6 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             self._log_refresh(state, layer_id)
             return
 
-        self._set_available(True)
         templates = self.policy.get("templates") or []
         if not templates:
             self._clear_policy_ui()
@@ -318,6 +422,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self._clear_policy_ui()
         self.retry_button.setVisible(False)
         self._set_available(False)
+        self._sync_action_button()
 
     def _fill_variants(self, template, preferred=""):
         variants = (template or {}).get("variants") or []
@@ -342,6 +447,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.variant_select.setEnabled(self._can_write() and len(variants) > 1)
         self.variant_row.setVisible(self.manager_open and len(variants) > 1)
         self.variant_id = str(variant["id"])
+        self._sync_action_button()
 
     def _template_changed(self, _index):
         template_id = str(self.template_select.currentData() or "")
@@ -367,6 +473,14 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         try:
             payload = self.plugin.active_client.get_json(self._base_path() + "?download_urls=1")
             self.photos = payload.get("photos") or []
+            if not self.pending_add and self.photos:
+                classified = next((row for row in self.photos
+                                   if row.get("template_id") and row.get("variant_id")), None)
+                template = self._template(str((classified or {}).get("template_id") or ""))
+                variant = self._variant(template, str((classified or {}).get("variant_id") or ""))
+                if template and variant:
+                    self.template_id, self.variant_id = str(template["id"]), str(variant["id"])
+                    self._fill_selectors()
             self.note.setText("")
             self.render()
         except Exception as exc:
@@ -411,8 +525,11 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             toggle.toggled.connect(toggle_legacy)
             self.cards_layout.addWidget(toggle)
             self.cards_layout.addWidget(legacy_host)
-        self.cards_layout.addWidget(self._slot_card(None))
+        if self._allow_extra():
+            self.cards_layout.addWidget(self._slot_card(None))
         self.cards_layout.addStretch(1)
+        self._set_available(self._tab_needed())
+        self._sync_action_button()
 
     def _slot_card(self, slot):
         slot_id = str((slot or {}).get("id") or "")
@@ -462,6 +579,13 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         buttons.addWidget(studio)
         buttons.addWidget(replace)
         buttons.addWidget(delete)
+        if photo.get("_pending_add"):
+            classify = QToolButton(card)
+            classify.setIcon(feather_icon("tag"))
+            classify.setToolTip("사진 종류 변경")
+            classify.setAccessibleName("사진 종류 변경")
+            classify.clicked.connect(lambda _=False, p=photo: self.reclassify_pending(p))
+            buttons.addWidget(classify)
         buttons.addStretch(1)
         lay.addLayout(buttons)
         preview = ResponsivePhotoLabel(card)
@@ -501,6 +625,37 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             lay.addWidget(badge)
         card.setEnabled(not photo.get("_pending_delete") or self._can_write())
         return card
+
+    def reclassify_pending(self, photo):
+        """Change only pending classification; retain normalized image bytes."""
+        photo_id = self._photo_id(photo)
+        operation = next((row for row in self.pending_add if row["local_id"] == photo_id), None)
+        if operation is None or operation.get("finalized_id"):
+            return
+        options = photo_classification_options(self.policy, self._allow_extra())
+        labels = [row["label"] for row in options]
+        current = next((i for i, row in enumerate(options)
+                        if row["template_id"] == str(operation.get("template_id") or "")
+                        and row["variant_id"] == str(operation.get("variant_id") or "")
+                        and row["slot_id"] == str(operation.get("slot_id") or "")), 0)
+        label, accepted = QInputDialog.getItem(
+            self, "사진 종류 변경", "저장 전 사진 분류", labels, current, False
+        )
+        if not accepted:
+            return
+        selected = options[labels.index(label)]
+        operation.update(template_id=selected["template_id"] or None,
+                         variant_id=selected["variant_id"] or None,
+                         slot_id=selected["slot_id"] or None,
+                         signed=None, uploaded=False)
+        if selected["slot_id"]:
+            self.template_id, self.variant_id = selected["template_id"], selected["variant_id"]
+            self.last_slot_id = selected["slot_id"]
+            self._remember_selection()
+            self._fill_selectors()
+        self.note.setText("사진 파일은 유지하고 분류만 변경했습니다. 상단 저장 시 반영됩니다.")
+        self._notify_dirty()
+        self.render()
 
     def open_studio(self, selected):
         photos = [p for p in self._display_photos() if not p.get("_pending_delete")]
@@ -603,6 +758,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
                 "edit_data": None,
             })
             self.note.setText("사진이 저장 대기 중입니다. 상단 저장을 눌러 최종 반영하세요.")
+            self.last_slot_id = str(slot_id or "")
             self._notify_dirty(); self.render()
         except Exception as exc:
             QMessageBox.critical(self, "사진 준비 실패", str(exc))
