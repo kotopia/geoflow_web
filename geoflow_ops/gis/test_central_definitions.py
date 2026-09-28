@@ -114,7 +114,7 @@ class ResolutionTests(unittest.TestCase):
     def test_standard_field_selection_ui_contract(self):
         template=(ROOT/'control/templates/control/gis/definitions.html').read_text()
         for marker in (
-            '조회 업무범위','연결 업무범위','data-layer-catalog-checkbox',
+            '업무유형 (L1)','업무범위 (L2)','연결 업무범위','data-layer-catalog-checkbox',
             'data-bs-auto-close="outside"','name="standard-field-selection"',
             'data-standard-field-row','table-primary','aria-selected',
             '수정할 필드를 목록에서 선택하세요.','선택 필드:',

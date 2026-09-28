@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 
 from psycopg2.extras import Json
 
+from control.services.gis_catalog_navigation import category_tree
+
 
 class PhotoPolicyError(ValueError):
     pass
@@ -71,11 +73,7 @@ def snapshot(cur):
 
 
 def catalog_options(cur):
-    cur.execute("""SELECT id::text,code,name,level FROM catalog.category_node
-        WHERE level IN (1,2) AND active ORDER BY level,ord,code""")
-    nodes = _dicts(cur)
-    cur.execute("""SELECT parent_id::text,child_id::text FROM catalog.category_parent""")
-    parents = _dicts(cur)
+    navigation = category_tree(cur)
     cur.execute("""SELECT s.l2_id::text AS lv2_id,o.id::text,o.code,o.name
         FROM catalog.category_option_set s
         JOIN catalog.category_facet_option o ON o.facet_id=s.facet_id AND o.active
@@ -91,7 +89,7 @@ def catalog_options(cur):
         l.id::text,l.standard_name,l.label,l.physical_name
         FROM gis.definition_layer_catalog lc JOIN gis.definition_layer l ON l.id=lc.layer_id
         WHERE lc.catalog_level=2 AND l.active ORDER BY l.sort_order,l.standard_name""")
-    return {"nodes": nodes, "parents": parents, "lv3": lv3, "layers": _dicts(cur)}
+    return {**navigation, "lv3": lv3, "layers": _dicts(cur)}
 
 
 def validate_extra_schema(value):

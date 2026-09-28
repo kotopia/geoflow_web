@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from geoflow_ops.gis.form_definitions import DefinitionError, identifier, rows, text
+from control.services.gis_catalog_navigation import category_tree
 
 KINDS = {'text':'문자','integer':'정수','decimal':'소수','boolean':'유무','date':'날짜',
          'datetime':'일시','photo':'사진','relation':'관계형'}
@@ -251,6 +252,7 @@ def snapshot(cur):
         feature_role,scope_type,sort_order,active,layer_group_id::text,description,updated_at
         FROM gis.definition_layer ORDER BY sort_order,standard_name'''),
       'catalogs':rows(cur,"SELECT id::text,code,name FROM catalog.category_node WHERE level=2 AND active ORDER BY ord,code"),
+      'catalog_navigation':category_tree(cur),
       'layer_catalogs':rows(cur,'''SELECT lc.layer_id::text,l.standard_name AS layer_name,lc.catalog_level,
         lc.catalog_item_id::text AS catalog_id,lc.catalog_item_id::text FROM gis.definition_layer_catalog lc
         JOIN gis.definition_layer l ON l.id=lc.layer_id ORDER BY l.standard_name,lc.catalog_level,lc.catalog_item_id'''),
