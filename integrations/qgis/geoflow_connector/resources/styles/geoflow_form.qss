@@ -171,6 +171,7 @@
     subcontrol-origin: border;
     subcontrol-position: top right;
     width: 20px;
+    padding: 3px;
     border: none;
     background: transparent;
 }
@@ -180,20 +181,21 @@
     subcontrol-origin: border;
     subcontrol-position: bottom right;
     width: 20px;
+    padding: 3px;
     border: none;
     background: transparent;
 }
 
 #GeoFlowDynamicForm QSpinBox::up-arrow,
 #GeoFlowDynamicForm QDoubleSpinBox::up-arrow {
-    image: url(:/geoflow/feather/arrow-up.png);
+    image: url(:/geoflow/feather/chevron-up.svg);
     width: 8px;
     height: 8px;
 }
 
 #GeoFlowDynamicForm QSpinBox::down-arrow,
 #GeoFlowDynamicForm QDoubleSpinBox::down-arrow {
-    image: url(:/geoflow/feather/arrow-down.png);
+    image: url(:/geoflow/feather/chevron-down.svg);
     width: 8px;
     height: 8px;
 }

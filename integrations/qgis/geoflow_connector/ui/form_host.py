@@ -5,8 +5,8 @@ import os
 
 from qgis.PyQt.QtCore import QDate, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
-    QDialog, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea,
-    QTabWidget, QToolBar, QVBoxLayout, QWidget,
+    QDialog, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
+    QToolBar, QVBoxLayout, QWidget,
 )
 from qgis.PyQt.uic import loadUiType
 
@@ -335,19 +335,13 @@ class Main(QWidget, FORM_CLASS):
         page.form = DynamicForm(
             service.definition, fields, page, layer=standard, form_layout=local_layout
         )
-        page.tabs = QTabWidget(page)
-        scroll = QScrollArea(page.tabs)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setWidget(page.form)
-        page.tabs.addTab(scroll, "기본정보")
-        page.photos = PhotoSection(self.plugin, page, layer, page)
-        page.photo_tab_index = page.tabs.addTab(page.photos, "사진")
-        page.tabs.setTabVisible(page.photo_tab_index, False)
+        page.tabs = page.form.tabs
+        page.photos = PhotoSection(self.plugin, page, layer, page.tabs)
+        page.form.add_auxiliary_tab(page.photos, "사진", visible=False)
         page.photos.availabilityChanged.connect(
-            lambda visible, p=page: p.tabs.setTabVisible(p.photo_tab_index, visible)
+            lambda visible, p=page: p.form.set_auxiliary_tab_visible(p.photos, visible)
         )
-        layout.addWidget(page.tabs)
+        layout.addWidget(page.form)
         layout.setStretch(1, 1)
         page.form.setEnabled(bool(state["can_write"] and not layer.readOnly()))
         self.pages[layer.id()] = page

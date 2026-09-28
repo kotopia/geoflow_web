@@ -1,0 +1,203 @@
+/* GeoFlow Connector main navigation style.
+   The geoflowMain property scopes shared rules to plugin-owned roots only. */
+
+/*
+GeoFlow UI Tokens
+
+PRIMARY        #3b7ddd
+SELECT_BG      #e8f1ff
+HOVER_BG       #f1f5f9
+BORDER         #ced4da
+HOVER_BORDER   #adb5bd
+DISABLED_BG    #e9ecef
+DISABLED_TEXT  #adb5bd
+TEXT           #495057
+TEXT_DARK      #212529
+BACKGROUND     #ffffff
+*/
+
+/* =========================================================
+   1. ROOT / BASE
+   ========================================================= */
+#GeoFlowProjectSelection,
+#GeoFlowLayerWorkspace {
+    background: #f8f9fa;
+    color: #495057;
+    font-size: 12px;
+}
+
+/* =========================================================
+   2. INPUT WIDGETS
+   ========================================================= */
+QWidget[geoflowMain="true"] QLineEdit,
+QWidget[geoflowMain="true"] QComboBox {
+    background: #ffffff;
+    color: #495057;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    selection-background-color: #3b7ddd;
+    selection-color: #ffffff;
+}
+
+QWidget[geoflowMain="true"] QLineEdit:hover,
+QWidget[geoflowMain="true"] QComboBox:hover {
+    border-color: #adb5bd;
+}
+
+QWidget[geoflowMain="true"] QLineEdit:focus,
+QWidget[geoflowMain="true"] QComboBox:focus {
+    border-color: #3b7ddd;
+}
+
+QWidget[geoflowMain="true"] QLineEdit:disabled,
+QWidget[geoflowMain="true"] QComboBox:disabled {
+    background: #e9ecef;
+    color: #adb5bd;
+    border-color: #dee2e6;
+}
+
+QWidget[geoflowMain="true"] QLineEdit {
+    padding: 0 9px;
+}
+
+/* =========================================================
+   3. LIST / TREE
+   ========================================================= */
+QWidget[geoflowMain="true"] QListWidget,
+QWidget[geoflowMain="true"] QTreeView {
+    background: #ffffff;
+    color: #495057;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    outline: none;
+    selection-background-color: #e8f1ff;
+    selection-color: #212529;
+}
+
+QWidget[geoflowMain="true"] QListWidget:disabled,
+QWidget[geoflowMain="true"] QTreeView:disabled {
+    background: #e9ecef;
+    color: #adb5bd;
+    border-color: #dee2e6;
+}
+
+QWidget[geoflowMain="true"] QListWidget::item:hover,
+QWidget[geoflowMain="true"] QTreeView::item:hover {
+    background: #f1f5f9;
+    color: #212529;
+}
+
+QWidget[geoflowMain="true"] QListWidget::item:selected,
+QWidget[geoflowMain="true"] QTreeView::item:selected {
+    background: #e8f1ff;
+    color: #212529;
+}
+
+QWidget[geoflowMain="true"] QListWidget::item:disabled,
+QWidget[geoflowMain="true"] QTreeView::item:disabled {
+    color: #adb5bd;
+}
+
+QWidget[geoflowMain="true"] QListWidget::item {
+    padding: 8px;
+    border: none;
+}
+
+QWidget[geoflowMain="true"] QTreeView {
+    padding-left: 4px;
+}
+
+QWidget[geoflowMain="true"] QTreeView::item {
+    padding: 5px 3px;
+    border: none;
+}
+
+QWidget[geoflowMain="true"] QTreeView::item:has-children {
+    font-weight: 600;
+}
+
+/* =========================================================
+   4. TOOL BUTTON
+   ========================================================= */
+QWidget[geoflowMain="true"] QToolButton {
+    background: transparent;
+    color: #495057;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 4px 7px;
+}
+
+QWidget[geoflowMain="true"] QToolButton:hover {
+    background: #f1f5f9;
+    border-color: #dee2e6;
+}
+
+QWidget[geoflowMain="true"] QToolButton:checked {
+    background: #e8f1ff;
+    color: #212529;
+    border-color: #3b7ddd;
+}
+
+QWidget[geoflowMain="true"] QToolButton:disabled {
+    background: transparent;
+    color: #adb5bd;
+    border-color: transparent;
+}
+
+/* =========================================================
+   5. COMBOBOX / POPUP / ARROW
+   ========================================================= */
+QWidget[geoflowMain="true"] QComboBox {
+    padding: 0 28px 0 9px;
+}
+
+QWidget[geoflowMain="true"] QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+
+QWidget[geoflowMain="true"] QComboBox::down-arrow {
+    image: url(:/geoflow/feather/chevron-down.svg);
+    width: 12px;
+    height: 12px;
+}
+
+QWidget[geoflowMain="true"] QComboBox QAbstractItemView {
+    background: #ffffff;
+    color: #495057;
+    border: 1px solid #ced4da;
+    selection-background-color: #e8f1ff;
+    selection-color: #212529;
+    outline: none;
+    padding: 3px;
+}
+
+/* =========================================================
+   6. SPECIAL EXCEPTIONS
+   ========================================================= */
+QWidget[geoflowMain="true"] QTreeView::branch {
+    padding-left: 4px;
+    background: transparent;
+}
+
+QWidget[geoflowMain="true"] QTreeView::branch:has-children:closed {
+    image: url(:/geoflow/feather/chevron-right.svg);
+}
+
+QWidget[geoflowMain="true"] QTreeView::branch:has-children:open {
+    image: url(:/geoflow/feather/chevron-down.svg);
+}
+
+/* VisibilityButton paints its Feather icon itself and stays frameless. */
+QWidget[geoflowMain="true"] VisibilityButton,
+QWidget[geoflowMain="true"] VisibilityButton:hover,
+QWidget[geoflowMain="true"] VisibilityButton:pressed,
+QWidget[geoflowMain="true"] VisibilityButton:checked,
+QWidget[geoflowMain="true"] VisibilityButton:disabled {
+    background: transparent;
+    border: none;
+    padding: 0;
+}

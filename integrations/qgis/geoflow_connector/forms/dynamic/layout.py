@@ -2,9 +2,10 @@
 # 중앙 필드 위젯을 로컬 Tab → Group → Row → Field 배치에 따라 표시한다.
 from __future__ import annotations
 
+from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QSizePolicy, QTabWidget, QVBoxLayout,
-    QWidget,
+    QGroupBox, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QTabWidget,
+    QVBoxLayout, QWidget,
 )
 
 from .layout_model import render_layout, row_field_id, row_field_weight
@@ -54,21 +55,18 @@ class LayoutRenderer:
     # ============================================================
     # 사용자 배치에 따른 탭·그룹·행 렌더링
     # ============================================================
-    def render(self, fields, handles, parent=None, *, layer="", layout=None):
-        root = QWidget(parent)
-        outer = QVBoxLayout(root)
-        outer.setContentsMargins(8, 8, 8, 8)
-        outer.setSpacing(16)
-        tabs = QTabWidget(root)
+    def populate_tabs(self, tabs, fields, handles, *, layer="", layout=None):
+        """Append form tabs to a shared host and return the created tab pages."""
         fields_by_id = {str(field["id"]): field for field in fields}
         effective = render_layout(layout, layer, fields)
+        pages = []
         for tab_spec in effective["tabs"]:
-            tab = QWidget(tabs)
-            tab_layout = QVBoxLayout(tab)
+            content = QWidget(tabs)
+            tab_layout = QVBoxLayout(content)
             tab_layout.setContentsMargins(4, 4, 4, 4)
             tab_layout.setSpacing(16)
             for group_spec in tab_spec["groups"]:
-                box = QGroupBox(group_spec["title"], tab)
+                box = QGroupBox(group_spec["title"], content)
                 form = QVBoxLayout(box)
                 form.setContentsMargins(10, 12, 10, 10)
                 form.setSpacing(12)
@@ -86,6 +84,20 @@ class LayoutRenderer:
                     form.addLayout(row)
                 tab_layout.addWidget(box)
             tab_layout.addStretch(1)
-            tabs.addTab(tab, tab_spec["title"])
+            scroll = QScrollArea(tabs)
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setWidget(content)
+            tabs.addTab(scroll, tab_spec["title"])
+            pages.append(scroll)
+        return pages
+
+    def render(self, fields, handles, parent=None, *, layer="", layout=None):
+        root = QWidget(parent)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(16)
+        tabs = QTabWidget(root)
+        self.populate_tabs(tabs, fields, handles, layer=layer, layout=layout)
         outer.addWidget(tabs)
         return root

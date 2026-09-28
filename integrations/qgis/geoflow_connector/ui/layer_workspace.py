@@ -27,6 +27,7 @@ from qgis.core import (
 
 from ..layers.model import domain_label, editor_widget_spec, form_field_label, grouped_layer_rows, layer_reference_bindings, reference_groups, setting_enabled
 from .layer_name_delegate import LayerNameDelegate, COUNT_ROLE
+from .main_style import apply_main_style
 from ..api.references import ReferenceService, field_options
 from ..api.definitions import DefinitionService
 from ..api.photos import PhotoPolicyService
@@ -95,6 +96,7 @@ class GeoFlowLayerWorkspace(QWidget):
         self._building = False
 
         loadUi(str(Path(__file__).resolve().parents[1] / 'ui' / 'designer' / 'layer_workspace.ui'), self)
+        apply_main_style(self)
         self.tree.setItemDelegateForColumn(1, LayerNameDelegate(self.tree))
         self.model.rowsChanged.connect(self._rebuild)
         self.model.selectionChanged.connect(self._model_selection_changed)
