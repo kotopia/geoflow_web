@@ -25,17 +25,16 @@ def _paired_scopes(alias, project_id):
         return cur.fetchall()
 
 
-def _feature_ext_data(alias, project_id, layer, feature_id):
+def _require_feature(alias, project_id, layer, feature_id):
     physical = str(layer["physical_name"])
     if not _SAFE_TABLE.fullmatch(physical):
         raise definitions.PhotoPolicyError("레이어 식별자가 올바르지 않습니다.")
     with connections[alias].cursor() as cur:
-        cur.execute(f'SELECT ext_data FROM gis."{physical}" WHERE id=%s AND project_id=%s',
+        cur.execute(f'SELECT 1 FROM gis."{physical}" WHERE id=%s AND project_id=%s',
                     [feature_id, project_id])
         row = cur.fetchone()
     if row is None:
         raise definitions.PhotoPolicyError("프로젝트 객체를 찾을 수 없습니다.")
-    return row[0]
 
 
 @login_required
@@ -61,8 +60,9 @@ def project_photo_policies_api(request, project_id):
         for layer_id, layer in selected.items():
             if requested and layer_id != requested:
                 continue
-            ext_data = _feature_ext_data(alias,project.id,layer,feature_id) if feature_id else {}
-            result = definitions.resolve(data,scopes,layer_id,ext_data)
+            if feature_id:
+                _require_feature(alias,project.id,layer,feature_id)
+            result = definitions.resolve(data,scopes,layer_id)
             output.append({"layer_id":layer_id,"standard_name":layer["standard_name"],
                            "feature_id":feature_id,"policy":result})
         response = JsonResponse({"ok":True,"project_id":str(project.id),

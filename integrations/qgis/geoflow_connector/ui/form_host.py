@@ -360,7 +360,7 @@ class Main(QWidget, FORM_CLASS):
     def _update_page_dirty(self, page):
         binding = getattr(page, "binding", None)
         photos = getattr(page, "photos", None)
-        form_dirty = bool(binding and (binding.dirty or binding.capture_mode_dirty()))
+        form_dirty = bool(binding and binding.dirty)
         photo_dirty = bool(photos and photos.has_pending_changes())
         page.dirty = form_dirty or photo_dirty
         suffix = " *" if page.dirty else ""

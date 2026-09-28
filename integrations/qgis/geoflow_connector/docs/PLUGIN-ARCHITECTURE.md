@@ -1,14 +1,19 @@
-# GeoFlow Connector 1.3.5
+# GeoFlow Connector 1.4.0
 
 ## Object edit session
 
 The dynamic form and its photo tab share one feature-scoped edit session. Form
-values and `ext_data.photo.capture_mode` remain local widget drafts, while photo
-adds, replacements, annotation edits, and deletes remain in a retryable in-memory
+values remain local widget drafts, while photo adds, replacements, annotation edits,
+and deletes remain in a retryable in-memory
 queue. Only **현재 객체 저장** commits the QGIS edit buffer and then executes the
 existing photo presign/finalize/delete APIs. A failed remote operation remains in
 the queue and is shown as unsaved so the user can retry; successful operations are
 not silently replayed.
+
+Photo policy is an ordered `Template → Variant → Slot` catalogue. The last valid
+Template/Variant selection is kept in the current QGIS user profile per project and
+layer; a stale value falls back to the first server-ordered Template/Variant. This
+working preference is never written to feature `ext_data` or the central policy.
 
 Object switches and QGIS shutdown use the same save/discard/continue guard.
 Discard reloads committed feature values and removes pending photo bytes. S3,

@@ -31,7 +31,7 @@ jobs:
         env:
           GEOFLOW_FORMS_ISOLATED_PG: '1'
       - name: Compile changed GIS Python modules
-        run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py control/services/gis_photo_policy.py control/management/commands/smoke_gis_photo_catalog.py control/management/commands/cleanup_gis_standard_fields.py control/management/commands/repair_qgis_flow_dip.py geoflow_ops/gis/central_definitions.py
+        run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py control/services/gis_photo_policy.py control/management/commands/smoke_gis_photo_catalog.py control/management/commands/deploy_gis_photo_catalog_v2.py control/management/commands/cleanup_gis_standard_fields.py control/management/commands/repair_qgis_flow_dip.py geoflow_ops/gis/central_definitions.py geoflow_ops/gis/feature_photo_views.py geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py scripts/ops/inventory_gis_photo_catalog_v2.py
       - name: Validate central GIS admin JavaScript syntax
         run: |
           python - <<'PYCODE'
