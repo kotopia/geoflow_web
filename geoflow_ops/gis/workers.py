@@ -6,6 +6,31 @@ from control.services_identity import lookup_user_id_from_request
 from geoflow_ops.services.project_access import _login_identity, project_access_policy
 
 
+def _profile_photo_attachment_id(alias, employee_id):
+    """Expose the existing employee portrait read-only; never creates attachment data."""
+    if not employee_id:
+        return ""
+    try:
+        with connections[alias].cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text
+                  FROM ops.attachments
+                 WHERE entity_type='employee' AND entity_id=%s
+                   AND purpose IN ('photo_thumb', 'thumb', 'photo')
+                   AND active=true AND deleted_at IS NULL
+                 ORDER BY CASE WHEN purpose IN ('photo_thumb', 'thumb') THEN 0 ELSE 1 END,
+                          ord, created_at DESC
+                 LIMIT 1
+                """,
+                [employee_id],
+            )
+            row = cur.fetchone()
+        return row[0] if row else ""
+    except Exception:
+        return ""
+
+
 def current_user_context(request, alias):
     central_id = lookup_user_id_from_request(request)
     display_name = None
@@ -24,7 +49,8 @@ def current_user_context(request, alias):
     employee_id, name = rows[0] if status == 'linked' else (None, None)
     return dict(user_id=central_id, display_name=display_name,
                 employee_id=employee_id, worker_id=employee_id, worker_name=name,
-                worker_link_status=status)
+                worker_link_status=status,
+                profile_photo_attachment_id=_profile_photo_attachment_id(alias, employee_id))
 
 
 def project_workers(request, alias, project_id, plan):
