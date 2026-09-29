@@ -69,6 +69,11 @@
     font-size: 12px;
 }
 
+#GeoFlowDynamicForm QDateEdit[geoflowInput="true"],
+#GeoFlowDynamicForm QDateTimeEdit[geoflowInput="true"] {
+    color: #495057;
+}
+
 #GeoFlowDynamicForm QTextEdit[geoflowInput="true"] {
     padding: 7px 9px;
 }
@@ -266,6 +271,42 @@
     image: url(:/geoflow/feather/calendar.svg);
     width: 13px;
     height: 13px;
+}
+
+#GeoFlowDynamicForm QCalendarWidget QWidget {
+    background: #ffffff;
+    color: #495057;
+}
+
+#GeoFlowDynamicForm QCalendarWidget QToolButton {
+    background: #ffffff;
+    color: #495057;
+    border: none;
+}
+
+#GeoFlowDynamicForm QCalendarWidget QAbstractItemView:enabled {
+    background: #ffffff;
+    color: #495057;
+    selection-background-color: #e8f1ff;
+    selection-color: #1b1d1f;
+    border: 1px solid #ced4da;
+}
+
+#GeoFlowDynamicForm QLabel#photoSectionTitle,
+#GeoFlowDynamicForm QLabel#slotTitleLabel,
+#GeoFlowDynamicForm QLabel#titleLabel {
+    color: #343a40;
+    font-weight: 600;
+}
+
+#GeoFlowDynamicForm QLabel#fileNameLabel {
+    color: #6b7280;
+    font-size: 11px;
+}
+
+#GeoFlowDynamicForm QLabel#statusLabel {
+    color: #d97706;
+    font-weight: 600;
 }
 
 /* ==========================================================
