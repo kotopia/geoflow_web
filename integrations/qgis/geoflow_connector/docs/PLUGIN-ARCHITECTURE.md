@@ -1,4 +1,4 @@
-# GeoFlow Connector 1.4.1
+# GeoFlow Connector 1.4.2
 
 ## Object edit session
 
