@@ -327,9 +327,6 @@ class Main(QWidget, FORM_CLASS):
         page.header.layoutButton.clicked.connect(self.edit_form_layout)
         page.header.referenceRefreshButton.clicked.connect(self.plugin.refresh_reference_catalog)
         page.header.pushButtonUpdate.clicked.connect(self.save_current)
-        user = getattr(self.plugin, "current_user_context", lambda: {})()
-        page.header.lineEditWorker.setText(str(user.get("worker_name") or user.get("display_name") or ""))
-        page.header.dateEdit.setDate(QDate.currentDate())
         self.headerStack.addWidget(page.header)
         local_layout = self._layout_store.load(standard, fields)
         page.form = DynamicForm(
@@ -347,7 +344,10 @@ class Main(QWidget, FORM_CLASS):
         page.form.setEnabled(bool(state["can_write"] and not layer.readOnly()))
         self.pages[layer.id()] = page
         self.formStack.addWidget(page)
-        page.binding = DynamicFormBinding(page, layer, page.form, state["can_write"])
+        page.binding = DynamicFormBinding(
+            page, layer, page.form, state["can_write"],
+            user_context=getattr(self.plugin, "current_user_context", lambda: {})(),
+        )
         page.update_dirty = lambda p=page: self._update_page_dirty(p)
         page.photos.dirtyChanged.connect(lambda _dirty, p=page: self._update_page_dirty(p))
         self._update_page_dirty(page)

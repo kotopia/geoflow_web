@@ -5,8 +5,8 @@ from uuid import uuid4
 from qgis.PyQt.QtCore import Qt, QSettings, pyqtSignal
 from qgis.PyQt.QtGui import QPixmap
 from qgis.PyQt.QtWidgets import (
-    QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QInputDialog, QLineEdit, QMenu, QMessageBox, QPushButton, QSizePolicy, QToolButton, QVBoxLayout,
+    QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox, QLabel,
+    QInputDialog, QLineEdit, QMenu, QMessageBox, QSizePolicy, QToolButton, QVBoxLayout,
     QWidget,
 )
 from qgis.PyQt.uic import loadUiType
@@ -18,7 +18,10 @@ from ..photo_selection import next_photo_slot, photo_classification_options, res
 from .photo_studio import PhotoStudioDialog
 
 
-FORM_CLASS, _ = loadUiType(os.path.join(os.path.dirname(__file__), "forms", "photo_tab.ui"))
+FORMS_DIR = os.path.join(os.path.dirname(__file__), "forms")
+FORM_CLASS, _ = loadUiType(os.path.join(FORMS_DIR, "photo_tab.ui"))
+CARD_FORM_CLASS, CARD_BASE_CLASS = loadUiType(os.path.join(FORMS_DIR, "photo_card.ui"))
+SLOT_FORM_CLASS, SLOT_BASE_CLASS = loadUiType(os.path.join(FORMS_DIR, "photo_slot.ui"))
 
 
 def _log(message):
@@ -59,6 +62,18 @@ class ResponsivePhotoLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class PhotoCardWidget(CARD_BASE_CLASS, CARD_FORM_CLASS):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setupUi(self)
+
+
+class PhotoSlotWidget(SLOT_BASE_CLASS, SLOT_FORM_CLASS):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setupUi(self)
+
+
 class PhotoSection(QGroupBox, FORM_CLASS):
     availabilityChanged = pyqtSignal(bool)
     dirtyChanged = pyqtSignal(bool)
@@ -79,15 +94,11 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.pending_delete = set()
         self.root, self.note = self.rootLayout, self.statusLabel
         self.retry_button = self.retryButton
-        self.manager_button = self.managerButton
-        self.manager_open = False
         self.template_row, self.variant_row = self.templateRow, self.variantRow
         self.template_select, self.variant_select = self.templateCombo, self.variantCombo
         self.cards = self.cardsHost
         self.cards_layout = self.cardsLayout
         self.retry_button.clicked.connect(self._retry_policy)
-        self.manager_button.setIcon(feather_icon("camera"))
-        self.manager_button.toggled.connect(self._toggle_manager)
         self.template_select.currentIndexChanged.connect(self._template_changed)
         self.variant_select.currentIndexChanged.connect(self._variant_changed)
         self.setVisible(False)
@@ -114,7 +125,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self._sync_action_button()
 
     def _tab_needed(self):
-        return bool(self.manager_open or self.photos or self.has_pending_changes())
+        return bool(self.photos or self.pending_add)
 
     def _allow_extra(self):
         return bool((self.policy or {}).get("allow_extra_photo", True))
@@ -141,7 +152,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         menu.addSeparator()
         for slot in variant.get("slots") or []:
             action = menu.addAction(str(slot.get("name") or "사진"))
-            action.triggered.connect(lambda _=False, s=slot: self.upload(s, {}))
+            action.triggered.connect(lambda _=False, s=slot: self._capture_slot(s))
         if self._allow_extra():
             action = menu.addAction("추가 사진")
             action.triggered.connect(lambda _=False: self.upload(None, {}))
@@ -157,9 +168,6 @@ class PhotoSection(QGroupBox, FORM_CLASS):
                     lambda _=False, t=str(template.get("id") or ""),
                     v=str(variant_row.get("id") or ""): self.select_capture_mode(t, v)
                 )
-        menu.addSeparator()
-        manage = menu.addAction("사진 관리")
-        manage.triggered.connect(self.open_manager)
         button.setMenu(menu)
 
     def quick_capture(self):
@@ -167,14 +175,34 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             return
         slot = next_photo_slot(self._variant(), self._display_photos(), self.last_slot_id)
         if slot is None and not self._allow_extra():
-            self.open_manager()
             self.note.setText("현재 촬영방식의 사진 항목이 모두 완료되었습니다.")
             return
-        if slot and ((slot.get("extra_schema") or {}).get("fields") or []):
-            self.open_manager()
-            self.note.setText("이 사진 항목은 추가 입력값이 필요합니다. 사진 관리에서 추가하세요.")
+        self._capture_slot(slot)
+
+    def _capture_slot(self, slot):
+        schema = ((slot or {}).get("extra_schema") or {}).get("fields") or []
+        if not schema:
+            self.upload(slot, {})
             return
-        self.upload(slot, {})
+        dialog = QDialog(self)
+        dialog.setWindowTitle(str((slot or {}).get("name") or "사진") + " 추가 입력")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        extras = {}
+        for field in schema:
+            widget = QCheckBox(dialog) if field.get("kind") == "boolean" else QLineEdit(dialog)
+            extras[field["key"]] = (field, widget)
+            form.addRow(str(field.get("label") or field["key"]), widget)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.upload(slot, extras)
 
     def select_capture_mode(self, template_id, variant_id):
         template = self._template(template_id)
@@ -186,17 +214,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.last_slot_id = ""
         self._remember_selection()
         self._fill_selectors()
-        self.note.setText("촬영방식을 변경했습니다. 저장 대기 사진은 사진 관리에서 재분류할 수 있습니다.")
-        self.render()
-
-    def open_manager(self):
-        if not self.policy or not self.feature_uuid:
-            return
-        self.manager_button.setChecked(True)
-        self.manager_open = True
-        self._set_available(True)
-        if getattr(self.page, "tabs", None) is not None:
-            self.page.tabs.setCurrentWidget(self)
+        self.note.setText("촬영방식을 변경했습니다. 저장 대기 사진은 사진 탭에서 재분류할 수 있습니다.")
         self.render()
 
     def _clear_policy_ui(self):
@@ -205,28 +223,9 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             combo.blockSignals(True); combo.clear(); combo.blockSignals(False); combo.setEnabled(False)
         self.template_row.setVisible(False)
         self.variant_row.setVisible(False)
-        self.manager_button.blockSignals(True)
-        self.manager_button.setChecked(False)
-        self.manager_button.blockSignals(False)
-        self.manager_button.setVisible(False)
-        self.manager_open = False
         self.cardsScrollArea.setVisible(False)
         self._clear_cards()
         self._sync_action_button()
-
-    def _toggle_manager(self, opened):
-        self.manager_open = bool(opened)
-        self.manager_button.setText("사진 관리 닫기" if opened else self._manager_label())
-        self.template_row.setVisible(opened and bool((self.policy or {}).get("templates")))
-        template = self._template()
-        self.variant_row.setVisible(opened and len((template or {}).get("variants") or []) > 1)
-        self.cardsScrollArea.setVisible(opened)
-        self._set_available(self._tab_needed())
-        self._sync_action_button()
-
-    def _manager_label(self):
-        count = len([row for row in self._display_photos() if not row.get("_pending_delete")])
-        return f"사진 관리 ({count}장)"
 
     def _selection_prefix(self):
         project_id = str(((self.plugin.active_context or {}).get("manifest", {}).get("project") or {}).get("id") or "")
@@ -401,9 +400,8 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.template_select.setCurrentIndex(max(0, self.template_select.findData(self.template_id)))
         self.template_select.blockSignals(False)
         self.template_select.setEnabled(self._can_write() and len(templates) > 1)
-        self.manager_button.setVisible(True)
-        self.manager_button.setText("사진 관리 닫기" if self.manager_open else self._manager_label())
-        self.template_row.setVisible(self.manager_open)
+        self.template_row.setVisible(True)
+        self.cardsScrollArea.setVisible(True)
         self._fill_variants(template, preferred=self.variant_id)
         self._remember_selection()
         self._log_refresh(state, layer_id, [str(row.get("name") or row.get("id")) for row in templates])
@@ -445,7 +443,7 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         self.variant_select.setCurrentIndex(max(0, self.variant_select.findData(str(variant["id"]))))
         self.variant_select.blockSignals(False)
         self.variant_select.setEnabled(self._can_write() and len(variants) > 1)
-        self.variant_row.setVisible(self.manager_open and len(variants) > 1)
+        self.variant_row.setVisible(len(variants) > 1)
         self.variant_id = str(variant["id"])
         self._sync_action_button()
 
@@ -494,12 +492,10 @@ class PhotoSection(QGroupBox, FORM_CLASS):
 
     def render(self):
         self._clear_cards()
-        if not self.manager_open:
-            self.manager_button.setText(self._manager_label())
         template = self._template() or {}
         variant = self._variant(template) or {}
         title = QLabel(str(template.get("name") or "사진") + " · " + str(variant.get("name") or "기본"))
-        title.setStyleSheet("font-weight: 600; font-size: 14px;")
+        title.setObjectName("photoSectionTitle")
         self.cards_layout.addWidget(title)
         active_slots = {str(slot.get("id")): slot for slot in variant.get("slots") or []}
         for slot in active_slots.values():
@@ -537,32 +533,28 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         effective = [p for p in photos if not p.get("_pending_delete")]
         minimum, maximum = int((slot or {}).get("min_count") or 0), int((slot or {}).get("max_count") or 100)
         title = str((slot or {}).get("name") or "추가 사진")
-        box = QGroupBox(f"{title}  {len(effective)} / {minimum}" + (" ✓" if len(effective) >= minimum else " !"))
+        box = PhotoSlotWidget(self.cards)
         box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        lay = QVBoxLayout(box)
+        box.slotTitleLabel.setText(title)
+        box.countLabel.setText(f"{len(effective)} / {minimum}" + (" ✓" if len(effective) >= minimum else " !"))
         for photo in photos:
-            lay.addWidget(self._photo_card(photo))
+            box.photoCardsLayout.addWidget(self._photo_card(photo))
         extras = {}
         schema = ((slot or {}).get("extra_schema") or {}).get("fields") or []
         if schema and len(effective) < maximum:
-            form = QFormLayout()
             for field in schema:
                 widget = QCheckBox() if field.get("kind") == "boolean" else QLineEdit()
                 extras[field["key"]] = (field, widget)
-                form.addRow(str(field.get("label") or field["key"]), widget)
-            lay.addLayout(form)
-        if len(effective) < maximum:
-            add = QPushButton("+ 사진 추가")
-            add.setEnabled(self._can_write())
-            add.clicked.connect(lambda _=False, s=slot, e=extras: self.upload(s, e))
-            lay.addWidget(add, 0, Qt.AlignmentFlag.AlignHCenter)
+                box.extraFieldsLayout.addRow(str(field.get("label") or field["key"]), widget)
+        box.extraFieldsHost.setVisible(bool(schema and len(effective) < maximum))
+        box.addPhotoButton.setVisible(len(effective) < maximum)
+        box.addPhotoButton.setEnabled(self._can_write())
+        box.addPhotoButton.clicked.connect(lambda _=False, s=slot, e=extras: self.upload(s, e))
         return box
 
     def _photo_card(self, photo):
-        card = QGroupBox(self.cards)
-        lay = QVBoxLayout(card)
-        buttons = QHBoxLayout()
-        studio, replace, delete = QToolButton(card), QToolButton(card), QToolButton(card)
+        card = PhotoCardWidget(self.cards)
+        studio, replace, delete = card.editButton, card.replaceButton, card.deleteButton
         for button, icon, tooltip in ((studio, "edit-2", "보기/편집"),
                                       (replace, "refresh-cw", "사진 변경"),
                                       (delete, "trash-2", "삭제")):
@@ -576,18 +568,13 @@ class PhotoSection(QGroupBox, FORM_CLASS):
             delete.setIcon(feather_icon("rotate-ccw"))
             delete.setToolTip("삭제 취소")
             delete.setAccessibleName("삭제 취소")
-        buttons.addWidget(studio)
-        buttons.addWidget(replace)
-        buttons.addWidget(delete)
         if photo.get("_pending_add"):
-            classify = QToolButton(card)
+            classify = card.classifyButton
+            classify.setVisible(True)
             classify.setIcon(feather_icon("tag"))
             classify.setToolTip("사진 종류 변경")
             classify.setAccessibleName("사진 종류 변경")
             classify.clicked.connect(lambda _=False, p=photo: self.reclassify_pending(p))
-            buttons.addWidget(classify)
-        buttons.addStretch(1)
-        lay.addLayout(buttons)
         preview = ResponsivePhotoLabel(card)
         try:
             image = QPixmap()
@@ -602,27 +589,20 @@ class PhotoSection(QGroupBox, FORM_CLASS):
         except Exception:
             preview.setText("미리보기를 불러올 수 없습니다.")
         preview.clicked.connect(lambda p=photo: self.open_studio(p))
-        lay.addWidget(preview)
-        original = QLabel("원본: " + str(photo.get("original_name") or "사진"))
-        original.setWordWrap(True)
-        original.setStyleSheet("color: #6b7280; font-size: 11px;")
-        original.setToolTip(str(photo.get("original_name") or ""))
-        lay.addWidget(original)
-        if photo.get("title"):
-            heading = QLabel(str(photo["title"])); heading.setWordWrap(True)
-            heading.setStyleSheet("font-weight: 600;"); lay.addWidget(heading)
-        if photo.get("note"):
-            description = QLabel(str(photo["note"])); description.setWordWrap(True)
-            lay.addWidget(description)
+        card.previewLayout.addWidget(preview)
+        card.fileNameLabel.setText("원본: " + str(photo.get("original_name") or "사진"))
+        card.fileNameLabel.setToolTip(str(photo.get("original_name") or ""))
+        card.titleLabel.setText(str(photo.get("title") or ""))
+        card.titleLabel.setVisible(bool(photo.get("title")))
+        card.descriptionLabel.setText(str(photo.get("note") or ""))
+        card.descriptionLabel.setVisible(bool(photo.get("note")))
         pending = []
         if photo.get("_pending_add"): pending.append("추가")
         if photo.get("_pending_replace"): pending.append("변경")
         if photo.get("_pending_edit"): pending.append("편집")
         if photo.get("_pending_delete"): pending.append("삭제 예정")
-        if pending:
-            badge = QLabel("● 미저장 · " + ", ".join(pending))
-            badge.setStyleSheet("color: #d97706; font-weight: 600;")
-            lay.addWidget(badge)
+        card.statusLabel.setText("● 미저장 · " + ", ".join(pending))
+        card.statusLabel.setVisible(bool(pending))
         card.setEnabled(not photo.get("_pending_delete") or self._can_write())
         return card
 
