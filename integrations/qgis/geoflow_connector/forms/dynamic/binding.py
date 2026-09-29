@@ -11,6 +11,7 @@ from qgis.PyQt.QtCore import QDate, QDateTime, Qt
 from qgis.core import QgsMessageLog, Qgis
 
 from ..common.lifecycle import sole_new_feature
+from .system_defaults import new_feature_defaults
 
 
 def _clean(value):
@@ -83,14 +84,16 @@ def canonical_value(field, value):
 # 중앙 필드와 QGIS Feature 값 연결
 # ============================================================
 class DynamicFormBinding:
-    def __init__(self, page, layer, form, can_write):
+    def __init__(self, page, layer, form, can_write, *, user_context=None):
         self.page, self.layer, self.form = page, layer, form
+        self.user_context = dict(user_context or {})
         self.can_save = bool(can_write and not layer.readOnly())
         self.feature_id = None
         self.original = {}
         self.source_original = {}
         self.loading = False
         self.dirty = set()
+        self.system_default_fields = set()
         self._last_dirty_signature = ()
         form.changed.connect(self.changed)
 
@@ -141,18 +144,32 @@ class DynamicFormBinding:
     def load(self, feature, *, force=False):
         if not force and self.has_actual_changes():
             return
+        applied_defaults = False
         self.loading = True
         try:
             self.feature_id = feature.id()
             self.source_original = self._feature_values(feature)
             self.form.load_values(self.source_original)
             self.original = self.form.values()
+            self.system_default_fields.clear()
+            if sole_new_feature(self.layer, self.feature_id):
+                defaults = new_feature_defaults(
+                    self.form.fields, self.source_original, self.user_context
+                )
+                if defaults:
+                    merged = dict(self.source_original)
+                    merged.update(defaults)
+                    self.form.load_values(merged)
+                    self.system_default_fields.update(defaults)
+                    applied_defaults = True
             self.dirty.clear()
             self._last_dirty_signature = ()
             self.page.dirty = False
             self._notify_dirty()
         finally:
             self.loading = False
+        if applied_defaults:
+            self.has_actual_changes()
 
     def clear(self):
         """Return a clean form to its no-feature state without discarding a draft."""
@@ -187,7 +204,7 @@ class DynamicFormBinding:
         differences = {}
         for field in self.form.fields:
             field_id = field["id"]
-            if field.get("readonly"):
+            if field.get("readonly") and field_id not in self.system_default_fields:
                 continue
             original = self.original.get(field_id)
             current = values.get(field_id)
@@ -256,7 +273,9 @@ class DynamicFormBinding:
         self.layer.beginEditCommand("GeoFlow 중앙 Dynamic Form")
         ok = True
         for field in self.form.fields:
-            if field["id"] not in changed or field.get("readonly"):
+            if field["id"] not in changed or (
+                field.get("readonly") and field["id"] not in self.system_default_fields
+            ):
                 continue
             storage = field["storage"]
             if storage["kind"] == "column" and storage["key"] in names:

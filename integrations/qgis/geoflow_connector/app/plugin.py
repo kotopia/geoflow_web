@@ -484,6 +484,7 @@ class GeoFlowConnectorPlugin:
             "worker_name": str(info.get("worker_name") or ""),
             "employee_id": str(info.get("employee_id") or ""),
             "worker_link_status": str(info.get("worker_link_status") or "unknown"),
+            "profile_photo_attachment_id": str(info.get("profile_photo_attachment_id") or ""),
         }
 
     def current_project_context(self) -> dict:

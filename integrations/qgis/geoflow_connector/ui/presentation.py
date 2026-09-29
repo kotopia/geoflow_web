@@ -3,7 +3,10 @@
 """Dock presentation only: no authentication, field mapping or project mutation."""
 from enum import IntEnum
 from qgis.PyQt.QtCore import QObject, Qt, QTimer, QEvent
+from qgis.PyQt.QtGui import QPixmap
 from qgis.PyQt.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QToolButton, QSizePolicy, QLayout, QMenu
+
+from .photo_icons import feather_icon
 
 
 class PanelMode(IntEnum):
@@ -28,6 +31,7 @@ class PanelPresentation(QObject):
         self.closed = False
         self.work = None
         self.root = root
+        self._profile_source = None
         self.rail = root.rail
         self.rail.setFixedWidth(WIDTHS['icons'])
         root.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
@@ -73,6 +77,32 @@ class PanelPresentation(QObject):
         engine.dock.setTitleBarWidget(title)
         engine.dock.setWidget(self.root)
         engine.iface.mainWindow().installEventFilter(self)
+        self.update_profile()
+
+    def update_profile(self):
+        label = self.root.profilePhotoLabel
+        user = getattr(self.engine, "current_user_context", lambda: {})()
+        source = str(user.get("profile_photo_attachment_id") or "")
+        name = str(user.get("worker_name") or user.get("display_name") or "로그인 사용자")
+        label.setToolTip(name)
+        if source == self._profile_source:
+            return
+        self._profile_source = source
+        pixmap = QPixmap()
+        if source:
+            try:
+                payload = self.engine.dialog.client.get_json(
+                    f"/api/uploads/presign-get/{source}/?mode=inline"
+                )
+                pixmap.loadFromData(self.engine.dialog.client.get_bytes(payload["presigned_url"]))
+            except Exception:
+                pixmap = QPixmap()
+        if pixmap.isNull():
+            pixmap = feather_icon("user").pixmap(28, 28)
+        label.setPixmap(pixmap.scaled(
+            36, 36, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ))
 
     def eventFilter(self, watched, event):
         if not self.closed and event.type() == QEvent.Type.Resize and hasattr(self, '_target'):
@@ -125,6 +155,7 @@ class PanelPresentation(QObject):
         if self.closed:
             return
         e = self.engine
+        self.update_profile()
         working = self.work is not None and e.stack.currentWidget() is self.work
         self.content.setVisible(not working or self.mode != PanelMode.ICONS)
         for key in ('select', 'save', 'zoom', 'drafts'):

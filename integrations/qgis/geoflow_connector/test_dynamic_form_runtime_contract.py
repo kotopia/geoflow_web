@@ -77,6 +77,20 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         self.assertIn("apply_main_style(self)", workspace)
         self.assertIn('[geoflowMain="true"]', qss)
 
+    def test_header_system_defaults_and_profile_are_not_manual_inputs(self):
+        header = (ROOT / "ui/designer/form_header.ui").read_text(encoding="utf-8")
+        binding = (ROOT / "forms/dynamic/binding.py").read_text(encoding="utf-8")
+        dock = (ROOT / "ui/designer/main_dock.ui").read_text(encoding="utf-8")
+        self.assertNotIn('name="dateEdit"', header)
+        self.assertNotIn('name="lineEditWorker"', header)
+        self.assertIn('name="actionSeparator"', header)
+        self.assertIn('name="photoButton"', header)
+        self.assertIn("new_feature_defaults", binding)
+        self.assertIn("sole_new_feature(self.layer, self.feature_id)", binding)
+        defaults = (ROOT / "forms/dynamic/system_defaults.py").read_text(encoding="utf-8")
+        self.assertIn('"worker_id" in names', defaults)
+        self.assertIn('name="profilePhotoLabel"', dock)
+
     def test_validation_feedback_preserves_rule_validation_result(self):
         form = (ROOT / "forms/dynamic/form.py").read_text(encoding="utf-8")
         self.assertIn("errors = validate(self.definition, self.fields, self.values())", form)

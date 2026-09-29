@@ -131,6 +131,7 @@ class GeoFlowHttpClient:
             "worker_name": str(record.get("worker_name") or ""),
             "employee_id": str(record.get("employee_id") or ""),
             "worker_link_status": str(record.get("worker_link_status") or "unknown"),
+            "profile_photo_attachment_id": str(record.get("profile_photo_attachment_id") or ""),
         }
 
     def _extract_session_user_from_payload(self, payload):

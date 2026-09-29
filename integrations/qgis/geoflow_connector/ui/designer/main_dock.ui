@@ -332,6 +332,15 @@
        </spacer>
       </item>
       <item>
+       <widget class="QLabel" name="profilePhotoLabel">
+        <property name="minimumSize"><size><width>38</width><height>38</height></size></property>
+        <property name="maximumSize"><size><width>38</width><height>38</height></size></property>
+        <property name="toolTip"><string>로그인 사용자</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+        <property name="scaledContents"><bool>false</bool></property>
+       </widget>
+      </item>
+      <item>
        <widget class="QToolButton" name="GeoFlowRail_logout">
         <property name="minimumSize">
          <size>
