@@ -83,10 +83,10 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn('"variant_id": operation["variant_id"]', source)
 
     def test_feature_scoped_quick_capture_and_pending_reclassification(self):
-        header = (ROOT / "ui/form_header.py").read_text(encoding="utf-8")
+        header = (ROOT / "ui/designer/form_header.ui").read_text(encoding="utf-8")
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
         host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
-        self.assertIn("QToolButton.ToolButtonPopupMode.MenuButtonPopup", header)
+        self.assertIn("QToolButton::ToolButtonPopupMode::MenuButtonPopup", header)
         self.assertIn("bind_action_button(page.header.photoButton)", host)
         self.assertIn("def quick_capture(self):", section)
         self.assertIn("next_photo_slot", section)
@@ -130,7 +130,7 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         tab_text = tab.read_text(encoding="utf-8")
         self.assertIn('name="templateCombo"', tab_text)
         self.assertIn('name="variantCombo"', tab_text)
-        self.assertIn('name="managerButton"', tab_text)
+        self.assertNotIn('name="managerButton"', tab_text)
         self.assertIn('name="cardsScrollArea"', tab_text)
         self.assertIn("ScrollBarAlwaysOff", tab_text)
         dialog = studio_tree.find("./widget[@class='QDialog']")
@@ -147,6 +147,21 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertIn("annotation_icon(name)", studio)
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
         self.assertIn('feather_icon("camera")', section)
+
+    def test_photo_tab_is_content_first_and_cards_are_designer_owned(self):
+        section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
+        tab = (ROOT / "ui/forms/photo_tab.ui").read_text(encoding="utf-8")
+        card = (ROOT / "ui/forms/photo_card.ui").read_text(encoding="utf-8")
+        slot = (ROOT / "ui/forms/photo_slot.ui").read_text(encoding="utf-8")
+        for text in (tab, card, slot):
+            ET.fromstring(text)
+        for forbidden in ("manager_open", "managerButton", "_toggle_manager", "_manager_label"):
+            self.assertNotIn(forbidden, section + tab)
+        self.assertIn("return bool(self.photos or self.pending_add)", section)
+        for name in ("editButton", "replaceButton", "deleteButton", "photoPreview", "statusLabel"):
+            self.assertIn(f'name="{name}"', card)
+        for name in ("slotTitleLabel", "countLabel", "photoCardsHost", "extraFieldsHost", "addPhotoButton"):
+            self.assertIn(f'name="{name}"', slot)
 
     def test_photo_studio_fixed_toolbar_is_designer_owned(self):
         ui = (ROOT / "ui/forms/photo_studio.ui").read_text(encoding="utf-8")
