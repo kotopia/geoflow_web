@@ -201,6 +201,10 @@ def qgis_project_manifest_api(request, project_id):
         "gis:project_survey_link_changeset_api",
         kwargs={"project_id": project.id},
     )
+    survey_sources_url = reverse("gis:project_survey_sources_api", kwargs={"project_id": project.id})
+    survey_points_url = reverse("gis:project_survey_points_api", kwargs={"project_id": project.id})
+    survey_reapply_preview_url = reverse("gis:project_survey_reapply_preview_api", kwargs={"project_id": project.id})
+    survey_reapply_url = reverse("gis:project_survey_reapply_api", kwargs={"project_id": project.id})
     changeset_supported = changeset_runtime_enabled(alias)
     from .photo_policy_views import central_photo_snapshot
     photo_snapshot = central_photo_snapshot()
@@ -228,6 +232,10 @@ def qgis_project_manifest_api(request, project_id):
         ),
         survey_links_url=survey_links_url,
         survey_link_changeset_url=survey_link_changeset_url,
+        survey_sources_url=survey_sources_url,
+        survey_points_url=survey_points_url,
+        survey_reapply_preview_url=survey_reapply_preview_url,
+        survey_reapply_url=survey_reapply_url,
         photo_policy_revision=photo_snapshot["revision"] if photo_snapshot else "",
         photo_policy_url=(reverse("gis:project_photo_policies_api", kwargs={"project_id":project.id})
                           if photo_snapshot else ""),

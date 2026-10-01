@@ -26,6 +26,8 @@ SURVEY_LINK_STANDARD_NAME = "SURVEY_LINK"
 SURVEY_LINK_PHYSICAL_NAME = "survey_link"
 SURVEY_LINK_RESOURCE_KIND = "relation"
 MATCH_METHODS = frozenset({"manual", "nearest", "code", "import", "gnss"})
+LINK_ROLES = frozenset({"POINT", "VERTEX"})
+LINK_STATUSES = frozenset({"LINKED", "MANUALLY_MODIFIED", "UNLINKED"})
 
 
 def _optional_decimal(
@@ -65,6 +67,7 @@ def _feature_type_for_layer(
         "id": str(row["id"]),
         "standard_name": str(row["standard_name"]).upper(),
         "physical_name": physical_name,
+        "geometry_kind": str(row.get("geometry_kind") or "").upper(),
     }
 
 
@@ -96,6 +99,21 @@ def _target_exists(
         return cursor.fetchone() is not None
 
 
+def _target_geometry_info(
+    alias: str, *, project_id: str, physical_name: str, target_id: str, lock: bool
+) -> tuple[str | None, int | None] | None:
+    table = _quote_ident(physical_name)
+    suffix = " FOR UPDATE" if lock else ""
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            f'SELECT GeometryType(geom),ST_NPoints(geom) FROM "gis".{table} '
+            f'WHERE project_id=%s AND id=%s{suffix}',
+            [project_id, target_id],
+        )
+        row = cursor.fetchone()
+    return (str(row[0]).upper() if row[0] else None, int(row[1]) if row[1] is not None else None) if row else None
+
+
 def _link_by_id(alias: str, *, project_id: str, plan: dict[str,Any], link_id: str, lock: bool) -> dict[str, Any] | None:
     suffix = " FOR UPDATE OF sl" if lock else ""
     with connections[alias].cursor() as cursor:
@@ -103,7 +121,8 @@ def _link_by_id(alias: str, *, project_id: str, plan: dict[str,Any], link_id: st
             f"""
             SELECT sl.id::text, sl.survey_id::text, sl.layer_id::text, sl.target_id::text,
                    sl.match_method, sl.match_distance, sl.match_confidence,
-                   sl.confirmed_by::text, sl.confirmed_at, sl.created_at
+                   sl.confirmed_by::text, sl.confirmed_at, sl.created_at,
+                   sl.vertex_index,sl.link_role,sl.link_status,sl.updated_at,sl.updated_by::text
               FROM gis.survey_link sl
               JOIN gis.survey s ON s.id=sl.survey_id
              WHERE s.project_id=%s AND sl.id=%s{suffix}
@@ -126,6 +145,9 @@ def _link_by_id(alias: str, *, project_id: str, plan: dict[str,Any], link_id: st
         "confirmed_by": str(row[7]) if row[7] is not None else None,
         "confirmed_at": row[8].isoformat() if row[8] is not None else None,
         "created_at": row[9].isoformat() if row[9] is not None else None,
+        "vertex_index": row[10], "link_role": str(row[11]), "link_status": str(row[12]),
+        "updated_at": row[13].isoformat() if row[13] is not None else None,
+        "updated_by": str(row[14]) if row[14] is not None else None,
     }
 
 
@@ -143,6 +165,7 @@ def _relation_values(row: dict[str, Any]) -> dict[str, Any]:
             "match_confidence",
             "confirmed_by",
             "confirmed_at",
+            "vertex_index", "link_role", "link_status", "updated_at", "updated_by",
         )
     }
 
@@ -200,20 +223,62 @@ def apply_survey_link_changeset(
             return replay
 
         events: list[dict[str, Any]] = []
-        counts = {"create": 0, "delete": 0}
+        counts = {"create": 0, "update": 0, "unlink": 0, "delete": 0}
         for index, raw in enumerate(changes):
             label = f"changes[{index}]"
             if not isinstance(raw, dict):
                 raise SyncRejected(f"{label} must be an object")
             action = str(raw.get("action") or "").lower()
-            if action not in {"create", "delete"}:
-                raise SyncRejected(f"{label}: survey links support create or delete only")
+            if action not in {"create", "update", "unlink", "delete"}:
+                raise SyncRejected(f"{label}: unsupported survey-link action")
             link_id = _uuid_text(raw.get("id"), f"{label}.id")
             if link_id in seen:
                 raise SyncRejected(f"{label}: duplicate link id in one Changeset")
             seen.add(link_id)
 
-            if action == "delete":
+            if action in {"delete", "unlink", "update"}:
+                if action == "delete":
+                    unexpected = set(raw) - {"action", "id"}
+                elif action == "unlink":
+                    unexpected = set(raw) - {"action", "id"}
+                else:
+                    unexpected = set(raw) - {"action", "id", "link_status", "vertex_index", "link_role"}
+                if unexpected:
+                    raise SyncRejected(f"{label}: unknown field: {sorted(unexpected)[0]}")
+                before = _link_by_id(alias, project_id=project_id, plan=plan, link_id=link_id, lock=True)
+                if before is None:
+                    raise SyncConflict(
+                        [{"resource_kind": SURVEY_LINK_RESOURCE_KIND, "id": link_id, "reason": "server_link_missing"}]
+                    )
+                if action == "unlink":
+                    status, role, vertex_index = "UNLINKED", before["link_role"], before["vertex_index"]
+                elif action == "update":
+                    status = str(raw.get("link_status") or before["link_status"]).upper()
+                    role = str(raw.get("link_role") or before["link_role"]).upper()
+                    vertex_index = raw.get("vertex_index", before["vertex_index"])
+                    if status not in LINK_STATUSES or role not in LINK_ROLES:
+                        raise SyncRejected(f"{label}: invalid link_status or link_role")
+                    if role == "POINT" and vertex_index is not None:
+                        raise SyncRejected(f"{label}: POINT must not have vertex_index")
+                    if role == "VERTEX" and (not isinstance(vertex_index, int) or vertex_index < 0):
+                        raise SyncRejected(f"{label}: VERTEX requires non-negative vertex_index")
+                else:
+                    status = role = vertex_index = None
+
+                if action != "delete":
+                    actor_uuid = None
+                    try: actor_uuid = str(uuid.UUID(str(actor_ref))) if actor_ref else None
+                    except (ValueError, TypeError, AttributeError): pass
+                    with connections[alias].cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE gis.survey_link SET link_status=%s,link_role=%s,vertex_index=%s,updated_at=now(),updated_by=%s WHERE id=%s",
+                            [status, role, vertex_index, actor_uuid, link_id],
+                        )
+                    after = _link_by_id(alias, project_id=project_id, plan=plan, link_id=link_id, lock=True)
+                    events.append({"action": action, "id": link_id, "old": _relation_values(before), "new": _relation_values(after)})
+                    counts[action] += 1
+                    continue
+
                 unexpected = set(raw) - {"action", "id"}
                 if unexpected:
                     raise SyncRejected(f"{label}: delete must contain only action and id")
@@ -237,7 +302,7 @@ def apply_survey_link_changeset(
 
             allowed_keys = {
                 "action", "id", "survey_id", "layer", "standard_name", "target_id",
-                "match_method", "match_distance", "match_confidence",
+                "match_method", "match_distance", "match_confidence", "vertex_index", "link_role", "link_status",
             }
             unexpected = set(raw) - allowed_keys
             if unexpected:
@@ -263,6 +328,15 @@ def apply_survey_link_changeset(
                 minimum=Decimal("0"),
                 maximum=Decimal("1"),
             )
+            role = str(raw.get("link_role") or "POINT").upper()
+            status = str(raw.get("link_status") or "LINKED").upper()
+            vertex_index = raw.get("vertex_index")
+            if role not in LINK_ROLES or status not in LINK_STATUSES:
+                raise SyncRejected(f"{label}: invalid link_role or link_status")
+            if role == "POINT" and vertex_index is not None:
+                raise SyncRejected(f"{label}: POINT must not have vertex_index")
+            if role == "VERTEX" and (not isinstance(vertex_index, int) or vertex_index < 0):
+                raise SyncRejected(f"{label}: VERTEX requires non-negative vertex_index")
             if not _survey_exists(alias, project_id=project_id, survey_id=survey_id, lock=True):
                 raise SyncConflict(
                     [{"resource_kind": SURVEY_LINK_RESOURCE_KIND, "id": link_id, "reason": "survey_outside_project_or_missing"}]
@@ -277,11 +351,21 @@ def apply_survey_link_changeset(
                 raise SyncConflict(
                     [{"resource_kind": SURVEY_LINK_RESOURCE_KIND, "id": link_id, "reason": "target_outside_project_or_missing"}]
                 )
+            if role == "POINT" and (feature_type.get("geometry_kind") or "") not in {"", "POINT"}:
+                raise SyncRejected(f"{label}: POINT requires a point feature")
+            if role == "VERTEX":
+                geometry_info = _target_geometry_info(
+                    alias, project_id=project_id, physical_name=feature_type["physical_name"],
+                    target_id=target_id, lock=True,
+                )
+                if (not geometry_info or geometry_info[0] != "LINESTRING" or
+                        vertex_index >= int(geometry_info[1] or 0)):
+                    raise SyncRejected(f"{label}: vertex_index is outside a LineString")
             with connections[alias].cursor() as cursor:
                 cursor.execute(
                     "SELECT id::text FROM gis.survey_link WHERE id=%s OR "
-                    "(survey_id=%s AND layer_id=%s AND target_id=%s)",
-                    [link_id, survey_id, feature_type["id"], target_id],
+                    "(layer_id=%s AND target_id=%s AND COALESCE(vertex_index,-1)=COALESCE(%s,-1) AND link_status<>'UNLINKED')",
+                    [link_id, feature_type["id"], target_id, vertex_index],
                 )
                 duplicate = cursor.fetchone()
             if duplicate is not None:
@@ -300,12 +384,14 @@ def apply_survey_link_changeset(
                     """
                     INSERT INTO gis.survey_link(
                         id, survey_id, layer_id, target_id, match_method,
-                        match_distance, match_confidence, confirmed_by, confirmed_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,now())
+                        match_distance, match_confidence, confirmed_by, confirmed_at,
+                        vertex_index,link_role,link_status,created_by,updated_by
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,now(),%s,%s,%s,%s,%s)
                     """,
                     [
                         link_id, survey_id, feature_type["id"], target_id, match_method,
                         match_distance, match_confidence, confirmed_by,
+                        vertex_index,role,status,confirmed_by,confirmed_by,
                     ],
                 )
             after = _link_by_id(alias, project_id=project_id, plan=plan, link_id=link_id, lock=True)
@@ -362,6 +448,8 @@ def apply_survey_link_changeset(
             "current_revision": current_revision,
             "created": counts["create"],
             "deleted": counts["delete"],
+            "updated": counts["update"],
+            "unlinked": counts["unlink"],
             "total": len(events),
             "applied": applied,
             "replayed": False,
@@ -390,6 +478,7 @@ def list_survey_links(
     survey_id: str | None = None,
     standard_name: str | None = None,
     target_id: str | None = None,
+    include_unlinked: bool = False,
     limit: int = 1000,
 ) -> list[dict[str, Any]]:
     try:
@@ -413,6 +502,8 @@ def list_survey_links(
     params: list[Any] = [project_id, list(permitted)]
     filters = ["s.project_id=%s"]
     filters.append("sl.layer_id=ANY(%s::uuid[])")
+    if not include_unlinked:
+        filters.append("sl.link_status<>'UNLINKED'")
     if survey_id:
         filters.append("sl.survey_id=%s")
         params.append(_uuid_text(survey_id, "survey_id"))
@@ -429,7 +520,8 @@ def list_survey_links(
             f"""
             SELECT sl.id::text, sl.survey_id::text, sl.layer_id::text, sl.target_id::text,
                    sl.match_method, sl.match_distance, sl.match_confidence,
-                   sl.confirmed_by::text, sl.confirmed_at, sl.created_at
+                   sl.confirmed_by::text, sl.confirmed_at, sl.created_at,
+                   sl.vertex_index,sl.link_role,sl.link_status,sl.updated_at,sl.updated_by::text
               FROM gis.survey_link sl
               JOIN gis.survey s ON s.id=sl.survey_id
              WHERE {' AND '.join(filters)}
@@ -452,6 +544,9 @@ def list_survey_links(
                 "confirmed_by": str(row[7]) if row[7] is not None else None,
                 "confirmed_at": row[8].isoformat() if row[8] is not None else None,
                 "created_at": row[9].isoformat() if row[9] is not None else None,
+                "vertex_index": row[10], "link_role": str(row[11]), "link_status": str(row[12]),
+                "updated_at": row[13].isoformat() if row[13] is not None else None,
+                "updated_by": str(row[14]) if row[14] is not None else None,
             }
         )
     return result

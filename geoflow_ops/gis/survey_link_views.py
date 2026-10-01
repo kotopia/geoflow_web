@@ -66,6 +66,7 @@ def _query(alias, project_id, plan, request):
         survey_id=request.GET.get("survey_id"),
         standard_name=request.GET.get("layer"),
         target_id=request.GET.get("target_id"),
+        include_unlinked=request.GET.get("include_unlinked") == "1",
         limit=request.GET.get("limit", "1000"),
     )
     return JsonResponse(

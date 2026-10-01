@@ -187,6 +187,11 @@ QGIS Plugin은 유지한다.
 
 수백 개 시설물 테이블 각각에 survey FK를 추가하지 않는다.
 
+원본 version, point/vertex mapping 상태, 재적용 계약은
+`docs/architecture/gis-survey-lineage-contract-v1.md`를 따른다. 기존
+`gis.survey_link`를 공통 mapping 테이블로 확장하며 별도의 중복
+`feature_survey_map`을 만들지 않는다.
+
 ## 14. 공통 도로 기준 데이터 `gis.doro`
 `gis.doro` 명칭을 유지한다.
 

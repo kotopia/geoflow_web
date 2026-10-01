@@ -60,6 +60,11 @@ on:
       - geoflow_ops/gis/qfield_persistent.py
       - geoflow_ops/gis/server_snapshot_cache.py
       - geoflow_ops/gis/survey_links.py
+      - geoflow_ops/gis/survey_link_views.py
+      - geoflow_ops/gis/survey_sources.py
+      - geoflow_ops/gis/survey_reapply.py
+      - geoflow_ops/gis/survey_views.py
+      - geoflow_ops/gis/test_survey_lineage.py
       - geoflow_ops/gis/registry.py
       - integrations/qgis/geoflow_connector/plugin.py
       - integrations/qgis/geoflow_connector/snapshot_cache.py
@@ -77,6 +82,9 @@ on:
       - geoflow_ops/migrations/0041_gis_feature_photo_edited_representation.py
       - geoflow_ops/migrations/0042_gis_feature_photo_image_metadata.py
       - geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py
+      - geoflow_ops/migrations/0044_gis_survey_lineage.py
+      - control/management/commands/deploy_gis_survey_lineage.py
+      - docs/architecture/gis-survey-lineage-contract-v1.md
       - docs/architecture/gis-data-model.md
       - geoflow_ops/templates/geoflow_ops/gis/form_configuration.html
       - .github/workflows/gis-definition-code-deploy.yml
@@ -251,12 +259,18 @@ jobs:
           photo_catalog_v2_required=no
           standard_cleanup_required=no
           qgis_flow_dip_repair_required=no
+          survey_lineage_required=no
           while IFS= read -r changed_path; do
             # QGIS plugin packages are independently tested and published by
             # qgis-plugin-test-repository-publish.yml. They never require a
             # central/tenant database transition in this deployment job.
             case "$changed_path" in
               integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|geoflow_ops/gis/test_feature_photo_catalog_v2_contract.py|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
+            esac
+            case "$changed_path" in
+              geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|control/management/commands/deploy_gis_survey_lineage.py|docs/architecture/gis-survey-lineage-contract-v1.md)
+                survey_lineage_required=yes
+                continue ;;
             esac
             if [ "$changed_path" != 'control/services/gis_catalog_navigation.py' ] && \
                [ "$changed_path" != 'control/test_gis_admin_navigation.py' ] && \
@@ -380,6 +394,12 @@ jobs:
               --report-file "$backup_dir/qgis-flow-dip-repair.json"
           else
             echo 'qgis_flow_dip_repair=skipped'
+          fi
+          if [ "$survey_lineage_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_survey_lineage --apply
+          else
+            echo 'gis_survey_lineage=skipped'
           fi
           "$python" "$repo/manage.py" repair_gis_definition_layouts --apply \
             --backup-file "$backup_dir/non-object-definition-field-layouts.json"
