@@ -19,6 +19,7 @@ from . import (
     reference_views,
     sync_views,
     survey_link_views,
+    survey_views,
     views,
 )
 
@@ -53,6 +54,10 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/delta/", sync_views.project_delta_api, name="project_delta_api"),
     path("projects/<uuid:project_id>/api/survey-links/", survey_link_views.project_survey_links_api, name="project_survey_links_api"),
     path("projects/<uuid:project_id>/api/survey-link-changesets/", survey_link_views.project_survey_link_changeset_api, name="project_survey_link_changeset_api"),
+    path("projects/<uuid:project_id>/api/survey-sources/", survey_views.project_survey_sources_api, name="project_survey_sources_api"),
+    path("projects/<uuid:project_id>/api/survey-points/", survey_views.project_survey_points_api, name="project_survey_points_api"),
+    path("projects/<uuid:project_id>/api/survey-reapply-preview/", survey_views.project_survey_reapply_preview_api, name="project_survey_reapply_preview_api"),
+    path("projects/<uuid:project_id>/api/survey-reapply/", survey_views.project_survey_reapply_api, name="project_survey_reapply_api"),
     path("projects/<uuid:project_id>/api/reference-catalog/", reference_views.qgis_reference_catalog_api, name="project_reference_catalog_api"),
     path("projects/<uuid:project_id>/api/qfield/bootstrap/", qfield_device_views.qfield_bootstrap_api, name="qfield_bootstrap_api"),
     path("projects/<uuid:project_id>/api/qfield/install-status/", qfield_package_views.qfield_install_status_api, name="qfield_install_status_api"),
