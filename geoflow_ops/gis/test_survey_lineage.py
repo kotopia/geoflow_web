@@ -133,21 +133,32 @@ class SurveyLineageContractTests(SimpleTestCase):
         self.assertIn("trap on_exit EXIT", workflow)
 
     def test_connector_contract_documents_deployed_wire_boundaries(self):
-        contract = (Path(__file__).parents[2] / "docs" / "architecture" /
-                    "gis-survey-lineage-contract-v1.md").read_text(encoding="utf-8")
+        root = Path(__file__).parents[2]
+        canonical_path = root / "docs" / "gis-survey-lineage-contract-v1.md"
+        architecture_path = (root / "docs" / "architecture" /
+                             "gis-survey-lineage-contract-v1.md")
+        contract_bytes = canonical_path.read_bytes()
+        self.assertEqual(contract_bytes, architecture_path.read_bytes())
+        contract = contract_bytes.decode("utf-8")
         for marker in (
+            "4c5fc553339bdf429b8ec5c6d656a414be484f6d",
             '"presigned_url"',
             '"object_key"',
             "The method is always `PUT`",
             "application/vnd.ms-excel",
             "HTTP 200 with an empty response body",
             '"survey_source_object_invalid"',
-            "import of 22 points",
+            "import of 22 mixed EPSG:4326/EPSG:5186 points",
             '"protocol": "survey_link_v1"',
             '"protocol":"survey_link_changeset_v1"',
             "at most 5,000 rows ordered",
             "Point-level values override request-level",
+            "Client-supplied versus server-generated point values",
+            "GET /gis/projects/{project_id}/api/survey-sources/{source_id}/",
+            "DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/",
             '"cleanup_pending":false',
+            "unlinked_history",
+            "survey_source_delete_failed",
             "feature/geometry first, link second",
             "preview token or revision lock",
             "Reapply has no",
