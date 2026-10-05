@@ -25,7 +25,7 @@ jobs:
       SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
       SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
-      CLEANUP_KEY: ${{ inputs.cleanup_key }}
+      CLEANUP_KEY: ${{ inputs.cleanup_key || 'tenants/cheonan_db/gis/0a920f22-5dcc-4f9c-91b5-2a29c0bc3f41/survey-sources/6d6ae3a4-161f-4fc2-b766-c44450a8f15f/43666e691b40497784ea2e716df63ca5.csv' }}
     steps:
       - name: Checkout exact reviewed release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
