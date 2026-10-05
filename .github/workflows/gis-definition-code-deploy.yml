@@ -88,6 +88,8 @@ on:
       - docs/architecture/gis-data-model.md
       - geoflow_ops/templates/geoflow_ops/gis/form_configuration.html
       - .github/workflows/gis-definition-code-deploy.yml
+      - .github/workflows/gis-survey-source-delete-policy-apply.yml
+      - scripts/ops/apply_gis_survey_source_delete_policy.py
 
 concurrency:
   group: geoflow-gis-production-code
@@ -269,6 +271,9 @@ jobs:
             esac
             case "$changed_path" in
               geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|control/management/commands/deploy_gis_survey_lineage.py|control/management/commands/smoke_gis_survey_source_upload.py|docs/architecture/gis-survey-lineage-contract-v1.md)
+                survey_lineage_required=yes
+                continue ;;
+              .github/workflows/gis-survey-source-delete-policy-apply.yml|scripts/ops/apply_gis_survey_source_delete_policy.py)
                 survey_lineage_required=yes
                 continue ;;
             esac

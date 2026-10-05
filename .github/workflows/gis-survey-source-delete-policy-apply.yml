@@ -1,0 +1,68 @@
+name: GIS Survey source delete policy apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      cleanup_key:
+        description: Existing failed-smoke Survey source object key
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  apply-exact-policy-and-cleanup:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      CLEANUP_KEY: ${{ inputs.cleanup_key }}
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate exact Survey source cleanup scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CLEANUP_KEY" =~ ^tenants/[^/]+/gis/[^/]+/survey-sources/[^/]+/[^/]+$ ]]
+          python -m py_compile scripts/ops/apply_gis_survey_source_delete_policy.py
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+
+      - name: Apply scoped policy and remove failed-smoke object
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_script="/tmp/geoflow-survey-delete-policy-${GITHUB_RUN_ID}.py"
+          trap 'ssh -i "$HOME/.ssh/geoflow_deploy_key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" "rm -f $remote_script" >/dev/null 2>&1 || true' EXIT
+          scp -i "$HOME/.ssh/geoflow_deploy_key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            scripts/ops/apply_gis_survey_source_delete_policy.py "$SSH_USER@$SSH_HOST:$remote_script"
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$remote_script' '$CLEANUP_KEY'" <<'REMOTE'
+          set -euo pipefail
+          script="$1"
+          cleanup_key="$2"
+          service='geoflow-stabilized.service'
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          python="$repo/.venv/bin/python"
+          cd "$repo"
+          set -a
+          . "$repo/.env"
+          set +a
+          "$python" "$script" "$repo" --cleanup-key "$cleanup_key" --apply
+          REMOTE
