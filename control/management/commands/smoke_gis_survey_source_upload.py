@@ -199,6 +199,12 @@ class Command(BaseCommand):
                         point_count = sum(x["source_id"] == source_id for x in points["points"])
                         if source_count != 1 or point_count != 22:
                             raise CommandError("survey_upload_smoke_readback=failed")
+                        # The production FK from feature_change_log to
+                        # changeset_receipt is deferred until commit. Force all
+                        # deferred constraints now so rollback-based smoke can
+                        # no longer produce a false positive.
+                        with connections[alias].cursor() as cursor:
+                            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
                         transaction.set_rollback(True, using=alias)
                     break
             if not chosen:
@@ -216,6 +222,7 @@ class Command(BaseCommand):
         self.stdout.write(f"survey_upload_smoke_updated={import_result['updated']}")
         self.stdout.write(f"survey_upload_smoke_source_readback={source_count}")
         self.stdout.write(f"survey_upload_smoke_point_readback={point_count}")
+        self.stdout.write("survey_upload_smoke_deferred_constraints=verified")
         self.stdout.write("survey_upload_smoke_db_rollback=yes")
         self.stdout.write("survey_upload_smoke_s3_cleanup=yes")
         self.stdout.write("RESULT gis_survey_source_upload_smoke=SUCCESS")

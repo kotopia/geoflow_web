@@ -7,7 +7,16 @@ from typing import Any
 from django.db import connections, transaction
 from psycopg2.extras import Json
 
-from .changeset import _allocate_revisions, _ensure_project_state, _insert_change_log, _plain_value, _uuid_text
+from .changeset import (
+    ChangesetUnavailable,
+    _allocate_revisions,
+    _complete_receipt,
+    _ensure_project_state,
+    _insert_change_log,
+    _plain_value,
+    _reserve_receipt,
+    _uuid_text,
+)
 from .qgis_sync import SyncConflict, SyncRejected
 
 
@@ -85,6 +94,16 @@ def import_survey_source(
 
     with transaction.atomic(using=alias):
         _ensure_project_state(alias, project_id)
+        changeset_id, client_id = str(uuid.uuid4()), str(uuid.uuid4())
+        if not _reserve_receipt(
+            alias,
+            project_id=project_id,
+            client_id=client_id,
+            changeset_id=changeset_id,
+            actor_ref=actor_ref,
+            base_revision=None,
+        ):
+            raise ChangesetUnavailable("Survey import receipt could not be reserved")
         with connections[alias].cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", [f"{project_id}:{source_group_id}"])
             cursor.execute(
@@ -186,17 +205,29 @@ def import_survey_source(
                            "after": geom_after, "old_values": old_values, "new_values": new_values})
 
         first, last, current = _allocate_revisions(alias, project_id, len(events))
-        change_id, client_id = str(uuid.uuid4()), str(uuid.uuid4())
         for offset, event in enumerate(events):
             _insert_change_log(
                 alias, project_id=project_id, revision=first + offset,
-                changeset_id=change_id, client_id=client_id, standard_name="SURVEY",
+                changeset_id=changeset_id, client_id=client_id, standard_name="SURVEY",
                 physical_name="survey", object_id=event["id"], action=event["action"],
                 changed_fields=["source_id","source_row_id","raw_x","raw_y","raw_z","geom"],
                 old_values=event["old_values"], new_values=event["new_values"],
                 geom_before=event["before"], geom_after=event["after"], actor_ref=actor_ref,
             )
-    return {"ok": True, "source_id": source_id, "source_group_id": source_group_id,
+        response = {
+            "ok": True, "source_id": source_id, "source_group_id": source_group_id,
             "version": version, "created": sum(e["action"] == "create" for e in events),
             "updated": sum(e["action"] == "update" for e in events),
-            "first_revision": first, "last_revision": last, "current_revision": current}
+            "first_revision": first, "last_revision": last, "current_revision": current,
+        }
+        _complete_receipt(
+            alias,
+            project_id=project_id,
+            client_id=client_id,
+            changeset_id=changeset_id,
+            first_revision=first,
+            last_revision=last,
+            change_count=len(events),
+            response=response,
+        )
+        return response
