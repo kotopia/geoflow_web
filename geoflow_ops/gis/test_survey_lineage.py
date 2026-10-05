@@ -68,3 +68,54 @@ class SurveyLineageContractTests(SimpleTestCase):
         self.assertIn("Explicit --apply required", command)
         self.assertIn("deploy_gis_survey_lineage --apply", workflow)
         self.assertIn("trap on_exit EXIT", workflow)
+
+    def test_connector_contract_documents_deployed_wire_boundaries(self):
+        contract = (Path(__file__).parents[2] / "docs" / "architecture" /
+                    "gis-survey-lineage-contract-v1.md").read_text(encoding="utf-8")
+        for marker in (
+            '"presigned_url"',
+            '"object_key"',
+            "The method is always `PUT`",
+            "application/vnd.ms-excel",
+            "HTTP 200 with an empty response body",
+            '"survey_source_object_invalid"',
+            "import of 22 points",
+            '"protocol": "survey_link_v1"',
+            '"protocol":"survey_link_changeset_v1"',
+            "at most 5,000 rows ordered",
+            "dedicated-field persistence",
+            "feature/geometry first, link second",
+            "preview token or revision lock",
+            "Reapply has no",
+            "server does not remap links",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, contract)
+
+    def test_connector_contract_markers_match_server_implementation(self):
+        root = Path(__file__).parents[2]
+        views = (root / "geoflow_ops" / "gis" / "survey_views.py").read_text(encoding="utf-8")
+        sources = (root / "geoflow_ops" / "gis" / "survey_sources.py").read_text(encoding="utf-8")
+        links = (root / "geoflow_ops" / "gis" / "survey_links.py").read_text(encoding="utf-8")
+        reapply = (root / "geoflow_ops" / "gis" / "survey_reapply.py").read_text(encoding="utf-8")
+        self.assertIn("expires_in=900", views)
+        self.assertIn('"object_key": key, **signed', views)
+        self.assertIn("LIMIT 5000", views)
+        self.assertIn('"points": points', views)
+        self.assertIn('"protocol": "survey_link_changeset_v1"', links)
+        self.assertIn('set(raw) - {"action", "id", "link_status", "vertex_index", "link_role"}', links)
+        self.assertIn('"counts": counts, "items": items', reapply)
+        self.assertIn('"applied": len(events), "skipped": skipped', reapply)
+        self.assertNotIn("working_crs", sources)
+
+    def test_production_upload_smoke_is_rollback_and_cleanup_guarded(self):
+        root = Path(__file__).parents[2]
+        command = (root / "control" / "management" / "commands" /
+                   "smoke_gis_survey_source_upload.py").read_text(encoding="utf-8")
+        self.assertIn("Explicit --apply required", command)
+        self.assertIn('method="PUT"', command)
+        self.assertIn("range(1, 23)", command)
+        self.assertIn("transaction.set_rollback(True", command)
+        self.assertIn("delete_object", command)
+        self.assertNotIn("presigned_url={", command)
+        self.assertNotIn("object_key={", command)

@@ -268,7 +268,7 @@ jobs:
               integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|geoflow_ops/gis/test_feature_photo_catalog_v2_contract.py|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
             esac
             case "$changed_path" in
-              geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|control/management/commands/deploy_gis_survey_lineage.py|docs/architecture/gis-survey-lineage-contract-v1.md)
+              geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|control/management/commands/deploy_gis_survey_lineage.py|control/management/commands/smoke_gis_survey_source_upload.py|docs/architecture/gis-survey-lineage-contract-v1.md)
                 survey_lineage_required=yes
                 continue ;;
             esac
@@ -430,6 +430,10 @@ jobs:
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_qgis_project_runtime
+
+          if [ "$survey_lineage_required" = yes ]; then
+            "$python" "$repo/manage.py" smoke_gis_survey_source_upload --apply
+          fi
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             diagnose_gis_photo_runtime
