@@ -142,6 +142,48 @@ POST the survey-sources endpoint:
 returned header. Depending on configuration, `headers` may include KMS key ID
 or omit MIME/encryption entries that were not signed.
 
+The response deliberately has no `method`, `expires_in`, or multipart `fields`
+member. The method is always `PUT`, and this is an S3 presigned PUT rather than
+a presigned POST. `project_id` is taken only from the URL. `id`, filename, and
+MIME are supplied by the client as shown above; when `id` is omitted the server
+generates it.
+
+The deployed server has no extension/MIME allowlist for this endpoint. The
+Connector should use these conventional values and must repeat the exact
+returned `Content-Type` header on PUT when it supplied a MIME type:
+
+| File | MIME |
+|---|---|
+| CSV | `text/csv` |
+| XLS | `application/vnd.ms-excel` |
+| XLSX | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` |
+
+Filename extensions `csv`, `xls`, and `xlsx` are all preserved in the object
+key. The source enum has `CSV` and `XLSX` but no `XLS`; an XLS workbook may be
+archived with its XLS MIME while the parsed import must use a supported
+`source_type` (normally `OTHER`, unless the product chooses another existing
+semantic type). MIME is signed and recorded by S3 but is not compared during
+finalization. There is no Survey-specific upload byte limit in the presign or
+HEAD path; the non-zero check is the only object-size rule. The **import JSON**,
+not the S3 object, is limited to 20 MiB.
+
+#### File upload result
+
+Send the raw file bytes, not multipart form data:
+
+```http
+PUT <presigned_url>
+Content-Type: text/csv
+x-amz-server-side-encryption: AES256
+
+<raw file bytes>
+```
+
+Treat any HTTP 2xx response as transport success; AWS S3 `PutObject` normally
+returns HTTP 200 with an empty response body. Do not parse a JSON response.
+Final success is established only when the following import POST succeeds,
+because that call performs the server-side HEAD verification.
+
 Required order:
 
 1. POST `action=presign`.
@@ -187,6 +229,50 @@ For v1, `source_group_id` defaults to `id`. Revisions require group ID and
 There is no row-level partial success/error array. Any bad row rolls back all.
 Import has no idempotency receipt. After an uncertain result, GET sources and
 points before retry; duplicate source ID is not a defined replay.
+
+The response is HTTP 200. `created + updated` is the number of submitted point
+rows committed. There are no `skipped`, `rejected`, `errors`, or row-result
+members. `source_id` is the value to select in the source list and to pass as
+`GET .../survey-points/?source_id={source_id}`. A 10-row Connector preview has
+no server meaning: every item in the submitted `points` array is processed.
+
+### Source failure envelopes
+
+Representative deployed responses are:
+
+```json
+{"ok":false,"error":"survey_source_object_invalid"}
+```
+
+HTTP 400 for a missing/empty/encryption-mismatched uploaded object.
+
+```json
+{"ok":false,"error":"survey_rejected","message":"points must be a non-empty list","details":null}
+```
+
+HTTP 400 for validation failures, including duplicate `source_row_id`, invalid
+coordinates/CRS, invalid `source_type`, an absent filename, or an oversized
+JSON body. Validation messages are stable enough for diagnostics but the UI
+should primarily branch on `error`.
+
+```json
+{"ok":false,"error":"survey_conflict","conflicts":[{"resource_kind":"survey_source","id":"<uuid>","reason":"superseded_source_missing_or_wrong_group"}]}
+```
+
+HTTP 409 for a source revision conflict. Database failures return HTTP 503
+`{"ok":false,"error":"survey_failed"}`. Authentication/tenant/project
+permission rejection follows the shared Django authorization response rather
+than a Survey JSON envelope; the Connector must preserve its normal session and
+permission handling.
+
+### Production upload smoke
+
+The protected operational smoke uses the deployed view/service/storage path:
+presign, real encrypted S3 PUT, import of 22 points, source list, and filtered
+point list. Tenant DB writes run inside an outer rollback transaction and the
+temporary S3 object is deleted in `finally`; no test Survey data remains. The
+smoke reports only field names/counts/status and never prints the presigned URL,
+object key, credentials, or session data.
 
 ## 5. List envelopes
 

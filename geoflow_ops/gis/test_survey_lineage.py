@@ -75,6 +75,11 @@ class SurveyLineageContractTests(SimpleTestCase):
         for marker in (
             '"presigned_url"',
             '"object_key"',
+            "The method is always `PUT`",
+            "application/vnd.ms-excel",
+            "HTTP 200 with an empty response body",
+            '"survey_source_object_invalid"',
+            "import of 22 points",
             '"protocol": "survey_link_v1"',
             '"protocol":"survey_link_changeset_v1"',
             "at most 5,000 rows ordered",
@@ -102,3 +107,15 @@ class SurveyLineageContractTests(SimpleTestCase):
         self.assertIn('"counts": counts, "items": items', reapply)
         self.assertIn('"applied": len(events), "skipped": skipped', reapply)
         self.assertNotIn("working_crs", sources)
+
+    def test_production_upload_smoke_is_rollback_and_cleanup_guarded(self):
+        root = Path(__file__).parents[2]
+        command = (root / "control" / "management" / "commands" /
+                   "smoke_gis_survey_source_upload.py").read_text(encoding="utf-8")
+        self.assertIn("Explicit --apply required", command)
+        self.assertIn('method="PUT"', command)
+        self.assertIn("range(1, 23)", command)
+        self.assertIn("transaction.set_rollback(True", command)
+        self.assertIn("delete_object", command)
+        self.assertNotIn("presigned_url={", command)
+        self.assertNotIn("object_key={", command)
