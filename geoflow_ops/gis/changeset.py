@@ -193,6 +193,41 @@ def _reserve_receipt(
         return cursor.fetchone() is not None
 
 
+def _complete_receipt(
+    alias: str,
+    *,
+    project_id: str,
+    client_id: str,
+    changeset_id: str,
+    first_revision: int | None,
+    last_revision: int | None,
+    change_count: int,
+    response: dict[str, Any],
+) -> None:
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE gis.changeset_receipt
+               SET first_revision=%s,
+                   last_revision=%s,
+                   change_count=%s,
+                   response_payload=%s
+             WHERE project_id=%s AND client_id=%s AND changeset_id=%s
+            """,
+            [
+                first_revision,
+                last_revision,
+                change_count,
+                Json(response),
+                project_id,
+                client_id,
+                changeset_id,
+            ],
+        )
+        if cursor.rowcount != 1:
+            raise ChangesetUnavailable("Changeset idempotency receipt could not be completed")
+
+
 def _allocate_revisions(alias: str, project_id: str, count: int) -> tuple[int | None, int | None, int]:
     if count <= 0:
         current = _ensure_project_state(alias, project_id)
@@ -595,26 +630,16 @@ def apply_project_changeset(
             "applied": applied,
             "replayed": False,
         }
-        with connections[alias].cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE gis.changeset_receipt
-                   SET first_revision=%s,
-                       last_revision=%s,
-                       change_count=%s,
-                       response_payload=%s
-                 WHERE project_id=%s AND client_id=%s AND changeset_id=%s
-                """,
-                [
-                    first_revision,
-                    last_revision,
-                    len(events),
-                    Json(response),
-                    project_id,
-                    client_id,
-                    changeset_id,
-                ],
-            )
+        _complete_receipt(
+            alias,
+            project_id=project_id,
+            client_id=client_id,
+            changeset_id=changeset_id,
+            first_revision=first_revision,
+            last_revision=last_revision,
+            change_count=len(events),
+            response=response,
+        )
         return response
 
 

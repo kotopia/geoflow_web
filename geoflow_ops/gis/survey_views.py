@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 
@@ -25,6 +26,7 @@ from .survey_sources import import_survey_source, list_survey_sources
 
 MAX_BODY_BYTES = 20 * 1024 * 1024
 _SAFE_ALIAS = re.compile(r"^[A-Za-z0-9_-]+$")
+logger = logging.getLogger(__name__)
 
 
 def _body(request):
@@ -49,6 +51,7 @@ def _response(callback):
     except SyncRejected as exc:
         return JsonResponse({"ok": False, "error": "survey_rejected", "message": str(exc), "details": exc.details}, status=400)
     except DatabaseError:
+        logger.exception("Survey database operation failed")
         return JsonResponse({"ok": False, "error": "survey_failed"}, status=503)
     except S3ObjectVerificationError:
         return JsonResponse({"ok": False, "error": "survey_source_object_invalid"}, status=400)

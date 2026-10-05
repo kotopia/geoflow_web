@@ -108,14 +108,32 @@ class SurveyLineageContractTests(SimpleTestCase):
         self.assertIn('"applied": len(events), "skipped": skipped', reapply)
         self.assertNotIn("working_crs", sources)
 
-    def test_production_upload_smoke_is_rollback_and_cleanup_guarded(self):
+    def test_production_upload_smoke_checks_deferred_fk_before_rollback(self):
         root = Path(__file__).parents[2]
         command = (root / "control" / "management" / "commands" /
                    "smoke_gis_survey_source_upload.py").read_text(encoding="utf-8")
         self.assertIn("Explicit --apply required", command)
         self.assertIn('method="PUT"', command)
         self.assertIn("range(1, 23)", command)
+        self.assertIn('cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")', command)
         self.assertIn("transaction.set_rollback(True", command)
         self.assertIn("delete_object", command)
         self.assertNotIn("presigned_url={", command)
         self.assertNotIn("object_key={", command)
+
+    def test_survey_import_uses_changeset_receipt_lifecycle(self):
+        root = Path(__file__).parents[2]
+        sources = (root / "geoflow_ops" / "gis" / "survey_sources.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("_reserve_receipt(", sources)
+        self.assertIn("_complete_receipt(", sources)
+        self.assertLess(sources.index("_reserve_receipt("), sources.index("_insert_change_log("))
+
+    def test_survey_database_errors_are_logged_without_contract_change(self):
+        root = Path(__file__).parents[2]
+        views = (root / "geoflow_ops" / "gis" / "survey_views.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('logger.exception("Survey database operation failed")', views)
+        self.assertIn('{"ok": False, "error": "survey_failed"}', views)
