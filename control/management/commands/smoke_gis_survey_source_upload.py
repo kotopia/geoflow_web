@@ -64,7 +64,7 @@ def _json(response, expected=200):
 
 
 class Command(BaseCommand):
-    help = "Verify real Survey presign, S3 PUT, import and reads with rollback/cleanup"
+    help = "Verify Survey upload/import/read/delete with rollback and S3 cleanup"
 
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true")
@@ -86,6 +86,7 @@ class Command(BaseCommand):
         put_status = None
         import_result = None
         source_count = point_count = 0
+        delete_result = precheck = None
 
         try:
             for config in configs:
@@ -127,6 +128,10 @@ class Command(BaseCommand):
                         request.session = session
                         if "survey-points" in path:
                             return survey_views.project_survey_points_api(request, project_id)
+                        if f"survey-sources/{source_id}" in path:
+                            return survey_views.project_survey_source_api(
+                                request, project_id, source_id
+                            )
                         return survey_views.project_survey_sources_api(request, project_id)
 
                     with transaction.atomic(using=alias):
@@ -170,15 +175,28 @@ class Command(BaseCommand):
                             "source_type": "CSV",
                             "original_file_name": "geoflow-survey-smoke.csv",
                             "original_file_key": object_key,
-                            "source_crs": "EPSG:4326",
+                            "source_crs": "EPSG:5186",
+                            "survey_date": "2026-10-05",
                             "note": "rollback production smoke",
                             "points": [
-                                {
+                                ({
                                     "source_row_id": f"SMOKE-{i:03d}",
                                     "longitude": 127 + i / 1_000_000,
                                     "latitude": 36 + i / 1_000_000,
                                     "raw_code": "SMOKE",
-                                }
+                                    "solution_info": "FIX",
+                                    "pdop": 1.2,
+                                    "antenna_height": 1.8,
+                                } if i <= 11 else {
+                                    "source_row_id": f"SMOKE-{i:03d}",
+                                    "raw_x": 200000 + i,
+                                    "raw_y": 500000 + i,
+                                    "raw_z": 10 + i / 10,
+                                    "raw_code": "SMOKE",
+                                    "solution_info": "FIX",
+                                    "pdop": 1.2,
+                                    "antenna_height": 1.8,
+                                })
                                 for i in range(1, 23)
                             ],
                         }
@@ -199,6 +217,36 @@ class Command(BaseCommand):
                         point_count = sum(x["source_id"] == source_id for x in points["points"])
                         if source_count != 1 or point_count != 22:
                             raise CommandError("survey_upload_smoke_readback=failed")
+                        if any(
+                            point.get("survey_date") != "2026-10-05"
+                            or point.get("name") != point.get("source_row_id")
+                            or point.get("code") != "SMOKE"
+                            or point.get("longitude") is None
+                            or point.get("latitude") is None
+                            for point in points["points"]
+                        ):
+                            raise CommandError("survey_upload_smoke_point_metadata=failed")
+                        precheck = _json(call(
+                            "GET",
+                            f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
+                        ))
+                        if not precheck["delete"].get("can_delete"):
+                            raise CommandError("survey_upload_smoke_delete_precheck=blocked")
+                        delete_result = _json(call(
+                            "DELETE",
+                            f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
+                        ))
+                        after_sources = _json(call(
+                            "GET", f"/gis/projects/{project_id}/api/survey-sources/"
+                        ))
+                        after_points = _json(call(
+                            "GET",
+                            f"/gis/projects/{project_id}/api/survey-points/?source_id={source_id}",
+                        ))
+                        if any(x["id"] == source_id for x in after_sources["sources"]):
+                            raise CommandError("survey_upload_smoke_delete_source=failed")
+                        if after_points["points"]:
+                            raise CommandError("survey_upload_smoke_delete_points=failed")
                         # The production FK from feature_change_log to
                         # changeset_receipt is deferred until commit. Force all
                         # deferred constraints now so rollback-based smoke can
@@ -222,6 +270,16 @@ class Command(BaseCommand):
         self.stdout.write(f"survey_upload_smoke_updated={import_result['updated']}")
         self.stdout.write(f"survey_upload_smoke_source_readback={source_count}")
         self.stdout.write(f"survey_upload_smoke_point_readback={point_count}")
+        self.stdout.write("survey_upload_smoke_point_metadata=verified")
+        self.stdout.write(
+            f"survey_upload_smoke_delete_precheck={str(precheck['delete']['can_delete']).lower()}"
+        )
+        self.stdout.write(
+            f"survey_upload_smoke_deleted_points={delete_result['deleted_point_count']}"
+        )
+        self.stdout.write(
+            f"survey_upload_smoke_deleted_object={str(delete_result['deleted_object']).lower()}"
+        )
         self.stdout.write("survey_upload_smoke_deferred_constraints=verified")
         self.stdout.write("survey_upload_smoke_db_rollback=yes")
         self.stdout.write("survey_upload_smoke_s3_cleanup=yes")
