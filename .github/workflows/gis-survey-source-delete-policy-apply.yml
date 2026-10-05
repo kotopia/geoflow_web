@@ -1,6 +1,10 @@
 name: GIS Survey source delete policy apply
 
 on:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - .github/workflows/gis-survey-source-delete-policy-apply.yml
   workflow_dispatch:
     inputs:
       cleanup_key:
