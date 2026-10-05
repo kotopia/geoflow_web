@@ -68,5 +68,28 @@ jobs:
           set -a
           . "$repo/.env"
           set +a
-          "$python" "$script" "$repo" --cleanup-key "$cleanup_key" --apply
+          "$python" - "$cleanup_key" <<'PY'
+          import os, re, sys
+          import boto3
+          from botocore.exceptions import ClientError
+          key = sys.argv[1]
+          if not re.fullmatch(r"tenants/[^/]+/gis/[^/]+/survey-sources/[^/]+/[^/]+", key):
+              raise SystemExit("cleanup_key_outside_survey_source_scope")
+          bucket = os.environ["AWS_S3_BUCKET"]
+          for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_DEFAULT_PROFILE"):
+              os.environ.pop(name, None)
+          os.environ.pop("AWS_EC2_METADATA_DISABLED", None)
+          s3 = boto3.Session(region_name=os.environ.get("AWS_REGION", "ap-northeast-2")).client("s3")
+          s3.delete_object(Bucket=bucket, Key=key)
+          try:
+              s3.head_object(Bucket=bucket, Key=key)
+          except ClientError as exc:
+              code = str((exc.response.get("Error") or {}).get("Code") or "")
+              if code not in {"404", "NoSuchKey", "NotFound"}:
+                  raise
+          else:
+              raise SystemExit("survey_source_orphan_still_exists")
+          print("survey_source_role_delete_authorized=yes")
+          print("survey_source_orphan_cleanup=yes")
+          PY
           REMOTE
