@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import uuid
+from types import SimpleNamespace
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -21,7 +22,15 @@ from .qgis_sync import SyncConflict, SyncRejected
 from .changeset import _uuid_text
 from .sync_views import _actor_ref, _require_project
 from .survey_reapply import apply_survey_reapply, preview_survey_reapply
-from .survey_sources import import_survey_source, list_survey_sources
+from .survey_sources import (
+    SurveySourceDeleteBlocked,
+    SurveySourceNotFound,
+    delete_survey_source,
+    import_survey_source,
+    list_survey_sources,
+    survey_source_delete_precheck,
+)
+from .workers import validate_worker_assignment
 
 
 MAX_BODY_BYTES = 20 * 1024 * 1024
@@ -43,16 +52,25 @@ def _body(request):
     return value
 
 
-def _response(callback):
+def _response(callback, *, database_error="survey_failed"):
     try:
         return JsonResponse(callback(), json_dumps_params={"ensure_ascii": False})
+    except SurveySourceNotFound:
+        return JsonResponse({"ok": False, "error": "survey_source_not_found"}, status=404)
+    except SurveySourceDeleteBlocked as exc:
+        return JsonResponse({
+            "ok": False,
+            "error": "survey_source_in_use",
+            "reason": exc.reason,
+            "delete": exc.precheck,
+        }, status=409)
     except SyncConflict as exc:
         return JsonResponse({"ok": False, "error": "survey_conflict", "conflicts": exc.conflicts}, status=409)
     except SyncRejected as exc:
         return JsonResponse({"ok": False, "error": "survey_rejected", "message": str(exc), "details": exc.details}, status=400)
     except DatabaseError:
         logger.exception("Survey database operation failed")
-        return JsonResponse({"ok": False, "error": "survey_failed"}, status=503)
+        return JsonResponse({"ok": False, "error": database_error}, status=503)
     except S3ObjectVerificationError:
         return JsonResponse({"ok": False, "error": "survey_source_object_invalid"}, status=400)
 
@@ -65,6 +83,29 @@ def _context(request, project_id, *, write=False):
     if write and not policy.can_webgis_write(project.id):
         raise PermissionDenied("Permission denied")
     return alias, project, plan
+
+
+def _validate_import_workers(request, alias, project_id, payload):
+    values = [payload.get("worker_id")]
+    points = payload.get("points")
+    if isinstance(points, list):
+        for point in points:
+            if isinstance(point, dict) and "worker_id" in point:
+                values.append(point.get("worker_id"))
+    seen = set()
+    for value in values:
+        if value in (None, ""):
+            continue
+        key = str(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        validate_worker_assignment(
+            alias,
+            str(project_id),
+            SimpleNamespace(action="create", attributes={"worker_id": value}),
+            request,
+        )
 
 
 @login_required
@@ -86,6 +127,7 @@ def project_survey_sources_api(request, project_id):
         return JsonResponse({"ok": True, "id": source_id, "object_key": key, **signed})
     object_key = str(payload.get("original_file_key") or "")
     def finalize():
+        _validate_import_workers(request, alias, project.id, payload)
         if object_key:
             prefix = f"tenants/{alias}/gis/{project.id}/survey-sources/"
             if not object_key.startswith(prefix):
@@ -96,6 +138,29 @@ def project_survey_sources_api(request, project_id):
         return import_survey_source(
             alias, project_id=str(project.id), payload=payload, actor_ref=_actor_ref(request))
     return _response(finalize)
+
+
+@login_required
+@require_http_methods(["GET", "DELETE"])
+def project_survey_source_api(request, project_id, source_id):
+    alias, project, _plan = _context(request, project_id, write=request.method == "DELETE")
+    if request.method == "GET":
+        return _response(lambda: {
+            "ok": True,
+            "project_id": str(project.id),
+            "delete": survey_source_delete_precheck(
+                alias, project_id=str(project.id), source_id=str(source_id)
+            ),
+        })
+    return _response(
+        lambda: delete_survey_source(
+            alias,
+            project_id=str(project.id),
+            source_id=str(source_id),
+            actor_ref=_actor_ref(request),
+        ),
+        database_error="survey_source_delete_failed",
+    )
 
 
 @login_required
@@ -112,7 +177,8 @@ def project_survey_points_api(request, project_id):
         cursor.execute(f"""
             SELECT s.id::text,s.source_id::text,s.source_row_id,s.raw_x,s.raw_y,s.raw_z,
                    s.raw_crs,s.raw_code,s.raw_geoid_model,s.x,s.y,s.z,
-                   ST_X(s.geom),ST_Y(s.geom),s.updated_at
+                   ST_X(s.geom),ST_Y(s.geom),s.worker_id::text,s.survey_date,s.name,s.code,
+                   s.solution_info,s.pdop,s.antenna_height,s.raw_data,s.updated_at
               FROM gis.survey s WHERE {' AND '.join(where)} ORDER BY s.source_row_id,s.id LIMIT 5000
         """, params)
         rows = cursor.fetchall()
@@ -120,7 +186,10 @@ def project_survey_points_api(request, project_id):
                "raw_x": r[3], "raw_y": r[4], "raw_z": r[5], "raw_crs": r[6],
                "raw_code": r[7], "raw_geoid_model": r[8], "x": r[9], "y": r[10],
                "z": r[11], "longitude": r[12], "latitude": r[13],
-               "updated_at": r[14].isoformat() if r[14] else None} for r in rows]
+               "worker_id": r[14], "survey_date": r[15].isoformat() if r[15] else None,
+               "name": r[16], "code": r[17], "solution_info": r[18], "pdop": r[19],
+               "antenna_height": r[20], "raw_data": r[21] or {},
+               "updated_at": r[22].isoformat() if r[22] else None} for r in rows]
     return JsonResponse({"ok": True, "project_id": str(project.id), "points": points},
                         json_dumps_params={"ensure_ascii": False})
 

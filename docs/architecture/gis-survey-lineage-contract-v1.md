@@ -62,11 +62,47 @@ Lineage additions are `source_id uuid NULL`, `source_row_id text NULL`,
 During revision, `(project, source_group_id, source_row_id)` retains the logical
 Survey UUID while coordinates and `source_id` advance.
 
-The table has legacy/common `worker_id`, `survey_date`, `surveyed_at`,
-`survey_code`, `type`, and `raw_data`. Contract v1 stores `raw_data`, but **does
-not map top-level or point-level method, survey_date, surveyed_at, or worker_id
-into their dedicated columns**. Preserve unsupported per-row source metadata in
-point `raw_data`; do not assume dedicated-field persistence.
+Import maps the following dedicated fields. Fields not listed remain legacy or
+reserved and must not be inferred from similarly named source columns.
+
+| Field | Import input | Rule |
+|---|---|---|
+| worker_id | point, then request fallback | nullable UUID; shared GIS worker-assignment authorization applies |
+| survey_date | point, then request fallback | nullable ISO `YYYY-MM-DD`; never defaults to today |
+| name | point | varchar(30); defaults to `source_row_id` only when it fits |
+| code | point | varchar(30); defaults to `raw_code` only when it fits |
+| raw_x/raw_y/raw_z | point | source Easting/Northing/height preserved unchanged |
+| x/y/z | server copy of raw values | current final/project ordinates; no client-only reinterpretation |
+| longitude/latitude | server | always recomputed from normalized EPSG:4326 `geom` |
+| solution_info | point | nullable varchar(200) |
+| pdop | point | nullable non-negative finite number |
+| antenna_height | point | nullable non-negative finite number |
+| raw_data | point | JSON object for unmodeled source metadata |
+
+Point-level values override request-level `worker_id` and `survey_date`.
+`imported_by` remains the authenticated source-import audit identity and is not
+the Survey worker. The authenticated assignment rule is the same one used by
+feature Changesets: a non-manager may assign only their linked employee ID; a
+project manager may assign any non-deleted tenant employee. Invalid or
+unauthorized IDs return `survey_rejected`. Client-supplied longitude/latitude may define input geometry,
+but stored longitude/latitude are derived back from `geom` after normalization.
+`surveyed_at`, `survey_code`, `filter`, and `type` are not import fields in v1;
+preserve such input in `raw_data` rather than guessing legacy semantics.
+
+Repository schema, package exclusions, GeoJSON candidates, lineage services, and
+legacy columns yield this classification:
+
+| Class | Fields | Current meaning/use |
+|---|---|---|
+| A — active lineage | source_id, source_row_id, raw_x/y/z, raw_crs, raw_code, raw_geoid_model, geom | import identity, raw ordinates, canonical EPSG:4326 point, revision/reapply/link lookup |
+| A — active attribution | worker_id, survey_date, name, code, longitude, latitude | imported attribution, source-list aggregation, point API and legacy display compatibility |
+| B — legacy compatibility duplicate | x/y/z, raw_geom | x/y/z mirror imported raw ordinates; raw_geom currently mirrors normalized geom and is excluded from scalar QGIS form attributes |
+| C — optional instrument input | solution_info, pdop, antenna_height, raw_data | validated optional GNSS/device metadata; `raw_data` is JSONB (`rawdata` is not a DB column) |
+| D — meaning not established | survey_code, surveyed_at, filter, type, description | existing nullable legacy/reserved columns; import rejects these top-level point keys |
+
+No field in class D is automatically populated or reinterpreted by this
+contract. The duplicate class remains for compatibility and is not a proposal
+to add or remove physical columns.
 
 ### `gis.survey_link`
 
@@ -98,13 +134,14 @@ feature geometry Changeset succeeds. Reapply rejects out-of-range indexes.
 ## 3. Endpoints and authorization
 
 All endpoints are session-authenticated, project-scoped, tenant-resolved
-fail-closed, and require `maps.view`. POST also requires project GIS write
+fail-closed, and require `maps.view`. POST and DELETE also require project GIS write
 access. JSON uses `Content-Type: application/json`. Source bodies are limited to
 20 MiB; Survey-link Changesets to 5 MiB.
 
 | Purpose | Method and endpoint |
 |---|---|
 | sources/presign/import | `GET/POST /gis/projects/{project_id}/api/survey-sources/` |
+| source delete precheck/delete | `GET/DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/` |
 | points | `GET /gis/projects/{project_id}/api/survey-points/` |
 | mappings | `GET /gis/projects/{project_id}/api/survey-links/` |
 | mapping Changeset | `POST /gis/projects/{project_id}/api/survey-link-changesets/` |
@@ -114,7 +151,7 @@ access. JSON uses `Content-Type: application/json`. Source bodies are limited to
 Only Survey-link list/Changeset also have `/api/qfield/` routes. Source import,
 point list, and reapply have no QField route in v1.
 
-## 4. Source presign and import
+## 4. Source presign, import, and deletion
 
 ### Presign
 
@@ -209,11 +246,13 @@ accepted, in which case presign/PUT/HEAD verification is skipped.
   "original_file_key": "tenants/<tenant>/gis/<project>/survey-sources/<id>/<random>.csv",
   "source_crs": "EPSG:5186",
   "geoid_model": "KNGeoid18",
+  "worker_id": "80000000-0000-4000-8000-000000000001",
+  "survey_date": "2026-10-01",
   "calibration_info": {"control_set":"2026-10"},
   "note": "recalibrated",
   "points": [
-    {"id":"50000000-0000-4000-8000-000000000001","source_row_id":"P001","raw_x":200000.12,"raw_y":500000.34,"raw_z":12.3,"raw_code":"DEP","raw_data":{"method":"TOTAL","survey_date":"2026-10-01"}},
-    {"source_row_id":"P002","longitude":127.123,"latitude":36.456,"raw_z":12.1}
+    {"id":"50000000-0000-4000-8000-000000000001","source_row_id":"P001","raw_x":200000.12,"raw_y":500000.34,"raw_z":12.3,"raw_code":"DEP","name":"P001","code":"DEP","solution_info":"FIX","pdop":1.2,"antenna_height":1.8,"raw_data":{"method":"TOTAL"}},
+    {"source_row_id":"P002","longitude":127.123,"latitude":36.456,"raw_z":12.1,"worker_id":"80000000-0000-4000-8000-000000000002","survey_date":"2026-10-02"}
   ]
 }
 ```
@@ -252,7 +291,9 @@ HTTP 400 for a missing/empty/encryption-mismatched uploaded object.
 
 HTTP 400 for validation failures, including duplicate `source_row_id`, invalid
 coordinates/CRS, invalid `source_type`, an absent filename, or an oversized
-JSON body. Validation messages are stable enough for diagnostics but the UI
+JSON body. Invalid worker UUIDs, unauthorized worker assignment, non-ISO dates,
+unknown point keys, overlong strings, and invalid optional numerics use this
+same envelope. Validation messages are stable enough for diagnostics but the UI
 should primarily branch on `error`.
 
 ```json
@@ -264,6 +305,60 @@ HTTP 409 for a source revision conflict. Database failures return HTTP 503
 permission rejection follows the shared Django authorization response rather
 than a Survey JSON envelope; the Connector must preserve its normal session and
 permission handling.
+
+### Source deletion precheck and execute
+
+GET the item endpoint before enabling a destructive action:
+
+```json
+{
+  "ok":true,
+  "project_id":"11111111-1111-4111-8111-111111111401",
+  "delete":{
+    "source_id":"30000000-0000-4000-8000-000000000002",
+    "source_group_id":"30000000-0000-4000-8000-000000000002",
+    "supersedes_id":null,"version":1,"is_active":true,"point_count":22,
+    "links":{"LINKED":0,"MANUALLY_MODIFIED":0,"UNLINKED":0},
+    "linked_target_count":0,"child_version_count":0,
+    "shared_object_reference_count":0,"has_archived_object":true,
+    "object_key_valid":true,"can_delete":true,"blocked_reason":null
+  }
+}
+```
+
+DELETE uses the same URL and has no body. It is allowed only for an independent,
+active version-1 source with no parent/child version lineage, no shared object
+key, and no Survey-link row in **any** status. `UNLINKED` is retained audit
+history and therefore blocks source deletion just like `LINKED` and
+`MANUALLY_MODIFIED`. Facilities are never deleted or edited.
+
+On success, the DB transaction deletes the Source's Survey points and Source,
+allocates Survey delete revisions, writes `feature_change_log`, and completes a
+normal `changeset_receipt`. The private S3 object is deleted only after that DB
+commit and only when its key is under the exact tenant/project/source prefix.
+
+```json
+{"ok":true,"source_id":"30000000-0000-4000-8000-000000000002","deleted_source_id":"30000000-0000-4000-8000-000000000002","deleted_point_count":22,"deleted_object":true,"cleanup_pending":false,"first_revision":20,"last_revision":41,"current_revision":41}
+```
+
+If S3 cleanup fails after the atomic DB delete, the response remains HTTP 200
+with `deleted_object:false` and `cleanup_pending:true`; the receipt retains the
+private cleanup key for an operator retry, but the HTTP response never exposes
+that key. The server does not restore a deleted DB source after a storage-only
+failure and never reactivates a previous source version.
+
+Blocked deletion is HTTP 409:
+
+```json
+{"ok":false,"error":"survey_source_in_use","reason":"linked_survey_points","delete":{"can_delete":false,"blocked_reason":"linked_survey_points"}}
+```
+
+Stable reasons are `linked_survey_points`, `manually_modified_links`,
+`unlinked_history`, `version_lineage`, `inactive_source`, `shared_object`, and
+`invalid_object_key`. A missing source is HTTP 404
+`{"ok":false,"error":"survey_source_not_found"}`. A DB failure is HTTP 503
+`{"ok":false,"error":"survey_source_delete_failed"}` and is logged server-side
+without exposing SQL, object keys, or credentials.
 
 ### Production upload smoke
 
@@ -291,6 +386,8 @@ truncated marker. Without `include_inactive=1`, only active rows are returned.
     "source_type":"TOTAL","original_file_name":"survey.csv","original_file_key":null,
     "imported_at":"2026-10-01T12:00:00+00:00","imported_by":null,"source_crs":"EPSG:5186",
     "geoid_model":null,"calibration_info":{},"version":1,"is_active":true,"note":""
+    ,"point_count":2,"survey_date_from":"2026-10-01","survey_date_to":"2026-10-02",
+    "worker_count":2,"workers":[{"id":"80000000-0000-4000-8000-000000000001","name":"Surveyor A"}]
   }]
 }
 ```
@@ -311,13 +408,16 @@ complete inventory.
     "source_row_id":"P001","raw_x":"200000.120","raw_y":"500000.340","raw_z":"12.300",
     "raw_crs":"EPSG:5186","raw_code":"DEP","raw_geoid_model":null,
     "x":"200000.120","y":"500000.340","z":"12.300","longitude":127.123,"latitude":36.456,
+    "worker_id":"80000000-0000-4000-8000-000000000001","survey_date":"2026-10-01",
+    "name":"P001","code":"DEP","solution_info":"FIX","pdop":1.2,
+    "antenna_height":"1.800","raw_data":{"method":"TOTAL"},
     "updated_at":"2026-10-01T12:00:00+00:00"
   }]
 }
 ```
 
-No GeoJSON/WKT `geom`, source version/group, `raw_data`, worker, date, or method
-is returned. Geometry is longitude/latitude; join source metadata by `source_id`.
+No GeoJSON/WKT `geom`, source version/group, or dedicated method is returned.
+Geometry is longitude/latitude; join source metadata by `source_id`.
 
 ### Links
 
@@ -493,13 +593,17 @@ Delta/current revision and fresh preview—do not blindly retry.
 | 400 | `survey_link_rejected` | invalid mapping Changeset |
 | 403 | Django permission response | tenant/project/write denial |
 | 409 | `survey_conflict` | source/reapply conflict |
+| 409 | `survey_source_in_use` | guarded source deletion is blocked |
+| 404 | `survey_source_not_found` | project-scoped source missing |
 | 409 | `survey_link_conflict` | mapping/referenced-object conflict |
 | 503 | `survey_failed` | Survey DB unavailable |
+| 503 | `survey_source_delete_failed` | guarded Source DB deletion failed and rolled back |
 | 503 | `survey_link_unavailable` | Changeset receipt/runtime unavailable |
 | 503 | `survey_link_failed` | Survey-link DB unavailable |
 
-Source/Survey FKs use RESTRICT and cannot cascade into facilities. There is no
-source/Survey deletion endpoint in v1.
+Source/Survey FKs use RESTRICT and cannot cascade into facilities. The guarded
+Source item DELETE endpoint removes only an independent Source and its unlinked
+Survey points after the explicit precheck above.
 
 ## 10. Earlier brief vs deployed contract
 
@@ -509,7 +613,8 @@ source/Survey deletion endpoint in v1.
 | File import | server might parse file | server verifies file; client supplies parsed `points` |
 | Working CRS | project scope might supply it | no lookup; client sends EPSG, server transforms once |
 | Point cap | 5,000 cap | silent LIMIT; no count/total/truncated/pagination |
-| Worker/date/method | requested metadata | not mapped to dedicated columns; optional preservation in `raw_data` |
+| Worker/date/method | requested metadata | worker/date plus selected GNSS fields mapped; unknown method stays in `raw_data` |
+| Source delete | no endpoint | guarded GET precheck + DELETE; any link/version history blocks |
 | Mapping update | state transition example | only status/role/vertex mutable; identity immutable |
 | Unlink | delete wording ambiguous | unlink preserves; legacy delete removes only mapping |
 | Feature/link order | omitted | feature/geometry first, link second; no cross-API rollback |

@@ -55,6 +55,7 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/survey-links/", survey_link_views.project_survey_links_api, name="project_survey_links_api"),
     path("projects/<uuid:project_id>/api/survey-link-changesets/", survey_link_views.project_survey_link_changeset_api, name="project_survey_link_changeset_api"),
     path("projects/<uuid:project_id>/api/survey-sources/", survey_views.project_survey_sources_api, name="project_survey_sources_api"),
+    path("projects/<uuid:project_id>/api/survey-sources/<uuid:source_id>/", survey_views.project_survey_source_api, name="project_survey_source_api"),
     path("projects/<uuid:project_id>/api/survey-points/", survey_views.project_survey_points_api, name="project_survey_points_api"),
     path("projects/<uuid:project_id>/api/survey-reapply-preview/", survey_views.project_survey_reapply_preview_api, name="project_survey_reapply_preview_api"),
     path("projects/<uuid:project_id>/api/survey-reapply/", survey_views.project_survey_reapply_api, name="project_survey_reapply_api"),
