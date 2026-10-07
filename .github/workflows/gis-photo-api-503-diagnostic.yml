@@ -1,0 +1,72 @@
+name: GIS photo API 503 diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - scripts/ops/diagnose_gis_photo_api_503.py
+      - .github/workflows/gis-photo-api-503-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-readonly-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_photo_diag_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_photo_diag_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_photo_diag_key" >/dev/null
+      - name: Inspect production code, logs, tenant features, and photo schema read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_photo_diag_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' < <(cat <<'REMOTE'
+          set -euo pipefail
+          service='geoflow-stabilized.service'
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value)"
+          repo="$(git -C "$workdir" rev-parse --show-toplevel)"
+          python="$repo/.venv/bin/python"
+          echo "gis_photo_diag_service_state=$(systemctl is-active "$service")"
+          echo "gis_photo_diag_operating_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo 'gis_photo_diag_log_window_begin=yes'
+          sudo -n journalctl -u "$service" \
+            --since '2026-10-07 08:22:30 UTC' \
+            --until '2026-10-07 08:23:10 UTC' \
+            --no-pager 2>/dev/null \
+            | grep -E '6ba9dd5d-0189-4cda-854a-afa0caf06a27|eef36f4e-b6bb-4929-8a39-78c77a9fd8f0|285c1b69-52d1-4e66-9fde-10c2f561e8e5|ce6e216c-a3b1-4e5f-8542-bfe7560a2a27|gis_photo_unavailable|Traceback|DatabaseError|ProgrammingError|UndefinedColumn|InvalidTextRepresentation|UntranslatableCharacter' \
+            | tail -n 200 || true
+          echo 'gis_photo_diag_log_window_end=yes'
+          cd "$repo"
+          export PGOPTIONS='-c default_transaction_read_only=on'
+          "$python" -
+          REMOTE
+          cat scripts/ops/diagnose_gis_photo_api_503.py
+          )
