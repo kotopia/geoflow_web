@@ -54,6 +54,8 @@ on:
       - geoflow_ops/gis/test_qgis_plugin_repository.py
       - geoflow_ops/gis/test_feature_photo_edit_contract.py
       - geoflow_ops/gis/test_feature_photo_metadata_contract.py
+      - geoflow_ops/gis/test_feature_photo_database_boundary.py
+      - geoflow_ops/gis/test_feature_photo_runtime_diagnostic.py
       - geoflow_ops/gis/test_photo_edit_data.py
       - geoflow_ops/gis/qfield_package.py
       - geoflow_ops/gis/qfield_device_views.py
@@ -85,7 +87,10 @@ on:
       - geoflow_ops/migrations/0044_gis_survey_lineage.py
       - control/management/commands/deploy_gis_survey_lineage.py
       - docs/architecture/gis-survey-lineage-contract-v1.md
+      - docs/gis-survey-lineage-contract-v1.md
       - docs/architecture/gis-data-model.md
+      - scripts/ops/diagnose_gis_photo_api_503.py
+      - .github/workflows/gis-photo-api-503-diagnostic.yml
       - geoflow_ops/templates/geoflow_ops/gis/form_configuration.html
       - .github/workflows/gis-definition-code-deploy.yml
       - .github/workflows/gis-survey-source-delete-policy-apply.yml
@@ -267,10 +272,10 @@ jobs:
             # qgis-plugin-test-repository-publish.yml. They never require a
             # central/tenant database transition in this deployment job.
             case "$changed_path" in
-              integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|geoflow_ops/gis/test_feature_photo_catalog_v2_contract.py|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
+              integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|geoflow_ops/gis/test_feature_photo_catalog_v2_contract.py|geoflow_ops/gis/test_feature_photo_database_boundary.py|geoflow_ops/gis/test_feature_photo_runtime_diagnostic.py|scripts/ops/diagnose_gis_photo_api_503.py|.github/workflows/gis-photo-api-503-diagnostic.yml|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
             esac
             case "$changed_path" in
-              geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|control/management/commands/deploy_gis_survey_lineage.py|control/management/commands/smoke_gis_survey_source_upload.py|docs/architecture/gis-survey-lineage-contract-v1.md)
+              geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|control/management/commands/deploy_gis_survey_lineage.py|control/management/commands/smoke_gis_survey_source_upload.py|docs/architecture/gis-survey-lineage-contract-v1.md|docs/gis-survey-lineage-contract-v1.md)
                 survey_lineage_required=yes
                 continue ;;
               .github/workflows/gis-survey-source-delete-policy-apply.yml|scripts/ops/apply_gis_survey_source_delete_policy.py)
