@@ -18,8 +18,8 @@ class FeaturePhotoCatalogV2ContractTests(TestCase):
     def test_extra_photo_has_nullable_catalogue_ids_and_title_note(self):
         view = (ROOT / "gis/feature_photo_views.py").read_text()
         self.assertIn("return None, None, None", view)
-        self.assertIn('str(body.get("title") or "")[:200]', view)
-        self.assertIn('str(body.get("note") or "")[:2000]', view)
+        self.assertIn('_postgres_text(body.get("title") or "")[:200]', view)
+        self.assertIn('_postgres_text(body.get("note") or "")[:2000]', view)
 
     def test_ops_attachments_is_not_used(self):
         view = (ROOT / "gis/feature_photo_views.py").read_text()
