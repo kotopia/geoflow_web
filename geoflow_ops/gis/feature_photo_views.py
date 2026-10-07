@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from uuid import uuid4
 from uuid import UUID
@@ -25,6 +26,23 @@ from .qgis_views import _require_project, _require_qgis_context
 _EXTENSIONS = {"image/jpeg":"jpg", "image/png":"png", "image/webp":"webp"}
 _TENANT = re.compile(r"^[a-zA-Z0-9_-]+$")
 _MAX_NORMALIZED_BYTES = 500 * 1024
+logger = logging.getLogger(__name__)
+
+
+def _postgres_text(value):
+    """Remove NULs that PostgreSQL cannot store in text or jsonb strings."""
+    return str(value).replace("\x00", "")
+
+
+def _postgres_json(value):
+    """Normalize JSON strings for PostgreSQL without changing its structure."""
+    if isinstance(value, dict):
+        return {_postgres_text(key): _postgres_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_postgres_json(item) for item in value]
+    if isinstance(value, str):
+        return _postgres_text(value)
+    return value
 
 
 def _body(request):
@@ -103,7 +121,7 @@ def _extra(slot, value):
         choices = field.get("codes")
         if choices and item not in choices:
             raise definitions.PhotoPolicyError(field["label"]+" 참조코드가 올바르지 않습니다.")
-    return value
+    return _postgres_json(value)
 
 
 def _key(alias, project_id, layer_id, feature_id, photo_id, extension):
@@ -134,6 +152,7 @@ def _image_metadata(value):
         return {}
     if not isinstance(value, dict):
         raise definitions.PhotoPolicyError("사진 metadata가 올바르지 않습니다.")
+    value = _postgres_json(value)
     try:
         encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError):
@@ -264,7 +283,7 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
             if action == "replace_presign":
                 signed = generate_presigned_put_url(key,mime_type=mime,expires_in=900)
                 return JsonResponse({"ok":True,"replace_id":replace_id,"object_key":key,**signed})
-            filename = str(body.get("original_name") or "").strip()
+            filename = _postgres_text(body.get("original_name") or "").strip()
             if not filename or len(filename) > 255:
                 raise definitions.PhotoPolicyError("원본 파일명을 확인하세요.")
             captured_at = None
@@ -306,7 +325,7 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
         template, variant, slot = _selection(
             effective,body.get("template_id"),body.get("variant_id"),body.get("slot_id"))
         extra = _extra(slot,body.get("extra_data",{}))
-        filename = str(body.get("original_name") or "").strip()
+        filename = _postgres_text(body.get("original_name") or "").strip()
         if not filename or len(filename) > 255:
             raise definitions.PhotoPolicyError("원본 파일명을 확인하세요.")
         captured_at = None
@@ -337,14 +356,15 @@ def feature_photos_api(request, project_id, layer_id, feature_id):
                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)""",
                 [photo_id,project.id,layer_id,feature_id,
                  template["id"] if template else None,variant["id"] if variant else None,
-                 slot["id"] if slot else None,str(body.get("title") or "")[:200],
+                 slot["id"] if slot else None,_postgres_text(body.get("title") or "")[:200],
                  key,filename,mime,metadata.size_bytes,captured_at,captured_by,json.dumps(extra),
-                 json.dumps(image_metadata),str(body.get("note") or "")[:2000],
+                 json.dumps(image_metadata),_postgres_text(body.get("note") or "")[:2000],
                  int(body.get("sort_order") or 0)])
         return JsonResponse({"ok":True,"id":photo_id},status=201)
     except (definitions.PhotoPolicyError, ValueError, IntegrityError, S3ObjectVerificationError) as exc:
         return JsonResponse({"ok":False,"error":str(exc)},status=409)
     except DatabaseError:
+        logger.exception("GIS photo database operation failed")
         return JsonResponse({"ok":False,"error":"gis_photo_unavailable"},status=503)
 
 
@@ -379,12 +399,13 @@ def feature_photo_item_api(request, project_id, layer_id, feature_id, photo_id):
                 cur.execute("""UPDATE gis.feature_photo SET title=COALESCE(%s,title),
                     note=COALESCE(%s,note),sort_order=COALESCE(%s,sort_order),
                     extra_data=COALESCE(%s::jsonb,extra_data),updated_at=now() WHERE id=%s""",
-                    [str(body["title"])[:200] if "title" in body else None,
-                     str(body["note"])[:2000] if "note" in body else None,
+                    [_postgres_text(body["title"])[:200] if "title" in body else None,
+                     _postgres_text(body["note"])[:2000] if "note" in body else None,
                      int(body["sort_order"]) if "sort_order" in body else None,
                      json.dumps(extra) if extra is not None else None,photo_id])
         return JsonResponse({"ok":True,"id":photo_id})
     except (definitions.PhotoPolicyError, ValueError, IntegrityError) as exc:
         return JsonResponse({"ok":False,"error":str(exc)},status=409)
     except DatabaseError:
+        logger.exception("GIS photo database operation failed")
         return JsonResponse({"ok":False,"error":"gis_photo_unavailable"},status=503)
