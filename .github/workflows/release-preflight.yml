@@ -171,6 +171,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U geoflow_ci -d cheonan_db \
             -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
 
+      - name: Rehearse Finance permissions with unmanaged central registry fields
+        run: python scripts/ci/rehearse_finance_permission_registry.py
+
       - name: Rehearse central migrations and launch schema audit
         run: |
           python manage.py migrate --plan --database=default

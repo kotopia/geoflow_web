@@ -1,11 +1,12 @@
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
-from control.management.commands.provision_finance_permissions import Command, requested_role_permissions
+from control.management.commands.provision_finance_permissions import Command, _insert_registry_row, requested_role_permissions
+from control.models import Permission
 
 
 class FinancePermissionProvisioningTests(SimpleTestCase):
@@ -47,10 +48,10 @@ class FinancePermissionProvisioningTests(SimpleTestCase):
         reader, editor = SimpleNamespace(code="reader"), SimpleNamespace(code="editor")
         roles.using.return_value.filter.return_value = [reader, editor]
         permissions.using.return_value.filter.return_value = []
-        permissions.using.return_value.get_or_create.side_effect = lambda code, **kwargs: (code, True)
-        Command(stdout=StringIO()).handle(read_role=["reader"], edit_role=["editor"], apply=True)
+        with patch("control.management.commands.provision_finance_permissions._register_permission", side_effect=lambda alias, code: code), patch("control.management.commands.provision_finance_permissions._register_role_permission") as register:
+            Command(stdout=StringIO()).handle(read_role=["reader"], edit_role=["editor"], apply=True)
         atomic.assert_called_once_with(using="default")
-        pairs = [(call.kwargs["role"].code, call.kwargs["permission"]) for call in mappings.using.return_value.get_or_create.call_args_list]
+        pairs = [(call.args[1].code, call.args[2]) for call in register.call_args_list]
         self.assertCountEqual(pairs, [("reader", "finance.view"), ("editor", "finance.view"), ("editor", "finance.edit")])
         roles.using.return_value.update.assert_not_called()
         mappings.using.return_value.delete.assert_not_called()
@@ -61,3 +62,26 @@ class FinancePermissionProvisioningTests(SimpleTestCase):
         with self.assertRaises(CommandError):
             Command().handle(read_role=[], edit_role=[], apply=True)
         roles.using.assert_not_called()
+
+    def test_unmanaged_permission_name_is_included_without_schema_change(self):
+        connection = MagicMock()
+        connection.ops.quote_name.side_effect = lambda value: '"' + value + '"'
+        connection.introspection.get_table_description.return_value = [
+            SimpleNamespace(name=name, null_ok=False, default=None, type_code="text")
+            for name in ("id", "code", "name")
+        ]
+        with patch("control.management.commands.provision_finance_permissions.connections", {"default": connection}):
+            _insert_registry_row("default", Permission, {"code": "finance.view"}, {"id": "test-id", "name": "재무 조회"})
+        sql, parameters = connection.cursor.return_value.__enter__.return_value.execute.call_args.args
+        self.assertIn('"name"', sql)
+        self.assertIn("재무 조회", parameters)
+        self.assertIn('ON CONFLICT ("code") DO NOTHING', sql)
+        self.assertNotIn("ALTER", sql)
+
+    def test_unknown_mandatory_column_aborts_before_insert(self):
+        connection = MagicMock()
+        connection.introspection.get_table_description.return_value = [SimpleNamespace(name="unknown_required", null_ok=False, default=None, type_code="text")]
+        connection.introspection.get_field_type.return_value = "TextField"
+        with patch("control.management.commands.provision_finance_permissions.connections", {"default": connection}), self.assertRaises(CommandError):
+            _insert_registry_row("default", Permission, {"code": "finance.view"})
+        connection.cursor.return_value.__enter__.return_value.execute.assert_not_called()
