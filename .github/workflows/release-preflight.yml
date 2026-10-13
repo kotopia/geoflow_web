@@ -174,6 +174,13 @@ jobs:
       - name: Rehearse Finance permissions with unmanaged central registry fields
         run: python scripts/ci/rehearse_finance_permission_registry.py
 
+      - name: Rehearse exact central visibility activation and retry
+        run: |
+          python manage.py migrate control 0006 --database=default --noinput
+          python manage.py activate_admin_visibility
+          python manage.py activate_admin_visibility --apply
+          python manage.py activate_admin_visibility --apply
+
       - name: Rehearse central migrations and launch schema audit
         run: |
           python manage.py migrate --plan --database=default
