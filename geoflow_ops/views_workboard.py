@@ -17,9 +17,11 @@ from .services.department_routing import scope_org_unit_id
 from .services.entity_access import (
     authorize_scope_read,
     authorize_scope_write,
+    can_read_event,
     has_scope_permission,
     require_tenant_context,
 )
+from .services.finance_access import has_event_finance_permission
 from .views_events import _event_payload
 
 
@@ -165,6 +167,9 @@ def workboard_event_list(request):
         .exclude(status="void")
         .order_by("stage", "occurred_at", "created_at")
     )
+    # The requested timeline scope is not permission to read every linked row.
+    # Filter before loading names and attachment metadata.
+    events = [event for event in events if can_read_event(request, alias, event)]
     attachments = _attachment_map(alias, events)
 
     can_read_directory = gf_has_perm(request, "directory.view")
@@ -181,6 +186,7 @@ def workboard_event_list(request):
         item = _event_payload(event, attachments=attachments.get(str(event.id), []))
         item["can_write"] = bool(
             authorize_scope_write(request, alias, event.scope_type, event.scope_id)
+            and has_event_finance_permission(request, event.stage, event.event_type, write=True)
         )
         item["owner_department_name"] = departments.get(str(event.owner_department_id), "") if event.owner_department_id else ""
         employee = employees.get(str(event.assignee_employee_id), {}) if event.assignee_employee_id else {}

@@ -111,7 +111,7 @@ class ProcessEventDisplayCalendarTests(SimpleTestCase):
         self.assertIn("tenant:calendar", sidebar)
         self.assertIn("FullCalendar.Calendar", template)
         self.assertIn('display["calendar_enabled"]', view)
-        self.assertIn("authorize_scope_read", view)
+        self.assertIn("can_read_event", view)
 
     def test_detail_process_bar_is_horizontal_timeline_styled(self):
         css = source("static/geoflow_ops/css/process-timeline-horizontal.css")

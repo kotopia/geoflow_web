@@ -65,10 +65,10 @@ class ProjectListView(ListView):
         alias = _alias(self.request)
         projects = list(self.object_list)
         contracts = [p.contract for p in projects if getattr(p, "contract", None)]
-        summaries = contract_workflow_summaries(alias, contracts)
+        summaries = contract_workflow_summaries(alias, contracts, request=self.request)
         counts = {"total": 0, "planned": 0, "active": 0, "pause": 0, "cancel": 0, "complete": 0}
         for project in projects:
-            workflow = summaries.get(str(project.contract_id)) or contract_workflow_summary(alias, project.contract)
+            workflow = summaries.get(str(project.contract_id)) or contract_workflow_summary(alias, project.contract, request=self.request)
             project.contract_workflow = workflow
             counts["total"] += 1
             key = workflow.get("filter_key") or ""
@@ -103,7 +103,7 @@ def project_json(request, pk):
     )
     policy = project_access_policy(request, alias)
     member = policy.membership(obj.pk)
-    workflow = contract_workflow_summary(alias, obj.contract)
+    workflow = contract_workflow_summary(alias, obj.contract, request=request)
     d = {
         "project_id": str(obj.pk),
         "project_code": obj.code,
@@ -142,7 +142,7 @@ def project_detail_page(request, pk):
     )
     policy = project_access_policy(request, alias)
     member_ctx = project_member_context(request, alias, obj.pk)
-    contract_workflow = contract_workflow_summary(alias, obj.contract)
+    contract_workflow = contract_workflow_summary(alias, obj.contract, request=request)
 
     if request.method == "POST":
         form = ProjectNoteForm(request.POST, instance=obj)

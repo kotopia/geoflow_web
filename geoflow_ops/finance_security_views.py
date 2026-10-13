@@ -5,28 +5,22 @@ from django.http import HttpResponseBadRequest
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
-from control.gf_authz.permissions import gf_has_perm, gf_has_role
+from control.gf_authz.permissions import gf_has_role
 
 from . import views_finance
 from . import finance_pages_v2
 from . import finance_pages_v3
 from . import finance_pages_v4
 from . import finance_import_views_v5
-from .services.entity_access import require_tenant_context
+from .services.finance_access import require_finance_access
 
 
 def _require_view(request):
-    alias = require_tenant_context(request)
-    if not gf_has_perm(request, "contracts.view"):
-        raise PermissionDenied("Permission denied")
-    return alias
+    return require_finance_access(request)
 
 
 def _require_write(request):
-    alias = require_tenant_context(request)
-    if not (gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create")):
-        raise PermissionDenied("Permission denied")
-    return alias
+    return require_finance_access(request, write=True)
 
 
 def _require_tenant_admin(request):

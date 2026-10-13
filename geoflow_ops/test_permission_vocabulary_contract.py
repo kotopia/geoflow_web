@@ -34,6 +34,7 @@ class PermissionVocabularyContractTests(unittest.TestCase):
             "geoflow_ops/security_views.py",
             "geoflow_ops/employee_security_views.py",
             "geoflow_ops/services/entity_access.py",
+            "geoflow_ops/services/finance_access.py",
         ):
             used.update(python_permission_literals(path))
         used.update(

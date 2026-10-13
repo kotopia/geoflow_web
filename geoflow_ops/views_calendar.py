@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET
 
 from .models import ProcessEvent
-from .services.entity_access import authorize_scope_read, require_tenant_context
+from .services.entity_access import can_read_event, require_tenant_context
 from .views_events import _display_policy_from_payload
 
 
@@ -32,7 +32,7 @@ def calendar_events(request):
         display = _display_policy_from_payload(event.payload)
         if not display["calendar_enabled"]:
             continue
-        if not authorize_scope_read(request, alias, event.scope_type, event.scope_id):
+        if not can_read_event(request, alias, event):
             continue
         date_value = event.due_at
         if not date_value and display["end_at"]:

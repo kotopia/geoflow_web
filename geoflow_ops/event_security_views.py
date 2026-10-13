@@ -10,14 +10,14 @@ from django.views.decorators.http import require_GET, require_POST
 from control.gf_authz.permissions import gf_has_perm
 
 from . import views_events, views_workboard
-from .models import ProcessEvent
 from .process_workflow import (
     default_stage_for_event,
     is_canonical_event_type,
     normalize_event_type_for_write,
     normalize_stage,
 )
-from .services.entity_access import require_tenant_context
+from .services.entity_access import get_event_for_access, require_tenant_context
+from .services.finance_access import has_event_finance_permission, can_edit_finance
 from .services.tenant_settings import event_type_allowed, event_workflow_options, settings_codes
 
 
@@ -121,6 +121,22 @@ def event_list(request):
 def workflow_options(request):
     alias = require_tenant_context(request)
     options = event_workflow_options(alias)
+    # Existing read-only events keep their stored values in the edit modal;
+    # selectors offer only event types this user is permitted to create.
+    if not can_edit_finance(request):
+        options = dict(options)
+        options["stages"] = [
+            (code, label) for code, label in options["stages"]
+            if has_event_finance_permission(request, code, "", write=True)
+        ]
+        options["types_by_stage"] = {
+            stage: [
+                (code, label) for code, label in rows
+                if has_event_finance_permission(request, stage, code, write=True)
+            ]
+            for stage, rows in options["types_by_stage"].items()
+            if has_event_finance_permission(request, stage, "", write=True)
+        }
     return JsonResponse({
         "stages": [{"code": code, "label": label} for code, label in options["stages"]],
         "process_stages": [{"code": code, "label": label} for code, label in options.get("process_stages", [])],
@@ -156,7 +172,9 @@ def event_update(request, event_id):
         return JsonResponse({"error": "Forbidden"}, status=403)
     data = _payload(request)
     if data is not None:
-        existing = ProcessEvent.objects.using(alias).filter(pk=event_id).first()
+        existing = get_event_for_access(request, alias, event_id, write=True)
+        if existing is None:
+            return JsonResponse({"error": "Forbidden"}, status=403)
         data = _canonicalize_workflow_write(data)
         if existing and "event_type" not in data and is_canonical_event_type(existing.event_type):
             data["stage"] = default_stage_for_event(existing.event_type) or normalize_stage(existing.stage)

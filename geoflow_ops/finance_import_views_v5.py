@@ -9,7 +9,6 @@ from django.db import connections, transaction
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
-from control.gf_authz.permissions import gf_has_perm
 from .finance_import_views_v2 import (
     INVOICE_FIELDS,
     _actor,
@@ -24,6 +23,7 @@ from .finance_import_views_v3 import (
 )
 from .finance_import_views_v4 import _choices
 from .services.entity_access import require_tenant_context
+from .services.finance_access import can_edit_finance, can_view_finance
 
 
 def _uuid(value):
@@ -188,9 +188,9 @@ def _render(request, alias, **ctx):
 @require_http_methods(["GET", "POST"])
 def finance_import(request):
     alias = require_tenant_context(request)
-    if not gf_has_perm(request, "contracts.view"):
+    if not can_view_finance(request):
         raise PermissionDenied("Permission denied")
-    can_write = gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create")
+    can_write = can_edit_finance(request)
     import_type = _valid_import_type(request.GET.get("import_type") or request.POST.get("import_type") or "invoice")
 
     if request.method == "GET":

@@ -9,7 +9,6 @@ from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from python_calamine import CalamineWorkbook
 
-from control.gf_authz.permissions import gf_has_perm
 from .finance_import_views_v2 import (
     HEADER_ALIASES as BASE_HEADER_ALIASES,
     INVOICE_FIELDS,
@@ -33,6 +32,7 @@ from .finance_import_views_v2 import (
     _system_code,
 )
 from .services.entity_access import require_tenant_context
+from .services.finance_access import can_edit_finance, can_view_finance
 
 
 HEADER_ALIASES = {key: set(values) for key, values in BASE_HEADER_ALIASES.items()}
@@ -270,9 +270,9 @@ def _read_excel(upload):
 @require_http_methods(["GET", "POST"])
 def finance_import(request):
     alias = require_tenant_context(request)
-    if not gf_has_perm(request, "contracts.view"):
+    if not can_view_finance(request):
         raise PermissionDenied("Permission denied")
-    can_write = gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create")
+    can_write = can_edit_finance(request)
 
     if request.method == "GET":
         request.session.pop("finance_import_preview", None)

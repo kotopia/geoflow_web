@@ -4,14 +4,12 @@ import json
 from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
-from control.gf_authz.permissions import gf_has_perm
 from .models import Attachment
-from .services.entity_access import require_tenant_context
+from .services.finance_access import require_finance_access
 from .services.s3_service import (
     S3ObjectVerificationError,
     build_object_key,
@@ -45,14 +43,7 @@ def _uuid(value):
 
 
 def _require_finance(request, *, write=False):
-    alias = require_tenant_context(request)
-    if write:
-        allowed = gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create")
-    else:
-        allowed = gf_has_perm(request, "contracts.view")
-    if not allowed:
-        raise PermissionDenied("Permission denied")
-    return alias
+    return require_finance_access(request, write=write)
 
 
 def _record(alias, record_type, record_id):
