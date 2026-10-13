@@ -45,7 +45,7 @@ GIS/QGIS/QField, 계약·프로젝트 일반 CRUD는 변경하지 않는다. 테
 4. 중앙 설정을 확인한 뒤 코드 배포/서비스 재시작을 운영 승인 범위에서 수행한다.
 5. 조회 전용, 편집 가능, 재무 접근 불가 계정으로 Finance·이벤트·증빙·캘린더를 검증한다.
 
-2026-10-13 사용자가 승인한 초기 역할 계획 (운영 실행 결과는 배포 로그로 확인):
+2026-10-13 사용자가 승인하고 운영에 적용한 초기 역할:
 
 ```sh
 python manage.py provision_finance_permissions --edit-role tenant_admin --edit-role manager
@@ -84,3 +84,22 @@ CI Postgres에서 name 필수 및 role_permissions UUID ID/no-default 조합을 
 먼저 발생하는지 검사한다. 역할 등록 명령은 dry-run 무변경, 알 수 없는 역할 거부,
 중앙 alias 검증, 조회/편집 역할 매핑과 transaction 범위를 검사한다.
 Phase 4 event workflow CI에서 이 테스트와 기존 이벤트/업무/첨부 회귀 테스트를 함께 실행한다.
+
+
+## 운영 반영 결과 — 2026-10-13
+
+2026-10-13 22:01:20 KST (13:01:20 UTC) 운영 배포 완료.
+
+- 배포 코드: `c888e5941137615b0c4b5e3d6c39d16dc4ee1d58`
+- [성공한 production Actions 실행 #38401441874](https://github.com/kotopia/geoflow_web/actions/runs/38401441874)
+- 중앙 등록: `finance.view`, `finance.edit`; `tenant_admin`, `manager` 각각 조회·편집 부여.
+  승인된 4개 역할/권한 쌍을 중앙에서 다시 조회해 확인했다.
+- 운영 런타임의 Finance 권한/등록 회귀 테스트 36개 통과.
+- `geoflow-stabilized.service` active/running 확인, 공개 로그인 HTTP 200.
+- 테넌트 스키마·업무 데이터 migration 없음. 기존 이벤트 저장 구조 유지.
+
+실제 로그인 계정별 화면 조회/입력 수동 검증은 이번 배포에서 수행하지 않았다.
+권한 회귀 테스트, 중앙 매핑 readback, 서비스 및 공개 로그인 상태를 검증했다.
+문서 완료 기록은 배포 코드 이후의 문서 전용 커밋이며 별도 운영 재배포가 필요하지 않다.
+
+![production 배포 성공 화면](assets/finance-permission-deployment-1791896704548.jpg)
