@@ -413,7 +413,7 @@ def delete_attachment(request, attachment_id):
         return _json_error("Attachment not found", status=404)
     if att.deleted_at or att.is_deleted:
         return _json_error("Already deleted", status=410)
-    if not authorize_attachment_write(request, alias, att.entity_type, att.entity_id):
+    if not authorize_attachment_write(request, alias, att.entity_type, att.entity_id, attachment=att):
         return _json_error("Forbidden", status=403)
 
     att.deleted_at = timezone.now()

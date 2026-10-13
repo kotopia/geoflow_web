@@ -219,17 +219,55 @@ jobs:
 
           on_exit() {
             rc=$?
+            if [ -n "${finance_activation_file:-}" ]; then
+              rm -f "$finance_activation_file"
+            fi
             if [ "$rc" -ne 0 ]; then
               rollback_code
             fi
             exit "$rc"
           }
           trap on_exit EXIT
-          rollback_needed=1
-
           git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
           fetched_sha="$(git -C "$repo" rev-parse FETCH_HEAD)"
           [ "$fetched_sha" = "$candidate_sha" ] || fail 'candidate_sha_not_current_release_head'
+
+          # Approved 2026-10-13 rollout: provision central Finance permissions
+          # before loading code that enforces them. Only the first introduction
+          # of this exact command activates grants; later deployments must not
+          # silently re-grant roles after an administrator revokes them.
+          permission_command='control/management/commands/provision_finance_permissions.py'
+          if git -C "$repo" cat-file -e "$candidate_sha:$permission_command" 2>/dev/null && \
+             ! git -C "$repo" cat-file -e "$previous_sha:$permission_command" 2>/dev/null; then
+            reviewed_command_blob='6bf895cf6b978f86f59bca9de0d985ec8ceb85c9'
+            [ "$(git -C "$repo" rev-parse "$candidate_sha:$permission_command")" = "$reviewed_command_blob" ] || fail 'unreviewed_finance_permission_command'
+            finance_activation_file="$(mktemp /tmp/geoflow-finance-permissions.XXXXXX.py)"
+            git -C "$repo" show "$candidate_sha:$permission_command" > "$finance_activation_file"
+            GEOFLOW_FINANCE_ACTIVATION_FILE="$finance_activation_file" "$python" "$repo/manage.py" shell -c '
+          import os, runpy
+          from django.conf import settings
+          from control.models import RolePermission
+          alias = getattr(settings, "GF_AUTHZ_CENTRAL_ALIAS", "default")
+          approved_roles = {"tenant_admin", "manager"}
+          codes = {"finance.view", "finance.edit"}
+          expected = {(role, code) for role in approved_roles for code in codes}
+          def grants():
+              return set(RolePermission.objects.using(alias).filter(permission__code__in=codes).values_list("role__code", "permission__code"))
+          command = runpy.run_path(os.environ["GEOFLOW_FINANCE_ACTIVATION_FILE"])["Command"]()
+          command.handle(read_role=[], edit_role=sorted(approved_roles), apply=False)
+          if grants() - expected:
+              raise RuntimeError("unexpected_existing_finance_role_mapping")
+          command.handle(read_role=[], edit_role=sorted(approved_roles), apply=True)
+          if grants() != expected:
+              raise RuntimeError("finance_role_mapping_readback_failed")
+          print("finance_permissions_registered=yes")
+          print("finance_permissions_roles=manager,tenant_admin")
+          '
+            rm -f "$finance_activation_file"
+            finance_activation_file=''
+          fi
+
+          rollback_needed=1
 
           git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
           [ "$(git -C "$repo" rev-parse HEAD)" = "$candidate_sha" ] || fail 'candidate_checkout_failed'
@@ -237,6 +275,12 @@ jobs:
           "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt"
           "$python" -m pip check
           "$python" "$repo/manage.py" check
+          if [ -f "$repo/geoflow_ops/test_finance_permissions.py" ]; then
+            "$python" "$repo/manage.py" test \
+              geoflow_ops.test_finance_permissions \
+              control.test_finance_permission_provisioning --verbosity 1
+            echo 'finance_permission_runtime_regressions_passed=yes'
+          fi
           "$python" "$repo/manage.py" collectstatic --noinput
 
           sudo -n systemctl restart "$service"

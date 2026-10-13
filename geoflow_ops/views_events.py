@@ -23,10 +23,12 @@ from .services.department_routing import (
 from .services.entity_access import (
     authorize_scope_read,
     authorize_scope_write,
+    can_read_event,
     get_event_for_access,
     has_scope_permission,
     require_tenant_context,
 )
+from .services.finance_access import has_event_finance_permission
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +287,8 @@ def create_event(request):
         return _json_error("Invalid scope")
     if not authorize_scope_write(request, alias, scope_type, scope_id):
         return _json_error("Forbidden", status=403)
+    if not has_event_finance_permission(request, data.get("stage"), data.get("event_type"), write=True):
+        return _json_error("Forbidden", status=403)
     cleaned, error = _validate_mutable_fields(data, creating=True, alias=alias)
     if error:
         return _json_error(error)
@@ -325,6 +329,8 @@ def list_events(request):
         events = list(ProcessEvent.objects.using(alias).filter(scope_type=scope_type, scope_id=scope_id).order_by("stage", "occurred_at", "created_at"))
         result = []
         for event in events:
+            if not can_read_event(request, alias, event):
+                continue
             links = ProcessEventAttachment.objects.using(alias).filter(event=event).select_related("attachment").order_by("ord", "created_at")
             attachments = []
             for link in links:
@@ -353,6 +359,10 @@ def update_event(request, event_id):
     data = _parse_json(request)
     if data is None:
         return _json_error("Invalid JSON")
+    if not has_event_finance_permission(
+        request, data.get("stage", event.stage), data.get("event_type", event.event_type), write=True
+    ):
+        return _json_error("Forbidden", status=403)
     cleaned, error = _validate_mutable_fields(data, creating=False, alias=alias, existing_payload=event.payload, existing_occurred_at=event.occurred_at)
     if error:
         return _json_error(error)

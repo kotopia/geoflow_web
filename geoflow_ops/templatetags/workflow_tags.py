@@ -33,8 +33,8 @@ def contract_workflow(context, contract):
     cache = getattr(request, "_gf_contract_workflow_cache", None)
     if cache is None:
         rows = _workflow_rows_from_context(context, contract)
-        cache = contract_workflow_summaries(alias, rows)
-        active_labels = active_event_labels_for_contracts(alias, [row.id for row in rows])
+        cache = contract_workflow_summaries(alias, rows, request=request)
+        active_labels = active_event_labels_for_contracts(alias, [row.id for row in rows], request=request)
         for contract_id, summary in cache.items():
             summary["active_event_labels"] = active_labels.get(str(contract_id), summary.get("active_event_labels", []))
         request._gf_contract_workflow_cache = cache

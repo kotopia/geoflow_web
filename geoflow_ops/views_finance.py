@@ -8,8 +8,9 @@ from django.db import connections, transaction
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 
-from control.gf_authz.permissions import gf_has_perm, gf_has_role
+from control.gf_authz.permissions import gf_has_role
 from .services.entity_access import require_tenant_context
+from .services.finance_access import can_edit_finance
 
 
 RECORD_TABLES = {
@@ -290,8 +291,8 @@ def finance_page(request):
             "finance": _dashboard(alias), "contracts": contracts, "partners": partners, "accounts": accounts,
             "claims": claims, "invoices": invoices, "payments": payments, "transactions": transactions,
             "trash": _trash(alias), "refs": refs,
-            "can_write": gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create"),
-            "can_hard_delete": gf_has_role(request, "tenant_admin"),
+            "can_write": can_edit_finance(request),
+            "can_hard_delete": can_edit_finance(request) and gf_has_role(request, "tenant_admin"),
         },
     )
 

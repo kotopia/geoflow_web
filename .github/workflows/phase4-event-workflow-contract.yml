@@ -77,6 +77,7 @@ jobs:
             geoflow_ops/views_settings.py \
             geoflow_ops/services/department_routing.py \
             geoflow_ops/services/entity_access.py \
+            geoflow_ops/services/finance_access.py \
             geoflow_ops/services/tenant_settings.py \
             geoflow_ops/services/workflow_state.py \
             geoflow_ops/migrations/0019_phase4_event_workflow_foundation.py \
@@ -95,5 +96,8 @@ jobs:
             geoflow_ops.test_contract_workflow_stage_completion \
             geoflow_ops.test_phase4_task_execution_dashboard \
             geoflow_ops.test_event_api_security \
+            geoflow_ops.test_finance_permissions \
+            geoflow_ops.test_permission_vocabulary_contract \
+            control.test_finance_permission_provisioning \
             geoflow_ops.test_event_assignment_org_scope \
             geoflow_ops.test_event_upload_route_boundaries

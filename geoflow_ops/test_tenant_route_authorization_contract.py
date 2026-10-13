@@ -175,7 +175,7 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
         delete = _function_source(uploads, "delete_attachment")
         self.assertLess(
             delete.index("require_tenant_context(request)"),
-            delete.index("authorize_attachment_write(request, alias, att.entity_type, att.entity_id)"),
+            delete.index("authorize_attachment_write(request, alias, att.entity_type, att.entity_id, attachment=att)"),
         )
 
         get_body = _function_source(guard, "presign_get")

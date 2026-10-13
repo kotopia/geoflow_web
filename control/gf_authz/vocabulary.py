@@ -13,6 +13,7 @@ TENANT_PERMISSION_TAXONOMY = {
     "contracts": frozenset({"view", "create", "edit"}),
     "partners": frozenset({"view", "create"}),
     "projects": frozenset({"view", "edit"}),
+    "finance": frozenset({"view", "edit"}),
     "directory": frozenset({"view", "edit", "roles.assign"}),
 }
 

@@ -10,6 +10,7 @@ from control.gf_authz.permissions import gf_has_perm
 from control.middleware import current_db_alias
 
 from geoflow_ops.models import Contract, MyOrgUnit, Partner, ProcessEvent, Project
+from .finance_access import can_edit_finance, can_view_finance, has_event_finance_permission, is_finance_attachment
 
 SCOPE_PERMISSIONS = {
     "contract": {"read": "contracts.view", "write": "contracts.edit"},
@@ -109,6 +110,23 @@ def authorize_scope_write(request, alias: str, scope_type: str, scope_id: UUID) 
     )
 
 
+def can_read_event(request, alias: str, event) -> bool:
+    if request is None or not has_event_finance_permission(
+        request, event.stage, event.event_type, write=False
+    ):
+        return False
+    # Timelines often contain many rows for the same scope. Keep object-scope
+    # decisions on this request only, never in a session or cross-user cache.
+    cache = getattr(request, "_gf_event_read_scopes", None)
+    if cache is None:
+        cache = {}
+        request._gf_event_read_scopes = cache
+    key = (alias, event.scope_type, str(event.scope_id))
+    if key not in cache:
+        cache[key] = authorize_scope_read(request, alias, event.scope_type, event.scope_id)
+    return bool(cache[key])
+
+
 def get_event_for_access(request, alias: str, event_id: UUID, *, write: bool):
     event = ProcessEvent.objects.using(alias).filter(pk=event_id).first()
     if not event:
@@ -117,6 +135,9 @@ def get_event_for_access(request, alias: str, event_id: UUID, *, write: bool):
         authorize_scope_write(request, alias, event.scope_type, event.scope_id)
         if write
         else authorize_scope_read(request, alias, event.scope_type, event.scope_id)
+    )
+    allowed = allowed and has_event_finance_permission(
+        request, event.stage, event.event_type, write=write
     )
     return event if allowed else None
 
@@ -130,6 +151,12 @@ def authorize_event_write(request, alias: str, event_id: UUID) -> bool:
 
 
 def authorize_attachment_read(request, alias: str, attachment) -> bool:
+    # Finance evidence is physically stored under a contract/orgunit. That
+    # storage owner must never grant Finance access through generic file routes.
+    if is_finance_attachment(attachment):
+        return can_view_finance(request) and scope_exists(
+            alias, attachment.entity_type, attachment.entity_id
+        )
     if attachment.entity_type == "event":
         event = get_event_for_access(request, alias, attachment.entity_id, write=False)
         if not event:
@@ -159,7 +186,11 @@ def authorize_attachment_write(
     alias: str,
     entity_type: str,
     entity_id: UUID,
+    *,
+    attachment=None,
 ) -> bool:
+    if attachment is not None and is_finance_attachment(attachment):
+        return can_edit_finance(request) and scope_exists(alias, entity_type, entity_id)
     if entity_type == "event":
         return authorize_event_write(request, alias, entity_id)
     return authorize_scope_write(request, alias, entity_type, entity_id)

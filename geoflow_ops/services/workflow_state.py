@@ -14,6 +14,7 @@ from geoflow_ops.process_workflow import (
     normalize_stage,
     transition_stage_for_event,
 )
+from .finance_access import has_event_finance_permission
 
 
 _DISPLAY_MAJOR_LABELS = {
@@ -163,7 +164,7 @@ def _event_highlight_active(occurred_at, payload) -> bool:
     return today <= occurred + timedelta(days=days - 1)
 
 
-def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
+def contract_workflow_summaries(alias: str, contract_rows, *, request=None) -> dict[str, dict]:
     """Derive event-derived Process Stage and current event-type badges.
 
     Stage advances only through reviewed transition events. Ordinary events such
@@ -208,7 +209,7 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
                 current = reached.get(contract_id)
                 if current is None or rank > current[0]:
                     reached[contract_id] = (rank, target_stage)
-            if _event_highlight_active(occurred_at, payload):
+            if has_event_finance_permission(request, raw_stage, event_type, write=False) and _event_highlight_active(occurred_at, payload):
                 label = _EVENT_TYPE_LABELS.get(event_type, event_type)
                 if label and label not in active_labels.setdefault(contract_id, []):
                     active_labels[contract_id].append(label)
@@ -221,8 +222,8 @@ def contract_workflow_summaries(alias: str, contract_rows) -> dict[str, dict]:
     return result
 
 
-def contract_workflow_summary(alias: str, contract) -> dict:
-    return contract_workflow_summaries(alias, [contract]).get(
+def contract_workflow_summary(alias: str, contract, *, request=None) -> dict:
+    return contract_workflow_summaries(alias, [contract], request=request).get(
         str(contract.id),
         _stage_summary("preparation"),
     )

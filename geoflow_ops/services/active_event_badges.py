@@ -10,6 +10,8 @@ from django.utils.dateparse import parse_date
 
 from geoflow_ops.models import ProcessEvent, Project
 from geoflow_ops.process_workflow import DEFAULT_HIGHLIGHT_DAYS, EVENT_TYPE_CHOICES
+from .entity_access import can_read_event
+from .finance_access import has_event_finance_permission
 
 
 _EVENT_TYPE_LABELS = {choice.code: choice.label for choice in EVENT_TYPE_CHOICES}
@@ -47,7 +49,7 @@ def _highlight_active(event) -> bool:
     return today <= occurred + timedelta(days=days - 1)
 
 
-def active_event_labels_for_contracts(alias: str, contract_ids) -> dict[str, list[str]]:
+def active_event_labels_for_contracts(alias: str, contract_ids, *, request=None) -> dict[str, list[str]]:
     """Return active event labels using both canonical and legacy lineage.
 
     Older ProcessEvent rows can have contract_id/project_id unset while their
@@ -73,10 +75,16 @@ def active_event_labels_for_contracts(alias: str, contract_ids) -> dict[str, lis
         ProcessEvent.objects.using(alias)
         .filter(query)
         .exclude(status="void")
-        .only("contract_id", "scope_type", "scope_id", "event_type", "occurred_at", "payload", "status", "created_at")
+        .only("contract_id", "scope_type", "scope_id", "stage", "event_type", "occurred_at", "payload", "status", "created_at")
         .order_by("occurred_at", "created_at")
     )
     for event in events:
+        if request is not None:
+            if not can_read_event(request, alias, event):
+                continue
+        elif not has_event_finance_permission(None, event.stage, event.event_type, write=False):
+            # Non-request callers must never return Finance presentation data.
+            continue
         contract_id = str(event.contract_id) if event.contract_id and str(event.contract_id) in labels else None
         if contract_id is None and event.scope_type == "contract" and str(event.scope_id) in labels:
             contract_id = str(event.scope_id)

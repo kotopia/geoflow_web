@@ -1,19 +1,15 @@
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
 from django.db import connections
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
-from control.gf_authz.permissions import gf_has_perm
-from .services.entity_access import require_tenant_context
+from .services.finance_access import can_edit_finance, require_finance_access
 
 
 @login_required
 @require_GET
 def finance_documents(request):
-    alias = require_tenant_context(request)
-    if not gf_has_perm(request, "contracts.view"):
-        raise PermissionDenied("Permission denied")
+    alias = require_finance_access(request)
     with connections[alias].cursor() as cur:
         cur.execute("""
             SELECT i.id::text, COALESCE(i.issued_date,i.written_date), i.invoice_type,
@@ -49,5 +45,5 @@ def finance_documents(request):
     return render(request, "geoflow_ops/finance/finance_documents.html", {
         "invoices": invoices,
         "transactions": transactions,
-        "can_write": gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create"),
+        "can_write": can_edit_finance(request),
     })

@@ -9,12 +9,13 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from control.gf_authz.permissions import gf_has_perm, gf_has_role
+from control.gf_authz.permissions import gf_has_role
 
 from . import finance_pages_v2 as v2
 from . import finance_pages_v4 as v4
 from . import views_finance as legacy_views
 from .services.entity_access import require_tenant_context
+from .services.finance_access import can_edit_finance
 
 
 def _uuid(value):
@@ -82,7 +83,7 @@ def settings_page(request):
         "finance_selected_org": selected_org,
         "accounts": accounts,
         "cards": cards,
-        "can_write": gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create"),
+        "can_write": can_edit_finance(request),
     })
 
 
@@ -117,8 +118,8 @@ def trash_page(request):
         "trash": _trash_rows(alias, selected_org),
         "org_units": org_units,
         "finance_selected_org": selected_org,
-        "can_write": gf_has_perm(request, "contracts.edit") or gf_has_perm(request, "contracts.create"),
-        "can_hard_delete": gf_has_role(request, "tenant_admin"),
+        "can_write": can_edit_finance(request),
+        "can_hard_delete": can_edit_finance(request) and gf_has_role(request, "tenant_admin"),
     })
 
 

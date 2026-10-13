@@ -2,7 +2,7 @@
 
 > 상태: 현재 구현 + 확정된 차기 설계 원칙
 >
-> 기준일: 2026-09-03
+> 기준일: 2026-10-13 (재무 권한 분리 코드 준비, 중앙 권한 등록·운영 반영 전)
 >
 > 기준 브랜치: `release/stabilized-deploy`
 
@@ -268,12 +268,20 @@ Finance 데이터는 실무 이력과 연결되므로 일반 삭제는 hard dele
 
 Finance Phase 1에서는 별도 Finance permission 체계를 만들기 전까지 기존 계약 권한을 재사용한다.
 
-현재 원칙:
+Phase 1의 기존 원칙:
 
 - 읽기: `contracts.view`
 - 쓰기: `contracts.edit` 또는 `contracts.create`
 
-향후 Finance가 독립 업무영역으로 커지면 별도 권한 namespace로 분리하는 것이 바람직하다.
+2026-10-13 권한 분리 구현에서는 기존 계약 권한 재사용을 종료한다.
+
+- 읽기: `finance.view`
+- 입력/수정/삭제/복원/import/증빙 업로드: `finance.view` + `finance.edit`
+- 영구삭제: 위 편집 권한 + 기존 `tenant_admin` 역할
+- 계약/프로젝트 내부 정산 이벤트: 기존 대상 접근 권한 + 위 Finance 권한
+- 중앙 권한 등록/역할 매핑은 운영 반영 전에 명시적으로 적용한다.
+
+조회 경로와 운영 적용 절차는 [finance-permission-rollout.md](./finance-permission-rollout.md)를 따른다.
 
 ---
 
@@ -410,6 +418,13 @@ Finance 구축 과정의 주요 migration은 다음과 같다.
 ---
 
 ## 12. Decision Log
+
+### 2026-10-13
+
+- 재무 조회/편집 권한을 기존 계약 권한과 분리하는 방향 승인
+- finance.view / finance.edit 및 정산 이벤트·증빙의 공통 권한 검사 구현
+- 테넌트 스키마 변경 없이 기존 중앙 역할-권한 매핑을 활용
+- 운영 등록/배포는 finance-permission-rollout.md 순서로 별도 진행
 
 ### 2026-09-01
 
