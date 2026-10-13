@@ -543,6 +543,15 @@ Finance 1차 기능을 구축한 뒤 청구와 계약 이벤트의 중복 입력
 
 ## 19. 문서 업데이트 규칙
 
+### 2026-10-13 — 재무 권한 분리 운영 적용
+
+- finance.view / finance.edit를 계약 권한과 분리하고 이벤트·첨부·캘린더·목록 표시까지 적용
+- 초기 역할: tenant_admin, manager에 조회·편집 부여 승인
+- 최초 배포는 permissions.name 필수 컬럼이 unmanaged 모델에 없어 권한 등록 단계에서 실패
+- 코드 교체 전 실패했고 등록 트랜잭션은 롤백되어 기존 서비스/업무 데이터는 유지
+- 중앙 물리 컬럼 introspection과 UUID/자동 생성 ID 지원으로 보완, 추가 스키마 변경 없음
+- 운영 완료 여부는 finance-permission-rollout.md의 배포 결과와 Actions 로그로 기록
+
 Finance의 중요한 변경은 PR 설명만 남기지 말고 이 문서에도 다음 형식으로 누적한다.
 
 ```text

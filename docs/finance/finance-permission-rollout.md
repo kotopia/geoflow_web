@@ -74,6 +74,12 @@ candidate에 처음 도입되는 경우에만 수행한다. 정확히 검토된 
 
 ## 검증
 
+초기 운영 시도에서는 중앙 permissions.name의 NOT NULL 제약이 unmanaged 모델에
+표현되지 않아 코드 교체 전 권한 등록 트랜잭션이 롤백됐다. 등록 명령은 실제 테이블
+컬럼을 introspection하여 이름/설명을 채우고, RolePermission의 UUID 또는 자동 생성 ID를
+존중한다. 알 수 없는 필수 컬럼이 있으면 쓰기 전에 중단하며 테이블 구조는 바꾸지 않는다.
+CI Postgres에서 name 필수 및 role_permissions UUID ID/no-default 조합을 별도 재현한다.
+
 새 Finance 권한 회귀 테스트는 SQL/S3 경계를 mock하여 접근 거부가 조회·저장·URL 서명보다
 먼저 발생하는지 검사한다. 역할 등록 명령은 dry-run 무변경, 알 수 없는 역할 거부,
 중앙 alias 검증, 조회/편집 역할 매핑과 transaction 범위를 검사한다.
