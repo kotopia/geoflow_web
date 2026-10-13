@@ -2,7 +2,7 @@
 
 ## 1. Project Scope
 
-This repository is the clean working tree for GeoFlow.
+This repository is the clean working tree for GeoFlow, an integrated platform for bidding, contracts, finance, projects, GIS, and employee operations. Reuse information across these workflows to reduce duplicate entry and unnecessary business steps.
 
 Active release branch:
 
@@ -23,7 +23,8 @@ Phase 4 develops product functionality on top of the stabilized central/tenant r
 
 Primary Phase 4 areas:
 
-- contract and project workflow
+- bidding and contract/project workflow
+- finance records linked to contracts and company/branch ownership
 - project/event/history management
 - project catalog execution records and actual-vs-contract quantities
 - employee qualifications, grades, career, and project participation history
@@ -34,7 +35,11 @@ Primary Phase 4 areas:
 - server-side structured-editing jobs
 - dashboards and state/time/assignee filters
 
-Prefer narrow, reviewable increments over a large rewrite.
+Prefer narrow, reviewable increments over a large rewrite. Inspect and reuse existing models, services, and UI before adding alternatives. Give functions and files clear responsibilities; avoid unnecessary abstractions or excessive file splitting.
+
+Maintain one authoritative implementation of each business rule for screens, APIs, and external clients. Keep variable company/department names, labels, and choice values in configuration; never use display text as a behavioral identifier. Keep validation, calculations, and state transitions explicit in server code rather than making every rule configurable.
+
+When replacing functionality, trace its callers and remove code, settings, and UI made obsolete by that change. Do not accumulate version-suffixed implementations or temporary patches indefinitely; any necessary compatibility path needs a documented reason and removal condition. Keep cleanup within the task scope. Reuse shared UI components and consistent terminology.
 
 ## 3. Hard Safety Boundaries
 
@@ -61,7 +66,9 @@ If a protected GitHub `production` Environment approval is required, leave the r
 
 ## 4. Git Rules
 
-For implementation work:
+Git is the source of truth for code and approved documentation. Before code or documentation work, read this file and the relevant business/architecture documents. If conversation decisions, documents, and code disagree, distinguish approved intent from current implementation and record the discrepancy; do not silently choose a new business rule.
+
+For code and documentation changes:
 
 1. Re-read the exact current `release/stabilized-deploy` HEAD.
 2. Create a narrow topic branch from that SHA.
@@ -85,8 +92,9 @@ Core stack:
 
 Central/tenant invariants:
 
-- `default` is central control/auth data
-- tenant operational data belongs in tenant DBs
+- `default` owns central control/auth data and reviewed shared definitions/catalogs and centrally collected public bidding data
+- tenant operational data belongs in tenant DBs; each business record has one canonical owner, and other modules reference it instead of maintaining competing copies
+- tenant, company/branch, department, and project are distinct scopes; preserve their relationships
 - tenant runtime source of truth is `GroupDBConfig -> Secrets Manager -> dynamic tenant connection`
 - static tenant aliases such as `cheonan_db` are not required in `settings.DATABASES`
 - `current_db_alias`, `tenant_db_alias`, and explicit tenant request context must remain fail-closed
@@ -94,9 +102,8 @@ Central/tenant invariants:
 
 Authorization invariants:
 
-- server-side authorization is authoritative
-- project/tenant scope must be enforced server-side even if the client filters UI
-- QGIS/WebGIS clients must not be trusted to enforce access by themselves
+- server-side authorization is authoritative for the business domain, action, and exact target; sharing an event/upload service does not imply shared access
+- enforce tenant/project and applicable company/employee scope consistently across lists, details, dashboards, events, attachments, calendars, and external clients; UI filtering is not authorization
 - do not bypass authorization checks to make a test pass
 
 ## 6. Phase 3 Provisioning Boundary
@@ -120,7 +127,7 @@ Do not turn these contracts into a live provisioning path as incidental Phase 4 
 
 ## 7. Phase 4 Product Direction
 
-The current product decisions are maintained in `docs/phase4-design-draft-v0.1.md`.
+Read `docs/phase4-design-draft-v0.1.md` for Phase 4 design context, then verify the relevant current business/architecture documents and code. The draft includes historical proposals and open questions; do not treat all of it as implemented or unresolved today.
 
 Key working assumptions:
 
@@ -132,11 +139,9 @@ Key working assumptions:
 - contract quantity and actual quantity are separate; completion may still be allowed with a recorded variance reason
 - employee Phase 4 scope initially covers employment state, qualifications, technical grade, career, and project participation rather than full payroll/HR
 - GeoFlow is the source of truth; external sheets/tools consume tenant-scoped APIs rather than directly mutating tenant DBs
-- QGIS is a thin professional client; sensitive authorization/business rules remain on GeoFlow Server
 - WebGIS general editing, positional editing, and structured editing are separate modes
-- structured editing should use authoritative PostGIS/server computation
 
-Open product decisions in the Phase 4 draft must be resolved before schema-heavy implementation; do not invent irreversible schema merely to avoid a product decision.
+Resolve genuinely open product decisions before schema-heavy implementation; do not invent irreversible schema merely to avoid a product decision. Creating one default project for a new contract does not by itself establish a permanent 1:1 cardinality rule.
 
 ## 8. WebGIS / QGIS / QField Rules
 
@@ -149,7 +154,8 @@ Current GIS invariants include:
 - reuse existing `ctr`/`hr`/`prj`/`ops` sources instead of duplicating project/worker/contract data in GIS
 - use one common survey model plus explicit `survey_link` lineage rather than one survey table per utility domain
 - keep `gis.doro` as the common underground-utility road reference dataset, separate from future formal road-ledger tables
-- metadata/profile is the source of truth; QGIS/QField project configuration may be materialized from it
+- central `gis.definition_*` owns shared layer/field/form/reference/rule/group/catalog definitions; tenant `gis.project_definition` holds project selections and permitted overrides, not duplicate shared definitions
+- WebGIS/QGIS/QField consume the server-resolved Final Layer Plan and Final Form Definition; generated packages are derived artifacts
 - do not add `wtl_error`/`swl_error` as standard asset tables; QC audit, if needed, is a separate workflow concern
 
 WebGIS may provide lightweight editing such as create/move/delete, vertex editing, snapping, split, and merge, but final geometry validity, project scope, and persistence authorization must be checked server-side/PostGIS-side.
@@ -205,15 +211,31 @@ Known non-blocking Django warning:
 
 Never weaken a security, tenancy, or release check just to obtain green CI.
 
-## 11. Reporting
+## 11. Business Documentation and Completion
+
+Maintain a common architecture overview/index linking canonical documentation for bidding, contracts, finance, projects, GIS, and employees. Reuse and update existing relevant documents first. Where a domain has no canonical document, create it as part of the scoped documentation or implementation work and link it from the overview. Do not create parallel dated/versioned summaries of the same current guidance; keep historical records clearly distinguished from active guidance.
+
+Each business document should concisely cover:
+
+- purpose and scope
+- current workflow and business rules
+- canonical data ownership and cross-domain relationships
+- authorization and key code locations
+- implementation status, verification limits, and unresolved decisions
+
+Keep detailed technical documents separate when useful and link them instead of copying their rules into every document. In particular, retain `docs/architecture/gis-data-model.md` as the GIS data-model authority.
+
+Changes to functionality, data, permissions, configuration, or workflow must update affected documentation in the same PR. If documentation is unaffected, state why in the PR. Documentation review is part of completion, not a later optional task. Distinguish implemented, verified, and deployed states; never describe a plan or code-only check as production completion.
+
+## 12. Reporting
 
 At useful checkpoints record:
 
 - scope completed
-- files changed
+- files changed and canonical documentation updated (or why no documentation update was needed)
 - tests/checks run and result
 - PR number and merge SHA
-- any protected production gate
+- remaining work, unresolved decisions, and any protected production gate
 - any exact user-only approval required
 
 Never include secret values or raw production business records.
