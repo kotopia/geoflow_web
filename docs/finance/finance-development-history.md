@@ -550,7 +550,9 @@ Finance 1차 기능을 구축한 뒤 청구와 계약 이벤트의 중복 입력
 - 최초 배포는 permissions.name 필수 컬럼이 unmanaged 모델에 없어 권한 등록 단계에서 실패
 - 코드 교체 전 실패했고 등록 트랜잭션은 롤백되어 기존 서비스/업무 데이터는 유지
 - 중앙 물리 컬럼 introspection과 UUID/자동 생성 ID 지원으로 보완, 추가 스키마 변경 없음
-- 운영 완료 여부는 finance-permission-rollout.md의 배포 결과와 Actions 로그로 기록
+- 2026-10-13 22:01:20 KST `c888e5941137` 운영 배포 완료 (Actions #38401441874)
+- 중앙 4개 역할/권한 쌍 readback, 운영 회귀 테스트 36개, 서비스 active/running 및 로그인 HTTP 200 확인
+- 계정별 화면 수동 검증은 미실시; 상세 근거는 [finance-permission-rollout.md](./finance-permission-rollout.md)에 기록
 
 Finance의 중요한 변경은 PR 설명만 남기지 말고 이 문서에도 다음 형식으로 누적한다.
 
