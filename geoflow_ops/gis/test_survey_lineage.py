@@ -154,7 +154,7 @@ class SurveyLineageContractTests(SimpleTestCase):
             "at most 5,000 rows ordered",
             "Point-level values override request-level",
             "Client-supplied versus server-generated point values",
-            "GET /gis/projects/{project_id}/api/survey-sources/{source_id}/",
+            "/gis/projects/{project_id}/api/survey-sources/{source_id}/",
             "DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/",
             '"cleanup_pending":false',
             "mode=source_only",
