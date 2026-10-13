@@ -1,12 +1,14 @@
 from django.conf import settings
 from django.contrib import messages
-from django.db import connections
+from django.db import connections, transaction
 from django.shortcuts import redirect, render
+from django.http import Http404
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
 from control.decorators import require_central_admin
 from control.services import central_repo as C
+from control.services import service_menu_visibility as menus
 
 
 STATUS_CHOICES = ["active", "inactive"]
@@ -19,8 +21,11 @@ def _central_alias():
 
 @require_central_admin
 def group_list_admin(request):
+    include_deleted = request.GET.get("include_deleted") == "1"
     rows = C.list_groups_admin()
-    return render(request, "control/group_list_admin.html", {"rows": rows})
+    if not include_deleted:
+        rows = [row for row in rows if not row[7]]
+    return render(request, "control/group_list_admin.html", {"rows": rows, "include_deleted": include_deleted})
 
 
 @require_central_admin
@@ -85,7 +90,12 @@ def group_create_admin(request):
 @csrf_protect
 @require_http_methods(["GET", "POST"])
 def group_edit_admin(request, group_id):
+    available = menus.settings_available()
     if request.method == "POST":
+        update_menus = request.POST.get("service_menus_present") == "1"
+        if update_menus and not available:
+            messages.error(request, "서비스 메뉴 설정을 준비 중입니다. 중앙 설정 적용 후 다시 저장해 주세요.")
+            return redirect("control:group_edit_admin", group_id=group_id)
         name = (request.POST.get("name") or "").strip()
         status = (request.POST.get("status") or "active").strip().lower()
         domains = (request.POST.get("allowed_domains") or "").strip()
@@ -101,7 +111,10 @@ def group_edit_admin(request, group_id):
             if d.strip()
         ]
 
-        with connections[_central_alias()].cursor() as cur:
+        with transaction.atomic(using=_central_alias()), connections[_central_alias()].cursor() as cur:
+            cur.execute("SELECT id FROM groups WHERE id=%s FOR UPDATE", [group_id])
+            if cur.fetchone() is None:
+                raise Http404("Group not found")
             owner_id = None
             if owner:
                 cur.execute(
@@ -124,6 +137,12 @@ def group_edit_admin(request, group_id):
                 """,
                 [name or None, status, allowed or None, owner_id, group_id],
             )
+
+            if update_menus:
+                menus.save_service_menus(group_id, {
+                    code: request.POST.get("service_menu_" + code) == "on"
+                    for code, _label in menus.SERVICE_MENUS
+                })
 
         messages.success(request, "수정되었습니다.")
         return redirect("control:group_list_admin")
@@ -153,8 +172,13 @@ def group_edit_admin(request, group_id):
         )
         row = cur.fetchone()
 
+    if row is None:
+        raise Http404("Group not found")
+    selected = menus.get_service_menus(group_id, available=available)
     return render(
         request,
         "control/group_form_admin.html",
-        {"row": row, "status_choices": STATUS_CHOICES},
+        {"row": row, "status_choices": STATUS_CHOICES,
+         "service_menus_available": available,
+         "service_menu_options": [(code, label, selected[code]) for code, label in menus.SERVICE_MENUS]},
     )

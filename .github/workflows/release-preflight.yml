@@ -182,6 +182,9 @@ jobs:
           python manage.py check_signup_launch_schema --strict
           python manage.py check_tenant_db_secret_refs --strict
 
+      - name: Rehearse central menu settings and deletion markers
+        run: python scripts/ci/rehearse_admin_visibility.py
+
       - name: Rehearse tenant migrations
         run: |
           python manage.py migrate --plan --database=cheonan_db

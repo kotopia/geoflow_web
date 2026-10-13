@@ -9,6 +9,13 @@
   {% if messages %}{% for m in messages %}
   <div class="alert alert-{{ m.tags }}">{{ m }}</div>
   {% endfor %}{% endif %}
+  <form method="get" class="mb-3 d-flex align-items-center gap-2">
+    <label class="form-check mb-0">
+      <input type="checkbox" class="form-check-input" name="include_deleted" value="1" {% if include_deleted %}checked{% endif %} onchange="this.form.submit()">
+      <span class="form-check-label">모두 보기(삭제 포함)</span>
+    </label>
+    <noscript><button class="btn btn-sm btn-outline-secondary">적용</button></noscript>
+  </form>
   <table class="table align-middle">
     <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Domains</th><th>Owner</th><th>DB Alias</th><th></th></tr></thead>
     <tbody>

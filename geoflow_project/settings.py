@@ -207,6 +207,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'control.context_processors.central_flags',
+                'control.services.service_menu_visibility.service_menu_context',
                 "control.context_processors.perms_context",
                 "control.context_processors.avatar_context",
                 "geoflow_ops.context_processors.topbar_user",

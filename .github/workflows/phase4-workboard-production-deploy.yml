@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      requires_central_visibility_activation: ${{ steps.classify.outputs.requires_central_visibility_activation }}
       requires_contract_activation: ${{ steps.classify.outputs.requires_contract_activation }}
       requires_employee_soft_delete_activation: ${{ steps.classify.outputs.requires_employee_soft_delete_activation }}
     steps:
@@ -52,6 +53,7 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          requires_central_visibility=false
           requires=false
           requires_employee_soft_delete=false
           if [ "$GITHUB_EVENT_NAME" = 'push' ]; then
@@ -61,6 +63,9 @@ jobs:
             else
               git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" > /tmp/geoflow_workboard_changed.txt
             fi
+            if grep -Fxq 'control/migrations/0007_admin_visibility.py' /tmp/geoflow_workboard_changed.txt; then
+              requires_central_visibility=true
+            fi
             if grep -Fxq 'geoflow_ops/migrations/0026_contract_completion_event_backfill.py' /tmp/geoflow_workboard_changed.txt; then
               requires=true
             fi
@@ -68,6 +73,7 @@ jobs:
               requires_employee_soft_delete=true
             fi
           fi
+          echo "requires_central_visibility_activation=$requires_central_visibility" >> "$GITHUB_OUTPUT"
           echo "requires_contract_activation=$requires" >> "$GITHUB_OUTPUT"
           echo "requires_employee_soft_delete_activation=$requires_employee_soft_delete" >> "$GITHUB_OUTPUT"
           echo "phase4_workboard_requires_contract_workflow_activation=$requires"
@@ -78,7 +84,8 @@ jobs:
     if: >-
       github.ref_name == 'release/stabilized-deploy' &&
       needs.classify-workboard-deploy.outputs.requires_contract_activation != 'true' &&
-      needs.classify-workboard-deploy.outputs.requires_employee_soft_delete_activation != 'true'
+      needs.classify-workboard-deploy.outputs.requires_employee_soft_delete_activation != 'true' &&
+      needs.classify-workboard-deploy.outputs.requires_central_visibility_activation != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

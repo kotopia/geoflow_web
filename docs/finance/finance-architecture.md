@@ -281,6 +281,8 @@ Phase 1의 기존 원칙:
 - 계약/프로젝트 내부 정산 이벤트: 기존 대상 접근 권한 + 위 Finance 권한
 - 중앙에 `finance.view` / `finance.edit`를 등록하고 `tenant_admin`, `manager`에 명시적으로 부여했다.
 
+그룹별 [서비스 메뉴 표시](../architecture/central-admin.md)는 화면 표시 설정이며 위 재무 권한을 부여하거나 회수하지 않는다.
+
 조회 경로와 운영 적용 절차는 [finance-permission-rollout.md](./finance-permission-rollout.md)를 따른다.
 
 ---

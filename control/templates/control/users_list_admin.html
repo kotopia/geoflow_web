@@ -3,6 +3,13 @@
 {% block content %}
 <div class="container-fluid px-4">
   <h1 class="h3 mb-3">중앙 사용자</h1>
+  <form method="get" class="mb-3 d-flex align-items-center gap-2">
+    <label class="form-check mb-0">
+      <input type="checkbox" class="form-check-input" name="include_deleted" value="1" {% if include_deleted %}checked{% endif %} onchange="this.form.submit()">
+      <span class="form-check-label">모두 보기(삭제 포함)</span>
+    </label>
+    <noscript><button class="btn btn-sm btn-outline-secondary">적용</button></noscript>
+  </form>
   <div class="card"><div class="card-body table-responsive">
     <table class="table align-middle">
       <thead><tr>
@@ -11,17 +18,17 @@
       <tbody>
         {% for u in users %}
         <tr>
-          <td>{{ u.email }}</td>
+          <td>{% if u.is_deleted %}<span class="badge bg-secondary">삭제된 사용자</span>{% else %}{{ u.email }}{% endif %}</td>
           <td>{{ u.is_active|yesno:"Y,N" }}</td>
           <td>{{ u.email_verified|yesno:"Y,N" }}</td>
           <td>{{ u.last_login|date:"Y-m-d H:i" }}</td>
           <td>{{ u.groups_count }}</td>
           <td class="text-end">
             <a class="btn btn-sm btn-outline-primary" href="{% url 'control:users_detail_admin' u.id %}">상세</a>
-            <form method="post" action="{% url 'control:users_delete_admin' u.id %}" class="d-inline" onsubmit="return confirm('중앙 계정 개인정보를 삭제하거나 감사 이력 보존을 위해 익명화할 수 있습니다. 계속하시겠습니까?');">
+            {% if not u.is_deleted %}<form method="post" action="{% url 'control:users_delete_admin' u.id %}" class="d-inline" onsubmit="return confirm('중앙 계정 개인정보를 삭제하거나 감사 이력 보존을 위해 익명화할 수 있습니다. 계속하시겠습니까?');">
               {% csrf_token %}
               <button class="btn btn-sm btn-danger">개인정보 삭제</button>
-            </form>
+            </form>{% endif %}
           </td>
         </tr>
         {% endfor %}

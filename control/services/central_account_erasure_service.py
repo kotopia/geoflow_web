@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import IntegrityError, connections, transaction
 from django.utils import timezone
+from control.services import central_repo as C
 
 
 class AccountErasureError(Exception):
@@ -252,8 +253,10 @@ class SqlCentralAccountErasureRepository:
         unusable_password_hash: str,
     ) -> AccountErasureResult:
         erased_email = f"erased-{uuid.uuid4()}@example.invalid"
+        # Rolling compatibility for hosts awaiting central migration 0007.
+        marker = ", deleted_at=COALESCE(deleted_at, now())" if C._column_exists(self.alias, "users", "deleted_at") else ""
         cursor.execute(
-            """
+            f"""
             UPDATE users
                SET email=%s,
                    password_hash=%s,
@@ -263,7 +266,7 @@ class SqlCentralAccountErasureRepository:
                    is_staff=FALSE,
                    mfa_enabled=FALSE,
                    last_login=NULL,
-                   updated_at=%s
+                   updated_at=%s{marker}
              WHERE id=%s
             """,
             [erased_email, unusable_password_hash, timezone.now(), user_id],
