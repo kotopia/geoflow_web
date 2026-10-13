@@ -91,8 +91,9 @@ def _project_layer_counts(alias: str, project_id, plan: dict) -> dict[str, int |
                 continue
 
             quoted_table = connection.ops.quote_name(physical_name)
+            visible = " AND deleted_at IS NULL" if physical_name == "survey" else ""
             cursor.execute(
-                f"SELECT count(*) FROM {schema_name}.{quoted_table} WHERE project_id=%s",
+                f"SELECT count(*) FROM {schema_name}.{quoted_table} WHERE project_id=%s{visible}",
                 [project_id],
             )
             counts[standard_name] = int(cursor.fetchone()[0])

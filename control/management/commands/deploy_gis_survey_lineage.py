@@ -9,13 +9,13 @@ from control.services.gis_admin import tenant_cursor
 
 
 APP = "webgisapp"
-MIGRATION = "0044_gis_survey_lineage"
-DEPENDENCY = "0043_gis_feature_photo_catalog_v2"
+MIGRATION = "0045_gis_survey_soft_delete"
+DEPENDENCY = "0044_gis_survey_lineage"
 
 
 def migration_sql():
     path = Path(__file__).resolve().parents[3] / "geoflow_ops" / "migrations" / f"{MIGRATION}.py"
-    spec = importlib.util.spec_from_file_location("deploy_gis_survey_0044", path)
+    spec = importlib.util.spec_from_file_location("deploy_gis_survey_0045", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     operations = list(module.Migration.operations)
@@ -32,7 +32,9 @@ def _validate(cursor, db_name):
     if not all(cursor.fetchone()):
         raise RuntimeError(f"{db_name}: Survey lineage relations missing")
     expected = {
-        "survey": {"source_id", "source_row_id", "raw_crs", "raw_code", "raw_geoid_model"},
+        "survey_source": {"deleted_at", "deleted_by", "delete_reason"},
+        "survey": {"source_id", "source_row_id", "raw_crs", "raw_code", "raw_geoid_model",
+                   "deleted_at", "deleted_by", "delete_reason"},
         "survey_link": {"vertex_index", "link_role", "link_status", "created_by", "updated_at", "updated_by"},
     }
     for table, required in expected.items():
@@ -71,13 +73,43 @@ class Command(BaseCommand):
                                    [APP, DEPENDENCY])
                     if not cursor.fetchone()[0]:
                         raise RuntimeError(f"{config.db_name}: missing dependency {DEPENDENCY}")
+                    cursor.execute("SELECT count(*) FROM gis.survey_source")
+                    source_count = int(cursor.fetchone()[0])
+                    cursor.execute("SELECT count(*) FROM gis.survey")
+                    point_count = int(cursor.fetchone()[0])
+                    cursor.execute(
+                        "SELECT count(DISTINCT survey_id) FROM gis.survey_link"
+                    )
+                    linked_point_count = int(cursor.fetchone()[0])
+                    cursor.execute(
+                        """SELECT count(*) FROM gis.survey
+                             WHERE upper(COALESCE(survey_code,code,raw_code,''))='H'"""
+                    )
+                    elevation_count = int(cursor.fetchone()[0])
+                    cursor.execute(
+                        """SELECT conname,pg_get_constraintdef(oid)
+                             FROM pg_constraint
+                            WHERE conrelid IN ('gis.survey'::regclass,
+                                               'gis.survey_source'::regclass,
+                                               'gis.survey_link'::regclass)
+                              AND contype='f'"""
+                    )
+                    fk_defs = [str(row[1]) for row in cursor.fetchall()]
+                    if any("ON DELETE CASCADE" in value.upper() for value in fk_defs):
+                        raise RuntimeError(f"{config.db_name}: unsafe Survey cascade FK")
+                    self.stdout.write(
+                        f"gis_survey_delete_inventory={config.db_name}:"
+                        f"sources={source_count},points={point_count},"
+                        f"linked_points={linked_point_count},h_points={elevation_count},"
+                        f"fk_count={len(fk_defs)}"
+                    )
 
             migrated = 0
             for config in configs:
                 with tenant_cursor(config.group_id, write=True) as cursor:
                     cursor.execute("SET LOCAL lock_timeout='8s'")
                     cursor.execute("SET LOCAL statement_timeout='180s'")
-                    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('geoflow:gis:survey-lineage-0044'))")
+                    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('geoflow:gis:survey-lineage-0045'))")
                     cursor.execute("SELECT EXISTS(SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)",
                                    [APP, MIGRATION])
                     already_applied = bool(cursor.fetchone()[0])

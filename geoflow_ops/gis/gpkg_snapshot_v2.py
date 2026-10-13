@@ -369,6 +369,8 @@ def _copy_layer_rows(alias: str, sqlite_conn: sqlite3.Connection, layer: Package
 
     while True:
         where = "project_id=%s"
+        if layer.physical_name == "survey":
+            where += " AND deleted_at IS NULL"
         params: list[Any] = [project_id]
         if last_source_id is not None:
             where += " AND id>%s::uuid"

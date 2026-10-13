@@ -41,31 +41,19 @@ class SurveySourceNotFound(SyncRejected):
 
 
 class SurveySourceDeleteBlocked(SyncRejected):
+    """Retained for wire compatibility with older guarded-delete clients."""
+
     def __init__(self, reason: str, precheck: dict[str, Any]):
         super().__init__(reason)
         self.reason = reason
         self.precheck = precheck
 
 
-def _delete_reason(precheck: dict[str, Any]) -> str | None:
-    links = precheck.get("links") or {}
-    if int(links.get("LINKED") or 0):
-        return "linked_survey_points"
-    if int(links.get("MANUALLY_MODIFIED") or 0):
-        return "manually_modified_links"
-    if int(links.get("UNLINKED") or 0):
-        return "unlinked_history"
-    if int(precheck.get("child_version_count") or 0) or precheck.get("supersedes_id"):
-        return "version_lineage"
-    if int(precheck.get("version") or 0) != 1:
-        return "version_lineage"
-    if not precheck.get("is_active"):
-        return "inactive_source"
-    if int(precheck.get("shared_object_reference_count") or 0):
-        return "shared_object"
-    if precheck.get("object_key_valid") is False:
-        return "invalid_object_key"
-    return None
+def _actor_uuid(actor_ref: str | None) -> str | None:
+    try:
+        return str(uuid.UUID(str(actor_ref))) if actor_ref else None
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 def _source_dict(row) -> dict[str, Any]:
@@ -98,9 +86,9 @@ def list_survey_sources(alias: str, *, project_id: str, include_inactive: bool =
                        'id', ep.id::text, 'name', ep.name
                    )) FILTER (WHERE ep.id IS NOT NULL),'[]'::jsonb)
               FROM gis.survey_source src
-              LEFT JOIN gis.survey s ON s.source_id=src.id
+              LEFT JOIN gis.survey s ON s.source_id=src.id AND s.deleted_at IS NULL
               LEFT JOIN hr.employee_profile ep ON ep.id=s.worker_id AND ep.is_deleted=false
-             WHERE src.project_id=%s AND (%s OR src.is_active)
+             WHERE src.project_id=%s AND src.deleted_at IS NULL AND (%s OR src.is_active)
              GROUP BY src.id
              ORDER BY src.source_group_id,src.version DESC
             """,
@@ -120,7 +108,7 @@ def survey_source_delete_precheck(
             SELECT id::text,source_group_id::text,supersedes_id::text,version,is_active,
                    original_file_key
               FROM gis.survey_source
-             WHERE id=%s AND project_id=%s{lock_sql}
+             WHERE id=%s AND project_id=%s AND deleted_at IS NULL{lock_sql}
             """,
             [source_id, project_id],
         )
@@ -136,20 +124,20 @@ def survey_source_delete_precheck(
                    count(DISTINCT (sl.layer_id,sl.target_id,COALESCE(sl.vertex_index,-1)))
               FROM gis.survey s
               LEFT JOIN gis.survey_link sl ON sl.survey_id=s.id
-             WHERE s.project_id=%s AND s.source_id=%s
+             WHERE s.project_id=%s AND s.source_id=%s AND s.deleted_at IS NULL
             """,
             [project_id, source_id],
         )
         counts = cursor.fetchone()
         cursor.execute(
-            "SELECT count(*) FROM gis.survey_source WHERE project_id=%s AND supersedes_id=%s",
+            "SELECT count(*) FROM gis.survey_source WHERE project_id=%s AND supersedes_id=%s AND deleted_at IS NULL",
             [project_id, source_id],
         )
         child_versions = int(cursor.fetchone()[0])
         shared_objects = 0
         if source[5]:
             cursor.execute(
-                "SELECT count(*) FROM gis.survey_source WHERE original_file_key=%s AND id<>%s",
+                "SELECT count(*) FROM gis.survey_source WHERE original_file_key=%s AND id<>%s AND deleted_at IS NULL",
                 [source[5], source_id],
             )
             shared_objects = int(cursor.fetchone()[0])
@@ -169,14 +157,17 @@ def survey_source_delete_precheck(
             "UNLINKED": int(counts[3] or 0),
         },
         "linked_target_count": int(counts[4] or 0),
+        "linked_facility_count": int(counts[4] or 0),
+        "depth_dependency_count": 0,
         "child_version_count": child_versions,
         "shared_object_reference_count": shared_objects,
         "has_archived_object": bool(object_key),
         "object_key_valid": not object_key or object_key.startswith(expected_prefix),
     }
-    reason = _delete_reason(result)
-    result["can_delete"] = reason is None
-    result["blocked_reason"] = reason
+    # Links and version history are provenance, not delete blockers. Soft delete
+    # keeps all rows referenced by those relationships intact.
+    result["can_delete"] = True
+    result["blocked_reason"] = None
     return result
 
 
@@ -314,16 +305,21 @@ def import_survey_source(
             )
             version = int(cursor.fetchone()[0])
             if version > 1 and not supersedes_id:
-                raise SyncRejected("supersedes_id is required for a source revision")
+                cursor.execute(
+                    "SELECT 1 FROM gis.survey_source WHERE project_id=%s AND source_group_id=%s AND deleted_at IS NULL LIMIT 1",
+                    [project_id, source_group_id],
+                )
+                if cursor.fetchone() is not None:
+                    raise SyncRejected("supersedes_id is required for a source revision")
             if supersedes_id:
                 cursor.execute(
-                    "SELECT 1 FROM gis.survey_source WHERE id=%s AND project_id=%s AND source_group_id=%s AND version=%s AND is_active",
+                    "SELECT 1 FROM gis.survey_source WHERE id=%s AND project_id=%s AND source_group_id=%s AND version=%s AND is_active AND deleted_at IS NULL",
                     [supersedes_id, project_id, source_group_id, version - 1],
                 )
                 if cursor.fetchone() is None:
                     raise SyncConflict([{"resource_kind": "survey_source", "id": supersedes_id, "reason": "superseded_source_missing_or_wrong_group"}])
             cursor.execute(
-                "UPDATE gis.survey_source SET is_active=false,updated_at=now() WHERE project_id=%s AND source_group_id=%s AND is_active",
+                "UPDATE gis.survey_source SET is_active=false,updated_at=now() WHERE project_id=%s AND source_group_id=%s AND is_active AND deleted_at IS NULL",
                 [project_id, source_group_id],
             )
             cursor.execute(
@@ -360,7 +356,8 @@ def import_survey_source(
                            s.antenna_height,s.raw_data
                       FROM gis.survey s
                       JOIN gis.survey_source src ON src.id=s.source_id
-                     WHERE s.project_id=%s AND src.source_group_id=%s AND s.source_row_id=%s
+                     WHERE s.project_id=%s AND s.deleted_at IS NULL
+                       AND src.deleted_at IS NULL AND src.source_group_id=%s AND s.source_row_id=%s
                      ORDER BY src.version DESC LIMIT 1 FOR UPDATE OF s
                     """,
                     [project_id, source_group_id, row_id],
@@ -456,122 +453,237 @@ def import_survey_source(
         return response
 
 
+def survey_points_delete_precheck(
+    alias: str, *, project_id: str, survey_ids: list[str], lock: bool = False
+) -> dict[str, Any]:
+    ids = list(dict.fromkeys(_uuid_text(value, "survey_ids[]") for value in survey_ids))
+    if not ids:
+        raise SyncRejected("survey_ids must be a non-empty list")
+    if len(ids) > 5000:
+        raise SyncRejected("survey_ids must contain at most 5000 items")
+    with connections[alias].cursor() as cursor:
+        if lock:
+            cursor.execute(
+                "SELECT id FROM gis.survey WHERE project_id=%s AND id=ANY(%s::uuid[]) AND deleted_at IS NULL FOR UPDATE",
+                [project_id, ids],
+            )
+        cursor.execute(
+            """
+            SELECT s.id::text,s.source_id::text,
+                   count(sl.id) FILTER (WHERE sl.link_status='LINKED'),
+                   count(sl.id) FILTER (WHERE sl.link_status='MANUALLY_MODIFIED'),
+                   count(sl.id) FILTER (WHERE sl.link_status='UNLINKED'),
+                   count(DISTINCT (sl.layer_id,sl.target_id,COALESCE(sl.vertex_index,-1)))
+              FROM gis.survey s
+              LEFT JOIN gis.survey_link sl ON sl.survey_id=s.id
+             WHERE s.project_id=%s AND s.id=ANY(%s::uuid[]) AND s.deleted_at IS NULL
+             GROUP BY s.id
+            """,
+            [project_id, ids],
+        )
+        rows = cursor.fetchall()
+    found = {str(row[0]) for row in rows}
+    missing = [value for value in ids if value not in found]
+    if missing:
+        raise SyncRejected("one or more survey points were not found or already deleted")
+    return {
+        "survey_count": len(rows),
+        "source_ids": sorted({str(row[1]) for row in rows if row[1]}),
+        "links": {
+            "LINKED": sum(int(row[2] or 0) for row in rows),
+            "MANUALLY_MODIFIED": sum(int(row[3] or 0) for row in rows),
+            "UNLINKED": sum(int(row[4] or 0) for row in rows),
+        },
+        "linked_facility_count": sum(int(row[5] or 0) for row in rows),
+        # No persisted depth-dependency relation exists in the deployed schema.
+        # Historical pip_dep values are facility attributes and are never changed here.
+        "depth_dependency_count": 0,
+        "can_delete": True,
+    }
+
+
+def _soft_delete_survey_points(
+    alias: str,
+    *,
+    project_id: str,
+    survey_ids: list[str],
+    actor_ref: str | None,
+    delete_reason: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    impact = survey_points_delete_precheck(
+        alias, project_id=project_id, survey_ids=survey_ids, lock=True
+    )
+    actor_uuid = _actor_uuid(actor_ref)
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id::text,ST_AsBinary(geom),source_id::text,source_row_id,
+                   raw_x,raw_y,raw_z,raw_crs,raw_code,raw_geoid_model,
+                   worker_id::text,survey_date,name,code,solution_info,pdop,
+                   antenna_height,raw_data,longitude,latitude
+              FROM gis.survey
+             WHERE project_id=%s AND id=ANY(%s::uuid[]) AND deleted_at IS NULL
+             ORDER BY id FOR UPDATE
+            """,
+            [project_id, survey_ids],
+        )
+        rows = cursor.fetchall()
+    value_names = (
+        "source_id", "source_row_id", "raw_x", "raw_y", "raw_z", "raw_crs",
+        "raw_code", "raw_geoid_model", "worker_id", "survey_date", "name", "code",
+        "solution_info", "pdop", "antenna_height", "raw_data", "longitude", "latitude",
+    )
+    events = [{
+        "id": row[0],
+        "before": bytes(row[1]) if row[1] is not None else None,
+        "old_values": _plain_value(dict(zip(value_names, row[2:]))),
+    } for row in rows]
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            """UPDATE gis.survey
+                  SET deleted_at=now(),deleted_by=%s,delete_reason=%s,updated_at=now()
+                WHERE project_id=%s AND id=ANY(%s::uuid[]) AND deleted_at IS NULL""",
+            [actor_uuid, delete_reason, project_id, survey_ids],
+        )
+        if cursor.rowcount != len(events):
+            raise ChangesetUnavailable("Survey point delete count changed")
+    return events, impact
+
+
+def delete_survey_points(
+    alias: str,
+    *,
+    project_id: str,
+    survey_ids: list[str],
+    actor_ref: str | None = None,
+    delete_reason: str = "survey_point_delete",
+) -> dict[str, Any]:
+    ids = list(dict.fromkeys(_uuid_text(value, "survey_ids[]") for value in survey_ids))
+    changeset_id, client_id = str(uuid.uuid4()), str(uuid.uuid4())
+    with transaction.atomic(using=alias):
+        _ensure_project_state(alias, project_id)
+        if not _reserve_receipt(
+            alias, project_id=project_id, client_id=client_id,
+            changeset_id=changeset_id, actor_ref=actor_ref, base_revision=None,
+        ):
+            raise ChangesetUnavailable("Survey point delete receipt could not be reserved")
+        events, impact = _soft_delete_survey_points(
+            alias, project_id=project_id, survey_ids=ids, actor_ref=actor_ref,
+            delete_reason=delete_reason,
+        )
+        first, last, current = _allocate_revisions(alias, project_id, len(events))
+        for offset, event in enumerate(events):
+            _insert_change_log(
+                alias, project_id=project_id, revision=first + offset,
+                changeset_id=changeset_id, client_id=client_id,
+                standard_name="SURVEY", physical_name="survey", object_id=event["id"],
+                action="delete", changed_fields=["deleted_at", "deleted_by", "delete_reason"],
+                old_values=event["old_values"], new_values={"deleted": True},
+                geom_before=event["before"], geom_after=None, actor_ref=actor_ref,
+            )
+        response = {
+            "ok": True,
+            "survey_points_deleted": len(events),
+            "linked_facilities_preserved": impact["linked_facility_count"],
+            "facility_links_preserved": sum(impact["links"].values()),
+            "facilities_deleted": 0,
+            "depth_dependency_count": impact["depth_dependency_count"],
+            "first_revision": first, "last_revision": last,
+            "current_revision": current,
+        }
+        _complete_receipt(
+            alias, project_id=project_id, client_id=client_id,
+            changeset_id=changeset_id, first_revision=first, last_revision=last,
+            change_count=len(events), response=response,
+        )
+        return response
+
+
 def delete_survey_source(
     alias: str, *, project_id: str, source_id: str, actor_ref: str | None = None
 ) -> dict[str, Any]:
     source_id = _uuid_text(source_id, "source_id")
     changeset_id, client_id = str(uuid.uuid4()), str(uuid.uuid4())
     object_key = ""
-    response: dict[str, Any]
-
+    archived_object_key = ""
     with transaction.atomic(using=alias):
         _ensure_project_state(alias, project_id)
         precheck = survey_source_delete_precheck(
             alias, project_id=project_id, source_id=source_id, lock=True
         )
-        reason = _delete_reason(precheck)
-        if reason:
-            raise SurveySourceDeleteBlocked(reason, precheck)
         if not _reserve_receipt(
-            alias,
-            project_id=project_id,
-            client_id=client_id,
-            changeset_id=changeset_id,
-            actor_ref=actor_ref,
-            base_revision=None,
+            alias, project_id=project_id, client_id=client_id,
+            changeset_id=changeset_id, actor_ref=actor_ref, base_revision=None,
         ):
             raise ChangesetUnavailable("Survey source delete receipt could not be reserved")
-
         with connections[alias].cursor() as cursor:
             cursor.execute(
-                "SELECT original_file_key FROM gis.survey_source WHERE id=%s AND project_id=%s",
+                "SELECT original_file_key FROM gis.survey_source WHERE id=%s AND project_id=%s AND deleted_at IS NULL",
                 [source_id, project_id],
             )
-            object_key = str(cursor.fetchone()[0] or "")
+            row = cursor.fetchone()
+            if row is None:
+                raise SurveySourceNotFound("survey source was not found")
+            archived_object_key = str(row[0] or "")
+            object_key = archived_object_key
+            cleanup_skipped = bool(
+                object_key and (
+                    not precheck.get("object_key_valid")
+                    or int(precheck.get("shared_object_reference_count") or 0) > 0
+                )
+            )
+            if cleanup_skipped:
+                object_key = ""
             cursor.execute(
-                """
-                SELECT id::text,ST_AsBinary(geom),source_id::text,source_row_id,
-                       raw_x,raw_y,raw_z,raw_crs,raw_code,raw_geoid_model,
-                       worker_id::text,survey_date,name,code,solution_info,pdop,
-                       antenna_height,raw_data,longitude,latitude
-                  FROM gis.survey
-                 WHERE project_id=%s AND source_id=%s
-                 ORDER BY id
-                 FOR UPDATE
-                """,
+                "SELECT id::text FROM gis.survey WHERE project_id=%s AND source_id=%s AND deleted_at IS NULL ORDER BY id",
                 [project_id, source_id],
             )
-            point_rows = cursor.fetchall()
-
-        events = []
-        value_names = (
-            "source_id", "source_row_id", "raw_x", "raw_y", "raw_z", "raw_crs",
-            "raw_code", "raw_geoid_model", "worker_id", "survey_date", "name", "code",
-            "solution_info", "pdop", "antenna_height", "raw_data", "longitude", "latitude",
-        )
-        for row in point_rows:
-            events.append({
-                "id": row[0],
-                "before": bytes(row[1]) if row[1] is not None else None,
-                "old_values": _plain_value(dict(zip(value_names, row[2:]))),
-            })
-
+            survey_ids = [str(row[0]) for row in cursor.fetchall()]
+        events: list[dict[str, Any]] = []
+        impact = {"linked_facility_count": 0, "links": {}, "depth_dependency_count": 0}
+        if survey_ids:
+            events, impact = _soft_delete_survey_points(
+                alias, project_id=project_id, survey_ids=survey_ids,
+                actor_ref=actor_ref, delete_reason="source_delete",
+            )
         with connections[alias].cursor() as cursor:
             cursor.execute(
-                "DELETE FROM gis.survey WHERE project_id=%s AND source_id=%s",
-                [project_id, source_id],
-            )
-            if cursor.rowcount != len(events):
-                raise ChangesetUnavailable("Survey source point delete count changed")
-            cursor.execute(
-                "DELETE FROM gis.survey_source WHERE id=%s AND project_id=%s",
-                [source_id, project_id],
+                """UPDATE gis.survey_source
+                      SET is_active=false,deleted_at=now(),deleted_by=%s,
+                          delete_reason='source_and_points',updated_at=now()
+                    WHERE id=%s AND project_id=%s AND deleted_at IS NULL""",
+                [_actor_uuid(actor_ref), source_id, project_id],
             )
             if cursor.rowcount != 1:
-                raise ChangesetUnavailable("Survey source could not be deleted")
-
+                raise ChangesetUnavailable("Survey source could not be soft deleted")
         first, last, current = _allocate_revisions(alias, project_id, len(events))
         for offset, event in enumerate(events):
             _insert_change_log(
-                alias,
-                project_id=project_id,
-                revision=first + offset,
-                changeset_id=changeset_id,
-                client_id=client_id,
-                standard_name="SURVEY",
-                physical_name="survey",
-                object_id=event["id"],
-                action="delete",
-                changed_fields=sorted(event["old_values"]),
-                old_values=event["old_values"],
-                new_values={},
-                geom_before=event["before"],
-                geom_after=None,
-                actor_ref=actor_ref,
+                alias, project_id=project_id, revision=first + offset,
+                changeset_id=changeset_id, client_id=client_id,
+                standard_name="SURVEY", physical_name="survey", object_id=event["id"],
+                action="delete", changed_fields=["deleted_at", "deleted_by", "delete_reason"],
+                old_values=event["old_values"], new_values={"deleted": True},
+                geom_before=event["before"], geom_after=None, actor_ref=actor_ref,
             )
         response = {
-            "ok": True,
-            "source_id": source_id,
-            "deleted_source_id": source_id,
-            "deleted_point_count": len(events),
-            "deleted_object": not bool(object_key),
-            "cleanup_pending": bool(object_key),
-            "first_revision": first,
-            "last_revision": last,
-            "current_revision": current,
+            "ok": True, "source_id": source_id, "source_deleted": True,
+            "survey_points_deleted": len(events), "deleted_point_count": len(events),
+            "facilities_deleted": 0,
+            "facility_links_preserved": sum(int(v or 0) for v in impact.get("links", {}).values()),
+            "linked_facilities_preserved": int(impact.get("linked_facility_count") or 0),
+            "depth_dependency_count": int(impact.get("depth_dependency_count") or 0),
+            "deleted_object": not bool(archived_object_key), "cleanup_pending": bool(object_key),
+            "object_cleanup_skipped": cleanup_skipped,
+            "first_revision": first, "last_revision": last, "current_revision": current,
         }
         receipt_response = dict(response)
         if object_key:
             receipt_response["cleanup_object_key"] = object_key
         _complete_receipt(
-            alias,
-            project_id=project_id,
-            client_id=client_id,
-            changeset_id=changeset_id,
-            first_revision=first,
-            last_revision=last,
-            change_count=len(events),
-            response=receipt_response,
+            alias, project_id=project_id, client_id=client_id,
+            changeset_id=changeset_id, first_revision=first, last_revision=last,
+            change_count=len(events), response=receipt_response,
         )
 
     if object_key:
@@ -587,9 +699,7 @@ def delete_survey_source(
         try:
             with transaction.atomic(using=alias):
                 _complete_receipt(
-                    alias,
-                    project_id=project_id,
-                    client_id=client_id,
+                    alias, project_id=project_id, client_id=client_id,
                     changeset_id=changeset_id,
                     first_revision=response["first_revision"],
                     last_revision=response["last_revision"],
