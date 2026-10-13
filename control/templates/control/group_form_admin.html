@@ -46,6 +46,20 @@
         </div>
         {% endif %}
 
+        {% if row %}
+        <fieldset class="border rounded p-3 mb-3" {% if not service_menus_available %}disabled{% endif %}>
+            <legend class="float-none w-auto fs-6 px-2">서비스 메뉴 표시</legend>
+            <input type="hidden" name="service_menus_present" value="1">
+            {% for code, label, enabled in service_menu_options %}
+            <label class="form-check form-check-inline">
+                <input type="checkbox" class="form-check-input" name="service_menu_{{ code }}" {% if enabled %}checked{% endif %}>
+                <span class="form-check-label">{{ label }}</span>
+            </label>
+            {% endfor %}
+            <p class="small text-muted mb-0 mt-2">메뉴와 바로가기만 숨깁니다. 사용자 권한과 저장된 데이터는 유지되며, 주소로 직접 접속할 때는 기존 접근권한이 적용됩니다.</p>
+        </fieldset>
+        {% if not service_menus_available %}<p class="small text-muted">서비스 메뉴 설정을 준비 중입니다.</p>{% endif %}
+        {% endif %}
         <div class="d-flex gap-2">
             <button class="btn btn-primary">Save</button>
             <a class="btn btn-light" href="{% url 'control:group_list_admin' %}">Back</a>

@@ -277,7 +277,8 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
         self.assertFalse(rows[0][7])
         self.assertTrue(rows[1][7])
 
-    def test_group_edit_reads_alias_from_central_metadata(self):
+    @patch("control.services.service_menu_visibility.settings_available", return_value=False)
+    def test_group_edit_reads_alias_from_central_metadata(self, _menu_schema):
         def handler(sql, params):
             self.assertIn("LEFT JOIN group_db_config", sql)
             return (

@@ -30,3 +30,5 @@
 - 기준 브랜치: `release/stabilized-deploy`
 - Finance는 재무 데이터의 Source of Truth로 유지한다.
 - 계약/프로젝트 타임라인에 동일 Finance 데이터를 중복 저장하지 않는 방향을 원칙으로 한다.
+
+- [중앙 사용자·그룹 및 서비스 메뉴 표시](../architecture/central-admin.md): 재무 권한과 독립된 화면 표시 설정

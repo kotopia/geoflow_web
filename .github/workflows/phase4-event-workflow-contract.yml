@@ -98,6 +98,7 @@ jobs:
             geoflow_ops.test_event_api_security \
             geoflow_ops.test_finance_permissions \
             geoflow_ops.test_permission_vocabulary_contract \
+            control.test_admin_visibility \
             control.test_finance_permission_provisioning \
             geoflow_ops.test_event_assignment_org_scope \
             geoflow_ops.test_event_upload_route_boundaries

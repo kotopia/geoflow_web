@@ -7,7 +7,7 @@
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:home' %}"><i class="align-middle" data-feather="sliders"></i><span class="align-middle">대시보드</span></a></li>
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:calendar' %}"><i class="align-middle" data-feather="calendar"></i><span class="align-middle">캘린더</span></a></li>
 
-      {% if bid_can_view %}
+      {% if bid_can_view and service_menus.bids %}
       <li class="sidebar-header">입찰</li>
       <li class="sidebar-item">
         <a data-bs-target="#bid-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="search"></i><span class="align-middle">입찰정보</span></a>
@@ -26,7 +26,7 @@
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:project_list' %}"><i class="align-middle" data-feather="folder"></i><span class="align-middle">프로젝트</span></a></li>
 
       {% has_perm 'finance.view' as finance_can_view %}
-      {% if finance_can_view %}
+      {% if finance_can_view and service_menus.finance %}
       <li class="sidebar-header">Finance</li>
       <li class="sidebar-item">
         <a data-bs-target="#finance-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="credit-card"></i><span class="align-middle">파이낸스</span></a>
@@ -43,6 +43,7 @@
       </li>
 
       {% endif %}
+      {% if service_menus.gis %}
       <li class="sidebar-header">GIS</li>
       <li class="sidebar-item">
         <a data-bs-target="#gis-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="map"></i><span class="align-middle">GIS</span></a>
@@ -51,6 +52,7 @@
         </ul>
       </li>
 
+      {% endif %}
       <li class="sidebar-header">직원</li>
       <li class="sidebar-item">
         <a data-bs-target="#employee-menu" data-bs-toggle="collapse" class="sidebar-link collapsed"><i class="align-middle" data-feather="users"></i><span class="align-middle">직원</span></a>

@@ -197,12 +197,19 @@ def set_password_view(request, token):
 
 @require_central_admin
 def users_list_admin(request):
+    from control.services import central_repo as C
+    include_deleted = request.GET.get("include_deleted") == "1"
+    has_deleted_at = C._column_exists("default", "users", "deleted_at")
+    deleted_select = "u.deleted_at IS NOT NULL" if has_deleted_at else "FALSE"
+    visible_where = "WHERE u.deleted_at IS NULL" if has_deleted_at and not include_deleted else ""
     with connections["default"].cursor() as cur:
         cur.execute(
-            """
+            f"""
           SELECT u.id::text, u.email, u.is_active, u.email_verified, u.last_login,
-                 (SELECT COUNT(*) FROM user_group_map ugm WHERE ugm.user_id=u.id) AS groups_count
+                 (SELECT COUNT(*) FROM user_group_map ugm WHERE ugm.user_id=u.id) AS groups_count,
+                 {deleted_select} AS is_deleted
             FROM users u
+           {visible_where}
            ORDER BY u.created_at DESC
            LIMIT 500
         """
@@ -216,10 +223,11 @@ def users_list_admin(request):
             "email_verified": r[3],
             "last_login": r[4],
             "groups_count": r[5],
+            "is_deleted": r[6],
         }
         for r in rows
     ]
-    return render(request, "control/users_list_admin.html", {"users": users})
+    return render(request, "control/users_list_admin.html", {"users": users, "include_deleted": include_deleted})
 
 
 @require_central_admin
