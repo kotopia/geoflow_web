@@ -25,10 +25,12 @@ from .survey_reapply import apply_survey_reapply, preview_survey_reapply
 from .survey_sources import (
     SurveySourceDeleteBlocked,
     SurveySourceNotFound,
+    delete_survey_points,
     delete_survey_source,
     import_survey_source,
     list_survey_sources,
     survey_source_delete_precheck,
+    survey_points_delete_precheck,
 )
 from .workers import validate_worker_assignment
 
@@ -152,6 +154,11 @@ def project_survey_source_api(request, project_id, source_id):
                 alias, project_id=str(project.id), source_id=str(source_id)
             ),
         })
+    mode = str(request.GET.get("mode") or "source_and_points")
+    if mode not in {"source_and_points", "source_only"}:
+        return JsonResponse({"ok": False, "error": "survey_rejected", "message": "unsupported delete mode"}, status=400)
+    # source_only is retained as a compatibility alias for deployed Connector
+    # builds. Both modes now use the safe Source + Point soft-delete policy.
     return _response(
         lambda: delete_survey_source(
             alias,
@@ -169,7 +176,7 @@ def project_survey_points_api(request, project_id):
     alias, project, _plan = _context(request, project_id)
     source_id = request.GET.get("source_id")
     params = [str(project.id)]
-    where = ["s.project_id=%s"]
+    where = ["s.project_id=%s", "s.deleted_at IS NULL"]
     if source_id:
         where.append("s.source_id=%s")
         params.append(source_id)
@@ -192,6 +199,60 @@ def project_survey_points_api(request, project_id):
                "updated_at": r[22].isoformat() if r[22] else None} for r in rows]
     return JsonResponse({"ok": True, "project_id": str(project.id), "points": points},
                         json_dumps_params={"ensure_ascii": False})
+
+
+@login_required
+@require_http_methods(["GET", "DELETE"])
+def project_survey_point_api(request, project_id, survey_id):
+    alias, project, _plan = _context(request, project_id, write=request.method == "DELETE")
+    ids = [str(survey_id)]
+    if request.method == "GET":
+        return _response(lambda: {
+            "ok": True,
+            "project_id": str(project.id),
+            "delete": survey_points_delete_precheck(
+                alias, project_id=str(project.id), survey_ids=ids
+            ),
+        })
+    return _response(
+        lambda: delete_survey_points(
+            alias, project_id=str(project.id), survey_ids=ids,
+            actor_ref=_actor_ref(request),
+        ),
+        database_error="survey_point_delete_failed",
+    )
+
+
+@login_required
+@require_POST
+def project_survey_points_bulk_delete_api(request, project_id):
+    alias, project, _plan = _context(request, project_id, write=True)
+    payload = _body(request)
+    survey_ids = payload.get("survey_ids")
+    if not isinstance(survey_ids, list) or not survey_ids:
+        return JsonResponse({
+            "ok": False, "error": "survey_rejected",
+            "message": "survey_ids must be a non-empty list",
+        }, status=400)
+    if payload.get("action") == "precheck":
+        return _response(lambda: {
+            "ok": True,
+            "project_id": str(project.id),
+            "delete": survey_points_delete_precheck(
+                alias, project_id=str(project.id), survey_ids=survey_ids
+            ),
+        })
+    if payload.get("action") not in (None, "delete"):
+        return JsonResponse({
+            "ok": False, "error": "survey_rejected", "message": "unsupported action",
+        }, status=400)
+    return _response(
+        lambda: delete_survey_points(
+            alias, project_id=str(project.id), survey_ids=survey_ids,
+            actor_ref=_actor_ref(request),
+        ),
+        database_error="survey_point_delete_failed",
+    )
 
 
 @login_required

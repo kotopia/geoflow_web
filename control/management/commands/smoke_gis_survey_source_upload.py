@@ -17,6 +17,7 @@ from control.middleware import _set_threadlocal
 from control.services.tenant_db_secret_resolver import resolve_tenant_db_password
 from geoflow_ops.gis import survey_views
 from geoflow_ops.gis.layer_plan import project_layer_plan
+from geoflow_ops.gis.qgis_sync import _quote_ident
 from geoflow_ops.services.s3_service import get_bucket_name, get_s3_client
 
 
@@ -226,12 +227,42 @@ class Command(BaseCommand):
                             for point in points["points"]
                         ):
                             raise CommandError("survey_upload_smoke_point_metadata=failed")
+                        # Prove soft delete preserves both a facility and its
+                        # Survey provenance link. All DB writes remain inside
+                        # the outer rollback transaction.
+                        plan = project_layer_plan(alias, project_id)
+                        linked = None
+                        with connections[alias].cursor() as cursor:
+                            for layer in plan.get("layers") or []:
+                                if str(layer.get("standard_name") or "").upper() == "SURVEY":
+                                    continue
+                                table = _quote_ident(str(layer.get("physical_name") or ""))
+                                cursor.execute(
+                                    f'SELECT id::text,ST_AsBinary(geom) FROM "gis".{table} '
+                                    'WHERE project_id=%s ORDER BY id LIMIT 1',
+                                    [project_id],
+                                )
+                                target = cursor.fetchone()
+                                if target:
+                                    linked = (str(layer["id"]), table, target[0], bytes(target[1]) if target[1] else None)
+                                    break
+                            if linked:
+                                link_id = str(uuid4())
+                                cursor.execute(
+                                    """INSERT INTO gis.survey_link(
+                                         id,survey_id,layer_id,target_id,match_method,
+                                         link_role,link_status
+                                       ) VALUES (%s,%s,%s,%s,'import','POINT','LINKED')""",
+                                    [link_id, points["points"][0]["id"], linked[0], linked[2]],
+                                )
                         precheck = _json(call(
                             "GET",
                             f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
                         ))
                         if not precheck["delete"].get("can_delete"):
                             raise CommandError("survey_upload_smoke_delete_precheck=blocked")
+                        if linked and precheck["delete"].get("linked_facility_count") != 1:
+                            raise CommandError("survey_upload_smoke_link_impact=failed")
                         delete_result = _json(call(
                             "DELETE",
                             f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
@@ -247,6 +278,23 @@ class Command(BaseCommand):
                             raise CommandError("survey_upload_smoke_delete_source=failed")
                         if after_points["points"]:
                             raise CommandError("survey_upload_smoke_delete_points=failed")
+                        if linked:
+                            with connections[alias].cursor() as cursor:
+                                cursor.execute(
+                                    "SELECT count(*) FROM gis.survey_link WHERE id=%s",
+                                    [link_id],
+                                )
+                                if int(cursor.fetchone()[0]) != 1:
+                                    raise CommandError("survey_upload_smoke_link_preservation=failed")
+                                cursor.execute(
+                                    f'SELECT ST_AsBinary(geom) FROM "gis".{linked[1]} '
+                                    'WHERE project_id=%s AND id=%s',
+                                    [project_id, linked[2]],
+                                )
+                                facility = cursor.fetchone()
+                                facility_geom = bytes(facility[0]) if facility and facility[0] else None
+                                if facility is None or facility_geom != linked[3]:
+                                    raise CommandError("survey_upload_smoke_facility_preservation=failed")
                         # The production FK from feature_change_log to
                         # changeset_receipt is deferred until commit. Force all
                         # deferred constraints now so rollback-based smoke can

@@ -331,92 +331,64 @@ permission rejection follows the shared Django authorization response rather
 than a Survey JSON envelope; the Connector must preserve its normal session and
 permission handling.
 
-### Source deletion precheck and execute
-
-Use the project-scoped item endpoint:
+### Source and Survey Point soft deletion
 
 ```http
-GET /gis/projects/{project_id}/api/survey-sources/{source_id}/
-DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/
+GET    /gis/projects/{project_id}/api/survey-sources/{source_id}/
+DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/?mode=source_and_points
+GET    /gis/projects/{project_id}/api/survey-points/{survey_id}/
+DELETE /gis/projects/{project_id}/api/survey-points/{survey_id}/
+POST   /gis/projects/{project_id}/api/survey-points/bulk-delete/
 ```
 
-GET requires `maps.view`. DELETE additionally requires project GIS write
-access. Neither method accepts a request body. GET the item endpoint before
-enabling a destructive action:
+GET requires `maps.view`; mutations additionally require the existing project
+GIS write permission. Source DELETE soft-deletes the Source and every visible
+point belonging to it in one tenant transaction. `source_and_points` is the
+canonical mode. Missing mode and legacy `mode=source_only` have the same safe
+Source + Points meaning so deployed Connector builds do not need a workaround.
 
 ```json
-{
-  "ok":true,
-  "project_id":"11111111-1111-4111-8111-111111111401",
-  "delete":{
-    "source_id":"30000000-0000-4000-8000-000000000002",
-    "source_group_id":"30000000-0000-4000-8000-000000000002",
-    "supersedes_id":null,"version":1,"is_active":true,"point_count":22,
-    "links":{"LINKED":0,"MANUALLY_MODIFIED":0,"UNLINKED":0},
-    "linked_target_count":0,"child_version_count":0,
-    "shared_object_reference_count":0,"has_archived_object":true,
-    "object_key_valid":true,"can_delete":true,"blocked_reason":null
-  }
-}
+{"ok":true,"project_id":"11111111-1111-4111-8111-111111111401","delete":{"source_id":"30000000-0000-4000-8000-000000000002","source_group_id":"30000000-0000-4000-8000-000000000002","supersedes_id":null,"version":1,"is_active":true,"point_count":22,"links":{"LINKED":2,"MANUALLY_MODIFIED":0,"UNLINKED":1},"linked_target_count":3,"linked_facility_count":3,"depth_dependency_count":0,"child_version_count":0,"shared_object_reference_count":0,"has_archived_object":true,"object_key_valid":true,"can_delete":true,"blocked_reason":null}}
 ```
 
-DELETE is allowed only for an independent, active version-1 source with no
-parent/child version lineage, no shared object key, a valid scoped object key,
-and no Survey-link row in **any** status. `UNLINKED` is retained audit history
-and therefore blocks source deletion just like `LINKED` and
-`MANUALLY_MODIFIED`. `linked_target_count` is the number of distinct
-`(layer_id,target_id,vertex_index)` targets referenced by link rows. Facilities
-are never deleted or edited.
-
-The active/inactive policy is intentionally strict: an inactive source cannot
-be deleted; any source whose `version` is not 1, has `supersedes_id`, or has a
-child source is blocked as `version_lineage`. Deleting a source never deletes a
-version chain and never reactivates a prior version.
-
-On success, the DB transaction deletes every `gis.survey` row matching both
-the URL project and `source_id`, then deletes exactly that `gis.survey_source`
-row. It does not delete Survey points belonging to another source/project and
-does not change any facility or `gis.survey_link` row (links already make the
-precheck fail). One Survey delete revision/change-log event is written per
-deleted point and a normal `changeset_receipt` is completed. With zero points,
-`deleted_point_count` is 0, `first_revision` and `last_revision` are null, and
-`current_revision` is unchanged.
-
-The private S3 object is deleted only after the DB commit and only when
-`original_file_key` is empty or begins with the exact
-`tenants/{tenant}/gis/{project_id}/survey-sources/{source_id}/` prefix. A key
-referenced by another source blocks deletion as `shared_object`; an out-of-scope
-key blocks it as `invalid_object_key`.
+Links in every status and Source version lineage are impact information, not
+blockers. The server retains every facility and `gis.survey_link` row. Source
+and Point rows receive `deleted_at`, `deleted_by`, and `delete_reason`; the
+Source also receives `is_active=false`. No FK uses CASCADE. Existing link reads
+mark retained provenance with `survey_deleted:true`.
 
 ```json
-{"ok":true,"source_id":"30000000-0000-4000-8000-000000000002","deleted_source_id":"30000000-0000-4000-8000-000000000002","deleted_point_count":22,"deleted_object":true,"cleanup_pending":false,"first_revision":20,"last_revision":41,"current_revision":41}
+{"ok":true,"source_id":"30000000-0000-4000-8000-000000000002","source_deleted":true,"survey_points_deleted":22,"deleted_point_count":22,"facilities_deleted":0,"facility_links_preserved":3,"linked_facilities_preserved":3,"depth_dependency_count":0,"deleted_object":true,"cleanup_pending":false,"first_revision":20,"last_revision":41,"current_revision":41}
 ```
 
-The success response is HTTP 200. If there was no archived object,
-`deleted_object` is true without an S3 request. If S3 cleanup fails after the
-atomic DB delete, the response remains HTTP 200
-with `deleted_object:false` and `cleanup_pending:true`; the receipt retains the
-private cleanup key for an operator retry, but the HTTP response never exposes
-that key. The server does not restore a deleted DB source after a storage-only
-failure and never reactivates a previous source version.
+The private S3 object is deleted after the DB commit only when its key has the
+exact tenant/project/source prefix and is not shared. A missing object needs no
+request. Storage cleanup failure does not roll back the DB: HTTP 200 contains
+`deleted_object:false,cleanup_pending:true`. The response never exposes the key.
 
-Blocked deletion is HTTP 409:
+Point precheck uses GET for one ID or bulk POST
+`{"action":"precheck","survey_ids":["..."]}`. Bulk delete uses
+`{"action":"delete","survey_ids":["..."]}` (action may be omitted):
 
 ```json
-{"ok":false,"error":"survey_source_in_use","reason":"linked_survey_points","delete":{"can_delete":false,"blocked_reason":"linked_survey_points"}}
+{"ok":true,"project_id":"11111111-1111-4111-8111-111111111401","delete":{"survey_count":3,"source_ids":["30000000-0000-4000-8000-000000000002"],"links":{"LINKED":1,"MANUALLY_MODIFIED":0,"UNLINKED":1},"linked_facility_count":2,"depth_dependency_count":0,"can_delete":true}}
 ```
 
-Stable reasons are `linked_survey_points`, `manually_modified_links`,
-`unlinked_history`, `version_lineage`, `inactive_source`, `shared_object`, and
-`invalid_object_key`. A missing source is HTTP 404
-`{"ok":false,"error":"survey_source_not_found"}`. A DB failure is HTTP 503
-`{"ok":false,"error":"survey_source_delete_failed"}` and is logged server-side
-without exposing SQL, object keys, or credentials.
+```json
+{"ok":true,"survey_points_deleted":3,"linked_facilities_preserved":2,"facility_links_preserved":2,"facilities_deleted":0,"depth_dependency_count":0,"first_revision":42,"last_revision":44,"current_revision":44}
+```
 
-The precheck itself uses the same 404 `survey_source_not_found` response for a
-missing/project-mismatched source. Invalid path UUIDs are rejected by Django URL
-routing. Authentication and authorization failures use the shared Django
-responses rather than a Survey-specific JSON error.
+Every requested point must be visible and belong to the URL project; otherwise
+the atomic operation returns HTTP 400 `survey_rejected`. A missing/already
+deleted Source returns 404 `survey_source_not_found`. DB failures return 503
+`survey_source_delete_failed` or `survey_point_delete_failed`.
+
+Deleted points are excluded from normal Source/Point lists, map reads,
+GeoPackages, new-link validation, reapply, and future Nearby/depth candidates.
+The deployed schema has no explicit depth-dependency table, so
+`depth_dependency_count` is currently 0. Historical facility `pip_dep` values
+are never changed or recalculated. Reimport creates a new Source/Point set;
+deleted rows do not participate in active matching.
 
 ### Production upload smoke
 
@@ -653,17 +625,16 @@ Delta/current revision and fresh preview—do not blindly retry.
 | 400 | `survey_link_rejected` | invalid mapping Changeset |
 | 403 | Django permission response | tenant/project/write denial |
 | 409 | `survey_conflict` | source/reapply conflict |
-| 409 | `survey_source_in_use` | guarded source deletion is blocked |
 | 404 | `survey_source_not_found` | project-scoped source missing |
 | 409 | `survey_link_conflict` | mapping/referenced-object conflict |
 | 503 | `survey_failed` | Survey DB unavailable |
-| 503 | `survey_source_delete_failed` | guarded Source DB deletion failed and rolled back |
+| 503 | `survey_source_delete_failed` | Source/Point soft-delete transaction failed and rolled back |
+| 503 | `survey_point_delete_failed` | individual/bulk Point soft-delete failed and rolled back |
 | 503 | `survey_link_unavailable` | Changeset receipt/runtime unavailable |
 | 503 | `survey_link_failed` | Survey-link DB unavailable |
 
-Source/Survey FKs use RESTRICT and cannot cascade into facilities. The guarded
-Source item DELETE endpoint removes only an independent Source and its unlinked
-Survey points after the explicit precheck above.
+Source/Survey FKs remain RESTRICT and cannot cascade into facilities. Delete
+endpoints update only Survey source/point deletion metadata and preserve links.
 
 ## 10. Earlier brief vs deployed contract
 
@@ -674,7 +645,7 @@ Survey points after the explicit precheck above.
 | Working CRS | project scope might supply it | no lookup; client sends EPSG, server transforms once |
 | Point cap | 5,000 cap | silent LIMIT; no count/total/truncated/pagination |
 | Worker/date/method | requested metadata | worker/date plus selected GNSS fields mapped; unknown method stays in `raw_data` |
-| Source delete | no endpoint | guarded GET precheck + DELETE; any link/version history blocks |
+| Source delete | no endpoint | GET impact precheck + atomic Source/Point soft delete; links/facilities retained |
 | Mapping update | state transition example | only status/role/vertex mutable; identity immutable |
 | Unlink | delete wording ambiguous | unlink preserves; legacy delete removes only mapping |
 | Feature/link order | omitted | feature/geometry first, link second; no cross-API rollback |

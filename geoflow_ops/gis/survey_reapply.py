@@ -25,7 +25,7 @@ def _selection(payload: dict[str, Any]) -> tuple[str | None, list[str]]:
 def _mapping_rows(alias: str, *, project_id: str, payload: dict[str, Any], lock: bool = False):
     source_id, survey_ids = _selection(payload)
     suffix = " FOR UPDATE OF sl,s" if lock else ""
-    filters = ["s.project_id=%s"]
+    filters = ["s.project_id=%s", "s.deleted_at IS NULL"]
     params: list[Any] = [project_id]
     if source_id:
         filters.append("s.source_id=%s")
@@ -56,7 +56,7 @@ def _target_preview_info(alias: str, *, project_id: str, table: str, survey_id: 
         cursor.execute(
             f'''SELECT GeometryType(f.geom),ST_NPoints(f.geom),s.geom IS NOT NULL
                   FROM "gis".{_quote_ident(table)} f
-                  JOIN gis.survey s ON s.project_id=f.project_id AND s.id=%s
+                  JOIN gis.survey s ON s.project_id=f.project_id AND s.id=%s AND s.deleted_at IS NULL
                  WHERE f.project_id=%s AND f.id=%s''',
             [survey_id, project_id, feature_id],
         )
@@ -144,6 +144,7 @@ def apply_survey_reapply(
                     f"""UPDATE "gis".{table} f SET geom={expression},updated_at=now()
                           FROM gis.survey s
                          WHERE f.project_id=%s AND f.id=%s AND s.project_id=%s AND s.id=%s
+                           AND s.deleted_at IS NULL
                            AND s.geom IS NOT NULL AND ST_IsValid({expression})
                      RETURNING ST_AsBinary(f.geom)""",
                     [*expression_params, project_id, feature_id, project_id, survey_id, *expression_params],

@@ -290,16 +290,17 @@ def _copy_layer_rows(alias: str, sqlite_conn: sqlite3.Connection, layer: Package
     field_names = [field.name for field in layer.fields]
     select_fields = ", ".join(_quote_ident(name) for name in field_names)
     source_table = f'"gis".{table}'
+    visible = " AND deleted_at IS NULL" if layer.physical_name == "survey" else ""
 
     with connections[alias].cursor() as cursor:
-        cursor.execute(f"SELECT count(*) FROM {source_table} WHERE project_id=%s", [project_id])
+        cursor.execute(f"SELECT count(*) FROM {source_table} WHERE project_id=%s{visible}", [project_id])
         row_count = int(cursor.fetchone()[0])
         if row_count > MAX_ROWS_PER_LAYER:
             raise ValueError(
                 f"{layer.standard_name} has {row_count} rows; GeoPackage MVP limit is {MAX_ROWS_PER_LAYER}"
             )
         cursor.execute(
-            f"SELECT {select_fields}, ST_AsBinary(geom), updated_at FROM {source_table} WHERE project_id=%s ORDER BY id",
+            f"SELECT {select_fields}, ST_AsBinary(geom), updated_at FROM {source_table} WHERE project_id=%s{visible} ORDER BY id",
             [project_id],
         )
         rows = cursor.fetchall()

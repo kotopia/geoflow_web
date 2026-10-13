@@ -391,6 +391,8 @@ def project_layer_geojson_api(request, project_id):
                 f"FROM {schema_name}.{table_name} "
                 "WHERE project_id=%s AND geom IS NOT NULL"
             )
+            if feature_type.physical_name == "survey":
+                sql += " AND deleted_at IS NULL"
             params = [project.id]
             if bbox is not None:
                 sql += " AND ST_Intersects(geom, ST_MakeEnvelope(%s,%s,%s,%s,4326))"

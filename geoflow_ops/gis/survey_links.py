@@ -75,7 +75,7 @@ def _survey_exists(alias: str, *, project_id: str, survey_id: str, lock: bool) -
     suffix = " FOR UPDATE" if lock else ""
     with connections[alias].cursor() as cursor:
         cursor.execute(
-            f"SELECT 1 FROM gis.survey WHERE project_id=%s AND id=%s{suffix}",
+            f"SELECT 1 FROM gis.survey WHERE project_id=%s AND id=%s AND deleted_at IS NULL{suffix}",
             [project_id, survey_id],
         )
         return cursor.fetchone() is not None
@@ -122,7 +122,8 @@ def _link_by_id(alias: str, *, project_id: str, plan: dict[str,Any], link_id: st
             SELECT sl.id::text, sl.survey_id::text, sl.layer_id::text, sl.target_id::text,
                    sl.match_method, sl.match_distance, sl.match_confidence,
                    sl.confirmed_by::text, sl.confirmed_at, sl.created_at,
-                   sl.vertex_index,sl.link_role,sl.link_status,sl.updated_at,sl.updated_by::text
+                   sl.vertex_index,sl.link_role,sl.link_status,sl.updated_at,sl.updated_by::text,
+                   (s.deleted_at IS NOT NULL)
               FROM gis.survey_link sl
               JOIN gis.survey s ON s.id=sl.survey_id
              WHERE s.project_id=%s AND sl.id=%s{suffix}
@@ -148,6 +149,7 @@ def _link_by_id(alias: str, *, project_id: str, plan: dict[str,Any], link_id: st
         "vertex_index": row[10], "link_role": str(row[11]), "link_status": str(row[12]),
         "updated_at": row[13].isoformat() if row[13] is not None else None,
         "updated_by": str(row[14]) if row[14] is not None else None,
+        "survey_deleted": bool(row[15]),
     }
 
 
@@ -166,6 +168,7 @@ def _relation_values(row: dict[str, Any]) -> dict[str, Any]:
             "confirmed_by",
             "confirmed_at",
             "vertex_index", "link_role", "link_status", "updated_at", "updated_by",
+            "survey_deleted",
         )
     }
 
@@ -521,7 +524,8 @@ def list_survey_links(
             SELECT sl.id::text, sl.survey_id::text, sl.layer_id::text, sl.target_id::text,
                    sl.match_method, sl.match_distance, sl.match_confidence,
                    sl.confirmed_by::text, sl.confirmed_at, sl.created_at,
-                   sl.vertex_index,sl.link_role,sl.link_status,sl.updated_at,sl.updated_by::text
+                   sl.vertex_index,sl.link_role,sl.link_status,sl.updated_at,sl.updated_by::text,
+                   (s.deleted_at IS NOT NULL)
               FROM gis.survey_link sl
               JOIN gis.survey s ON s.id=sl.survey_id
              WHERE {' AND '.join(filters)}
@@ -547,6 +551,7 @@ def list_survey_links(
                 "vertex_index": row[10], "link_role": str(row[11]), "link_status": str(row[12]),
                 "updated_at": row[13].isoformat() if row[13] is not None else None,
                 "updated_by": str(row[14]) if row[14] is not None else None,
+                "survey_deleted": bool(row[15]),
             }
         )
     return result
