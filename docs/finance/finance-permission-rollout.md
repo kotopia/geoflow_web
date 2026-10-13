@@ -45,11 +45,11 @@ GIS/QGIS/QField, 계약·프로젝트 일반 CRUD는 변경하지 않는다. 테
 4. 중앙 설정을 확인한 뒤 코드 배포/서비스 재시작을 운영 승인 범위에서 수행한다.
 5. 조회 전용, 편집 가능, 재무 접근 불가 계정으로 Finance·이벤트·증빙·캘린더를 검증한다.
 
-예시 역할 계획이며 실제 운영 부여 완료를 뜻하지 않는다:
+2026-10-13 사용자가 승인한 초기 역할 계획 (운영 실행 결과는 배포 로그로 확인):
 
 ```sh
 python manage.py provision_finance_permissions --edit-role tenant_admin --edit-role manager
-# 위 출력의 기존 매핑과 신규 추가를 확인하고 운영 승인 후에만:
+# 위 출력의 기존 매핑과 신규 추가를 확인한 뒤:
 python manage.py provision_finance_permissions --edit-role tenant_admin --edit-role manager --apply
 ```
 
@@ -60,8 +60,13 @@ python manage.py provision_finance_permissions --edit-role tenant_admin --edit-r
 ## 운영 주의 및 되돌리기
 
 권한을 등록하기 전에 코드를 배포하면 기존 Finance 사용자를 포함해 접근이 차단된다.
-release 병합은 자동 production 배포 워크플로를 트리거하므로, 중앙 설정 적용과
-승인된 배포 순서를 확인하기 전에는 PR을 병합하지 않는다.
+release 병합은 자동 production 배포 워크플로를 트리거한다. 승인된 초기 부여는
+phase4-workboard-production-deploy에서 기존 운영 checkout에 등록 명령이 없고
+candidate에 처음 도입되는 경우에만 수행한다. 정확히 검토된 명령 blob을 임시 파일로
+추출하고, 기존 운영 런타임에서 계획 확인 → 승인된 4개 역할/권한 쌍만 등록 →
+중앙 readback 검증을 완료한 뒤 candidate checkout과 서비스 재시작을 수행한다.
+후속 배포에서는 관리자에 의해 회수된 권한을 자동 재부여하지 않는다.
+보호된 production Environment 승인이 필요하면 해당 게이트를 유지한다.
 
 되돌릴 때는 코드 롤백과 권한 회수를 별도로 검토한다. 코드 롤백은 기존 계약 권한으로
 재무를 공개하던 동작을 복원하므로 권한 분리의 보호도 사라진다. 중앙 권한 회수는

@@ -144,7 +144,7 @@ class WorkboardSourceContracts(SimpleTestCase):
         self.assertIn("payload.assignee_employee_id", source)
         self.assertIn("ev.can_write", source)
 
-    def test_production_deploy_is_exact_release_protected_and_application_only(self):
+    def test_production_deploy_is_exact_release_protected_without_tenant_schema_changes(self):
         source = (REPO_ROOT / ".github" / "workflows" / "phase4-workboard-production-deploy.yml").read_text(encoding="utf-8")
         lowered = source.lower()
         self.assertIn("environment: production", source)
@@ -158,3 +158,14 @@ class WorkboardSourceContracts(SimpleTestCase):
         self.assertNotIn("psql ", lowered)
         self.assertNotIn("delete from ", lowered)
         self.assertNotIn("truncate ", lowered)
+
+    def test_approved_finance_grants_run_once_before_candidate_checkout(self):
+        source = (REPO_ROOT / ".github" / "workflows" / "phase4-workboard-production-deploy.yml").read_text(encoding="utf-8")
+        self.assertIn('! git -C "$repo" cat-file -e "$previous_sha:$permission_command"', source)
+        self.assertIn("unreviewed_finance_permission_command", source)
+        self.assertIn('approved_roles = {"tenant_admin", "manager"}', source)
+        self.assertIn("unexpected_existing_finance_role_mapping", source)
+        self.assertIn("finance_role_mapping_readback_failed", source)
+        self.assertLess(source.index("apply=False"), source.index("apply=True"))
+        self.assertLess(source.index("finance_permissions_registered=yes"), source.index('git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"'))
+        self.assertIn("finance_permission_runtime_regressions_passed=yes", source)
