@@ -48,12 +48,8 @@ class Command(BaseCommand):
                         table = _quote_ident(str(layer.get("physical_name") or ""))
                         cur.execute(
                             f'''SELECT f.id::text FROM "gis".{table} f
-                                 WHERE f.project_id=%s AND NOT EXISTS (
-                                   SELECT 1 FROM gis.survey_link sl
-                                    WHERE sl.layer_id=%s AND sl.target_id=f.id
-                                      AND sl.link_status<>'UNLINKED')
-                                 ORDER BY f.id LIMIT 1''',
-                            [project_id, str(layer["id"])],
+                                 WHERE f.project_id=%s ORDER BY f.id LIMIT 1''',
+                            [project_id],
                         )
                         row = cur.fetchone()
                         if row and template is None:
@@ -67,11 +63,8 @@ class Command(BaseCommand):
                                 cur.execute(
                                     f'''SELECT f.id::text FROM "gis".{table} f
                                          WHERE f.project_id=%s AND f.saa_cde='SA900'
-                                           AND NOT EXISTS (SELECT 1 FROM gis.survey_link sl
-                                             WHERE sl.layer_id=%s AND sl.target_id=f.id
-                                               AND sl.link_status<>'UNLINKED')
                                          ORDER BY f.id LIMIT 1''',
-                                    [project_id, str(layer["id"])],
+                                    [project_id],
                                 )
                                 row = cur.fetchone()
                                 if row:
