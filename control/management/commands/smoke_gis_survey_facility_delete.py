@@ -30,47 +30,53 @@ class Command(BaseCommand):
         for config in configs:
             with _tenant_alias(config) as alias:
                 with connections[alias].cursor() as cur:
-                    cur.execute("SELECT id::text,project_id::text,source_id::text FROM gis.survey WHERE deleted_at IS NULL ORDER BY id LIMIT 1")
-                    survey = cur.fetchone()
-                if not survey:
-                    continue
-                survey_id, project_id, source_id = survey
-                plan = project_layer_plan(alias, project_id)
-                if not plan.get("ready") or not plan.get("gis_enabled"):
-                    continue
-                template = None
-                depth = None
-                with connections[alias].cursor() as cur:
-                    for layer in plan.get("layers") or []:
-                        standard = str(layer.get("standard_name") or "").upper()
-                        if standard == "SURVEY":
-                            continue
-                        table = _quote_ident(str(layer.get("physical_name") or ""))
-                        cur.execute(
-                            f'''SELECT f.id::text FROM "gis".{table} f
-                                 WHERE f.project_id=%s ORDER BY f.id LIMIT 1''',
-                            [project_id],
-                        )
-                        row = cur.fetchone()
-                        if row and template is None:
-                            template = (str(layer["id"]), table.strip('"'), standard, row[0])
-                        if standard == "WTL_PIPE_PS":
+                    cur.execute("SELECT id::text,project_id::text,source_id::text FROM gis.survey WHERE deleted_at IS NULL ORDER BY id")
+                    surveys = cur.fetchall()
+                fixture = None
+                for survey in surveys:
+                    survey_id, project_id, source_id = survey
+                    plan = project_layer_plan(alias, project_id)
+                    if not plan.get("ready") or not plan.get("gis_enabled"):
+                        continue
+                    template = None
+                    depth = None
+                    with connections[alias].cursor() as cur:
+                        for layer in plan.get("layers") or []:
+                            standard = str(layer.get("standard_name") or "").upper()
+                            if standard == "SURVEY":
+                                continue
+                            table = _quote_ident(str(layer.get("physical_name") or ""))
+                            cur.execute(
+                                f'''SELECT f.id::text FROM "gis".{table} f
+                                     WHERE f.project_id=%s ORDER BY f.id LIMIT 1''',
+                                [project_id],
+                            )
+                            row = cur.fetchone()
+                            if row and template is None:
+                                template = (str(layer["id"]), table.strip('"'), standard, row[0])
+                            if standard != "WTL_PIPE_PS":
+                                continue
                             cur.execute(
                                 "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='gis' AND table_name=%s AND column_name='saa_cde')",
                                 [table.strip('"')],
                             )
-                            if cur.fetchone()[0]:
-                                cur.execute(
-                                    f'''SELECT f.id::text FROM "gis".{table} f
-                                         WHERE f.project_id=%s AND f.saa_cde='SA900'
-                                         ORDER BY f.id LIMIT 1''',
-                                    [project_id],
-                                )
-                                row = cur.fetchone()
-                                if row:
-                                    depth = (str(layer["id"]), table.strip('"'), standard, row[0])
-                if template is None or depth is None:
+                            if not cur.fetchone()[0]:
+                                continue
+                            cur.execute(
+                                f'''SELECT f.id::text FROM "gis".{table} f
+                                     WHERE f.project_id=%s
+                                     ORDER BY f.id LIMIT 1''',
+                                [project_id],
+                            )
+                            row = cur.fetchone()
+                            if row:
+                                depth = (str(layer["id"]), table.strip('"'), standard, row[0])
+                    if template is not None and depth is not None:
+                        fixture = (survey_id, project_id, source_id, plan, template, depth)
+                        break
+                if fixture is None:
                     continue
+                survey_id, project_id, source_id, plan, template, depth = fixture
 
                 def clone_targets(cur, source, count):
                     layer_id, table, standard, source_id = source
@@ -116,6 +122,12 @@ class Command(BaseCommand):
                         link_ids = []
                         with connections[alias].cursor() as cur:
                             selected = clone_targets(cur, source, count)
+                            if name == "depth_single":
+                                cur.execute(
+                                    f'''UPDATE "gis".{_quote_ident(selected[0][1])}
+                                           SET saa_cde='SA900' WHERE id=%s''',
+                                    [selected[0][3]],
+                                )
                             for layer_id, _table, _standard, target_id in selected[:linked_count]:
                                 link_id = str(uuid4())
                                 cur.execute(
