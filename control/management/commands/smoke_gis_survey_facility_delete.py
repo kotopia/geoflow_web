@@ -9,6 +9,7 @@ from django.db import connections, transaction
 from control.models import GroupDBConfig
 from control.management.commands.smoke_gis_survey_source_upload import _tenant_alias
 from geoflow_ops.gis.changeset import apply_project_changeset, project_current_revision
+from geoflow_ops.gis import central_definitions
 from geoflow_ops.gis.layer_plan import project_layer_plan
 from geoflow_ops.gis.qgis_sync import _quote_ident
 from geoflow_ops.gis.survey_links import apply_survey_link_changeset
@@ -55,6 +56,40 @@ class Command(BaseCommand):
                             depth = template
                     if template is not None and depth is not None:
                         fixture = (project_id, plan, template, depth)
+                        break
+                if fixture is None:
+                    data = central_definitions.central_snapshot() or {}
+                    central_layer = next(
+                        (row for row in data.get("layers", [])
+                         if str(row.get("standard_name") or "").upper() == "WTL_PIPE_PS"
+                         and row.get("active")),
+                        None,
+                    )
+                    for project_id in project_ids:
+                        base_plan = project_layer_plan(alias, project_id)
+                        if central_layer is None or not base_plan.get("ready"):
+                            continue
+                        table = str(central_layer.get("physical_name") or "")
+                        with connections[alias].cursor() as cur:
+                            cur.execute("SELECT to_regclass(%s) IS NOT NULL", [f"gis.{table}"])
+                            if not cur.fetchone()[0]:
+                                continue
+                        layer = {
+                            "id": central_layer["id"],
+                            "standard_name": central_layer["standard_name"],
+                            "physical_name": table,
+                            "label": central_layer["label"],
+                            "domain": central_layer["domain_code"],
+                            "geometry_kind": central_layer["geometry_kind"],
+                            "required": False,
+                            "sort_order": central_layer["sort_order"],
+                        }
+                        config = {"group_id": None, "additions": {}, "private_items": {}, "overrides": {}}
+                        smoke_plan = dict(base_plan)
+                        smoke_plan["layers"] = [layer]
+                        smoke_plan["form_definition"] = central_definitions.resolve(data, config, [layer])
+                        target = (str(layer["id"]), table, "WTL_PIPE_PS", None)
+                        fixture = (project_id, smoke_plan, target, target)
                         break
                 if fixture is None:
                     continue
