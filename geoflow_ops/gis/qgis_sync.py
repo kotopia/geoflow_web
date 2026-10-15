@@ -369,28 +369,68 @@ def _table_has_column(alias: str, physical_name: str, column_name: str) -> bool:
         return bool(cursor.fetchone()[0])
 
 
-def _dependent_survey_link_count(alias: str, op: SyncOperation) -> int:
-    """Protect explicit survey lineage across every delete transport."""
+def _survey_link_actor(request=None, actor_ref: str | None = None) -> str | None:
+    candidate = actor_ref or getattr(getattr(request, "user", None), "id", None)
+    try:
+        return str(uuid.UUID(str(candidate))) if candidate else None
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _detach_survey_links_for_deletes(
+    alias: str,
+    operations: list[SyncOperation],
+    *,
+    request=None,
+    actor_ref: str | None = None,
+) -> int:
+    """Preserve facility provenance while removing active target ownership.
+
+    All target pairs are updated in one statement so a multi-feature Changeset
+    does not issue one survey-link lookup/update per feature. The caller owns
+    the surrounding transaction; a later facility-delete failure rolls this
+    update back as well.
+    """
+    deletes = [op for op in operations if op.action == "delete" and op.standard_name.upper() != "SURVEY"]
+    if not deletes:
+        return 0
     with connections[alias].cursor() as cursor:
         cursor.execute("SELECT to_regclass('gis.survey_link') IS NOT NULL")
         if not bool(cursor.fetchone()[0]):
             return 0
-        if str(op.standard_name).upper() == "SURVEY":
-            cursor.execute(
-                "SELECT count(*) FROM gis.survey_link WHERE survey_id=%s",
-                [op.object_id],
-            )
-        else:
-            from .central_definitions import central_snapshot
-            definition=central_snapshot() or {}
-            layer=next((row for row in definition.get('layers',[]) if row.get('physical_name')==op.table),None)
-            if layer is None:
-                raise SyncRejected('central layer mapping is unavailable')
-            cursor.execute(
-                "SELECT count(*) FROM gis.survey_link WHERE layer_id=%s AND target_id=%s",
-                [layer['id'], op.object_id],
-            )
-        return int(cursor.fetchone()[0])
+    from .central_definitions import central_snapshot
+    definition = central_snapshot() or {}
+    layer_ids = {
+        str(row.get("physical_name")): str(row.get("id"))
+        for row in definition.get("layers", [])
+        if row.get("physical_name") and row.get("id")
+    }
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for op in deletes:
+        layer_id = layer_ids.get(op.table)
+        if layer_id is None:
+            raise SyncRejected("central layer mapping is unavailable")
+        pair = (layer_id, op.object_id)
+        if pair not in seen:
+            seen.add(pair)
+            pairs.append(pair)
+    values_sql = ",".join(["(%s::uuid,%s::uuid)"] * len(pairs))
+    params: list[Any] = [value for pair in pairs for value in pair]
+    params.append(_survey_link_actor(request=request, actor_ref=actor_ref))
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            f"""
+            UPDATE gis.survey_link AS sl
+               SET link_status='UNLINKED', updated_at=now(), updated_by=%s
+              FROM (VALUES {values_sql}) AS targets(layer_id,target_id)
+             WHERE sl.layer_id=targets.layer_id
+               AND sl.target_id=targets.target_id
+               AND sl.link_status<>'UNLINKED'
+            """,
+            [params[-1], *params[:-1]],
+        )
+        return int(cursor.rowcount)
 
 
 def _collect_operations(
@@ -520,7 +560,14 @@ def _collect_operations(
     return operations, conflicts
 
 
-def _apply_operation(alias: str, project_id: str, op: SyncOperation, *, request=None) -> None:
+def _apply_operation(
+    alias: str,
+    project_id: str,
+    op: SyncOperation,
+    *,
+    request=None,
+    survey_links_prepared: bool = False,
+) -> None:
     from .workers import validate_worker_assignment
     # Validate the table before using it in the assignment read.
     _quote_ident(op.table)
@@ -528,16 +575,8 @@ def _apply_operation(alias: str, project_id: str, op: SyncOperation, *, request=
     table = _quote_ident(op.table)
 
     if op.action == "delete":
-        dependent_count = _dependent_survey_link_count(alias, op)
-        if dependent_count:
-            raise SyncConflict(
-                [{
-                    "layer": op.standard_name,
-                    "id": op.object_id,
-                    "reason": "survey_links_exist",
-                    "link_count": dependent_count,
-                }]
-            )
+        if not survey_links_prepared:
+            _detach_survey_links_for_deletes(alias, [op], request=request)
         with connections[alias].cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM \"gis\".{table} WHERE project_id=%s AND id=%s",
@@ -629,8 +668,12 @@ def sync_project_geopackage(
                 )
                 if conflicts:
                     raise SyncConflict(conflicts)
+                _detach_survey_links_for_deletes(alias, operations, request=request)
                 for operation in operations:
-                    _apply_operation(alias, project_id, operation, request=request)
+                    _apply_operation(
+                        alias, project_id, operation, request=request,
+                        survey_links_prepared=True,
+                    )
         finally:
             package.close()
     finally:

@@ -16,6 +16,7 @@ from .qgis_sync import (
     SyncOperation,
     SyncRejected,
     _apply_operation,
+    _detach_survey_links_for_deletes,
     _coerce_for_pg,
     _geometry_valid,
     _source_row,
@@ -368,6 +369,22 @@ def apply_project_changeset(
         if validate_before_apply is not None:
             validate_before_apply()
 
+        delete_operations: list[SyncOperation] = []
+        for index, raw_change in enumerate(changes):
+            if not isinstance(raw_change, dict) or str(raw_change.get("action") or "").lower() != "delete":
+                continue
+            standard_name = str(raw_change.get("layer") or raw_change.get("standard_name") or "").upper()
+            spec = by_standard.get(standard_name)
+            if standard_name not in allowed or spec is None:
+                continue
+            object_id = _uuid_text(raw_change.get("id"), f"changes[{index}].id")
+            delete_operations.append(
+                SyncOperation("delete", spec.physical_name, standard_name, object_id, {}, None)
+            )
+        _detach_survey_links_for_deletes(
+            alias, delete_operations, request=request, actor_ref=actor_ref,
+        )
+
         events: list[dict[str, Any]] = []
         counts = {"create": 0, "update": 0, "delete": 0}
 
@@ -490,6 +507,7 @@ def apply_project_changeset(
                         None,
                     ),
                     request=request,
+                    survey_links_prepared=True,
                 )
                 events.append(
                     {

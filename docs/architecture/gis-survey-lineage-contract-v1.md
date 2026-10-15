@@ -357,6 +357,23 @@ and Point rows receive `deleted_at`, `deleted_by`, and `delete_reason`; the
 Source also receives `is_active=false`. No FK uses CASCADE. Existing link reads
 mark retained provenance with `survey_deleted:true`.
 
+### Facility deletion with Survey provenance
+
+A facility target may be deleted through the normal GIS Changeset even when an
+active `gis.survey_link` points to it. In the same tenant transaction, active
+links become `UNLINKED`, their `updated_at`/`updated_by` audit is recorded, the
+GIS feature is deleted, and the normal feature change log and revision are
+written. The Survey Point and Survey Source remain unchanged.
+
+`UNLINKED` is the existing inactive-link state and remains queryable as
+historical provenance. The active-target unique index and create duplicate
+guard already exclude it, so the same Survey Point can create a new facility
+after its former target is deleted. A delete batch detaches all matching links
+with one set-based update before applying feature deletes; any later failure
+rolls back both. `survey_links_exist` is no longer a facility-delete conflict.
+Real missing-object, permission, stale-state, and concurrent-change conflicts
+remain protected.
+
 ```json
 {"ok":true,"source_id":"30000000-0000-4000-8000-000000000002","source_deleted":true,"survey_points_deleted":22,"deleted_point_count":22,"facilities_deleted":0,"facility_links_preserved":3,"linked_facilities_preserved":3,"depth_dependency_count":0,"deleted_object":true,"cleanup_pending":false,"first_revision":20,"last_revision":41,"current_revision":41}
 ```
