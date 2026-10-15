@@ -38,7 +38,7 @@ class Command(BaseCommand):
                 plan = project_layer_plan(alias, project_id)
                 if not plan.get("ready") or not plan.get("gis_enabled"):
                     continue
-                targets = []
+                template = None
                 depth = None
                 with connections[alias].cursor() as cur:
                     for layer in plan.get("layers") or []:
@@ -52,11 +52,12 @@ class Command(BaseCommand):
                                    SELECT 1 FROM gis.survey_link sl
                                     WHERE sl.layer_id=%s AND sl.target_id=f.id
                                       AND sl.link_status<>'UNLINKED')
-                                 ORDER BY f.id LIMIT 50''',
+                                 ORDER BY f.id LIMIT 1''',
                             [project_id, str(layer["id"])],
                         )
-                        for row in cur.fetchall():
-                            targets.append((str(layer["id"]), table.strip('"'), standard, row[0]))
+                        row = cur.fetchone()
+                        if row and template is None:
+                            template = (str(layer["id"]), table.strip('"'), standard, row[0])
                         if standard == "WTL_PIPE_PS":
                             cur.execute(
                                 "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='gis' AND table_name=%s AND column_name='saa_cde')",
@@ -75,20 +76,53 @@ class Command(BaseCommand):
                                 row = cur.fetchone()
                                 if row:
                                     depth = (str(layer["id"]), table.strip('"'), standard, row[0])
-                unique = []
-                seen = set()
-                for target in targets:
-                    key = (target[0], target[3])
-                    if key not in seen:
-                        seen.add(key)
-                        unique.append(target)
-                if len(unique) < 38 or depth is None:
+                if template is None or depth is None:
                     continue
 
-                def run_case(name, selected, linked_count):
+                def clone_targets(cur, source, count):
+                    layer_id, table, standard, source_id = source
+                    cur.execute(
+                        """SELECT column_name FROM information_schema.columns
+                             WHERE table_schema='gis' AND table_name=%s
+                               AND is_generated='NEVER' AND is_identity='NO'
+                             ORDER BY ordinal_position""",
+                        [table],
+                    )
+                    columns = [row[0] for row in cur.fetchall()]
+                    if "id" not in columns or "project_id" not in columns:
+                        raise CommandError("smoke template has no id/project_id")
+                    quoted = ", ".join(_quote_ident(column) for column in columns)
+                    created = []
+                    for _ in range(count):
+                        target_id = str(uuid4())
+                        expressions = []
+                        params = []
+                        for column in columns:
+                            if column == "id":
+                                expressions.append("%s::uuid")
+                                params.append(target_id)
+                            elif column == "project_id":
+                                expressions.append("%s::uuid")
+                                params.append(project_id)
+                            else:
+                                expressions.append(_quote_ident(column))
+                        params.append(source_id)
+                        cur.execute(
+                            f'''INSERT INTO "gis".{_quote_ident(table)} ({quoted})
+                                SELECT {", ".join(expressions)}
+                                  FROM "gis".{_quote_ident(table)} WHERE id=%s''',
+                            params,
+                        )
+                        if cur.rowcount != 1:
+                            raise CommandError("smoke template clone failed")
+                        created.append((layer_id, table, standard, target_id))
+                    return created
+
+                def run_case(name, source, count, linked_count):
                     with transaction.atomic(using=alias):
                         link_ids = []
                         with connections[alias].cursor() as cur:
+                            selected = clone_targets(cur, source, count)
                             for layer_id, _table, _standard, target_id in selected[:linked_count]:
                                 link_id = str(uuid4())
                                 cur.execute(
@@ -126,18 +160,18 @@ class Command(BaseCommand):
                     return len(selected)
 
                 results = {
-                    "unlinked_single": run_case("unlinked_single", unique[:1], 0),
-                    "linked_single": run_case("linked_single", unique[:1], 1),
-                    "depth_single": run_case("depth_single", [depth], 1),
-                    "linked_10": run_case("linked_10", unique[:10], 10),
-                    "mixed_20": run_case("mixed_20", unique[:20], 10),
-                    "linked_38": run_case("linked_38", unique[:38], 38),
+                    "unlinked_single": run_case("unlinked_single", template, 1, 0),
+                    "linked_single": run_case("linked_single", template, 1, 1),
+                    "depth_single": run_case("depth_single", depth, 1, 1),
+                    "linked_10": run_case("linked_10", template, 10, 10),
+                    "mixed_20": run_case("mixed_20", template, 20, 10),
+                    "linked_38": run_case("linked_38", template, 38, 38),
                 }
 
                 with transaction.atomic(using=alias):
-                    old_target, new_target = unique[0], unique[1]
-                    old_link = str(uuid4())
                     with connections[alias].cursor() as cur:
+                        old_target, new_target = clone_targets(cur, template, 2)
+                        old_link = str(uuid4())
                         cur.execute(
                             "INSERT INTO gis.survey_link(id,survey_id,layer_id,target_id,match_method,link_role,link_status) VALUES (%s,%s,%s,%s,'manual','POINT','LINKED')",
                             [old_link, survey_id, old_target[0], old_target[3]],
