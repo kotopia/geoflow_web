@@ -172,9 +172,8 @@ class Command(BaseCommand):
                             selected = clone_targets(cur, source, count)
                             if name == "depth_single":
                                 cur.execute(
-                                    f'''UPDATE "gis".{_quote_ident(selected[0][1])}
-                                           SET saa_cde='SA900' WHERE id=%s''',
-                                    [selected[0][3]],
+                                    "UPDATE gis.survey SET raw_code='SA900',code='SA900' WHERE id=%s",
+                                    [survey_id],
                                 )
                             for layer_id, _table, _standard, target_id in selected[:linked_count]:
                                 link_id = str(uuid4())
