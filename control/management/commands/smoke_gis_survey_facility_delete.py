@@ -30,11 +30,10 @@ class Command(BaseCommand):
         for config in configs:
             with _tenant_alias(config) as alias:
                 with connections[alias].cursor() as cur:
-                    cur.execute("SELECT id::text,project_id::text,source_id::text FROM gis.survey WHERE deleted_at IS NULL ORDER BY id")
-                    surveys = cur.fetchall()
+                    cur.execute("SELECT id::text FROM prj.projects ORDER BY id")
+                    project_ids = [row[0] for row in cur.fetchall()]
                 fixture = None
-                for survey in surveys:
-                    survey_id, project_id, source_id = survey
+                for project_id in project_ids:
                     plan = project_layer_plan(alias, project_id)
                     if not plan.get("ready") or not plan.get("gis_enabled"):
                         continue
@@ -55,11 +54,30 @@ class Command(BaseCommand):
                             template = (str(layer["id"]), table.strip('"'), standard, None)
                             depth = template
                     if template is not None and depth is not None:
-                        fixture = (survey_id, project_id, source_id, plan, template, depth)
+                        fixture = (project_id, plan, template, depth)
                         break
                 if fixture is None:
                     continue
-                survey_id, project_id, source_id, plan, template, depth = fixture
+                project_id, plan, template, depth = fixture
+                survey_id = str(uuid4())
+                source_id = str(uuid4())
+                source_group_id = str(uuid4())
+
+                def prepare_survey(cur):
+                    cur.execute(
+                        """INSERT INTO gis.survey_source(
+                             id,project_id,source_group_id,source_type,original_file_name,
+                             version,is_active,note
+                           ) VALUES (%s,%s,%s,'OTHER','facility-delete-smoke',1,true,'rollback-only')""",
+                        [source_id, project_id, source_group_id],
+                    )
+                    cur.execute(
+                        """INSERT INTO gis.survey(
+                             id,project_id,source_id,source_row_id,name,code,raw_data,geom
+                           ) VALUES (%s,%s,%s,'facility-delete-smoke','facility-delete-smoke',
+                                     'SMOKE','{}'::jsonb,ST_SetSRID(ST_MakePoint(127,36),4326))""",
+                        [survey_id, project_id, source_id],
+                    )
 
                 def clone_targets(cur, source, count):
                     layer_id, table, standard, source_id = source
@@ -115,6 +133,7 @@ class Command(BaseCommand):
                     with transaction.atomic(using=alias):
                         link_ids = []
                         with connections[alias].cursor() as cur:
+                            prepare_survey(cur)
                             selected = clone_targets(cur, source, count)
                             if name == "depth_single":
                                 cur.execute(
@@ -169,6 +188,7 @@ class Command(BaseCommand):
 
                 with transaction.atomic(using=alias):
                     with connections[alias].cursor() as cur:
+                        prepare_survey(cur)
                         old_target, new_target = clone_targets(cur, template, 2)
                         old_link = str(uuid4())
                         cur.execute(
