@@ -43,34 +43,17 @@ class Command(BaseCommand):
                     with connections[alias].cursor() as cur:
                         for layer in plan.get("layers") or []:
                             standard = str(layer.get("standard_name") or "").upper()
-                            if standard == "SURVEY":
-                                continue
-                            table = _quote_ident(str(layer.get("physical_name") or ""))
-                            cur.execute(
-                                f'''SELECT f.id::text FROM "gis".{table} f
-                                     WHERE f.project_id=%s ORDER BY f.id LIMIT 1''',
-                                [project_id],
-                            )
-                            row = cur.fetchone()
-                            if row and template is None:
-                                template = (str(layer["id"]), table.strip('"'), standard, row[0])
                             if standard != "WTL_PIPE_PS":
                                 continue
+                            table = _quote_ident(str(layer.get("physical_name") or ""))
                             cur.execute(
                                 "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='gis' AND table_name=%s AND column_name='saa_cde')",
                                 [table.strip('"')],
                             )
                             if not cur.fetchone()[0]:
                                 continue
-                            cur.execute(
-                                f'''SELECT f.id::text FROM "gis".{table} f
-                                     WHERE f.project_id=%s
-                                     ORDER BY f.id LIMIT 1''',
-                                [project_id],
-                            )
-                            row = cur.fetchone()
-                            if row:
-                                depth = (str(layer["id"]), table.strip('"'), standard, row[0])
+                            template = (str(layer["id"]), table.strip('"'), standard, None)
+                            depth = template
                     if template is not None and depth is not None:
                         fixture = (survey_id, project_id, source_id, plan, template, depth)
                         break
@@ -94,6 +77,17 @@ class Command(BaseCommand):
                     created = []
                     for _ in range(count):
                         target_id = str(uuid4())
+                        if source_id is None:
+                            cur.execute(
+                                f'''INSERT INTO "gis".{_quote_ident(table)} (id, project_id, geom)
+                                    SELECT %s::uuid, %s::uuid, geom
+                                      FROM gis.survey WHERE id=%s''',
+                                [target_id, project_id, survey_id],
+                            )
+                            if cur.rowcount != 1:
+                                raise CommandError("smoke Survey geometry insert failed")
+                            created.append((layer_id, table, standard, target_id))
+                            continue
                         expressions = []
                         params = []
                         for column in columns:
