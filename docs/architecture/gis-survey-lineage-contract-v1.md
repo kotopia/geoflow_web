@@ -1,7 +1,8 @@
 # GeoFlow GIS Survey lineage contract v1
 
 Status: **server final-field extension implemented; production verification pending**.
-The existing lineage/delete contract remains deployed. The extension below is
+The existing lineage/delete contract remains deployed. Its earlier upload
+baseline was release `4c5fc553339bdf429b8ec5c6d656a414be484f6d`. The extension below is
 based on a read-only production inventory from run `38882883940` (PR #415).
 QGIS Connector and QField changes are out of scope.
 
