@@ -177,6 +177,30 @@ class SurveyFinalTests(unittest.TestCase):
             self.assertEqual(r[0:2],('251017-001','GNSS'))
             self.assertEqual(float(r[2]),235768.352);self.assertEqual(float(r[3]),123);self.assertEqual(float(r[5]),413130.660)
 
+    def test_backfill_keeps_unknown_date_method_and_zero(self):
+        payload=self.payload(source_type='CSV',survey_date=None)
+        payload['points'][0]['raw_z']=0
+        point=self.run_import(payload)['points'][0]
+        counts=backfill_survey_project('default',self.project)
+        self.assertEqual(counts['updated'],0)
+        self.assertEqual(counts['missing_date'],1);self.assertEqual(counts['unknown_method'],1)
+        with connections['default'].cursor() as c:
+            c.execute('SELECT survey_no,type,z,raw_z FROM gis.survey WHERE id=%s',[point['id']])
+            row=c.fetchone();self.assertEqual(row,(None,None,0,0))
+
+    def test_backfill_repairs_proven_geographic_degree_copy(self):
+        payload=self.payload()
+        payload['points'][0].update(raw_x=127.1,raw_y=36.1,raw_crs='EPSG:4326')
+        point=self.run_import(payload)['points'][0]
+        with connections['default'].cursor() as c:
+            c.execute('UPDATE gis.survey SET x=raw_x,y=raw_y WHERE id=%s',[point['id']])
+        self.assertEqual(backfill_survey_project('default',self.project)['updated'],1)
+        with connections['default'].cursor() as c:
+            c.execute('SELECT x,y,raw_x,raw_y FROM gis.survey WHERE id=%s',[point['id']])
+            row=c.fetchone();self.assertAlmostEqual(float(row[0]),point['x'],places=3)
+            self.assertAlmostEqual(float(row[1]),point['y'],places=3)
+            self.assertEqual((float(row[2]),float(row[3])),(127.1,36.1))
+
     def test_500_batch_has_no_per_point_source_or_number_query(self):
         worker=str(uuid4())
         with connections['default'].cursor() as c:

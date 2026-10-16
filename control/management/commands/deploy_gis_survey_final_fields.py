@@ -32,6 +32,14 @@ class Command(BaseCommand):
         parser.add_argument('--backup-dir', required=True)
 
     def handle(self, *args, **options):
+        try:
+            self._execute(options)
+        except CommandError:
+            raise
+        except Exception as exc:
+            raise CommandError(f'Survey final-field deployment stopped ({type(exc).__name__}).') from None
+
+    def _execute(self, options):
         if not options['apply']:
             raise CommandError('Explicit --apply required')
         backup = Path(options['backup_dir']) / 'survey-final-fields'

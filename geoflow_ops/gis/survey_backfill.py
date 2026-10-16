@@ -59,7 +59,7 @@ def backfill_survey_project(alias, project_id):
                 else:
                     counts['missing_date'] += 1
             if values['type'] is None:
-                raw_data = values['raw_data'] or {}
+                raw_data = values['raw_data'] if isinstance(values['raw_data'],dict) else {}
                 methods = {method for method in (
                     survey_method(row[25]), survey_method(row[26]),
                     survey_method(raw_data.get('survey_type')),
