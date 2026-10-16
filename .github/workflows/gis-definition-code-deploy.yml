@@ -87,6 +87,10 @@ on:
       - geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py
       - geoflow_ops/migrations/0044_gis_survey_lineage.py
       - geoflow_ops/migrations/0045_gis_survey_soft_delete.py
+      - geoflow_ops/migrations/0046_gis_survey_final_fields.py
+      - geoflow_ops/gis/survey_final.py
+      - geoflow_ops/gis/survey_backfill.py
+      - control/management/commands/deploy_gis_survey_final_fields.py
       - control/management/commands/deploy_gis_survey_lineage.py
       - control/management/commands/smoke_gis_survey_facility_delete.py
       - docs/architecture/gis-survey-lineage-contract-v1.md
@@ -270,12 +274,19 @@ jobs:
           standard_cleanup_required=no
           qgis_flow_dip_repair_required=no
           survey_lineage_required=no
+          survey_final_required=no
           while IFS= read -r changed_path; do
             # QGIS plugin packages are independently tested and published by
             # qgis-plugin-test-repository-publish.yml. They never require a
             # central/tenant database transition in this deployment job.
             case "$changed_path" in
               integrations/qgis/geoflow_connector/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|geoflow_ops/gis/test_feature_photo_catalog_v2_contract.py|geoflow_ops/gis/test_feature_photo_database_boundary.py|geoflow_ops/gis/test_feature_photo_runtime_diagnostic.py|scripts/ops/diagnose_gis_photo_api_503.py|.github/workflows/gis-photo-api-503-diagnostic.yml|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
+            esac
+            case "$changed_path" in
+              .github/workflows/gis-survey-final-fields-inventory.yml|scripts/ops/inventory_gis_survey_final_fields.py|.github/workflows/gis-survey-final-fields-tests.yml|scripts/ci/test_survey_final_postgis.py) continue ;;
+              geoflow_ops/gis/survey_final.py|geoflow_ops/gis/survey_backfill.py|geoflow_ops/migrations/0046_gis_survey_final_fields.py|control/management/commands/deploy_gis_survey_final_fields.py)
+                survey_final_required=yes
+                continue ;;
             esac
             case "$changed_path" in
               geoflow_ops/gis/survey_link_views.py|geoflow_ops/gis/survey_links.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/realtime_views.py|geoflow_ops/gis/survey_reapply.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|geoflow_ops/migrations/0045_gis_survey_soft_delete.py|control/management/commands/deploy_gis_survey_lineage.py|control/management/commands/smoke_gis_survey_source_upload.py|control/management/commands/smoke_gis_survey_facility_delete.py|docs/architecture/gis-survey-lineage-contract-v1.md|docs/gis-survey-lineage-contract-v1.md)
@@ -414,6 +425,10 @@ jobs:
           else
             echo 'gis_survey_lineage=skipped'
           fi
+          if [ "$survey_final_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_survey_final_fields --apply --backup-dir "$backup_dir"
+          fi
           "$python" "$repo/manage.py" repair_gis_definition_layouts --apply \
             --backup-file "$backup_dir/non-object-definition-field-layouts.json"
           "$python" "$repo/manage.py" collectstatic --noinput
@@ -430,6 +445,13 @@ jobs:
             sleep 2
           done
           [ "$ready" = yes ] || fail 'service_failed_post_restart_healthcheck'
+
+          if [ "$survey_final_required" = yes ]; then
+            # Catch any final import completed by an old worker before restart,
+            # then verify that normal reruns leave generated values stable.
+            "$python" "$repo/manage.py" deploy_gis_survey_final_fields --apply \
+              --backup-dir "$backup_dir/post-restart"
+          fi
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 400 --minimum-codes 111

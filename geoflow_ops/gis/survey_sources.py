@@ -23,6 +23,8 @@ from .changeset import (
     _uuid_text,
 )
 from .qgis_sync import SyncConflict, SyncRejected
+from .survey_final import (FINAL_FIELDS, final_xy, next_number, number_counters,
+                           prepare_coordinates, survey_method)
 
 
 SOURCE_TYPES = frozenset({"GNSS", "GPS", "TOTAL", "CSV", "XLSX", "OTHER"})
@@ -70,6 +72,7 @@ def _source_dict(row) -> dict[str, Any]:
         "survey_date_to": row[17].isoformat() if row[17] else None,
         "worker_count": int(row[18] or 0),
         "workers": row[19] or [],
+        "survey_type": row[20], "target_crs": row[21],
     }
 
 
@@ -84,7 +87,8 @@ def list_survey_sources(alias: str, *, project_id: str, include_inactive: bool =
                    count(DISTINCT s.worker_id),
                    COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
                        'id', ep.id::text, 'name', ep.name
-                   )) FILTER (WHERE ep.id IS NOT NULL),'[]'::jsonb)
+                   )) FILTER (WHERE ep.id IS NOT NULL),'[]'::jsonb),
+                   src.survey_type,src.target_crs
               FROM gis.survey_source src
               LEFT JOIN gis.survey s ON s.source_id=src.id AND s.deleted_at IS NULL
               LEFT JOIN hr.employee_profile ep ON ep.id=s.worker_id AND ep.is_deleted=false
@@ -205,7 +209,8 @@ def _nonnegative_decimal(value: Any, label: str) -> Decimal | None:
 
 
 def _point_metadata(
-    alias: str, point: dict[str, Any], payload: dict[str, Any], index: int
+    alias: str, point: dict[str, Any], payload: dict[str, Any], index: int,
+    *, worker_ids: set[str] | None = None
 ) -> dict[str, Any]:
     unknown = sorted(set(point) - _POINT_FIELDS)
     if unknown:
@@ -216,13 +221,17 @@ def _point_metadata(
     worker_id = point.get("worker_id", payload.get("worker_id"))
     if worker_id not in (None, ""):
         worker_id = _uuid_text(worker_id, f"points[{index}].worker_id")
-        with connections[alias].cursor() as cursor:
-            cursor.execute(
-                "SELECT 1 FROM hr.employee_profile WHERE id=%s AND is_deleted=false",
-                [worker_id],
-            )
-            if cursor.fetchone() is None:
-                raise SyncRejected(f"points[{index}].worker_id is not available in this tenant")
+        if worker_ids is None:
+            with connections[alias].cursor() as cursor:
+                cursor.execute(
+                    "SELECT 1 FROM hr.employee_profile WHERE id=%s AND is_deleted=false",
+                    [worker_id],
+                )
+                available = cursor.fetchone() is not None
+        else:
+            available = worker_id in worker_ids
+        if not available:
+            raise SyncRejected(f"points[{index}].worker_id is not available in this tenant")
     else:
         worker_id = None
     survey_date = point.get("survey_date", payload.get("survey_date"))
@@ -265,6 +274,7 @@ def import_survey_source(
     source_type = str(payload.get("source_type") or "").upper()
     if source_type not in SOURCE_TYPES:
         raise SyncRejected("source_type is invalid")
+    method = survey_method(payload.get("survey_type"), required=True) or survey_method(source_type)
     file_name = str(payload.get("original_file_name") or "").strip()
     if not file_name:
         raise SyncRejected("original_file_name is required")
@@ -287,6 +297,33 @@ def import_survey_source(
 
     with transaction.atomic(using=alias):
         _ensure_project_state(alias, project_id)
+        points, projected, target_srid = prepare_coordinates(
+            alias, project_id=project_id, payload=payload, points=points)
+        worker_ids = set()
+        for point in points:
+            value = point.get("worker_id", payload.get("worker_id"))
+            if value not in (None, ""):
+                worker_ids.add(_uuid_text(value, "worker_id"))
+        with connections[alias].cursor() as cursor:
+            if worker_ids:
+                cursor.execute("SELECT id::text FROM hr.employee_profile WHERE id=ANY(%s::uuid[]) AND is_deleted=false", [sorted(worker_ids)])
+                worker_ids = {row[0] for row in cursor.fetchall()}
+            counters = number_counters(cursor, project_id)
+            cursor.execute(
+                """SELECT DISTINCT ON (s.source_row_id)
+                          s.id::text,encode(ST_AsBinary(s.geom),'hex'),
+                          s.source_id::text,s.source_row_id,s.raw_x,s.raw_y,s.raw_z,
+                          s.raw_crs,s.raw_code,s.raw_geoid_model,s.worker_id::text,
+                          s.survey_date,s.name,s.code,s.solution_info,s.pdop,
+                          s.antenna_height,s.raw_data,s.survey_no,s.type,
+                          s.x,s.y,s.z,s.longitude,s.latitude
+                     FROM gis.survey s JOIN gis.survey_source src ON src.id=s.source_id
+                    WHERE s.project_id=%s AND s.deleted_at IS NULL
+                      AND src.deleted_at IS NULL AND src.source_group_id=%s
+                    ORDER BY s.source_row_id,src.version DESC,s.id""",
+                [project_id, source_group_id],
+            )
+            existing_rows = {row[3]: row for row in cursor.fetchall()}
         changeset_id, client_id = str(uuid.uuid4()), str(uuid.uuid4())
         if not _reserve_receipt(
             alias,
@@ -327,13 +364,14 @@ def import_survey_source(
                 INSERT INTO gis.survey_source(
                   id,project_id,source_group_id,supersedes_id,source_type,
                   original_file_name,original_file_key,imported_by,source_crs,
-                  geoid_model,calibration_info,version,note
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                  geoid_model,calibration_info,version,note,survey_type,target_crs
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 [source_id, project_id, source_group_id, supersedes_id, source_type,
                  file_name, payload.get("original_file_key"), actor_uuid,
                  payload.get("source_crs"), payload.get("geoid_model"), Json(calibration),
-                 version, str(payload.get("note") or "")],
+                 version, str(payload.get("note") or ""), method,
+                 f"EPSG:{target_srid}" if target_srid else None],
             )
 
         seen_rows: set[str] = set()
@@ -347,29 +385,16 @@ def import_survey_source(
             seen_rows.add(row_id)
             geom_sql, geom_params = _point_geometry(point, payload.get("source_crs"))
             with connections[alias].cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT s.id::text,encode(ST_AsBinary(s.geom),'hex'),
-                           s.source_id::text,s.source_row_id,s.raw_x,s.raw_y,s.raw_z,
-                           s.raw_crs,s.raw_code,s.raw_geoid_model,s.worker_id::text,
-                           s.survey_date,s.name,s.code,s.solution_info,s.pdop,
-                           s.antenna_height,s.raw_data
-                      FROM gis.survey s
-                      JOIN gis.survey_source src ON src.id=s.source_id
-                     WHERE s.project_id=%s AND s.deleted_at IS NULL
-                       AND src.deleted_at IS NULL AND src.source_group_id=%s AND s.source_row_id=%s
-                     ORDER BY src.version DESC LIMIT 1 FOR UPDATE OF s
-                    """,
-                    [project_id, source_group_id, row_id],
-                )
-                existing = cursor.fetchone()
+                existing = existing_rows.get(row_id)
                 survey_id = str(existing[0]) if existing else _uuid_text(point.get("id") or uuid.uuid4(), f"points[{index}].id")
-                metadata = _point_metadata(alias, point, payload, index)
+                metadata = _point_metadata(alias, point, payload, index, worker_ids=worker_ids)
+                survey_no = existing[18] if existing and existing[18] else next_number(counters, metadata["survey_date"])
+                point_type = method or (existing[19] if existing else None)
                 common = [
                     source_id, row_id, point.get("raw_x"), point.get("raw_y"), point.get("raw_z"),
                     point.get("raw_crs") or payload.get("source_crs"), point.get("raw_code"),
                     point.get("raw_geoid_model") or payload.get("geoid_model"),
-                    point.get("raw_x"), point.get("raw_y"), point.get("raw_z"),
+                    None, None, point.get("raw_z"),
                     metadata["worker_id"], metadata["survey_date"], metadata["name"],
                     metadata["code"], metadata["solution_info"], metadata["pdop"],
                     metadata["antenna_height"], Json(metadata["raw_data"]),
@@ -394,21 +419,26 @@ def import_survey_source(
                         [survey_id, project_id, *common, *geom_params, *geom_params],
                     )
                     action = "create"
+                x_sql, x_params, y_sql, y_params = final_xy(point, projected, target_srid)
                 cursor.execute(
-                    """UPDATE gis.survey
-                          SET longitude=ST_X(geom),latitude=ST_Y(geom)
-                        WHERE id=%s AND project_id=%s
-                    RETURNING ST_AsBinary(geom)""",
-                    [survey_id, project_id],
+                    f"""UPDATE gis.survey
+                           SET longitude=ST_X(geom),latitude=ST_Y(geom),
+                               survey_no=%s,type=%s,x={x_sql},y={y_sql}
+                         WHERE id=%s AND project_id=%s
+                     RETURNING ST_AsBinary(geom),survey_no,type,x,y,z,longitude,latitude""",
+                    [survey_no, point_type, *x_params, *y_params, survey_id, project_id],
                 )
-                geom_after = bytes(cursor.fetchone()[0])
+                stored = cursor.fetchone()
+                geom_after = bytes(stored[0])
+                final_values = dict(zip(FINAL_FIELDS, stored[1:]))
             old_values = ({"source_id": existing[2], "source_row_id": existing[3],
                            "raw_x": existing[4], "raw_y": existing[5], "raw_z": existing[6],
                            "raw_crs": existing[7], "raw_code": existing[8],
                            "raw_geoid_model": existing[9], "worker_id": existing[10],
                            "survey_date": existing[11], "name": existing[12], "code": existing[13],
                            "solution_info": existing[14], "pdop": existing[15],
-                           "antenna_height": existing[16], "raw_data": existing[17]} if existing else {})
+                           "antenna_height": existing[16], "raw_data": existing[17],
+                           **dict(zip(FINAL_FIELDS, existing[18:25]))} if existing else {})
             old_values = _plain_value(old_values)
             new_values = {"source_id": source_id, "source_row_id": row_id,
                           "raw_x": point.get("raw_x"), "raw_y": point.get("raw_y"),
@@ -416,7 +446,7 @@ def import_survey_source(
                           "raw_crs": point.get("raw_crs") or payload.get("source_crs"),
                           "raw_code": point.get("raw_code"),
                           "raw_geoid_model": point.get("raw_geoid_model") or payload.get("geoid_model"),
-                          **metadata}
+                          **metadata, **final_values}
             new_values = _plain_value(new_values)
             events.append({"id": survey_id, "action": action,
                            "before": bytes.fromhex(existing[1]) if existing and existing[1] else None,
@@ -430,13 +460,15 @@ def import_survey_source(
                 physical_name="survey", object_id=event["id"], action=event["action"],
                 changed_fields=["source_id","source_row_id","raw_x","raw_y","raw_z","raw_crs",
                                 "raw_code","worker_id","survey_date","name","code","solution_info",
-                                "pdop","antenna_height","raw_data","longitude","latitude","geom"],
+                                "pdop","antenna_height","raw_data",*FINAL_FIELDS,"geom"],
                 old_values=event["old_values"], new_values=event["new_values"],
                 geom_before=event["before"], geom_after=event["after"], actor_ref=actor_ref,
             )
         response = {
             "ok": True, "source_id": source_id, "source_group_id": source_group_id,
-            "version": version, "created": sum(e["action"] == "create" for e in events),
+            "version": version,
+            "points": [{"id": e["id"], **e["new_values"]} for e in events],
+            "created": sum(e["action"] == "create" for e in events),
             "updated": sum(e["action"] == "update" for e in events),
             "first_revision": first, "last_revision": last, "current_revision": current,
         }

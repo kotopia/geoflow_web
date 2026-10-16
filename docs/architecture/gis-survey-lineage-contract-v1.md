@@ -1,9 +1,10 @@
 # GeoFlow GIS Survey lineage contract v1
 
-Status: **deployed server/tenant contract**. This document describes PR #392,
-deployed release `4c5fc553339bdf429b8ec5c6d656a414be484f6d`. QGIS Connector
-and QField UI are out of scope. A client must not infer capabilities marked
-unsupported here.
+Status: **server final-field extension implemented; production verification pending**.
+The existing lineage/delete contract remains deployed. Its earlier upload
+baseline was release `4c5fc553339bdf429b8ec5c6d656a414be484f6d`. The extension below is
+based on a read-only production inventory from run `38882883940` (PR #415).
+QGIS Connector and QField changes are out of scope.
 
 ## 1. Ownership and coordinates
 
@@ -18,8 +19,7 @@ unsupported here.
 
 ### CRS responsibility
 
-The deployed import contract does **not** obtain or default a project
-`working_crs`. For each point, send either:
+The import contract never defaults a Korean TM zone. For each point, send either:
 
 1. `longitude` and `latitude`, treated as EPSG:4326; or
 2. `raw_x` and `raw_y`, plus `EPSG:n` in point `raw_crs` or source `source_crs`.
@@ -30,6 +30,22 @@ must obtain/configure the correct EPSG and send it. PostGIS performs the sole
 Missing/invalid CRS returns HTTP 400 `survey_rejected`. When longitude/latitude
 are present they determine geometry even if raw values are also present; the
 server does not cross-check the two representations.
+
+Final `x/y` use PostGIS X=Easting and Y=Northing, with no axis swap. Projected
+raw ordinates are retained as final planar ordinates. Geographic raw input and
+longitude/latitude-only input are transformed from stored EPSG:4326 geometry to
+an explicit projected `target_crs`, otherwise projected source `source_crs`,
+otherwise the single distinct projected CRS in this project's non-deleted source
+metadata (`target_crs` then `source_crs`). Missing or ambiguous projected CRS
+returns `survey_rejected`; it never stores degrees as final planar coordinates.
+The resolved batch fallback is stored as Source `target_crs`. Raw point CRS may
+differ from that fallback; projected raw points always keep their own ordinates.
+
+CRS availability/classification is queried once per batch. Numeric inputs must
+be finite, complete coordinate pairs are required, and EPSG:4326 longitude and
+latitude are range checked. `z` starts from `raw_z`; there is no existing server
+geoid/antenna correction to apply. Raw values remain unchanged. Missing values
+stay NULL, and genuine zero values remain zero.
 
 ## 2. Storage contract
 
@@ -42,6 +58,8 @@ server does not cross-check the two representations.
 | source_group_id | uuid | no | stable lineage/series ID |
 | supersedes_id | uuid FK | yes | prior active source version |
 | source_type | varchar(20) | no | `GNSS`, `GPS`, `TOTAL`, `CSV`, `XLSX`, `OTHER` |
+| survey_type | varchar(20) | yes | explicit measurement method: `GNSS` / `TOTAL_STATION` |
+| target_crs | text | yes | resolved projected fallback CRS for geographic input |
 | original_file_name | text | no | audit/display name |
 | original_file_key | text | yes | private storage reference |
 | imported_at/imported_by | timestamptz/uuid | no/yes | server audit |
@@ -51,6 +69,14 @@ server does not cross-check the two representations.
 | version | integer | no | positive group version |
 | is_active | boolean | no | one active version per group/project |
 | note | text | no | default empty string |
+
+`source_type` historically mixes instrument (`GNSS`, `GPS`, `TOTAL`) and file
+(`CSV`, `XLSX`, `OTHER`) classifications. Its accepted domain is preserved for
+existing clients. New optional import metadata `survey_type` separates method
+from file type. Recognized aliases `GPS` and `TOTAL` normalize to `GNSS` and
+`TOTAL_STATION`; `TotalStation` is also accepted. Explicit invalid methods are
+rejected. Without explicit metadata, recognized legacy source methods derive the
+point type. A file type alone does not imply an instrument method.
 
 A revision inserts a row, deactivates the prior active version, retains
 `source_group_id`, and requires the immediately preceding active row as
@@ -73,8 +99,10 @@ reserved and must not be inferred from similarly named source columns.
 | name | varchar(30) / yes | point | trimmed string; defaults to `source_row_id` only when that value is at most 30 characters |
 | code | varchar(30) / yes | point | trimmed string; defaults to `raw_code` only when that value is at most 30 characters |
 | raw_x/raw_y/raw_z | numeric(20,3) / numeric(20,3) / numeric(10,3), all yes | point | source Easting/Northing/height preserved unchanged |
-| x/y/z | numeric(20,3) / numeric(20,3) / numeric(10,3), all yes | do not derive separately | server copies the submitted raw values; current v1 has no client-only final-coordinate reinterpretation |
-| longitude/latitude | double precision / yes | a complete pair may define input geometry | both non-null values take precedence over raw coordinates; the server has no separate range/finite validator and always overwrites both from normalized EPSG:4326 `geom` after insert/update |
+| survey_no | varchar(30) / yes | server only | project/date number `YYMMDD-NNN`; unknown date stays NULL |
+| type | varchar(20) / yes | batch `survey_type`, then legacy method-valued `source_type` | `GNSS` / `TOTAL_STATION`; unknown method stays NULL |
+| x/y/z | numeric(20,3) / numeric(20,3) / numeric(10,3), all yes | server only | planar raw x/y preserved, geographic input transformed to resolved projected CRS; z from raw_z |
+| longitude/latitude | double precision / yes | a complete pair may define input geometry | both non-null values take precedence over raw coordinates; the server validates finite/range bounds and always overwrites both from normalized EPSG:4326 `geom` after insert/update |
 | solution_info | varchar(200) / yes | point | trimmed string; maximum 200 characters |
 | pdop | double precision / yes | point | numeric or numeric string; must be finite and non-negative |
 | antenna_height | numeric(8,3) / yes | point | numeric or numeric string; must be finite and non-negative and fit the DB numeric type |
@@ -87,7 +115,7 @@ feature Changesets: a non-manager may assign only their linked employee ID; a
 project manager may assign any non-deleted tenant employee. Invalid or
 unauthorized IDs return `survey_rejected`. Client-supplied longitude/latitude may define input geometry,
 but stored longitude/latitude are derived back from `geom` after normalization.
-`surveyed_at`, `survey_code`, `filter`, and `type` are not import fields in v1;
+`surveyed_at`, `survey_code`, and `filter` are not import fields;
 preserve such input in `raw_data` rather than guessing legacy semantics.
 
 The complete accepted point-key set is `id`, `source_row_id`, `raw_x`, `raw_y`,
@@ -104,8 +132,10 @@ Empty strings for `worker_id`, `survey_date`, `name`, `code`,
   fields are the other keys in the accepted set above.
 - Point `id` may be supplied for a new logical row; otherwise the server creates
   it. On a source revision the server retains the existing logical Survey UUID.
-- The server assigns `source_id`, copies raw_x/y/z into x/y/z, constructs
+- The server assigns `source_id`, `survey_no`, `type`, and final x/y/z, constructs
   `raw_geom` and `geom`, then derives stored longitude/latitude from `geom`.
+- The point-key allowlist intentionally continues rejecting `survey_no`, `type`,
+  and `x/y/z`: clients send inputs, and the server generates final fields.
 - The server creates `created_at`/`updated_at`, project revisions, change-log
   rows, and the internal changeset receipt. Clients do not send those values.
 - Source-level `worker_id` and `survey_date` are fallback inputs only. A point
@@ -119,13 +149,88 @@ legacy columns yield this classification:
 |---|---|---|
 | A — active lineage | source_id, source_row_id, raw_x/y/z, raw_crs, raw_code, raw_geoid_model, geom | import identity, raw ordinates, canonical EPSG:4326 point, revision/reapply/link lookup |
 | A — active attribution | worker_id, survey_date, name, code, longitude, latitude | imported attribution, source-list aggregation, point API and legacy display compatibility |
-| B — legacy compatibility duplicate | x/y/z, raw_geom | x/y/z mirror imported raw ordinates; raw_geom currently mirrors normalized geom and is excluded from scalar QGIS form attributes |
+| A — server final interpretation | survey_no, type, x/y/z | stable project/day number, measurement method, final planar ordinates and height |
+| B — legacy geometry duplicate | raw_geom | mirrors normalized geom and is excluded from scalar QGIS form attributes |
 | C — optional instrument input | solution_info, pdop, antenna_height, raw_data | validated optional GNSS/device metadata; `raw_data` is JSONB (`rawdata` is not a DB column) |
-| D — meaning not established | survey_code, surveyed_at, filter, type, description | existing nullable legacy/reserved columns; import rejects these top-level point keys |
+| D — meaning not established | survey_code, surveyed_at, filter, description | existing nullable legacy/reserved columns; import rejects these top-level point keys |
 
 No field in class D is automatically populated or reinterpreted by this
 contract. The duplicate class remains for compatibility and is not a proposal
 to add or remove physical columns.
+
+### Final-field allocation, reads and operational backfill
+
+`_point_metadata()` and `_POINT_FIELDS` in `geoflow_ops/gis/survey_sources.py`
+are the exact source of the previous HTTP 400 unsupported-field response.
+Their derived-field rejection remains intentional. `survey_final.py` owns
+coordinate/method/number interpretation; `survey_sources.py` stores and logs it.
+
+Import holds the existing `gis.project_sync_state` row `FOR UPDATE` throughout
+the transaction, shared with other GIS writers. One grouped maximum query reads
+all retained number prefixes (including soft-deleted points); in-memory counters
+allocate numbers by survey date for the whole batch. `survey_project_no_uq`
+enforces `(project_id,survey_no)` uniqueness. Number padding is at least three
+digits and continues beyond 999. Source revisions retain logical UUID and any
+existing number even if the date changes. New rows, and formerly unnumbered
+rows with a supplied date, receive a number. Unknown dates are never replaced
+with import date or today.
+
+One import transaction includes Source version, Point creation/update, numbering,
+final interpretation, revision log and receipt. A failure rolls everything back.
+Existing logical points and tenant employee IDs are prefetched once per batch;
+there is no per-point source, number maximum or CRS configuration lookup.
+
+Import responses add `points` containing IDs and persisted full values. Point
+list readback adds `survey_no/type`. Survey create/update Delta `attributes` now
+include the full final-field set and all existing raw/instrument/date/code fields.
+Numeric Delta/import attributes use the existing `_plain_value` JSON-number
+convention; the Point GET API retains Django's numeric-string convention.
+GeoPackage SELECTs already derive from central Final Form fields, which include
+all required final fields. The deploy updates only Survey derived-field readonly
+flags; the resulting definition revision and backfill revisions invalidate old
+server snapshot fingerprints without deleting source/package metadata.
+
+Read-only production inventory on 2026-10-16:
+
+- Three active tenants: two have no Survey rows; one has 389.
+- All required columns, including `survey_no`, already exist and have no defaults.
+- All 389 points lack number and method; 22 lack survey_date.
+- All 389 raw CRSs are EPSG:5186; no raw-present NULL/zero final coordinates
+  were found. Source types are 14 CSV and 2 GNSS sources.
+- Existing number duplicates: 0. No existing Survey method domain constraint.
+- Central Survey definitions already contain all required final fields.
+- Tenant project_definition has selections/overrides/revision, with no CRS field.
+
+`0046_gis_survey_final_fields` adds missing survey_no only for fresh foundations,
+Source method/target metadata and the unique/method constraints. It does not
+rewrite provenance. `deploy_gis_survey_final_fields --apply --backup-dir ...`
+first checks every tenant, privately backs up scalar Survey rows and affected
+central fields, then applies exact additive SQL/history and runs
+`survey_backfill.backfill_survey_project` under normal project locks.
+
+Backfill order is survey_date, created_at, UUID. Existing numbers and valid final
+values are protected. Missing planar values may come from projected raw values;
+missing geographic values, or proven copies of EPSG:4326 degrees, require a
+reliably resolved projected CRS. Missing z comes from raw_z. Missing lat/lon
+comes from geometry. Method uses only recognized, consistent source/explicit raw
+method metadata. Missing dates/methods/ambiguous CRS are counted and left NULL;
+zero is preserved because the investigated schema has no zero defaults. Each
+changed row gets a full ordinary Delta update and receipt. Reruns are idempotent.
+No Source/facility deletion policy or Connector code is changed.
+
+Rollback: schema additions use a non-destructive reverse noop. Once schema/data
+are committed, deploy does not silently roll code back. The private per-run
+backup is the basis for a reviewed targeted recovery; normal source UUIDs,
+geometry, raw data, and deletion relationships are unchanged.
+
+Verification: disposable PostGIS rehearsal covers 22+3, GNSS/TOTAL_STATION,
+mixed dates, geographic normalization, NULL/zero, source revision identity,
+rollback, uniqueness, simultaneous imports, idempotent backfill, Delta and
+materialized GeoPackage values, plus 500-point lookup counts. Production upload
+smoke checks actual presign/import/readback, 22 GNSS+3 TotalStation numbering,
+Delta and central-definition-derived GeoPackage values, then rolls test DB writes
+back and removes its temporary S3 object. Operational results are recorded after
+execution; code availability alone is not production verification.
 
 ### `gis.survey_link`
 
@@ -465,7 +570,8 @@ complete inventory.
 }
 ```
 
-No GeoJSON/WKT `geom`, source version/group, or dedicated method is returned.
+No GeoJSON/WKT `geom` or source version/group is returned. `survey_no` and
+`type` are included; type is the dedicated measurement method.
 Geometry is longitude/latitude; join source metadata by `source_id`.
 
 ### Links
@@ -659,9 +765,9 @@ endpoints update only Survey source/point deletion metadata and preserve links.
 |---|---|---|
 | Presign | URL names unspecified | `presigned_url`, `object_key`, `headers`; PUT; 900 s |
 | File import | server might parse file | server verifies file; client supplies parsed `points` |
-| Working CRS | project scope might supply it | no lookup; client sends EPSG, server transforms once |
+| Working CRS | project scope might supply it | explicit target, projected source, or unambiguous project source metadata; never a hardcoded zone |
 | Point cap | 5,000 cap | silent LIMIT; no count/total/truncated/pagination |
-| Worker/date/method | requested metadata | worker/date plus selected GNSS fields mapped; unknown method stays in `raw_data` |
+| Worker/date/method | requested metadata | worker/date/instrument fields mapped; final method from explicit or recognized legacy source method |
 | Source delete | no endpoint | GET impact precheck + atomic Source/Point soft delete; links/facilities retained |
 | Mapping update | state transition example | only status/role/vertex mutable; identity immutable |
 | Unlink | delete wording ambiguous | unlink preserves; legacy delete removes only mapping |
