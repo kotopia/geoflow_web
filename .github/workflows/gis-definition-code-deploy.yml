@@ -446,6 +446,13 @@ jobs:
           done
           [ "$ready" = yes ] || fail 'service_failed_post_restart_healthcheck'
 
+          if [ "$survey_final_required" = yes ]; then
+            # Catch any final import completed by an old worker before restart,
+            # then verify that normal reruns leave generated values stable.
+            "$python" "$repo/manage.py" deploy_gis_survey_final_fields --apply \
+              --backup-dir "$backup_dir/post-restart"
+          fi
+
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 400 --minimum-codes 111
 

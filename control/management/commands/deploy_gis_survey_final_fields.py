@@ -51,9 +51,10 @@ class Command(BaseCommand):
                            AND f.physical_name IN ('survey_no','type','x','y','z')""")
             central_rows = [json.loads(r[0]) if isinstance(r[0],str) else r[0] for r in c.fetchall()]
         central_backup = backup / 'central-definition-fields.json'
-        central_backup.touch(mode=0o600, exist_ok=True)
-        central_backup.chmod(0o600)
-        central_backup.write_text(json.dumps(central_rows, default=str), encoding='utf-8')
+        if not central_backup.exists():
+            with central_backup.open('x', encoding='utf-8') as stream:
+                central_backup.chmod(0o600)
+                stream.write(json.dumps(central_rows, default=str))
         configs = list(GroupDBConfig.objects.using('default').filter(group__status='active')
                        .exclude(db_alias='default').order_by('group_id'))
         if not configs:
@@ -74,11 +75,13 @@ class Command(BaseCommand):
                 schema = c.fetchall()
                 c.execute("SELECT to_jsonb(s) - 'geom' - 'raw_geom' FROM gis.survey s ORDER BY id")
                 rows = [json.loads(r[0]) if isinstance(r[0],str) else r[0] for r in c.fetchall()]
-                report = {'schema': schema, 'rows': rows}
+                report = {'tenant_alias':str(config.db_alias),'group_id':str(config.group_id),
+                          'schema': schema, 'rows': rows}
                 output = backup / f'tenant-{ordinal}.json'
-                output.touch(mode=0o600, exist_ok=True)
-                output.chmod(0o600)
-                output.write_text(json.dumps(report, default=str), encoding='utf-8')
+                if not output.exists():
+                    with output.open('x', encoding='utf-8') as stream:
+                        output.chmod(0o600)
+                        stream.write(json.dumps(report, default=str))
                 self.stdout.write(f'survey_final_inventory_tenant={ordinal}:rows={len(rows)}')
         for ordinal, config in enumerate(configs):
             with _tenant_alias(config) as alias:
