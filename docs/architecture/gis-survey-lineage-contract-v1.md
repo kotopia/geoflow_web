@@ -790,3 +790,21 @@ link queueing, manual status, and reapply UI from this document. It owns:
 It must not infer pagination, a project working-CRS API, server-side file
 parsing, preview tokens, cross-API atomicity, stable vertex UUIDs, or automatic
 split/remap behavior.
+
+### Deployment recovery from the 2026-10-16 preflight failure
+
+Deployment `38885511180` checked out `d736eaf` but stopped in the older lineage
+inventory with `UndefinedColumn` before executing the final-field migration.
+Its failure handler restarted the service; this was a deployment failure after
+GitHub approval, not an approval rejection. The legacy elevation inventory now
+inspects available code columns rather than requiring optional `survey_code`.
+No Source/Point/facility deletion behavior changes.
+
+Every deploy also runs `deploy_gis_survey_final_fields --check` read-only before
+stopping the service. It checks actual tenant migration history and required
+columns/constraints. A missing final-field migration schedules the reviewed
+transition and full Survey smoke even when the previous attempt already checked
+out the same application code. A file-only diff cannot establish DB readiness.
+The command rechecks additive schema shape on apply, keeps original backups,
+and can safely resume partially completed tenant deployment. Recovery results
+remain pending until the protected production run and smoke succeed.

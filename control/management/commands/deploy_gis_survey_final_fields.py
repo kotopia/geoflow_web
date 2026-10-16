@@ -8,9 +8,6 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections, transaction
 
-from control.models import GroupDBConfig
-from control.services.gis_admin import tenant_cursor
-from control.management.commands.smoke_gis_survey_source_upload import _tenant_alias
 from geoflow_ops.gis.survey_backfill import backfill_survey_project
 
 MIGRATION = '0046_gis_survey_final_fields'
@@ -24,12 +21,28 @@ def migration_sql():
     return module.Migration.operations[0].sql
 
 
+def final_fields_pending(cursor):
+    cursor.execute("SELECT EXISTS(SELECT 1 FROM django_migrations WHERE app='webgisapp' AND name=%s)", [MIGRATION])
+    if not cursor.fetchone()[0]:
+        return True
+    cursor.execute("""SELECT count(*) FROM information_schema.columns
+                       WHERE table_schema='gis' AND table_name='survey_source'
+                         AND column_name IN ('survey_type','target_crs')""")
+    if cursor.fetchone()[0] != 2:
+        return True
+    cursor.execute("""SELECT count(*) FROM pg_constraint
+                       WHERE conrelid='gis.survey'::regclass
+                         AND conname IN ('survey_project_no_uq','survey_type_ck')""")
+    return cursor.fetchone()[0] != 2
+
+
 class Command(BaseCommand):
     help = 'Apply Survey final-field constraints and provenance-preserving backfill'
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true')
-        parser.add_argument('--backup-dir', required=True)
+        parser.add_argument('--backup-dir')
+        parser.add_argument('--check', action='store_true')
 
     def handle(self, *args, **options):
         try:
@@ -40,8 +53,25 @@ class Command(BaseCommand):
             raise CommandError(f'Survey final-field deployment stopped ({type(exc).__name__}).') from None
 
     def _execute(self, options):
+        from control.models import GroupDBConfig
+        from control.services.gis_admin import tenant_cursor
+        from control.management.commands.smoke_gis_survey_source_upload import _tenant_alias
+
+        configs = list(GroupDBConfig.objects.using('default').filter(group__status='active')
+                       .exclude(db_alias='default').order_by('group_id'))
+        if not configs:
+            raise CommandError('No active tenants')
+        if options['check']:
+            pending = False
+            for config in configs:
+                with tenant_cursor(config.group_id, write=False) as cursor:
+                    pending = final_fields_pending(cursor) or pending
+            self.stdout.write('survey_final_pending='+('yes' if pending else 'no'))
+            return
         if not options['apply']:
             raise CommandError('Explicit --apply required')
+        if not options['backup_dir']:
+            raise CommandError('--backup-dir is required with --apply')
         backup = Path(options['backup_dir']) / 'survey-final-fields'
         backup.mkdir(mode=0o700, parents=True, exist_ok=True)
         with connections['default'].cursor() as c:
@@ -55,10 +85,6 @@ class Command(BaseCommand):
             with central_backup.open('x', encoding='utf-8') as stream:
                 central_backup.chmod(0o600)
                 stream.write(json.dumps(central_rows, default=str))
-        configs = list(GroupDBConfig.objects.using('default').filter(group__status='active')
-                       .exclude(db_alias='default').order_by('group_id'))
-        if not configs:
-            raise CommandError('No active tenants')
         # Complete all read-only prerequisite checks/backups before first DDL.
         for ordinal, config in enumerate(configs):
             with tenant_cursor(config.group_id, write=False) as c:
@@ -90,8 +116,10 @@ class Command(BaseCommand):
                         c.execute("SET LOCAL lock_timeout='8s'")
                         c.execute("SELECT pg_advisory_xact_lock(hashtext('geoflow:survey-final-fields-0046'))")
                         c.execute("SELECT EXISTS(SELECT 1 FROM django_migrations WHERE app='webgisapp' AND name=%s)", [MIGRATION])
-                        if not c.fetchone()[0]:
+                        applied = bool(c.fetchone()[0])
+                        if not applied or final_fields_pending(c):
                             c.execute(migration_sql())
+                        if not applied:
                             c.execute("INSERT INTO django_migrations(app,name,applied) VALUES ('webgisapp',%s,now())", [MIGRATION])
                         c.execute('SELECT DISTINCT project_id::text FROM gis.survey ORDER BY project_id::text')
                         projects = [r[0] for r in c.fetchall()]

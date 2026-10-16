@@ -4,8 +4,6 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from control.models import GroupDBConfig
-from control.services.gis_admin import tenant_cursor
 
 
 APP = "webgisapp"
@@ -22,6 +20,20 @@ def migration_sql():
     if len(operations) != 1 or not isinstance(operations[0].sql, str):
         raise CommandError("Unexpected GIS Survey migration shape")
     return operations[0].sql
+
+
+def survey_elevation_count(cursor):
+    # survey_code is an optional legacy field, absent in current tenant stores.
+    cursor.execute("""SELECT column_name FROM information_schema.columns
+                       WHERE table_schema='gis' AND table_name='survey'
+                         AND column_name IN ('survey_code','code','raw_code')""")
+    available = {row[0] for row in cursor.fetchall()}
+    columns = [name for name in ('survey_code','code','raw_code') if name in available]
+    if not columns:
+        raise RuntimeError('Survey code inventory columns missing')
+    expression = ','.join('"'+name+'"' for name in columns)
+    cursor.execute("SELECT count(*) FROM gis.survey WHERE upper(COALESCE("+expression+",''))='H'")
+    return int(cursor.fetchone()[0])
 
 
 def _validate(cursor, db_name):
@@ -55,6 +67,9 @@ class Command(BaseCommand):
         parser.add_argument("--apply", action="store_true")
 
     def handle(self, *args, **options):
+        from control.models import GroupDBConfig
+        from control.services.gis_admin import tenant_cursor
+
         if not options["apply"]:
             raise CommandError("Explicit --apply required")
         sql = migration_sql()
@@ -81,11 +96,7 @@ class Command(BaseCommand):
                         "SELECT count(DISTINCT survey_id) FROM gis.survey_link"
                     )
                     linked_point_count = int(cursor.fetchone()[0])
-                    cursor.execute(
-                        """SELECT count(*) FROM gis.survey
-                             WHERE upper(COALESCE(survey_code,code,raw_code,''))='H'"""
-                    )
-                    elevation_count = int(cursor.fetchone()[0])
+                    elevation_count = survey_elevation_count(cursor)
                     cursor.execute(
                         """SELECT conname,pg_get_constraintdef(oid)
                              FROM pg_constraint

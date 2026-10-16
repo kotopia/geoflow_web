@@ -368,6 +368,16 @@ jobs:
           print('vworld_runtime_key_configured=yes')
           PYKEY
 
+          # A failed previous deployment may have checked out this code before
+          # applying its migration. File drift alone cannot detect that state.
+          final_schema_status="$(PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" deploy_gis_survey_final_fields --check)"
+          case "$final_schema_status" in
+            survey_final_pending=yes)
+              survey_final_required=yes
+              survey_lineage_required=yes ;;
+            survey_final_pending=no) ;;
+            *) fail 'survey_final_schema_status_invalid' ;;
+          esac
           backup_dir="/var/backups/geoflow/gis-central-ssot/$candidate_sha"
           sudo -n install -d -m 0700 -o "$(id -un)" "$backup_dir"
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \

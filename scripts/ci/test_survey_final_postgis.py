@@ -28,6 +28,8 @@ from geoflow_ops.gis.survey_backfill import backfill_survey_project
 from geoflow_ops.gis.changeset import project_delta
 from geoflow_ops.gis.gpkg_snapshot_file import build_project_geopackage_file
 from geoflow_ops.gis.qgis_sync import SyncRejected
+from control.management.commands.deploy_gis_survey_lineage import survey_elevation_count
+from control.management.commands.deploy_gis_survey_final_fields import final_fields_pending
 
 
 def bootstrap():
@@ -40,6 +42,10 @@ def bootstrap():
             spec = importlib.util.spec_from_file_location(name, ROOT/'geoflow_ops/migrations'/f'{name}.py')
             module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             c.execute(module.Migration.operations[0].sql)
+        # Current live stores omit this optional legacy foundation column.
+        c.execute('ALTER TABLE gis.survey DROP COLUMN survey_code')
+        c.execute("CREATE TABLE django_migrations(app text,name text,applied timestamptz)")
+        c.execute("INSERT INTO django_migrations(app,name,applied) VALUES ('webgisapp','0046_gis_survey_final_fields',now())")
         sql = (ROOT/'docs/architecture/gis-sync-revision-v1.sql').read_text()
         c.execute(sql[sql.index('CREATE TABLE IF NOT EXISTS gis.project_sync_state'):sql.index('COMMIT;')])
 
@@ -72,6 +78,18 @@ class SurveyFinalTests(unittest.TestCase):
 
     def run_import(self, payload):
         return import_survey_source('default',project_id=self.project,payload=payload)
+
+    def test_operational_inventory_without_legacy_survey_code(self):
+        with connections['default'].cursor() as c:
+            before=survey_elevation_count(c)
+            c.execute("INSERT INTO gis.survey(id,project_id,raw_code) VALUES (%s,%s,'H')",[str(uuid4()),self.project])
+            self.assertEqual(survey_elevation_count(c),before+1)
+            self.assertFalse(final_fields_pending(c))
+            with transaction.atomic():
+                c.execute("DELETE FROM django_migrations WHERE name='0046_gis_survey_final_fields'")
+                self.assertTrue(final_fields_pending(c))
+                transaction.set_rollback(True)
+            self.assertFalse(final_fields_pending(c))
 
     def test_22_then_3_and_delta_geopackage(self):
         result=self.run_import(self.payload(22))
