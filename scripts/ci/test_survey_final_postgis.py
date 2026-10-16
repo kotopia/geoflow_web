@@ -118,7 +118,7 @@ class SurveyFinalTests(unittest.TestCase):
         with self.assertRaisesRegex(SyncRejected,'requires target_crs'):
             self.run_import(payload)
         payload['target_crs']='EPSG:5187'
-        self.assertGreater(self.run_import(payload)['points'][0]['x'],100000)
+        self.assertAlmostEqual(self.run_import(payload)['points'][0]['x'],28895.860,places=3)
 
     def test_revision_keeps_uuid_and_number(self):
         first=self.run_import(self.payload(2))

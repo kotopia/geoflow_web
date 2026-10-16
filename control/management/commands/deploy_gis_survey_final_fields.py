@@ -41,7 +41,7 @@ class Command(BaseCommand):
                           JOIN gis.definition_layer l ON l.id=f.source_layer_id
                          WHERE l.physical_name='survey'
                            AND f.physical_name IN ('survey_no','type','x','y','z')""")
-            central_rows = [r[0] for r in c.fetchall()]
+            central_rows = [json.loads(r[0]) if isinstance(r[0],str) else r[0] for r in c.fetchall()]
         central_backup = backup / 'central-definition-fields.json'
         central_backup.touch(mode=0o600, exist_ok=True)
         central_backup.chmod(0o600)
@@ -65,7 +65,7 @@ class Command(BaseCommand):
                 c.execute("SELECT column_name,data_type,column_default,is_nullable FROM information_schema.columns WHERE table_schema='gis' AND table_name='survey' ORDER BY ordinal_position")
                 schema = c.fetchall()
                 c.execute("SELECT to_jsonb(s) - 'geom' - 'raw_geom' FROM gis.survey s ORDER BY id")
-                rows = [r[0] for r in c.fetchall()]
+                rows = [json.loads(r[0]) if isinstance(r[0],str) else r[0] for r in c.fetchall()]
                 report = {'schema': schema, 'rows': rows}
                 output = backup / f'tenant-{ordinal}.json'
                 output.touch(mode=0o600, exist_ok=True)

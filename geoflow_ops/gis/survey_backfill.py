@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import json
 from collections import Counter
 
 from django.db import connections, transaction
@@ -47,6 +48,8 @@ def backfill_survey_project(alias, project_id):
         events = []
         for row in rows:
             values = dict(zip(_FIELDS, row[2:25]))
+            if isinstance(values['raw_data'], str):
+                values['raw_data'] = json.loads(values['raw_data'])
             old = _plain_value(values)
             if not values['survey_no']:
                 number = next_number(counters, values['survey_date'])
