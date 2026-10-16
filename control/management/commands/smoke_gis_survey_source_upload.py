@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from contextlib import contextmanager
 from types import SimpleNamespace
 from urllib.request import Request, urlopen
@@ -17,6 +18,8 @@ from control.middleware import _set_threadlocal
 from control.services.tenant_db_secret_resolver import resolve_tenant_db_password
 from geoflow_ops.gis import survey_views
 from geoflow_ops.gis.layer_plan import project_layer_plan
+from geoflow_ops.gis.changeset import project_delta
+from geoflow_ops.gis.gpkg_snapshot_file import build_project_geopackage_file
 from geoflow_ops.gis.qgis_sync import _quote_ident
 from geoflow_ops.services.s3_service import get_bucket_name, get_s3_client
 
@@ -174,6 +177,7 @@ class Command(BaseCommand):
                         payload = {
                             "id": source_id,
                             "source_type": "CSV",
+                            "survey_type": "GNSS",
                             "original_file_name": "geoflow-survey-smoke.csv",
                             "original_file_key": object_key,
                             "source_crs": "EPSG:5186",
@@ -227,6 +231,58 @@ class Command(BaseCommand):
                             for point in points["points"]
                         ):
                             raise CommandError("survey_upload_smoke_point_metadata=failed")
+                        selected_points = points['points']
+                        if any(not p.get('survey_no') or p.get('type') != 'GNSS'
+                               or p.get('x') is None or p.get('y') is None
+                               for p in selected_points):
+                            raise CommandError('survey_final_smoke_readback=failed')
+                        numbers = sorted(int(p['survey_no'].split('-')[1]) for p in selected_points)
+                        if numbers != list(range(numbers[0], numbers[0]+22)):
+                            raise CommandError('survey_final_smoke_batch_numbers=failed')
+                        extra = _json(call('POST',f'/gis/projects/{project_id}/api/survey-sources/', {
+                            'source_type':'TOTAL','original_file_name':'survey-final-extra.csv',
+                            'source_crs':'EPSG:5186','survey_date':'2026-10-05',
+                            'points':[{'source_row_id':f'EXTRA-{i}', 'raw_x':235768.352,
+                                       'raw_y':413130.660,'raw_z':49.196,'antenna_height':0}
+                                      for i in range(3)],
+                        }))
+                        if [int(p['survey_no'].split('-')[1]) for p in extra['points']] != list(range(numbers[-1]+1,numbers[-1]+4)):
+                            raise CommandError('survey_final_smoke_additional_numbers=failed')
+                        if any(p['type']!='TOTAL_STATION' or p['x']!=235768.352
+                               or p['y']!=413130.660 or p['z']!=49.196
+                               or p['antenna_height']!=0 for p in extra['points']):
+                            raise CommandError('survey_final_smoke_extra_coordinates=failed')
+                        delta = project_delta(alias,project_id=str(project_id),
+                                              since_revision=import_result['first_revision']-1)
+                        imported_ids = {p['id'] for p in selected_points+extra['points']}
+                        changes = [c for c in delta['changes'] if c['id'] in imported_ids]
+                        required = {'survey_no','type','raw_x','raw_y','raw_z','x','y','z',
+                                    'longitude','latitude','antenna_height','survey_date','code','raw_code'}
+                        if len(changes)!=25 or any(not required <= set(c['attributes']) for c in changes):
+                            raise CommandError('survey_final_smoke_delta=failed')
+                        package_plan = project_layer_plan(alias,project_id)
+                        survey_layer = next((l for l in package_plan['layers'] if l['physical_name']=='survey'),None)
+                        if survey_layer is None:
+                            from geoflow_ops.gis import central_definitions
+                            data = central_definitions.central_snapshot()
+                            survey_layer = next((l for l in data['layers'] if l['physical_name']=='survey' and l['active']),None)
+                            if survey_layer is None:
+                                raise CommandError('survey_final_smoke_survey_definition=missing')
+                            package_plan['layers'].append(survey_layer)
+                            package_plan['form_definition'] = central_definitions.resolve(data,{},package_plan['layers'])
+                        package_plan['layers'] = [survey_layer]
+                        package_path, _ = build_project_geopackage_file(alias,project_id=str(project_id),plan=package_plan)
+                        try:
+                            with sqlite3.connect(package_path) as db:
+                                columns = {r[1] for r in db.execute('PRAGMA table_info(survey)')}
+                                if not (required-{'raw_code'}) <= columns:
+                                    raise CommandError('survey_final_smoke_geopackage_columns=failed')
+                                rows = db.execute('SELECT id,survey_no,type,x,y,z FROM survey').fetchall()
+                                found = [r for r in rows if r[0] in imported_ids]
+                                if len(found)!=25 or any(not r[1] or not r[2] or r[3] is None or r[4] is None for r in found):
+                                    raise CommandError('survey_final_smoke_geopackage_values=failed')
+                        finally:
+                            package_path.unlink(missing_ok=True)
                         # Prove soft delete preserves both a facility and its
                         # Survey provenance link. All DB writes remain inside
                         # the outer rollback transaction.
@@ -319,6 +375,11 @@ class Command(BaseCommand):
         self.stdout.write(f"survey_upload_smoke_source_readback={source_count}")
         self.stdout.write(f"survey_upload_smoke_point_readback={point_count}")
         self.stdout.write("survey_upload_smoke_point_metadata=verified")
+        self.stdout.write('survey_final_smoke_batch=22_GNSS_PASS')
+        self.stdout.write('survey_final_smoke_additional=3_TOTAL_STATION_PASS')
+        self.stdout.write('survey_final_smoke_number_continuity=PASS')
+        self.stdout.write('survey_final_smoke_delta=25_PASS')
+        self.stdout.write('survey_final_smoke_geopackage=25_PASS')
         self.stdout.write(
             f"survey_upload_smoke_delete_precheck={str(precheck['delete']['can_delete']).lower()}"
         )

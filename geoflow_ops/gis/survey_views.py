@@ -185,7 +185,7 @@ def project_survey_points_api(request, project_id):
             SELECT s.id::text,s.source_id::text,s.source_row_id,s.raw_x,s.raw_y,s.raw_z,
                    s.raw_crs,s.raw_code,s.raw_geoid_model,s.x,s.y,s.z,
                    ST_X(s.geom),ST_Y(s.geom),s.worker_id::text,s.survey_date,s.name,s.code,
-                   s.solution_info,s.pdop,s.antenna_height,s.raw_data,s.updated_at
+                   s.solution_info,s.pdop,s.antenna_height,s.raw_data,s.updated_at,s.survey_no,s.type
               FROM gis.survey s WHERE {' AND '.join(where)} ORDER BY s.source_row_id,s.id LIMIT 5000
         """, params)
         rows = cursor.fetchall()
@@ -196,7 +196,8 @@ def project_survey_points_api(request, project_id):
                "worker_id": r[14], "survey_date": r[15].isoformat() if r[15] else None,
                "name": r[16], "code": r[17], "solution_info": r[18], "pdop": r[19],
                "antenna_height": r[20], "raw_data": r[21] or {},
-               "updated_at": r[22].isoformat() if r[22] else None} for r in rows]
+               "updated_at": r[22].isoformat() if r[22] else None,
+               "survey_no": r[23], "type": r[24]} for r in rows]
     return JsonResponse({"ok": True, "project_id": str(project.id), "points": points},
                         json_dumps_params={"ensure_ascii": False})
 

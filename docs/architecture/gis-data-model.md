@@ -352,3 +352,12 @@ Tenant `gis.project_definition` 한 테이블에 중앙 UUID만 저장하며 Def
 레이어를 표시하고 개별 중앙 필드 추가도 허용한다. 실행 API의 Final Layer Plan 역시
 선택한 Group의 모든 레이어를 포함한다. 단, 시설물 행 접근은 계속 프로젝트 권한과
 `project_id` 범위로 서버에서 제한하며 다른 프로젝트의 데이터 권한을 확장하지 않는다.
+
+### Survey 최종 속성 저장 계약
+
+원본 raw_x/raw_y/raw_z/raw_crs는 보존하며, 서버가 survey_no/type/x/y/z를
+확정한다. geom은 EPSG:4326, 평면 X는 Easting, Y는 Northing이다. 위경도
+입력의 최종 평면좌표는 명시적 또는 검증된 프로젝트 Source의 투영 CRS를 사용하며
+임의의 TM 구역을 기본값으로 두지 않는다. 번호는 프로젝트·측량일 기준으로 잠금과
+고유 제약을 적용하고 Source revision 시 유지한다. 상세 규칙·운영 조사·검증 상태는
+[Survey lineage contract](gis-survey-lineage-contract-v1.md)를 따른다.
