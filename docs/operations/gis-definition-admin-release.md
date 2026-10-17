@@ -59,3 +59,11 @@ DB-free GIS regression 및 실제 원격 heredoc bash 구문 검증을 유지한
   키 값은 저장소에 기록하지 않는다. 발급 서비스 도메인은 실제 서비스 도메인과 일치해야 한다.
 - 배포 전 키 설정 확인, 배포 시 collectstatic, 로그인 검사 및 지도 타일 실응답을 확인한다.
 - DB 마이그레이션은 필요 없다. 이전 버전으로 코드 복귀 가능하다.
+
+## Survey 최종 필드 전환 검증
+
+Survey의 survey_no/type/x/y/z 읽기 전용 전환을 수행하는 배포에서는 중앙 정의
+inventory의 `--survey-final-readonly` 모드를 전후 동일하게 적용한다. 해당 5개 행의
+readonly=true와 updated_at 감사 변경만 예상하며, 나머지 속성·행·관계·건수는 기존처럼
+엄격하게 비교한다. 다른 배포의 기본 비교는 변경하지 않는다. 실제 DB 적용 및 남은
+운영 검증 결과는 [Survey 계약](../architecture/gis-survey-lineage-contract-v1.md)에 기록한다.

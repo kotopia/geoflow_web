@@ -808,3 +808,26 @@ out the same application code. A file-only diff cannot establish DB readiness.
 The command rechecks additive schema shape on apply, keeps original backups,
 and can safely resume partially completed tenant deployment. Recovery results
 remain pending until the protected production run and smoke succeed.
+
+### 2026-10-17 applied DB state and definition verification
+
+Run `38887530489` successfully applied migration 0046 to all three tenants and
+committed the Survey backfill: 367 numbers, 32 recognized measurement methods,
+and longitude/latitude on 22 points. It examined 389 points and changed all 389
+for at least one of those fields. Dates remain unknown on 22 points; methods
+remain unknown on 357. Existing planar/height/raw values were preserved. A second
+backfill pass after restart changed zero rows across all five populated projects.
+
+The later central definition inventory rejected the intentional readonly changes
+on the five derived Survey fields. Code and DB changes remain applied; the
+failure handler restarted the service. Upload/Delta/materialized-package
+production smoke had not yet executed, so full production verification is pending.
+
+The inventory's explicit `--survey-final-readonly` transition mode fingerprints
+the expected readonly=true state for exactly survey_no/type/x/y/z of the Survey
+layer and permits their updated_at audit changes. Compare still requires actual
+readonly=true, unchanged counts, all other attributes and every other inventoried
+row/table. The default code-only inventory remains fully strict. The workflow
+uses the same explicit mode before and after an authorized Survey transition;
+it does not skip or globally relax definition comparison. Real PostGIS tests
+accept those five changes and reject wrong readonly values or unrelated edits.

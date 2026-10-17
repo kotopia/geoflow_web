@@ -378,10 +378,14 @@ jobs:
             survey_final_pending=no) ;;
             *) fail 'survey_final_schema_status_invalid' ;;
           esac
+          survey_inventory_args=()
+          if [ "$survey_final_required" = yes ]; then
+            survey_inventory_args=(--survey-final-readonly)
+          fi
           backup_dir="/var/backups/geoflow/gis-central-ssot/$candidate_sha"
           sudo -n install -d -m 0700 -o "$(id -un)" "$backup_dir"
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
-            inspect_gis_definition_rows --write "$backup_dir/definition-row-counts-before.json"
+            inspect_gis_definition_rows --write "$backup_dir/definition-row-counts-before.json" "${survey_inventory_args[@]}"
           sudo -n systemctl stop "$service"
           if [ "$schema_transition_required" = yes ]; then
             # The command spans central and tenant databases. Once it starts an
@@ -471,7 +475,7 @@ jobs:
           "$python" "$repo/manage.py" smoke_gis_photo_catalog
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
-            inspect_gis_definition_rows --compare "$backup_dir/definition-row-counts-before.json"
+            inspect_gis_definition_rows --compare "$backup_dir/definition-row-counts-before.json" "${survey_inventory_args[@]}"
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_qgis_project_runtime
