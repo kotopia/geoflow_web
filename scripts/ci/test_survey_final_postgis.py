@@ -30,6 +30,7 @@ from geoflow_ops.gis.gpkg_snapshot_file import build_project_geopackage_file
 from geoflow_ops.gis.qgis_sync import SyncRejected
 from control.management.commands.deploy_gis_survey_lineage import survey_elevation_count
 from control.management.commands.deploy_gis_survey_final_fields import final_fields_pending
+from control.management.commands.inspect_gis_definition_rows import inventory, TABLES
 
 
 def bootstrap():
@@ -42,6 +43,15 @@ def bootstrap():
             spec = importlib.util.spec_from_file_location(name, ROOT/'geoflow_ops/migrations'/f'{name}.py')
             module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
             c.execute(module.Migration.operations[0].sql)
+        c.execute('CREATE TABLE gis.definition_layer(id uuid PRIMARY KEY,physical_name text,label text)')
+        c.execute('CREATE TABLE gis.definition_field(id uuid PRIMARY KEY,source_layer_id uuid,physical_name text,label text,readonly boolean,updated_at timestamptz DEFAULT now())')
+        for table in TABLES:
+            if table not in ('definition_layer','definition_field'):
+                c.execute(f'CREATE TABLE gis.{table}(id uuid PRIMARY KEY,payload jsonb)')
+        layer=str(uuid4())
+        c.execute("INSERT INTO gis.definition_layer VALUES (%s,'survey','Survey')",[layer])
+        for name in ('survey_no','type','x','y','z','raw_x'):
+            c.execute('INSERT INTO gis.definition_field(id,source_layer_id,physical_name,label,readonly) VALUES (%s,%s,%s,%s,false)',[str(uuid4()),layer,name,name])
         # Current live stores omit this optional legacy foundation column.
         c.execute('ALTER TABLE gis.survey DROP COLUMN survey_code')
         c.execute("CREATE TABLE django_migrations(app text,name text,applied timestamptz)")
@@ -78,6 +88,27 @@ class SurveyFinalTests(unittest.TestCase):
 
     def run_import(self, payload):
         return import_survey_source('default',project_id=self.project,payload=payload)
+
+    def test_inventory_accepts_only_authorized_five_field_transition(self):
+        with transaction.atomic():
+            with connections['default'].cursor() as c:
+                baseline=inventory(c,survey_final_readonly=True,expected_transition=True)
+                c.execute("UPDATE gis.definition_field SET readonly=true,updated_at=now() WHERE physical_name IN ('survey_no','type','x','y','z')")
+                self.assertEqual(inventory(c,survey_final_readonly=True),baseline)
+                c.execute("UPDATE gis.definition_field SET readonly=false WHERE physical_name='x'")
+                self.assertNotEqual(inventory(c,survey_final_readonly=True),baseline)
+                c.execute("UPDATE gis.definition_field SET readonly=true WHERE physical_name='x'")
+                c.execute("UPDATE gis.definition_field SET label='unexpected' WHERE physical_name='raw_x'")
+                self.assertNotEqual(inventory(c,survey_final_readonly=True),baseline)
+            transaction.set_rollback(True)
+
+    def test_default_inventory_remains_strict(self):
+        with transaction.atomic():
+            with connections['default'].cursor() as c:
+                baseline=inventory(c)
+                c.execute("UPDATE gis.definition_field SET readonly=true WHERE physical_name='type'")
+                self.assertNotEqual(inventory(c),baseline)
+            transaction.set_rollback(True)
 
     def test_operational_inventory_without_legacy_survey_code(self):
         with connections['default'].cursor() as c:
