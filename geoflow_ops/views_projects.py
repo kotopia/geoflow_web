@@ -58,6 +58,11 @@ class ProjectListView(ListView):
         visible_ids = policy.visible_project_ids()
         if visible_ids is not None:
             queryset = queryset.filter(pk__in=visible_ids)
+        if self.request.GET.get("overview") == "1":
+            from .services.dashboard import workflow_map, filter_records
+            rows = list(queryset.order_by("-contract__code", "contract__name"))
+            summaries = workflow_map(self.request, alias, [p.contract for p in rows if p.contract_id])
+            return filter_records(rows, summaries, self.request.GET, projects=True)
         return queryset.order_by("-contract__code", "contract__name")
 
     def get_context_data(self, **kwargs):

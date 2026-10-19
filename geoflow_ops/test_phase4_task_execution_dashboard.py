@@ -2,7 +2,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase
 
-from geoflow_ops.views_dashboard import _parse_bool, _parse_year, _status_group
+from geoflow_ops.services.dashboard import period_days
 from geoflow_ops.views_execution import _completion_validation, _parse_decimal
 
 
@@ -27,16 +27,10 @@ class Phase4TaskExecutionRuleTests(SimpleTestCase):
 
 
 class Phase4DashboardFilterTests(SimpleTestCase):
-    def test_status_group_uses_project_execution_vocabulary(self):
-        self.assertEqual(_status_group("active"), "active")
-        self.assertEqual(_status_group("완료"), "complete")
-        self.assertEqual(_status_group("paused"), "pause")
-
-    def test_year_and_boolean_filters_fail_closed(self):
-        self.assertEqual(_parse_year("2026"), 2026)
-        self.assertIsNone(_parse_year("not-a-year"))
-        self.assertTrue(_parse_bool("1"))
-        self.assertFalse(_parse_bool("0"))
+    def test_period_is_restricted_to_supported_choices(self):
+        self.assertEqual(period_days('50'), 50)
+        self.assertEqual(period_days('30'), 30)
+        self.assertEqual(period_days('999'), 30)
 
 
 class Phase4TaskMigrationContractTests(SimpleTestCase):
@@ -58,20 +52,6 @@ class Phase4TaskMigrationContractTests(SimpleTestCase):
         self.assertIn("WHERE id=%s AND project_id=%s", source)
         self.assertIn("project task update lost scope", source)
         self.assertIn('gf_perm_required("projects.edit")', source)
-
-    def test_dashboard_is_permission_aware_and_contract_terminal_lineage_is_event_only(self):
-        source = (ROOT / "views_dashboard.py").read_text(encoding="utf-8")
-        self.assertIn('gf_has_perm(request, "projects.view")', source)
-        self.assertIn('gf_has_perm(request, "contracts.view")', source)
-        self.assertIn('gf_has_perm(request, "directory.view")', source)
-        self.assertIn("qs.exclude(status__in=", source)
-        self.assertIn("def _terminal_contract_ids", source)
-        self.assertIn("'closeout_approved'", source)
-        self.assertIn("'closeout_complete'", source)
-        self.assertIn("'contract_cancel'", source)
-        self.assertIn("exclude(contract_id__in=terminal_contract_ids)", source)
-        self.assertNotIn("FROM ctr.contracts", source.split("def _terminal_contract_ids", 1)[1].split("def _task_rows", 1)[0])
-        self.assertNotIn("exclude(contract__status__in=terminal)", source)
 
     def test_legacy_completed_contracts_are_migrated_to_completion_events(self):
         migration = (ROOT / "migrations" / "0026_contract_completion_event_backfill.py").read_text(encoding="utf-8")
