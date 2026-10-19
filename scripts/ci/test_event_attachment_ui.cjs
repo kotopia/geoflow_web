@@ -46,6 +46,7 @@ for (const domain of ['contract', 'project']) {
     {title: 'Completion', occurred_at: '2025-05-20'},
     {title: 'Invoice', occurred_at: '2026-05-20'}
   ];
+  events.reverse(); // API returns newest event date, then newest creation time first.
   const ctx = {payload: {events}, visibleList: node(), visibleEmpty: node(),
     document: {createElement: node}, stageLabels: {}, typeLabels: {}, window: {},
     formatContractEventDate: value => value, formatProjectEventDate: value => value};
@@ -54,7 +55,8 @@ for (const domain of ['contract', 'project']) {
   vm.runInContext(render, ctx);
   const titles = () => ctx.visibleList.children.map(item => item.children[1].textContent);
   assert.deepEqual(titles(), events.map(ev => ev.title), path);
-  events[1].updated_at = '2026-10-19T12:00:00Z';
+  assert.deepEqual(titles(), ['Invoice', 'Completion', 'Kickoff', 'Contract', 'Late entry, earlier event']);
+  events.find(ev => ev.title === 'Contract').updated_at = '2026-10-19T12:00:00Z';
   vm.runInContext(render, ctx);
   assert.deepEqual(titles(), events.map(ev => ev.title), path + ' after edit');
   ctx.payload.events = [];

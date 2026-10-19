@@ -34,10 +34,11 @@ from .services.finance_access import has_event_finance_permission
 
 logger = logging.getLogger(__name__)
 
-# Shared timeline order. Undated legacy rows retain their creation-date fallback.
+# Newest first, including creation time within the same event date.
+# Undated legacy rows retain their creation-date fallback.
 EVENT_TIMELINE_ORDER = (
-    Coalesce("occurred_at", Cast("created_at", DateField())).asc(),
-    "created_at",
+    Coalesce("occurred_at", Cast("created_at", DateField())).desc(),
+    "-created_at",
     Case(When(scope_type="contract", then=Value(0)), default=Value(1), output_field=IntegerField()),
     "id",
 )
