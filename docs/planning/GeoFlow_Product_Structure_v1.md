@@ -107,6 +107,8 @@
 
 ### 관리자 종합 현황
 
+- 배포: 대시보드 view/service/template/JS 및 달력 API 변경은 기존 `phase4-workboard-production-deploy.yml` 코드 배포 경로를 사용한다. 기존 production Environment와 현재 release SHA 검증·롤백·서비스 정상 응답 확인을 유지한다.
+
 - 원본: tenant `ctr.contracts`, `prj.projects`, `ops.process_events`, 프로젝트 담당자는 활성 `prj.project_members`의 `project_manager`. 별도 대시보드 저장소는 없다.
 - 진입은 기존 `tenant_home`의 로그인·tenant 확인을 유지한다. 각 영역은 `contracts.view`, `projects.view`, `directory.view`를 확인하며 프로젝트는 기존 `project_access_policy.visible_project_ids()`를 따른다. 목록의 회사/지점 범위보다 확대하지 않는다.
 - 전체 기간의 열람 가능 계약/프로젝트를 두 카드에 집계한다. 이벤트 기반 `contract_workflow_summaries`를 그대로 사용한다. 기존 `pause`는 **준공** 필터이므로 중지로 계산하지 않는다. 2026-10-19 사용자 결정에 따라 중지 집계는 이번 범위에서 제외하며 중지 상태를 추정하는 규칙도 추가하지 않는다. 카드에는 전체·진행·완료만 표시하고 준비·계약·준공 등은 기타 단계로 안내한다.
