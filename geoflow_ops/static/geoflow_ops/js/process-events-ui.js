@@ -279,7 +279,7 @@
         remove.className = 'btn btn-sm btn-outline-danger';
         remove.textContent = '삭제';
         remove.addEventListener('click', function() {
-          if (!confirm('첨부파일을 삭제할까요?')) return;
+          if (!confirm('첨부파일 "' + (att.original_name || att.id || '파일') + '"을 삭제할까요?')) return;
           window.deleteAttachment(att.id, config.csrfToken)
             .then(function() { return loadEvents(true); })
             .catch(function() { showAlert('첨부파일 삭제에 실패했습니다.'); });
@@ -375,11 +375,8 @@
     var empty = document.querySelector(config.timelineEmptySelector);
     if (!list) return;
     list.replaceChildren();
-    var arr = (events || []).slice().sort(function(a, b) {
-      var ad = a.occurred_at || a.created_at || '';
-      var bd = b.occurred_at || b.created_at || '';
-      return bd > ad ? 1 : (bd < ad ? -1 : 0);
-    });
+    // Preserve the canonical server timeline order.
+    var arr = (events || []).slice();
     if (!arr.length) {
       if (empty) empty.classList.remove('d-none');
       return;

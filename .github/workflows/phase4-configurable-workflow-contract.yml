@@ -81,10 +81,13 @@ jobs:
             geoflow_ops/test_phase4_settings_workflow_fixes.py \
             geoflow_ops/test_phase4_workflow_handoff.py
           node --check geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
+          node --check geoflow_ops/static/geoflow_ops/js/process-events-ui.js
+          node scripts/ci/test_event_attachment_ui.cjs
 
       - name: Run configurable workflow regressions
         run: |
           python manage.py test \
+            geoflow_ops.test_event_timeline_order \
             geoflow_ops.test_phase4_settings_workflow_fixes \
             geoflow_ops.test_phase4_workflow_handoff \
             geoflow_ops.test_phase4_project_participation_scope \

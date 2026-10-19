@@ -8,6 +8,8 @@ from uuid import UUID
 
 from django.contrib.auth.decorators import login_required
 from django.db import connections
+from django.db.models import Case, When, Value, IntegerField, DateField
+from django.db.models.functions import Coalesce, Cast
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -31,6 +33,14 @@ from .services.entity_access import (
 from .services.finance_access import has_event_finance_permission
 
 logger = logging.getLogger(__name__)
+
+# Shared timeline order. Undated legacy rows retain their creation-date fallback.
+EVENT_TIMELINE_ORDER = (
+    Coalesce("occurred_at", Cast("created_at", DateField())).asc(),
+    "created_at",
+    Case(When(scope_type="contract", then=Value(0)), default=Value(1), output_field=IntegerField()),
+    "id",
+)
 
 ALLOWED_SCOPE_TYPES = {"contract", "project", "employee", "orgunit"}
 ALLOWED_STATUSES = {"draft", "open", "done", "void"}
@@ -326,7 +336,7 @@ def list_events(request):
     if not authorize_scope_read(request, alias, scope_type, scope_id):
         return _json_error("Forbidden", status=403)
     try:
-        events = list(ProcessEvent.objects.using(alias).filter(scope_type=scope_type, scope_id=scope_id).order_by("stage", "occurred_at", "created_at"))
+        events = list(ProcessEvent.objects.using(alias).filter(scope_type=scope_type, scope_id=scope_id).order_by(*EVENT_TIMELINE_ORDER))
         result = []
         for event in events:
             if not can_read_event(request, alias, event):
