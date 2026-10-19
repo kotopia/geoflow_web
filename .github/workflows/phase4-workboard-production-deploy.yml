@@ -11,6 +11,7 @@ on:
       - geoflow_ops/views_calendar.py
       - geoflow_ops/templates/geoflow_ops/home.html
       - geoflow_ops/static/geoflow_ops/js/admin-overview.js
+      - geoflow_ops/views_events.py
       - geoflow_ops/views_workboard.py
       - geoflow_ops/event_security_views.py
       - geoflow_ops/upload_guard_views.py

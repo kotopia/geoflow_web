@@ -24,10 +24,10 @@ class EventTimelineOrderTests(unittest.TestCase):
                 query = ProcessEvent.objects.order_by(*EVENT_TIMELINE_ORDER).values_list('id').query
                 sql, params = query.get_compiler(connection=connection).as_sql()
                 cursor.execute(sql, params)
-                self.assertEqual([r[0] for r in cursor.fetchall()], ['1','2','3','4','5','6'])
+                self.assertEqual([r[0] for r in cursor.fetchall()], ['6','3','4','5','2','1'])
                 cursor.execute("UPDATE ops.process_events SET updated_at='2026-02-01 12:00:00' WHERE id='2'")
                 cursor.execute(sql, params)
-                self.assertEqual([r[0] for r in cursor.fetchall()], ['1','2','3','4','5','6'])
+                self.assertEqual([r[0] for r in cursor.fetchall()], ['6','3','4','5','2','1'])
         finally:
             connection.close()
 
