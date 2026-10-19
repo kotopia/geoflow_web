@@ -299,11 +299,7 @@
             });
           });
 
-          var events = (payload.events || []).slice().sort(function(a, b) {
-            var ad = a.occurred_at || a.created_at || '';
-            var bd = b.occurred_at || b.created_at || '';
-            return bd > ad ? 1 : (bd < ad ? -1 : 0);
-          });
+          var events = (payload.events || []).slice(); // Preserve canonical server timeline order.
 
           visibleList.replaceChildren();
           if (!events.length) {
