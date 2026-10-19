@@ -241,7 +241,7 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
     } else if (hasDT) {
       dt = $("#"+tableId).DataTable({
         responsive:true, paging:true, deferRender:true, stateSave:false,
-        order:[[0,'desc']], pageLength:15, lengthMenu:[15,30],
+        order: new URLSearchParams(window.location.search).has('ending_days') ? [[4,'asc']] : [[0,'desc']], pageLength:15, lengthMenu:[15,30],
         language: {
           lengthMenu: "_MENU_개씩 보기",
           info: "총 _TOTAL_개 중 _START_–_END_",
@@ -259,6 +259,8 @@ GeoFlow.utils.sortOptionsByCompany = function (items) {
     var cont = document.querySelector(statusSel);
     var previousCompletedToggle = hasCompletedYearFilter ? document.getElementById("showPreviousCompleted") : null;
     var currentYear = parseInt(tableEl.getAttribute("data-current-year"), 10);
+    var overviewLink = new URLSearchParams(window.location.search).get('overview') === '1';
+    if (previousCompletedToggle && overviewLink) previousCompletedToggle.checked = true;
     var showPreviousCompleted = !!(previousCompletedToggle && previousCompletedToggle.checked);
 
     function passesCompletedYearFilter(row){

@@ -105,6 +105,19 @@
 
 메뉴 노출은 역할과 permission에 따라 달라지지만, 메뉴가 보이지 않는 것과 서버 접근이 거부되는 것은 별도로 구현·검증한다.
 
+### 관리자 종합 현황
+
+- 원본: tenant `ctr.contracts`, `prj.projects`, `ops.process_events`, 프로젝트 담당자는 활성 `prj.project_members`의 `project_manager`. 별도 대시보드 저장소는 없다.
+- 진입은 기존 `tenant_home`의 로그인·tenant 확인을 유지한다. 각 영역은 `contracts.view`, `projects.view`, `directory.view`를 확인하며 프로젝트는 기존 `project_access_policy.visible_project_ids()`를 따른다. 목록의 회사/지점 범위보다 확대하지 않는다.
+- 전체 기간의 열람 가능 계약/프로젝트를 두 카드에 집계한다. 이벤트 기반 `contract_workflow_summaries`를 그대로 사용한다. 기존 `pause`는 **준공** 필터이므로 중지로 계산하지 않는다. 현재 중지 상태 판정 규칙이 없어 중지는 `—`로 명시하고, 준비·계약·준공 등은 기타 단계로 안내한다. 현재 중지 집계는 미결정 사항이다.
+- 숫자 링크의 `overview=1&overview_status=...`와 종료 예정 전체 보기의 `ending_days`는 공통 `services/dashboard.py`의 동일 필터를 사용한다. 전체 기간 링크는 기존 목록의 과거 완료 숨김을 해제한다.
+- 종료 예정은 오늘~30일(기본)/50일 **양끝 포함**, 이벤트 기준 미완료, 종료일 오름차순·ID 순이다. null/과거 종료일은 제외한다. 5개만 대시보드로 전달한다.
+- 종료일 원본은 현재 상세/목록과 동일한 **계약의 `end_date`**다. 계약 편집으로 변경한 종료일은 즉시 반영된다. 프로젝트의 초기 복사 날짜나 이벤트 payload로 임의 추정하지 않는다. 현재 계약변경 이벤트가 날짜를 자동 변경하는 별도 공통 계산기는 없다.
+- 달력은 기존 AdminKit FullCalendar를 사용한다. `calendar_enabled`인 실제 이벤트만 월 범위로 조회하고 정확한 이벤트 권한을 확인한다. 예정/완료 이력을 구분하며 event ID당 한 번만 표시한다. 계약 종료일을 별도 합성 일정으로 추가하지 않는다. 월 최대 2,000개 초과 시 일부를 조용히 누락하지 않고 조회 실패로 알린다.
+- 일별 인력 배치/출근 기록은 확인되지 않아 빈 상태다. 프로젝트 참여자와 범위 담당자를 오늘 근무 중인 직원으로 추정하지 않는다.
+- UI는 기존 `base_tenant.html`, AdminKit `light.css`, 카드·표·버튼·배지 및 기존 FullCalendar를 사용한다. 로딩/없음/실패를 구분한다.
+- 검증 화면은 실제 Django 템플릿과 저장소 UI 자산에 검증용 데이터를 넣어 렌더링한 캡처다. 운영 계정 화면 검증·배포 완료를 의미하지 않는다.
+
 ## 6. 중앙 User와 Tenant `employee_profile` 관계
 
 ### 6.1 역할 구분

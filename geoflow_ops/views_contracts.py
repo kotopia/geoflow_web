@@ -68,6 +68,11 @@ class ContractListView(ListView):
 
     def get_queryset(self):
         alias = _alias(self.request)
+        if self.request.GET.get("overview") == "1":
+            from .services.dashboard import workflow_map, filter_records
+            rows = list(Contract.objects.using(alias).select_related("client", "sub_client", "org_unit").order_by("-code", "name"))
+            summaries = workflow_map(self.request, alias, rows)
+            return filter_records(rows, summaries, self.request.GET)
         return (
             Contract.objects.using(alias)
             .select_related("client", "sub_client", "org_unit")

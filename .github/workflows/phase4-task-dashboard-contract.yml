@@ -69,5 +69,22 @@ jobs:
       - name: Run task dashboard regressions
         run: |
           python manage.py test \
+            geoflow_ops.test_admin_overview \
             geoflow_ops.test_phase4_task_execution_dashboard \
             geoflow_ops.test_tenant_route_authorization_contract
+
+      - name: Render actual AdminKit templates and verify responsive calendar
+        env:
+          CHROME_CHANNEL: chrome
+        run: |
+          python scripts/ci/render_admin_overview.py
+          npm install --prefix /tmp/overview-browser --no-save playwright@1.55.0
+          NODE_PATH=/tmp/overview-browser/node_modules node scripts/ci/test_admin_overview_browser.cjs
+
+      - name: Upload dashboard browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-overview-screenshots
+          path: artifacts/admin-overview/*.png
+          if-no-files-found: error
