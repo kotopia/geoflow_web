@@ -22,7 +22,7 @@ from .services.entity_access import (
     require_tenant_context,
 )
 from .services.finance_access import has_event_finance_permission
-from .views_events import _event_payload
+from .views_events import EVENT_TIMELINE_ORDER, _event_payload
 
 
 def _parse_uuid(value):
@@ -165,7 +165,7 @@ def workboard_event_list(request):
         ProcessEvent.objects.using(alias)
         .filter(event_filter)
         .exclude(status="void")
-        .order_by("stage", "occurred_at", "created_at")
+        .order_by(*EVENT_TIMELINE_ORDER)
     )
     # The requested timeline scope is not permission to read every linked row.
     # Filter before loading names and attachment metadata.
