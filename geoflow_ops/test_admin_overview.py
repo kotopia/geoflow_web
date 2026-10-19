@@ -37,7 +37,7 @@ class OverviewTests(SimpleTestCase):
             if metric['url']:
                 key=metric['url'].split('overview_status=')[1]
                 self.assertEqual(metric['value'],len(filter_records(self.projects,self.states,{'overview_status':key},projects=True)))
-        self.assertIsNone(card['metrics'][2]['value'])
+        self.assertEqual([m['label'] for m in card['metrics']], ['전체', '진행', '완료'])
         self.assertEqual(card['other'],1)
 
     @patch('geoflow_ops.services.dashboard.Project')

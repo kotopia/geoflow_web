@@ -53,7 +53,7 @@ def summary_card(label, url, rows, summaries, *, projects=False):
         state = summaries.get(str(contract.id), {}) if contract else {}
         counts[state.get('filter_key', 'other')] += 1
     metrics = []
-    for key, name in [('all', '전체'), ('active', '진행'), ('suspended', '중지'), ('complete', '완료')]:
-        metrics.append({'label': name, 'value': None if key == 'suspended' else len(rows) if key == 'all' else counts[key],
-                        'url': None if key == 'suspended' else url + '?overview=1&overview_status=' + key})
+    for key, name in [('all', '전체'), ('active', '진행'), ('complete', '완료')]:
+        metrics.append({'label': name, 'value': len(rows) if key == 'all' else counts[key],
+                        'url': url + '?overview=1&overview_status=' + key})
     return {'label': label, 'metrics': metrics, 'other': sum(v for k,v in counts.items() if k not in {'active','complete'})}
