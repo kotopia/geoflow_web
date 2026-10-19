@@ -1,10 +1,9 @@
 """Read-only overview using the same lifecycle and visibility as existing lists."""
 from collections import Counter
 from datetime import timedelta
-from django.urls import reverse
 from django.utils import timezone
 from control.gf_authz.permissions import gf_has_perm
-from geoflow_ops.models import Contract, Project
+from geoflow_ops.models import Project
 from .project_access import project_access_policy
 from .workflow_state import contract_workflow_summaries
 

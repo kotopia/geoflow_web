@@ -1,6 +1,5 @@
 """Compact tenant overview; does not grant any new business permissions."""
 import logging
-from datetime import date
 from django.db import DatabaseError
 from django.shortcuts import render
 from django.urls import reverse
