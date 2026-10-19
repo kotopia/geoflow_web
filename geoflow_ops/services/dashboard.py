@@ -21,9 +21,8 @@ def visible_projects(request, alias):
 
 
 def workflow_map(request, alias, contracts):
-    # Request-only cache shared with the existing list template tag.
-    result = contract_workflow_summaries(alias, contracts, request=request)
-    return result
+    # One shared batch for both cards and the due-project table.
+    return contract_workflow_summaries(alias, contracts, request=request)
 
 
 def filter_records(rows, summaries, params, *, projects=False, today=None):

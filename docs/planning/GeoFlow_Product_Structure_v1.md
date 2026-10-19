@@ -116,6 +116,7 @@
 - 달력은 기존 AdminKit FullCalendar를 사용한다. `calendar_enabled`인 실제 이벤트만 월 범위로 조회하고 정확한 이벤트 권한을 확인한다. 예정/완료 이력을 구분하며 event ID당 한 번만 표시한다. 계약 종료일을 별도 합성 일정으로 추가하지 않는다. 월 최대 2,000개 초과 시 일부를 조용히 누락하지 않고 조회 실패로 알린다.
 - 일별 인력 배치/출근 기록은 확인되지 않아 빈 상태다. 프로젝트 참여자와 범위 담당자를 오늘 근무 중인 직원으로 추정하지 않는다.
 - UI는 기존 `base_tenant.html`, AdminKit `light.css`, 카드·표·버튼·배지 및 기존 FullCalendar를 사용한다. 로딩/없음/실패를 구분한다.
+- 자동 검증: 요약/목록 공통 필터, 30/50일 경계·누락·완료 제외, 계약 종료일 수정 반영, tenant/project 및 일정 담당자 권한, PC/390px 달력 선택·JS 오류·표 가독성. [검증 화면 캡처](https://github.com/kotopia/geoflow_web/actions/runs/39244236583/artifacts/12182462688).
 - 검증 화면은 실제 Django 템플릿과 저장소 UI 자산에 검증용 데이터를 넣어 렌더링한 캡처다. 운영 계정 화면 검증·배포 완료를 의미하지 않는다.
 
 ## 6. 중앙 User와 Tenant `employee_profile` 관계

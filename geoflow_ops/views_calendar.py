@@ -42,12 +42,10 @@ def calendar_events(request):
                  | Q(due_at__isnull=True, payload__display__end_at__gte=start.isoformat(), payload__display__end_at__lt=end.isoformat()))
     if overview:
         query &= Q(payload__display__calendar_enabled=True, scope_type__in=['contract', 'project'])
-    rows = (
-        ProcessEvent.objects.using(alias)
-        .filter(query)
-        .exclude(status="void")
-        .order_by("occurred_at", "created_at", "id")[:2001 if overview else 2000]
-    )
+    rows = ProcessEvent.objects.using(alias)
+    if query:
+        rows = rows.filter(query)
+    rows = rows.exclude(status="void").order_by("occurred_at", "created_at", "id")[:2001 if overview else 2000]
     if overview:
         rows = list(rows)
         if len(rows) > 2000:
