@@ -42,7 +42,7 @@
         }).catch(function (error) { if (currentRequest !== requestId) { failure(error); return; } loading = false; events = []; failure(error); status.textContent = '일정 조회에 실패했습니다. 월을 다시 선택해 주세요.'; details.textContent = '일정을 조회하지 못했습니다.'; });
       },
       eventContent: function (info) {
-        var node = document.createElement('span'); node.className = 'small';
+        var node = document.createElement('span'); node.className = 'small text-body';
         var kinds = {};
         info.event.extendedProps.items.forEach(function (row) {
           var props = row.extendedProps;

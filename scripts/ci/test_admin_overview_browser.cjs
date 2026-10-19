@@ -8,6 +8,6 @@ await page.goto('http://preview.local/');await page.waitForSelector('.fc-daygrid
 if(!(await page.locator('#calendar-details').innerText()).includes('검증용 프로젝트 1')) throw Error('initial date not selected');
 await page.locator('[data-date="2026-10-20"]').first().click();if(!(await page.locator('#selected-date').innerText()).includes('2026-10-20'))throw Error('date selection failed');
 await page.locator('[data-date="2026-10-19"]').first().click();
-await page.setViewportSize({width:390,height:844});await page.reload();await page.waitForSelector('.fc-daygrid-day');await page.waitForTimeout(500);await page.screenshot({path:'artifacts/admin-overview/mobile.png',fullPage:true});if(failures.length) throw Error(failures.join('; '));
+await page.setViewportSize({width:390,height:844});await page.reload();await page.waitForSelector('.fc-daygrid-day');await page.waitForTimeout(500);await page.screenshot({path:'artifacts/admin-overview/mobile.png',fullPage:true});if(await page.locator('.table-hover tbody tr').first().evaluate(el=>el.getBoundingClientRect().height>80))throw Error('mobile table wraps unreadably');if(failures.length) throw Error(failures.join('; '));
 if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth || document.getElementById('overview').getBoundingClientRect().right>innerWidth))throw Error('mobile horizontal overflow');
 console.log(JSON.stringify({pageErrors:failures,viewport:await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth})),calendarSelection:'pass'}));await browser.close();})();

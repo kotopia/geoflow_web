@@ -1,6 +1,7 @@
 {% extends "geoflow_ops/base_tenant.html" %}
 {% load static humanize %}
 {% block title %}관리자 종합 현황 | GeoFlow{% endblock %}
+{% block extra_head %}{{ block.super }}<meta name="viewport" content="width=device-width, initial-scale=1">{% endblock %}
 {% block content %}
 <div id="overview" data-today="{{ today|date:'Y-m-d' }}" data-calendar-url="{% url 'tenant:calendar_events' %}">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -11,24 +12,24 @@
   <div class="row">
     {% for card in cards %}<div class="col-md-6"><div class="card"><div class="card-body">
       <h2 class="h5 card-title">{{ card.label }} 요약</h2><div class="row text-center">
-      {% for metric in card.metrics %}<div class="col-3"><div class="text-muted small mb-2">{{ metric.label }}</div>{% if metric.url %}<a class="h3 text-decoration-none" href="{{ metric.url }}">{{ metric.value|intcomma }}</a>{% else %}<span class="h3 text-muted" title="현재 중지 상태의 공통 판정 규칙이 없습니다">—</span>{% endif %}</div>{% endfor %}
-      </div><div class="small text-muted mt-3">준비·계약·준공 등 기타 단계 {{ card.other }}건 포함 · 중지는 현재 상태 판정 규칙 미정</div>
+      {% for metric in card.metrics %}<div class="col-3"><div class="text-muted small mb-2">{{ metric.label }}</div>{% if metric.url %}<a class="h3 text-decoration-none" href="{{ metric.url }}">{{ metric.value|intcomma }}</a>{% else %}<span class="h3 text-muted" title="중지 집계는 제공되지 않습니다">—</span>{% endif %}</div>{% endfor %}
+      </div><div class="small text-muted mt-3">준비·계약·준공 등 기타 단계 {{ card.other }}건 포함 · 중지 집계 미지원</div>
     </div></div></div>{% empty %}<div class="col-12"><div class="alert alert-info">계약·프로젝트 현황을 열람할 권한이 없습니다.</div></div>{% endfor %}
   </div>
   {% if can_view_projects %}<div class="card"><div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
     <h2 class="h5 card-title mb-0">종료 예정 프로젝트 <span class="text-muted small">{{ ending_count }}건</span></h2>
     <div class="btn-group btn-group-sm" role="group" aria-label="종료 예정 기간"><a href="?ending_days=30" class="btn btn-{% if days != 30 %}outline-{% endif %}primary">30일 이내</a><a href="?ending_days=50" class="btn btn-{% if days != 50 %}outline-{% endif %}primary">50일 이내</a></div>
   </div><div class="card-body pt-0"><p class="small text-muted">오늘부터 {{ days }}일 이내 · 미완료 · 현재 계약 종료일 기준 · 최대 5건</p>
-  <div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>프로젝트명</th><th>담당자</th><th>현재 상태</th><th>종료 예정일</th><th>남은 일수</th></tr></thead><tbody>
+  <div class="table-responsive"><table class="table table-hover mb-0 text-nowrap"><thead><tr><th>프로젝트명</th><th>담당자</th><th>현재 상태</th><th>종료 예정일</th><th>남은 일수</th></tr></thead><tbody>
   {% for row in ending_rows %}<tr><td><a href="{% url 'tenant:project_detail' row.id %}">{{ row.name }}</a></td><td>{{ row.manager }}</td><td><span class="badge {{ row.workflow.phase_class }}">{{ row.workflow.major_label|default:'미등록' }}</span></td><td class="text-nowrap">{{ row.end_date|date:'Y-m-d' }}</td><td class="text-nowrap">D-{{ row.days_left }}</td></tr>{% empty %}<tr><td colspan="5" class="text-muted text-center py-4">해당 기간에 종료 예정인 프로젝트가 없습니다.</td></tr>{% endfor %}
   </tbody></table></div><div class="text-end mt-3"><a href="{% url 'tenant:project_list' %}?overview=1&amp;ending_days={{ days }}" class="btn btn-outline-primary btn-sm">전체 보기 ({{ ending_count }})</a></div></div></div>{% endif %}
   {% endif %}
   <div class="card"><div class="card-header"><h2 class="h5 card-title mb-0">월간 일정</h2></div><div class="card-body pt-0">
-    <p class="small text-muted">캘린더에 추가한 실제 이벤트 · 단계별 색상 점: 예정 · 회색: 완료 이력</p>
+    <p class="small text-muted">등록된 업무 일정 · 색상 점: 예정 · 회색: 완료 이력</p>
     <div class="row g-4"><div class="col-lg-6"><div id="overview-calendar"></div><div id="calendar-status" class="small text-muted mt-2" role="status" aria-live="polite">일정을 불러오는 중…</div></div>
     <div class="col-lg-6"><h3 class="h5" id="selected-date">{{ today|date:'Y-m-d' }} 일정</h3><div id="calendar-details" aria-live="polite"></div></div></div>
   </div></div>
-  <div class="card"><div class="card-header"><h2 class="h5 card-title mb-0">오늘 인력 배치</h2></div><div class="card-body pt-0"><div class="table-responsive"><table class="table mb-0"><thead><tr><th>직원</th><th>프로젝트 또는 현장</th><th>업무·배치 시간</th></tr></thead><tbody><tr><td colspan="3" class="text-muted text-center py-4">{% if can_view_directory %}연결된 일별 인력 배치 데이터가 없습니다. 프로젝트 참여자를 오늘 배치 인원으로 간주하지 않습니다.{% else %}직원 정보를 열람할 권한이 없습니다.{% endif %}</td></tr></tbody></table></div></div></div>
+  <div class="card"><div class="card-header"><h2 class="h5 card-title mb-0">오늘 인력 배치</h2></div><div class="card-body pt-0"><div class="table-responsive"><table class="table mb-0"><thead><tr><th>직원</th><th>프로젝트 또는 현장</th><th>업무·배치 시간</th></tr></thead><tbody><tr><td colspan="3" class="text-muted text-center py-4">{% if can_view_directory %}등록된 일별 인력 배치 정보가 없습니다.{% else %}직원 정보를 열람할 권한이 없습니다.{% endif %}</td></tr></tbody></table></div></div></div>
 </div>
 {% endblock %}
 {% block scripts %}{{ block.super }}
