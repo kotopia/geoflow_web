@@ -147,7 +147,12 @@ class Command(BaseCommand):
 
                     # Build the actual authenticated project package before any
                     # rollback-only imports, so reusable caches never contain test rows.
-                    manifest = _json(call('GET',f'/gis/projects/{project_id}/api/qgis-manifest/'))
+                    manifest_response = call('GET',f'/gis/projects/{project_id}/api/qgis-manifest/')
+                    if manifest_response.status_code != 200:
+                        raise CommandError('survey_independent_manifest=unavailable')
+                    manifest = json.loads(manifest_response.content.decode('utf-8'))
+                    if not manifest.get('transport'):
+                        raise CommandError('survey_independent_manifest=invalid')
                     if any('survey_link' in key or 'reapply' in key for key in manifest.get('transport',{})):
                         raise CommandError('survey_independent_manifest=failed')
                     package_response = call('GET',f'/gis/projects/{project_id}/api/qgis-package/')
