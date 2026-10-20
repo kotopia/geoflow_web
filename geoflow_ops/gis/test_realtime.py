@@ -38,22 +38,6 @@ class GisRealtimeHelperTests(SimpleTestCase):
     def test_empty_applied_changes_do_not_publish_event(self):
         self.assertIsNone(build_project_change_event({"applied": []}))
 
-    def test_relation_event_keeps_resource_kind(self):
-        event = build_project_change_event(
-            {
-                "project_id": "11111111-1111-4111-8111-111111111401",
-                "current_revision": 20,
-                "applied": [{
-                    "revision": 20,
-                    "resource_kind": "relation",
-                    "action": "create",
-                    "layer": "SURVEY_LINK",
-                    "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-                }],
-            }
-        )
-        self.assertEqual(event["changes"][0]["resource_kind"], "relation")
-
     def test_feature_ids_are_canonicalized_and_deduplicated(self):
         values = _parse_feature_ids(
             "{3144cbeb-4b28-43fc-8a35-2938260b2318},3144cbeb-4b28-43fc-8a35-2938260b2318"

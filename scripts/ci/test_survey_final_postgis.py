@@ -22,15 +22,16 @@ import django
 django.setup()
 from django.db import connections, transaction, IntegrityError
 from django.test.utils import CaptureQueriesContext
-from geoflow_ops.gis.survey_sources import import_survey_source
+from geoflow_ops.gis.survey_sources import import_survey_source, delete_survey_points, delete_survey_source
 from geoflow_ops.gis.survey_final import decimal_input, survey_method
 from geoflow_ops.gis.survey_backfill import backfill_survey_project
-from geoflow_ops.gis.changeset import project_delta
+from geoflow_ops.gis.changeset import project_delta, apply_project_changeset, _reserve_receipt, _insert_change_log, _allocate_revisions
 from geoflow_ops.gis.gpkg_snapshot_file import build_project_geopackage_file
 from geoflow_ops.gis.qgis_sync import SyncRejected
 from control.management.commands.deploy_gis_survey_lineage import survey_elevation_count
 from control.management.commands.deploy_gis_survey_final_fields import final_fields_pending
 from control.management.commands.inspect_gis_definition_rows import inventory, TABLES
+from control.management.commands.deploy_gis_survey_target_removal import (migration as retirement_migration, pending as retirement_pending, preserved_inventory, backup_rows, apply_removal, restore)
 
 
 def bootstrap():
@@ -58,6 +59,11 @@ def bootstrap():
         c.execute("INSERT INTO django_migrations(app,name,applied) VALUES ('webgisapp','0046_gis_survey_final_fields',now())")
         sql = (ROOT/'docs/architecture/gis-sync-revision-v1.sql').read_text()
         c.execute(sql[sql.index('CREATE TABLE IF NOT EXISTS gis.project_sync_state'):sql.index('COMMIT;')])
+        c.execute(retirement_migration().FORWARD_SQL)
+        c.execute("INSERT INTO django_migrations(app,name,applied) VALUES ('webgisapp','0047_remove_survey_targets',now())")
+        for table in ('wtl_pipe_ps','wtl_valv_ps'):
+            c.execute(f'CREATE TABLE gis.{table}(id uuid PRIMARY KEY,project_id uuid NOT NULL,description text,geom geometry(Point,4326),created_at timestamptz DEFAULT now(),updated_at timestamptz DEFAULT now())')
+
 
 
 def plan():
@@ -260,6 +266,90 @@ class SurveyFinalTests(unittest.TestCase):
         self.assertEqual(sum('max(split_part(survey_no' in q.lower() for q in sql),1)
         self.assertEqual(sum('SELECT DISTINCT ON (s.source_row_id)' in q for q in sql),1)
         self.assertEqual(sum('SELECT id::text FROM hr.employee_profile' in q for q in sql),1)
+
+    def asset_plan(self, table='wtl_pipe_ps'):
+        layer_id='11111111-1111-4111-8111-111111111401'
+        fields=[{'id':str(uuid4()),'layer_id':layer_id,'field_name':name,'storage_data_type':kind,
+                 'storage':{'kind':'column','key':name},'readonly':name!='description','visible':True}
+                for name,kind in [('id','uuid'),('project_id','uuid'),('description','text')]]
+        return {'layers':[{'id':layer_id,'standard_name':table.upper(),'physical_name':table,'geometry_kind':'POINT'}],
+                'definition':{'revision':'independent'},'form_definition':{'revision':'independent','fields':fields}}
+
+    def create_asset(self, table='wtl_pipe_ps', survey_id=None):
+        feature=str(uuid4())
+        with connections['default'].cursor() as c:
+            if survey_id:
+                c.execute(f'INSERT INTO gis.{table}(id,project_id,geom) SELECT %s,project_id,geom FROM gis.survey WHERE id=%s',[feature,survey_id])
+            else:
+                c.execute(f'INSERT INTO gis.{table}(id,project_id,geom) VALUES (%s,%s,ST_SetSRID(ST_MakePoint(127,36),4326))',[feature,self.project])
+        return feature
+
+    def test_retirement_forward_reverse_and_data_recovery(self):
+        # Restore the historical schema only inside this disposable transaction.
+        with transaction.atomic():
+            point=self.run_import(self.payload())['points'][0]
+            asset=self.create_asset(survey_id=point['id'])
+            with connections['default'].cursor() as c:
+                c.execute(retirement_migration().REVERSE_SQL)
+                c.execute("INSERT INTO gis.survey_link(id,survey_id,layer_id,target_id,match_method) VALUES (%s,%s,%s,%s,'manual')",[str(uuid4()),point['id'],str(uuid4()),asset])
+            client, changes=str(uuid4()),str(uuid4())
+            _reserve_receipt('default',project_id=self.project,client_id=client,changeset_id=changes,actor_ref=None,base_revision=None)
+            first,_,_=_allocate_revisions('default',self.project,1)
+            _insert_change_log('default',project_id=self.project,revision=first,client_id=client,changeset_id=changes,
+                              standard_name='SURVEY_LINK',physical_name='survey_link',object_id=str(uuid4()),
+                              action='create',changed_fields=[],old_values={},new_values={},geom_before=None,geom_after=None,actor_ref=None)
+            with connections['default'].cursor() as c:
+                c.execute("UPDATE gis.changeset_receipt SET response_payload=%s::jsonb WHERE project_id=%s AND client_id=%s AND changeset_id=%s",['{"protocol":"survey_link_changeset_v1"}',self.project,client,changes])
+                before=preserved_inventory(c); rows=backup_rows(c)
+                self.assertEqual(len(rows['targets']),1)
+                apply_removal(c)
+                self.assertFalse(retirement_pending(c));self.assertEqual(preserved_inventory(c),before)
+                self.assertEqual(backup_rows(c)['targets'],[])
+                restore(c,{'preserved':before,'rows':rows})
+                self.assertTrue(retirement_pending(c));self.assertEqual(backup_rows(c),rows)
+                self.assertEqual(preserved_inventory(c),before)
+                apply_removal(c);apply_removal(c)
+                self.assertFalse(retirement_pending(c));self.assertEqual(preserved_inventory(c),before)
+            with patch('geoflow_ops.gis.changeset.changeset_runtime_enabled',return_value=True):
+                delta=project_delta('default',project_id=self.project,since_revision=first-1)
+                self.assertEqual(delta['changes'],[])
+                self.assertEqual(delta['next_revision'],first)
+            transaction.set_rollback(True)
+
+    def test_source_and_point_delete_do_not_change_assets(self):
+        for delete_source in (False,True):
+            point=self.run_import(self.payload())['points'][0]
+            self.create_asset(survey_id=point['id'])
+            with connections['default'].cursor() as c:
+                before=preserved_inventory(c)['wtl_pipe_ps']
+            if delete_source:
+                result=delete_survey_source('default',project_id=self.project,source_id=point['source_id'])
+            else:
+                result=delete_survey_points('default',project_id=self.project,survey_ids=[point['id']])
+            self.assertEqual(result['survey_points_deleted'],1)
+            with connections['default'].cursor() as c:
+                self.assertEqual(preserved_inventory(c)['wtl_pipe_ps'],before)
+            self.assertFalse(any('link' in k or 'depth_dependency' in k for k in result))
+
+    def test_facility_crud_has_no_target_sql_and_preserves_observations(self):
+        point=self.run_import(self.payload())['points'][0]
+        for table in ('wtl_pipe_ps','wtl_valv_ps'):
+            asset=self.create_asset(table,survey_id=point['id'])
+            with connections['default'].cursor() as c:
+                c.execute("SELECT encode(ST_AsBinary(geom),'hex') FROM gis.survey WHERE id=%s",[point['id']])
+                geometry=c.fetchone()[0];before=preserved_inventory(c)
+            new_asset=str(uuid4())
+            changes=[{'action':'create','layer':table.upper(),'id':new_asset,'attributes':{'description':'created'},'geometry_wkb':geometry},
+                     {'action':'update','layer':table.upper(),'id':asset,'attributes':{'description':'updated'}},
+                     {'action':'delete','layer':table.upper(),'id':asset}]
+            with patch('geoflow_ops.gis.changeset.changeset_runtime_enabled',return_value=True), CaptureQueriesContext(connections['default']) as captured:
+                responses=[apply_project_changeset('default',project_id=self.project,plan=self.asset_plan(table),payload={'client_id':str(uuid4()),'changeset_id':str(uuid4()),'changes':[change]}) for change in changes]
+            self.assertEqual(tuple(sum(r[key] for r in responses) for key in ('created','updated','deleted')),(1,1,1))
+            self.assertFalse(any('survey_link' in q['sql'].lower() for q in captured))
+            with connections['default'].cursor() as c:
+                after=preserved_inventory(c)
+            self.assertEqual(before['survey'],after['survey']);self.assertEqual(before['survey_source'],after['survey_source'])
+
 
 
 if __name__=='__main__':

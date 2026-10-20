@@ -23,7 +23,6 @@ Windows의 workspace-backup.zip은 이 작업 환경에 제공되지 않았으�
 - scope_binding/capability/capability_feature의 L2/L3/L4 및 공통·측량 레이어 연결 의미를 중앙에
   흡수한다. tenant에 별도 업무 규칙이나 중앙 실패 시 fallback을 남기지 않는다.
 - meta_feature_type는 로컬 FK/physical mapping만 필요한 최소 runtime registry로 축소하거나 대체한다.
-  표시명/폼/위젯/순서/업무범위 판단은 중앙에 둔다. 기존 survey_link/import_batch FK를 먼저 조사한다.
 - Project Definition/Override도 중앙 책임으로 확정한다. 기존 project_definition 선택정보 구조를
   재사용하되, 현재 tenant에 있는 행의 중앙 배치와 tenant/project 식별·권한 검증은 실제 DB 조사 후
   구체화한다. 프로젝트 본문을 옮기거나 최종 Definition을 프로젝트마다 복제하지 않는다.

@@ -1,10 +1,11 @@
-"""Rollback-only production smoke for Survey-linked facility deletion."""
+"""Rollback-only production smoke for independent facility deletion."""
 from __future__ import annotations
 
 from uuid import uuid4
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections, transaction
+from django.urls import resolve, Resolver404
 
 from control.models import GroupDBConfig
 from control.management.commands.smoke_gis_survey_source_upload import _tenant_alias
@@ -12,11 +13,10 @@ from geoflow_ops.gis.changeset import apply_project_changeset, project_current_r
 from geoflow_ops.gis import central_definitions
 from geoflow_ops.gis.layer_plan import project_layer_plan
 from geoflow_ops.gis.qgis_sync import _quote_ident
-from geoflow_ops.gis.survey_links import apply_survey_link_changeset
 
 
 class Command(BaseCommand):
-    help = "Verify linked facility delete policy in production and roll back every DB write"
+    help = "Verify independent facility delete policy in production and roll back every DB write"
 
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true")
@@ -26,6 +26,13 @@ class Command(BaseCommand):
             raise CommandError("Explicit --apply required")
         configs = (GroupDBConfig.objects.using("default").select_related("group")
                    .filter(group__status="active").exclude(db_alias="default").order_by("group_id"))
+        for suffix in ('survey-links/','survey-link-changesets/','qfield/survey-links/',
+                       'qfield/survey-link-changesets/','survey-reapply/','survey-reapply-preview/'):
+            try:
+                resolve('/gis/projects/11111111-1111-4111-8111-111111111401/api/'+suffix)
+            except Resolver404:
+                continue
+            raise CommandError('retired_target_route_still_resolves')
         results = None
         chosen = None
         for config in configs:
@@ -164,9 +171,8 @@ class Command(BaseCommand):
                         created.append((layer_id, table, standard, target_id))
                     return created
 
-                def run_case(name, source, count, linked_count):
+                def run_case(name, source, count):
                     with transaction.atomic(using=alias):
-                        link_ids = []
                         with connections[alias].cursor() as cur:
                             prepare_survey(cur)
                             selected = clone_targets(cur, source, count)
@@ -175,14 +181,6 @@ class Command(BaseCommand):
                                     "UPDATE gis.survey SET raw_code='SA900',code='SA900' WHERE id=%s",
                                     [survey_id],
                                 )
-                            for layer_id, _table, _standard, target_id in selected[:linked_count]:
-                                link_id = str(uuid4())
-                                cur.execute(
-                                    """INSERT INTO gis.survey_link(id,survey_id,layer_id,target_id,match_method,link_role,link_status)
-                                       VALUES (%s,%s,%s,%s,'manual','POINT','LINKED')""",
-                                    [link_id, survey_id, layer_id, target_id],
-                                )
-                                link_ids.append(link_id)
                         base = project_current_revision(alias, project_id)
                         response = apply_project_changeset(
                             alias, project_id=project_id, plan=plan,
@@ -197,10 +195,6 @@ class Command(BaseCommand):
                                 cur.execute(f'SELECT count(*) FROM "gis".{_quote_ident(table)} WHERE project_id=%s AND id=%s', [project_id, target_id])
                                 if cur.fetchone()[0]:
                                     raise CommandError(f"{name}=feature_retained")
-                            if link_ids:
-                                cur.execute("SELECT count(*) FROM gis.survey_link WHERE id=ANY(%s::uuid[]) AND link_status='UNLINKED'", [link_ids])
-                                if cur.fetchone()[0] != len(link_ids):
-                                    raise CommandError(f"{name}=provenance_not_detached")
                             cur.execute("SELECT count(*) FROM gis.survey WHERE id=%s AND deleted_at IS NULL", [survey_id])
                             if cur.fetchone()[0] != 1:
                                 raise CommandError(f"{name}=survey_changed")
@@ -208,43 +202,19 @@ class Command(BaseCommand):
                                 cur.execute("SELECT count(*) FROM gis.survey_source WHERE id=%s AND deleted_at IS NULL", [source_id])
                                 if cur.fetchone()[0] != 1:
                                     raise CommandError(f"{name}=source_changed")
+                        with connections[alias].cursor() as cur:
+                            cur.execute("SET CONSTRAINTS ALL IMMEDIATE")
                         transaction.set_rollback(True, using=alias)
                     return len(selected)
 
                 results = {
-                    "unlinked_single": run_case("unlinked_single", template, 1, 0),
-                    "linked_single": run_case("linked_single", template, 1, 1),
-                    "depth_single": run_case("depth_single", depth, 1, 1),
-                    "linked_10": run_case("linked_10", template, 10, 10),
-                    "mixed_20": run_case("mixed_20", template, 20, 10),
-                    "linked_38": run_case("linked_38", template, 38, 38),
+                    "ordinary_single": run_case("ordinary_single", template, 1),
+                    "survey_geometry_single": run_case("survey_geometry_single", template, 1),
+                    "depth_single": run_case("depth_single", depth, 1),
+                    "bulk_10": run_case("bulk_10", template, 10),
+                    "bulk_20": run_case("bulk_20", template, 20),
+                    "bulk_38": run_case("bulk_38", template, 38),
                 }
-
-                with transaction.atomic(using=alias):
-                    with connections[alias].cursor() as cur:
-                        prepare_survey(cur)
-                        old_target, new_target = clone_targets(cur, template, 2)
-                        old_link = str(uuid4())
-                        cur.execute(
-                            "INSERT INTO gis.survey_link(id,survey_id,layer_id,target_id,match_method,link_role,link_status) VALUES (%s,%s,%s,%s,'manual','POINT','LINKED')",
-                            [old_link, survey_id, old_target[0], old_target[3]],
-                        )
-                    deleted = apply_project_changeset(
-                        alias, project_id=project_id, plan=plan,
-                        payload={"client_id": str(uuid4()), "changeset_id": str(uuid4()),
-                                 "base_revision": project_current_revision(alias, project_id),
-                                 "changes": [{"action": "delete", "layer": old_target[2], "id": old_target[3]}]},
-                    )
-                    apply_survey_link_changeset(
-                        alias, project_id=project_id, plan=plan,
-                        payload={"client_id": str(uuid4()), "changeset_id": str(uuid4()),
-                                 "base_revision": deleted["current_revision"],
-                                 "changes": [{"action": "create", "id": str(uuid4()),
-                                              "survey_id": survey_id, "layer": new_target[2],
-                                              "target_id": new_target[3], "match_method": "manual"}]},
-                    )
-                    transaction.set_rollback(True, using=alias)
-                results["recreate"] = 1
                 chosen = alias
                 break
         if not results:

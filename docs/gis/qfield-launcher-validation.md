@@ -276,7 +276,6 @@ Subsequent development batches (not claimed complete):
 - Offline/reconnect and receive behavior: queue durability across app restart,
   retries and concurrent-edit conflict UX; choose bounded server-to-device change
   notification/polling and verify idle request rate and convergence together.
-- Field workflow: create/edit facilities and survey links, GNSS/attributes/photos
   against existing metadata and scoped storage routes.
 - Multi-user/scale and delivery: permissions/isolation, measured request/DB cost,
   large layer local polling, and QGIS/exports with realistic test data.
@@ -390,11 +389,9 @@ create acknowledgement plus follow-up update, remote attribute application and
 schema-mismatch rejection. 27 Python tests and 7 Node suites passed. Actual device
 create and reverse-direction attribute behavior still need acceptance testing.
 
-Scope boundary: survey points are regular SURVEY features, but gis.survey_link
 exists only in schema/seed/preflight in the current code. No QField relationship
 form or link changeset path exists yet. Do not equate creating a survey point
 with attaching it to a pipe/valve. A subsequent relationship implementation must:
-- Use the existing gis.survey_link model; no domain-specific survey tables.
 - Resolve feature_type_id from permitted metadata/plan, never a raw table name.
 - Verify survey and target both belong to the same authorized project/tenant.
 - Preserve UUIDs offline and create parent features before link operations.

@@ -9,7 +9,6 @@ Status: implementation complete; release and production activation are separate 
   project authorization checks;
 - explicit QField delete capture with offline retention and rollback reconciliation;
 - delete protection for surveys/facilities that still have lineage links;
-- `survey_link_changeset_v1` create/unlink contract and project-scoped query API;
 - relation events in the project Delta stream using `resource_kind=relation`;
 - WebGIS feature create/update/delete partial refresh and project event metadata;
 - exact physical tenant DB allow-list for any non-development GIS pilot runtime.
@@ -53,6 +52,5 @@ requires all of the following for one explicitly selected pilot tenant:
 ## Client implementation boundary
 
 The common server contract is complete without implementing the final QGIS or
-QField survey-link selection screen. QGIS plugin stabilization is the next
 product phase. Field GNSS, photos and mobile-specific forms follow after the QGIS
 workflow and metadata rules are stable.

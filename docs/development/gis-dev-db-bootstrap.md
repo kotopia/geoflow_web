@@ -150,7 +150,6 @@ profile
 profile_feature
 profile_field
 survey
-survey_link
 doro
 import_batch
 ```

@@ -83,10 +83,6 @@ FROM gis.wtl_pipe_lm
 WHERE project_id=(SELECT id FROM seed_project)
 ORDER BY id;
 
-SELECT sl.target_id, ft.standard_name, sl.match_method
-FROM gis.survey_link sl
-JOIN gis.meta_feature_type ft ON ft.id=sl.feature_type_id
-WHERE sl.survey_id='21111111-1111-4111-8111-111111111111'::uuid;
 "@
     & $psql -X -v ON_ERROR_STOP=1 -h $HostName -p $Port -U $DbUser -d $TargetDb -c $verifySql
     if ($LASTEXITCODE -ne 0) { throw "GIS demo seed verification failed." }

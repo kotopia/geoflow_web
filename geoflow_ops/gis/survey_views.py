@@ -21,9 +21,7 @@ from geoflow_ops.services.s3_service import (
 from .qgis_sync import SyncConflict, SyncRejected
 from .changeset import _uuid_text
 from .sync_views import _actor_ref, _require_project
-from .survey_reapply import apply_survey_reapply, preview_survey_reapply
 from .survey_sources import (
-    SurveySourceDeleteBlocked,
     SurveySourceNotFound,
     delete_survey_points,
     delete_survey_source,
@@ -59,13 +57,6 @@ def _response(callback, *, database_error="survey_failed"):
         return JsonResponse(callback(), json_dumps_params={"ensure_ascii": False})
     except SurveySourceNotFound:
         return JsonResponse({"ok": False, "error": "survey_source_not_found"}, status=404)
-    except SurveySourceDeleteBlocked as exc:
-        return JsonResponse({
-            "ok": False,
-            "error": "survey_source_in_use",
-            "reason": exc.reason,
-            "delete": exc.precheck,
-        }, status=409)
     except SyncConflict as exc:
         return JsonResponse({"ok": False, "error": "survey_conflict", "conflicts": exc.conflicts}, status=409)
     except SyncRejected as exc:
@@ -254,19 +245,3 @@ def project_survey_points_bulk_delete_api(request, project_id):
         ),
         database_error="survey_point_delete_failed",
     )
-
-
-@login_required
-@require_POST
-def project_survey_reapply_preview_api(request, project_id):
-    alias, project, plan = _context(request, project_id, write=True)
-    return _response(lambda: preview_survey_reapply(
-        alias, project_id=str(project.id), plan=plan, payload=_body(request)))
-
-
-@login_required
-@require_POST
-def project_survey_reapply_api(request, project_id):
-    alias, project, plan = _context(request, project_id, write=True)
-    return _response(lambda: apply_survey_reapply(
-        alias, project_id=str(project.id), plan=plan, payload=_body(request), actor_ref=_actor_ref(request)))

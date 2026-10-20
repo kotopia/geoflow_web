@@ -283,8 +283,8 @@ class Command(BaseCommand):
                                     raise CommandError('survey_final_smoke_geopackage_values=failed')
                         finally:
                             package_path.unlink(missing_ok=True)
-                        # Prove soft delete preserves both a facility and its
-                        # Survey provenance link. All DB writes remain inside
+                        # Prove Source soft delete preserves an independent facility.
+                        # All DB writes remain inside
                         # the outer rollback transaction.
                         plan = project_layer_plan(alias, project_id)
                         linked = None
@@ -302,23 +302,15 @@ class Command(BaseCommand):
                                 if target:
                                     linked = (str(layer["id"]), table, target[0], bytes(target[1]) if target[1] else None)
                                     break
-                            if linked:
-                                link_id = str(uuid4())
-                                cursor.execute(
-                                    """INSERT INTO gis.survey_link(
-                                         id,survey_id,layer_id,target_id,match_method,
-                                         link_role,link_status
-                                       ) VALUES (%s,%s,%s,%s,'import','POINT','LINKED')""",
-                                    [link_id, points["points"][0]["id"], linked[0], linked[2]],
-                                )
+                        point_delete = _json(call('DELETE',f"/gis/projects/{project_id}/api/survey-points/{extra['points'][0]['id']}/"))
+                        if point_delete.get('survey_points_deleted') != 1 or point_delete.get('facilities_deleted') != 0:
+                            raise CommandError('survey_independent_point_delete=failed')
                         precheck = _json(call(
                             "GET",
                             f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
                         ))
                         if not precheck["delete"].get("can_delete"):
                             raise CommandError("survey_upload_smoke_delete_precheck=blocked")
-                        if linked and precheck["delete"].get("linked_facility_count") != 1:
-                            raise CommandError("survey_upload_smoke_link_impact=failed")
                         delete_result = _json(call(
                             "DELETE",
                             f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
@@ -336,12 +328,6 @@ class Command(BaseCommand):
                             raise CommandError("survey_upload_smoke_delete_points=failed")
                         if linked:
                             with connections[alias].cursor() as cursor:
-                                cursor.execute(
-                                    "SELECT count(*) FROM gis.survey_link WHERE id=%s",
-                                    [link_id],
-                                )
-                                if int(cursor.fetchone()[0]) != 1:
-                                    raise CommandError("survey_upload_smoke_link_preservation=failed")
                                 cursor.execute(
                                     f'SELECT ST_AsBinary(geom) FROM "gis".{linked[1]} '
                                     'WHERE project_id=%s AND id=%s',
@@ -392,4 +378,5 @@ class Command(BaseCommand):
         self.stdout.write("survey_upload_smoke_deferred_constraints=verified")
         self.stdout.write("survey_upload_smoke_db_rollback=yes")
         self.stdout.write("survey_upload_smoke_s3_cleanup=yes")
+        self.stdout.write("survey_independent_point_delete=PASS")
         self.stdout.write("RESULT gis_survey_source_upload_smoke=SUCCESS")

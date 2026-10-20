@@ -38,8 +38,7 @@ def survey_elevation_count(cursor):
 
 def _validate(cursor, db_name):
     cursor.execute("""
-        SELECT to_regclass('gis.survey_source'),to_regclass('gis.survey'),
-               to_regclass('gis.survey_link')
+        SELECT to_regclass('gis.survey_source'),to_regclass('gis.survey')
     """)
     if not all(cursor.fetchone()):
         raise RuntimeError(f"{db_name}: Survey lineage relations missing")
@@ -47,7 +46,6 @@ def _validate(cursor, db_name):
         "survey_source": {"deleted_at", "deleted_by", "delete_reason"},
         "survey": {"source_id", "source_row_id", "raw_crs", "raw_code", "raw_geoid_model",
                    "deleted_at", "deleted_by", "delete_reason"},
-        "survey_link": {"vertex_index", "link_role", "link_status", "created_by", "updated_at", "updated_by"},
     }
     for table, required in expected.items():
         cursor.execute("""SELECT column_name FROM information_schema.columns
@@ -55,13 +53,10 @@ def _validate(cursor, db_name):
         missing = required - {row[0] for row in cursor.fetchall()}
         if missing:
             raise RuntimeError(f"{db_name}: {table} missing {sorted(missing)}")
-    cursor.execute("SELECT count(*) FROM gis.survey_link WHERE link_role='POINT' AND vertex_index IS NOT NULL")
-    if int(cursor.fetchone()[0]):
-        raise RuntimeError(f"{db_name}: invalid point Survey mapping")
 
 
 class Command(BaseCommand):
-    help = "Install versioned Survey sources and vertex-aware Survey mappings."
+    help = "Install Survey Source and Point soft-delete prerequisites."
 
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true")
@@ -92,17 +87,12 @@ class Command(BaseCommand):
                     source_count = int(cursor.fetchone()[0])
                     cursor.execute("SELECT count(*) FROM gis.survey")
                     point_count = int(cursor.fetchone()[0])
-                    cursor.execute(
-                        "SELECT count(DISTINCT survey_id) FROM gis.survey_link"
-                    )
-                    linked_point_count = int(cursor.fetchone()[0])
                     elevation_count = survey_elevation_count(cursor)
                     cursor.execute(
                         """SELECT conname,pg_get_constraintdef(oid)
                              FROM pg_constraint
                             WHERE conrelid IN ('gis.survey'::regclass,
-                                               'gis.survey_source'::regclass,
-                                               'gis.survey_link'::regclass)
+                                               'gis.survey_source'::regclass)
                               AND contype='f'"""
                     )
                     fk_defs = [str(row[1]) for row in cursor.fetchall()]
@@ -111,7 +101,7 @@ class Command(BaseCommand):
                     self.stdout.write(
                         f"gis_survey_delete_inventory={config.db_name}:"
                         f"sources={source_count},points={point_count},"
-                        f"linked_points={linked_point_count},h_points={elevation_count},"
+                        f"h_points={elevation_count},"
                         f"fk_count={len(fk_defs)}"
                     )
 

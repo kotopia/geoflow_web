@@ -342,27 +342,4 @@ ON CONFLICT (id) DO UPDATE SET
     geom = EXCLUDED.geom,
     updated_at = now();
 
--- Durable lineage example: one survey observation is confirmed against a
--- concrete WTL_PIPE_LM object UUID. target_id is never ftr_idn.
-INSERT INTO gis.survey_link(
-    id, survey_id, feature_type_id, target_id, match_method,
-    match_distance, match_confidence, confirmed_at
-)
-SELECT
-    '61111111-1111-4111-8111-111111111111'::uuid,
-    '21111111-1111-4111-8111-111111111111'::uuid,
-    ft.id,
-    '41111111-1111-4111-8111-111111111111'::uuid,
-    'SYNTHETIC',
-    0.0,
-    1.0,
-    now()
-FROM gis.meta_feature_type ft
-WHERE ft.standard_name = 'WTL_PIPE_LM'
-ON CONFLICT (survey_id, feature_type_id, target_id) DO UPDATE SET
-    match_method = EXCLUDED.match_method,
-    match_distance = EXCLUDED.match_distance,
-    match_confidence = EXCLUDED.match_confidence,
-    confirmed_at = EXCLUDED.confirmed_at;
-
 COMMIT;

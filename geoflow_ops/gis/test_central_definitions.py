@@ -405,15 +405,13 @@ class CentralPostgresTests(unittest.TestCase):
           CREATE TABLE gis.ref_code_value(id uuid PRIMARY KEY,group_id uuid REFERENCES gis.ref_code_group,
             code text,label text,sort_order int,active bool,valid_from date,valid_to date);
           CREATE TABLE gis.survey(id uuid PRIMARY KEY);
-          CREATE TABLE gis.survey_link(id uuid PRIMARY KEY,survey_id uuid REFERENCES gis.survey,
-            feature_type_id uuid REFERENCES gis.meta_feature_type,target_id uuid);
           CREATE TABLE gis.import_batch(id uuid PRIMARY KEY,profile_id uuid REFERENCES gis.profile)''')
         self.cur.execute("INSERT INTO gis.meta_feature_type VALUES (%s,'PIPE','pipe','관로','WATER','LINE','ASSET','PROJECT',1,true)",[feature_id])
         self.cur.execute("INSERT INTO gis.meta_field_def VALUES (%s,%s,'pip_dip','PIP_DIP','관경','lineedit',false,2,'','','')",[field_id,feature_id])
         self.cur.execute('INSERT INTO gis.profile VALUES (%s)',[profile_id])
         self.cur.execute('INSERT INTO gis.profile_field VALUES (%s,%s,%s,true,false,true,true,2)',[str(uuid4()),profile_id,field_id])
-        self.cur.execute('INSERT INTO gis.survey VALUES (%s); INSERT INTO gis.survey_link VALUES (%s,%s,%s,%s); INSERT INTO gis.import_batch VALUES (%s,%s)',
-                         [survey_id,str(uuid4()),survey_id,feature_id,target_id,str(uuid4()),profile_id])
+        self.cur.execute('INSERT INTO gis.survey VALUES (%s); INSERT INTO gis.import_batch VALUES (%s,%s)',
+                         [survey_id,str(uuid4()),profile_id])
 
         source=transition.source_snapshot(self.cur)
         pip_dip=next(field for field in source['fields'] if field['physical_name']=='pip_dip')
@@ -421,8 +419,6 @@ class CentralPostgresTests(unittest.TestCase):
 
         layer_id=str(uuid4())
         transition.migrate_runtime_fks(self.cur,{'PIPE':layer_id})
-        self.cur.execute('SELECT layer_id::text FROM gis.survey_link')
-        self.assertEqual(self.cur.fetchone()[0],layer_id)
         self.cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='gis' AND table_name='import_batch'")
         self.assertEqual({row[0] for row in self.cur.fetchall()},{'id','definition_revision'})
         transition.retire_legacy(self.cur)
