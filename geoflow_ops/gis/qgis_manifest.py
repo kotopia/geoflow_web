@@ -25,12 +25,8 @@ def build_qgis_manifest(
     current_revision: int = 0,
     realtime_supported: bool | None = None,
     reference_catalog_url: str = "",
-    survey_links_url: str = "",
-    survey_link_changeset_url: str = "",
     survey_sources_url: str = "",
     survey_points_url: str = "",
-    survey_reapply_preview_url: str = "",
-    survey_reapply_url: str = "",
     photo_policy_revision: str = "",
     photo_policy_url: str = "",
 ) -> dict[str, Any]:
@@ -68,12 +64,6 @@ def build_qgis_manifest(
         reference_catalog_url
         or f"/gis/projects/{project_id}/api/reference-catalog/"
     )
-    effective_survey_links_url = survey_links_url or f"/gis/projects/{project_id}/api/survey-links/"
-    effective_survey_link_changeset_url = (
-        (survey_link_changeset_url or f"/gis/projects/{project_id}/api/survey-link-changesets/")
-        if effective_changeset
-        else ""
-    )
 
     return {
         "manifest_version": QGIS_MANIFEST_VERSION,
@@ -106,13 +96,8 @@ def build_qgis_manifest(
             "reference_values_embedded": False,
             "form_definition_url": f"/gis/projects/{project_id}/api/form-definition/",
             "form_definition_revision": (plan.get("definition") or {}).get("revision") or "",
-            "survey_link_supported": bool(effective_changeset and effective_survey_link_changeset_url),
-            "survey_links_url": effective_survey_links_url,
-            "survey_link_changeset_url": effective_survey_link_changeset_url,
             "survey_sources_url": survey_sources_url or f"/gis/projects/{project_id}/api/survey-sources/",
             "survey_points_url": survey_points_url or f"/gis/projects/{project_id}/api/survey-points/",
-            "survey_reapply_preview_url": ((survey_reapply_preview_url or f"/gis/projects/{project_id}/api/survey-reapply-preview/") if can_write else ""),
-            "survey_reapply_url": ((survey_reapply_url or f"/gis/projects/{project_id}/api/survey-reapply/") if can_write else ""),
             "write_authorized": bool(can_write),
             "note": (
                 "The v1 operating model is field-level Changeset write + revision Delta read. "

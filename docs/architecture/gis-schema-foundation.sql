@@ -142,21 +142,6 @@ CREATE TABLE IF NOT EXISTS gis.survey (
 CREATE INDEX IF NOT EXISTS survey_project_idx ON gis.survey(project_id);
 CREATE INDEX IF NOT EXISTS survey_geom_gix ON gis.survey USING gist(geom);
 
-CREATE TABLE IF NOT EXISTS gis.survey_link (
-    id uuid PRIMARY KEY,
-    survey_id uuid NOT NULL REFERENCES gis.survey(id) ON DELETE CASCADE,
-    feature_type_id uuid NOT NULL REFERENCES gis.meta_feature_type(id),
-    target_id uuid NOT NULL,
-    match_method varchar(30) NOT NULL,
-    match_distance numeric(12,3),
-    match_confidence numeric(5,4),
-    confirmed_by uuid,
-    confirmed_at timestamptz,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE(survey_id, feature_type_id, target_id)
-);
-CREATE INDEX IF NOT EXISTS survey_link_target_idx ON gis.survey_link(feature_type_id, target_id);
-
 CREATE TABLE IF NOT EXISTS gis.doro (
     id uuid PRIMARY KEY,
     gid bigint,

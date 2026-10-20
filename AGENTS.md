@@ -152,7 +152,7 @@ Current GIS invariants include:
 - tenant DB uses one `gis` schema; do not split water/sewer/road/etc. into schemas merely because the table count grows
 - preserve public/legacy GIS table and field semantics; PostgreSQL physical identifiers are lowercase unquoted
 - reuse existing `ctr`/`hr`/`prj`/`ops` sources instead of duplicating project/worker/contract data in GIS
-- use one common survey model plus explicit `survey_link` lineage rather than one survey table per utility domain
+- use one common survey model with raw/source lineage; observations and GIS assets are independent, with no persistent target matching relation
 - keep `gis.doro` as the common underground-utility road reference dataset, separate from future formal road-ledger tables
 - central `gis.definition_*` owns shared layer/field/form/reference/rule/group/catalog definitions; tenant `gis.project_definition` holds project selections and permitted overrides, not duplicate shared definitions
 - WebGIS/QGIS/QField consume the server-resolved Final Layer Plan and Final Form Definition; generated packages are derived artifacts

@@ -404,20 +404,6 @@ def migrate_project_config(cur, layer_ids):
 
 def migrate_runtime_fks(cur, layer_ids):
     """Move runtime lineage to stable central layer UUIDs before metadata removal."""
-    if _exists(cur, 'gis.survey_link'):
-        cur.execute('ALTER TABLE gis.survey_link ADD COLUMN IF NOT EXISTS layer_id uuid')
-        if _exists(cur, 'gis.meta_feature_type'):
-            cur.execute('''UPDATE gis.survey_link sl SET layer_id=m.layer_id::uuid
-                FROM gis.meta_feature_type ft JOIN (SELECT key AS standard_name,value AS layer_id
-                FROM jsonb_each_text(%s::jsonb)) m ON m.standard_name=ft.standard_name
-                WHERE sl.feature_type_id=ft.id AND sl.layer_id IS NULL''', [json.dumps(layer_ids)])
-        cur.execute('ALTER TABLE gis.survey_link ALTER COLUMN layer_id SET NOT NULL')
-        cur.execute('ALTER TABLE gis.survey_link DROP CONSTRAINT IF EXISTS survey_link_feature_type_id_fkey')
-        cur.execute('ALTER TABLE gis.survey_link DROP COLUMN IF EXISTS feature_type_id')
-        cur.execute('''CREATE UNIQUE INDEX IF NOT EXISTS survey_link_survey_layer_target_uq
-            ON gis.survey_link(survey_id,layer_id,target_id)''')
-        cur.execute('''CREATE INDEX IF NOT EXISTS survey_link_layer_target_idx
-            ON gis.survey_link(layer_id,target_id)''')
     if _exists(cur, 'gis.import_batch'):
         cur.execute('ALTER TABLE gis.import_batch ADD COLUMN IF NOT EXISTS definition_revision text')
         cur.execute('ALTER TABLE gis.import_batch DROP CONSTRAINT IF EXISTS import_batch_profile_id_fkey')

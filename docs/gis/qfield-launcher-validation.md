@@ -276,7 +276,6 @@ Subsequent development batches (not claimed complete):
 - Offline/reconnect and receive behavior: queue durability across app restart,
   retries and concurrent-edit conflict UX; choose bounded server-to-device change
   notification/polling and verify idle request rate and convergence together.
-- Field workflow: create/edit facilities and survey links, GNSS/attributes/photos
   against existing metadata and scoped storage routes.
 - Multi-user/scale and delivery: permissions/isolation, measured request/DB cost,
   large layer local polling, and QGIS/exports with realistic test data.
@@ -390,23 +389,15 @@ create acknowledgement plus follow-up update, remote attribute application and
 schema-mismatch rejection. 27 Python tests and 7 Node suites passed. Actual device
 create and reverse-direction attribute behavior still need acceptance testing.
 
-Scope boundary: survey points are regular SURVEY features, but gis.survey_link
-exists only in schema/seed/preflight in the current code. No QField relationship
-form or link changeset path exists yet. Do not equate creating a survey point
-with attaching it to a pipe/valve. A subsequent relationship implementation must:
-- Use the existing gis.survey_link model; no domain-specific survey tables.
-- Resolve feature_type_id from permitted metadata/plan, never a raw table name.
-- Verify survey and target both belong to the same authorized project/tenant.
-- Preserve UUIDs offline and create parent features before link operations.
-- Include link receipt/replay, lineage events, and review of manual confirmation
-  identity; never forge confirmed_by from an unrelated central user identifier.
-- Export the relationship and receive changes so QGIS/QField share its meaning.
-No live schema/data changes were performed in this increment.
+Current server contract (2026-10-20): observations and assets are independent.
+Creating a Survey point does not attach it to a facility. Persistent target
+matching and reapply endpoints have been retired; spatial queries supply
+candidates. Offline UUID preservation and general feature sync remain unchanged.
 
 Next device batch, after one in-place runtime update to 0.9.16:
 1. Create one WTL_VALV_PS point using current form defaults and required fields;
    save and verify PC count/map. Edit one ordinary editable attribute and save.
-2. Create one SURVEY point; verify PC count/map. It is not yet linked to a facility.
+2. Create one SURVEY point; verify PC count/map. It is independent of facilities.
 3. Offline, create one additional valve, change its attribute before transmission,
    save, restart QField, reconnect and verify one object with the latest attribute.
 4. Keep both logs throughout. Stop on rejection and preserve objects/queue; do not

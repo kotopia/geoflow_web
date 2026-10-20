@@ -8,9 +8,7 @@ Status: implementation complete; release and production activation are separate 
 - create/update/delete with server-side Layer Plan, field, UUID, geometry and
   project authorization checks;
 - explicit QField delete capture with offline retention and rollback reconciliation;
-- delete protection for surveys/facilities that still have lineage links;
-- `survey_link_changeset_v1` create/unlink contract and project-scoped query API;
-- relation events in the project Delta stream using `resource_kind=relation`;
+- independent Survey/Source and asset lifecycle with ordinary feature Delta;
 - WebGIS feature create/update/delete partial refresh and project event metadata;
 - exact physical tenant DB allow-list for any non-development GIS pilot runtime.
 
@@ -46,13 +44,11 @@ requires all of the following for one explicitly selected pilot tenant:
 5. one pilot project/profile assignment;
 6. the two fail-closed runtime variables above;
 7. authenticated read smoke before write activation;
-8. create/update/delete/link/unlink/Delta smoke with disposable pilot objects;
+8. create/update/delete/Delta smoke with disposable pilot objects;
 9. rollback by disabling the runtime switch first; data/schema rollback is a
    separately reviewed operation and is never automatic.
 
 ## Client implementation boundary
 
-The common server contract is complete without implementing the final QGIS or
-QField survey-link selection screen. QGIS plugin stabilization is the next
-product phase. Field GNSS, photos and mobile-specific forms follow after the QGIS
+The common server contract keeps device UX and later product phases separate. Field GNSS, photos and mobile-specific forms follow after the QGIS
 workflow and metadata rules are stable.

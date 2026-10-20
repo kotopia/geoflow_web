@@ -15,7 +15,6 @@ from .qgis_sync import (
     SyncOperation,
     SyncRejected,
     _apply_operation,
-    _detach_survey_links_for_deletes,
     _coerce_for_pg,
     _current_package_rows,
     _geometry_valid,
@@ -278,11 +277,9 @@ def sync_project_geopackage_v2(
                 )
                 if conflicts:
                     raise SyncConflict(conflicts)
-                _detach_survey_links_for_deletes(alias, operations, request=request)
                 for operation in operations:
                     _apply_operation(
                         alias, project_id, operation, request=request,
-                        survey_links_prepared=True,
                     )
         finally:
             package.close()

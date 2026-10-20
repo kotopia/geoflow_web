@@ -42,15 +42,6 @@ class SurveySourceNotFound(SyncRejected):
     pass
 
 
-class SurveySourceDeleteBlocked(SyncRejected):
-    """Retained for wire compatibility with older guarded-delete clients."""
-
-    def __init__(self, reason: str, precheck: dict[str, Any]):
-        super().__init__(reason)
-        self.reason = reason
-        self.precheck = precheck
-
-
 def _actor_uuid(actor_ref: str | None) -> str | None:
     try:
         return str(uuid.UUID(str(actor_ref))) if actor_ref else None
@@ -121,13 +112,7 @@ def survey_source_delete_precheck(
             raise SurveySourceNotFound("survey source was not found")
         cursor.execute(
             """
-            SELECT count(DISTINCT s.id),
-                   count(*) FILTER (WHERE sl.link_status='LINKED'),
-                   count(*) FILTER (WHERE sl.link_status='MANUALLY_MODIFIED'),
-                   count(*) FILTER (WHERE sl.link_status='UNLINKED'),
-                   count(DISTINCT (sl.layer_id,sl.target_id,COALESCE(sl.vertex_index,-1)))
-              FROM gis.survey s
-              LEFT JOIN gis.survey_link sl ON sl.survey_id=s.id
+            SELECT count(*) FROM gis.survey s
              WHERE s.project_id=%s AND s.source_id=%s AND s.deleted_at IS NULL
             """,
             [project_id, source_id],
@@ -155,21 +140,12 @@ def survey_source_delete_precheck(
         "version": int(source[3]),
         "is_active": bool(source[4]),
         "point_count": int(counts[0] or 0),
-        "links": {
-            "LINKED": int(counts[1] or 0),
-            "MANUALLY_MODIFIED": int(counts[2] or 0),
-            "UNLINKED": int(counts[3] or 0),
-        },
-        "linked_target_count": int(counts[4] or 0),
-        "linked_facility_count": int(counts[4] or 0),
-        "depth_dependency_count": 0,
         "child_version_count": child_versions,
         "shared_object_reference_count": shared_objects,
         "has_archived_object": bool(object_key),
         "object_key_valid": not object_key or object_key.startswith(expected_prefix),
     }
-    # Links and version history are provenance, not delete blockers. Soft delete
-    # keeps all rows referenced by those relationships intact.
+    # Source version history and archived-object handling remain unchanged.
     result["can_delete"] = True
     result["blocked_reason"] = None
     return result
@@ -501,15 +477,8 @@ def survey_points_delete_precheck(
             )
         cursor.execute(
             """
-            SELECT s.id::text,s.source_id::text,
-                   count(sl.id) FILTER (WHERE sl.link_status='LINKED'),
-                   count(sl.id) FILTER (WHERE sl.link_status='MANUALLY_MODIFIED'),
-                   count(sl.id) FILTER (WHERE sl.link_status='UNLINKED'),
-                   count(DISTINCT (sl.layer_id,sl.target_id,COALESCE(sl.vertex_index,-1)))
-              FROM gis.survey s
-              LEFT JOIN gis.survey_link sl ON sl.survey_id=s.id
+            SELECT s.id::text,s.source_id::text FROM gis.survey s
              WHERE s.project_id=%s AND s.id=ANY(%s::uuid[]) AND s.deleted_at IS NULL
-             GROUP BY s.id
             """,
             [project_id, ids],
         )
@@ -521,15 +490,6 @@ def survey_points_delete_precheck(
     return {
         "survey_count": len(rows),
         "source_ids": sorted({str(row[1]) for row in rows if row[1]}),
-        "links": {
-            "LINKED": sum(int(row[2] or 0) for row in rows),
-            "MANUALLY_MODIFIED": sum(int(row[3] or 0) for row in rows),
-            "UNLINKED": sum(int(row[4] or 0) for row in rows),
-        },
-        "linked_facility_count": sum(int(row[5] or 0) for row in rows),
-        # No persisted depth-dependency relation exists in the deployed schema.
-        # Historical pip_dep values are facility attributes and are never changed here.
-        "depth_dependency_count": 0,
         "can_delete": True,
     }
 
@@ -541,8 +501,8 @@ def _soft_delete_survey_points(
     survey_ids: list[str],
     actor_ref: str | None,
     delete_reason: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    impact = survey_points_delete_precheck(
+) -> list[dict[str, Any]]:
+    survey_points_delete_precheck(
         alias, project_id=project_id, survey_ids=survey_ids, lock=True
     )
     actor_uuid = _actor_uuid(actor_ref)
@@ -579,7 +539,7 @@ def _soft_delete_survey_points(
         )
         if cursor.rowcount != len(events):
             raise ChangesetUnavailable("Survey point delete count changed")
-    return events, impact
+    return events
 
 
 def delete_survey_points(
@@ -599,7 +559,7 @@ def delete_survey_points(
             changeset_id=changeset_id, actor_ref=actor_ref, base_revision=None,
         ):
             raise ChangesetUnavailable("Survey point delete receipt could not be reserved")
-        events, impact = _soft_delete_survey_points(
+        events = _soft_delete_survey_points(
             alias, project_id=project_id, survey_ids=ids, actor_ref=actor_ref,
             delete_reason=delete_reason,
         )
@@ -616,10 +576,7 @@ def delete_survey_points(
         response = {
             "ok": True,
             "survey_points_deleted": len(events),
-            "linked_facilities_preserved": impact["linked_facility_count"],
-            "facility_links_preserved": sum(impact["links"].values()),
             "facilities_deleted": 0,
-            "depth_dependency_count": impact["depth_dependency_count"],
             "first_revision": first, "last_revision": last,
             "current_revision": current,
         }
@@ -672,9 +629,8 @@ def delete_survey_source(
             )
             survey_ids = [str(row[0]) for row in cursor.fetchall()]
         events: list[dict[str, Any]] = []
-        impact = {"linked_facility_count": 0, "links": {}, "depth_dependency_count": 0}
         if survey_ids:
-            events, impact = _soft_delete_survey_points(
+            events = _soft_delete_survey_points(
                 alias, project_id=project_id, survey_ids=survey_ids,
                 actor_ref=actor_ref, delete_reason="source_delete",
             )
@@ -702,9 +658,6 @@ def delete_survey_source(
             "ok": True, "source_id": source_id, "source_deleted": True,
             "survey_points_deleted": len(events), "deleted_point_count": len(events),
             "facilities_deleted": 0,
-            "facility_links_preserved": sum(int(v or 0) for v in impact.get("links", {}).values()),
-            "linked_facilities_preserved": int(impact.get("linked_facility_count") or 0),
-            "depth_dependency_count": int(impact.get("depth_dependency_count") or 0),
             "deleted_object": not bool(archived_object_key), "cleanup_pending": bool(object_key),
             "object_cleanup_skipped": cleanup_skipped,
             "first_revision": first, "last_revision": last, "current_revision": current,

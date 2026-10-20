@@ -169,28 +169,15 @@ QGIS Plugin은 유지한다.
 
 원시값을 덮어쓰지 않고 최종값과 함께 보존하는 것을 기본 원칙으로 한다.
 
-## 13. `gis.survey_link`
-측량 대상 시설물은 공간검색으로 후보를 찾을 수 있지만 공간검색 결과 자체를 관계로 간주하지 않는다.
+## 13. Survey와 시설물의 독립 관리 (2026-10-20 확정 변경)
 
-공간검색/코드/프로젝트 문맥으로 찾은 최종 매칭 결과는 `gis.survey_link`에 명시적으로 저장한다.
-
-권장 필드:
-- `id`
-- `survey_id`
-- `layer_id` → 중앙 `definition_layer.id`의 논리 참조
-- `target_id` → 대상 시설물 UUID의 논리 참조
-- `match_method`
-- `match_distance`
-- `match_confidence`
-- `confirmed_by`
-- `confirmed_at`
-
-수백 개 시설물 테이블 각각에 survey FK를 추가하지 않는다.
-
-원본 version, point/vertex mapping 상태, 재적용 계약은
-`docs/architecture/gis-survey-lineage-contract-v1.md`를 따른다. 기존
-`gis.survey_link`를 공통 mapping 테이블로 확장하며 별도의 중복
-`feature_survey_map`을 만들지 않는다.
+측량점과 GIS 시설물 사이의 영속적인 target 매칭 관계는 두지 않는다.
+시설물 생성상태·중복생성 방지·심도 계산은 프로젝트 범위 공간검색을 사용한다.
+측량번호와 코드는 일반 속성이며 관계키가 아니다. Source와 raw/final lineage는
+측량 영역 안에서 유지한다. Survey/Source 삭제는 시설물에 영향을 주지 않으며,
+시설물 삭제는 Survey/Source에 영향을 주지 않는다. 일반 CRUD의 권한·revision·
+스키마 검증은 그대로 적용한다. 상세 API/배포 계약은
+[Survey source contract](gis-survey-lineage-contract-v1.md)를 따른다.
 
 ## 14. 공통 도로 기준 데이터 `gis.doro`
 `gis.doro` 명칭을 유지한다.
@@ -238,7 +225,6 @@ QGIS Plugin은 유지한다.
 ### 공통
 - `gis.doro`
 - `gis.survey` (`survey`, `h_survey` 통합)
-- `gis.survey_link`
 
 ### 상수
 - `gis.wtl_etc_ps`
@@ -341,8 +327,7 @@ Final Layer Plan은 `prj.scope_item`의 Catalog 선택과 중앙 Layer binding, 
 응답 구조로 정규화하고 Code UUID와 Rule UUID 관계, 최종 순서, flags, layout, revision을
 제공한다. QGIS/QField package와 서버 쓰기 검증도 이 결과만 사용한다.
 
-`survey_link.feature_type_id`는 중앙 `layer_id`로, `import_batch.profile_id`는 Definition
-revision으로 전환한 뒤 Tenant의 `meta_*`, `ref_code_*`, `profile*`, `scope_binding`,
+`import_batch.profile_id`는 Definition revision으로 전환한 뒤 Tenant의 `meta_*`, `ref_code_*`, `profile*`, `scope_binding`,
 `capability*`와 구 Form 테이블을 CASCADE 없이 제거한다. 프로젝트 선택·추가·전용 항목은
 Tenant `gis.project_definition` 한 테이블에 중앙 UUID만 저장하며 Definition 복제본은 두지 않는다.
 프로젝트마다 공통 정의를 복제하지 않으며 프로젝트 전용 항목만 해당 행에 보관한다.

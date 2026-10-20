@@ -130,7 +130,14 @@ class Command(BaseCommand):
                         )
                         request.user = user
                         request.session = session
+                        if 'qgis-manifest' in path or 'qgis-package' in path:
+                            from geoflow_ops.gis import qgis_views
+                            view = qgis_views.qgis_project_manifest_api if 'qgis-manifest' in path else qgis_views.qgis_project_package_api
+                            return view(request, project_id)
                         if "survey-points" in path:
+                            item = path.rstrip('/').rsplit('/',1)[-1]
+                            if item != 'survey-points' and '?' not in item:
+                                return survey_views.project_survey_point_api(request, project_id, item)
                             return survey_views.project_survey_points_api(request, project_id)
                         if f"survey-sources/{source_id}" in path:
                             return survey_views.project_survey_source_api(
@@ -138,6 +145,30 @@ class Command(BaseCommand):
                             )
                         return survey_views.project_survey_sources_api(request, project_id)
 
+                    # Build the actual authenticated project package before any
+                    # rollback-only imports, so reusable caches never contain test rows.
+                    manifest_response = call('GET',f'/gis/projects/{project_id}/api/qgis-manifest/')
+                    if manifest_response.status_code != 200:
+                        raise CommandError('survey_independent_manifest=unavailable')
+                    manifest = json.loads(manifest_response.content.decode('utf-8'))
+                    if not manifest.get('transport'):
+                        raise CommandError('survey_independent_manifest=invalid')
+                    if any('survey_link' in key or 'reapply' in key for key in manifest.get('transport',{})):
+                        raise CommandError('survey_independent_manifest=failed')
+                    package_response = call('GET',f'/gis/projects/{project_id}/api/qgis-package/')
+                    try:
+                        if package_response.status_code != 200:
+                            raise CommandError('survey_independent_project_package=failed')
+                        header, size = b'', 0
+                        chunks = package_response.streaming_content if package_response.streaming else [package_response.content]
+                        for chunk in chunks:
+                            if len(header) < 16:
+                                header += bytes(chunk)[:16-len(header)]
+                            size += len(chunk)
+                        if header != b'SQLite format 3\x00' or size <= 16:
+                            raise CommandError('survey_independent_project_package=invalid')
+                    finally:
+                        package_response.close()
                     with transaction.atomic(using=alias):
                         presign = _json(call(
                             "POST",
@@ -283,8 +314,8 @@ class Command(BaseCommand):
                                     raise CommandError('survey_final_smoke_geopackage_values=failed')
                         finally:
                             package_path.unlink(missing_ok=True)
-                        # Prove soft delete preserves both a facility and its
-                        # Survey provenance link. All DB writes remain inside
+                        # Prove Source soft delete preserves an independent facility.
+                        # All DB writes remain inside
                         # the outer rollback transaction.
                         plan = project_layer_plan(alias, project_id)
                         linked = None
@@ -302,23 +333,15 @@ class Command(BaseCommand):
                                 if target:
                                     linked = (str(layer["id"]), table, target[0], bytes(target[1]) if target[1] else None)
                                     break
-                            if linked:
-                                link_id = str(uuid4())
-                                cursor.execute(
-                                    """INSERT INTO gis.survey_link(
-                                         id,survey_id,layer_id,target_id,match_method,
-                                         link_role,link_status
-                                       ) VALUES (%s,%s,%s,%s,'import','POINT','LINKED')""",
-                                    [link_id, points["points"][0]["id"], linked[0], linked[2]],
-                                )
+                        point_delete = _json(call('DELETE',f"/gis/projects/{project_id}/api/survey-points/{extra['points'][0]['id']}/"))
+                        if point_delete.get('survey_points_deleted') != 1 or point_delete.get('facilities_deleted') != 0:
+                            raise CommandError('survey_independent_point_delete=failed')
                         precheck = _json(call(
                             "GET",
                             f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
                         ))
                         if not precheck["delete"].get("can_delete"):
                             raise CommandError("survey_upload_smoke_delete_precheck=blocked")
-                        if linked and precheck["delete"].get("linked_facility_count") != 1:
-                            raise CommandError("survey_upload_smoke_link_impact=failed")
                         delete_result = _json(call(
                             "DELETE",
                             f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
@@ -336,12 +359,6 @@ class Command(BaseCommand):
                             raise CommandError("survey_upload_smoke_delete_points=failed")
                         if linked:
                             with connections[alias].cursor() as cursor:
-                                cursor.execute(
-                                    "SELECT count(*) FROM gis.survey_link WHERE id=%s",
-                                    [link_id],
-                                )
-                                if int(cursor.fetchone()[0]) != 1:
-                                    raise CommandError("survey_upload_smoke_link_preservation=failed")
                                 cursor.execute(
                                     f'SELECT ST_AsBinary(geom) FROM "gis".{linked[1]} '
                                     'WHERE project_id=%s AND id=%s',
@@ -392,4 +409,7 @@ class Command(BaseCommand):
         self.stdout.write("survey_upload_smoke_deferred_constraints=verified")
         self.stdout.write("survey_upload_smoke_db_rollback=yes")
         self.stdout.write("survey_upload_smoke_s3_cleanup=yes")
+        self.stdout.write("survey_independent_manifest=PASS")
+        self.stdout.write("survey_independent_project_package=PASS")
+        self.stdout.write("survey_independent_point_delete=PASS")
         self.stdout.write("RESULT gis_survey_source_upload_smoke=SUCCESS")
