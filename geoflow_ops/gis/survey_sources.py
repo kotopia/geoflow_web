@@ -501,8 +501,8 @@ def _soft_delete_survey_points(
     survey_ids: list[str],
     actor_ref: str | None,
     delete_reason: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    impact = survey_points_delete_precheck(
+) -> list[dict[str, Any]]:
+    survey_points_delete_precheck(
         alias, project_id=project_id, survey_ids=survey_ids, lock=True
     )
     actor_uuid = _actor_uuid(actor_ref)
@@ -539,7 +539,7 @@ def _soft_delete_survey_points(
         )
         if cursor.rowcount != len(events):
             raise ChangesetUnavailable("Survey point delete count changed")
-    return events, impact
+    return events
 
 
 def delete_survey_points(
@@ -559,7 +559,7 @@ def delete_survey_points(
             changeset_id=changeset_id, actor_ref=actor_ref, base_revision=None,
         ):
             raise ChangesetUnavailable("Survey point delete receipt could not be reserved")
-        events, impact = _soft_delete_survey_points(
+        events = _soft_delete_survey_points(
             alias, project_id=project_id, survey_ids=ids, actor_ref=actor_ref,
             delete_reason=delete_reason,
         )
@@ -630,7 +630,7 @@ def delete_survey_source(
             survey_ids = [str(row[0]) for row in cursor.fetchall()]
         events: list[dict[str, Any]] = []
         if survey_ids:
-            events, impact = _soft_delete_survey_points(
+            events = _soft_delete_survey_points(
                 alias, project_id=project_id, survey_ids=survey_ids,
                 actor_ref=actor_ref, delete_reason="source_delete",
             )

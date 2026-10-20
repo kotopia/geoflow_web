@@ -269,7 +269,7 @@ class SurveyFinalTests(unittest.TestCase):
 
     def asset_plan(self, table='wtl_pipe_ps'):
         layer_id='11111111-1111-4111-8111-111111111401'
-        fields=[{'id':str(uuid4()),'layer_id':layer_id,'field_name':name,'storage_data_type':kind,
+        fields=[{'id':str(uuid4()),'layer_id':layer_id,'layer_standard_name':table.upper(),'field_name':name,'storage_data_type':kind,
                  'storage':{'kind':'column','key':name},'readonly':name!='description','visible':True}
                 for name,kind in [('id','uuid'),('project_id','uuid'),('description','text')]]
         return {'layers':[{'id':layer_id,'standard_name':table.upper(),'physical_name':table,'geometry_kind':'POINT'}],

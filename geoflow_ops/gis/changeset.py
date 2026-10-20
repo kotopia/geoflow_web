@@ -729,7 +729,7 @@ def project_delta(
                 "created_at": row[10].isoformat() if row[10] else None,
             }
         )
-    next_revision = int(changes[-1]["revision"]) if has_more else current
+    next_revision = int(changes[-1]["revision"]) if has_more else max(since, current)
     return {
         "ok": True,
         "project_id": project_id,
