@@ -139,3 +139,16 @@ Source/Point/facility independence, ordinary CRUD without target SQL, missing
 matching routes and transport metadata, Delta revision gaps and package fields.
 Production completion requires the protected run, absence of the retired table,
 unchanged Survey/Source/assets, login200, project runtime/package and CRUD smoke.
+
+### Empty-tenant deployment recovery (2026-10-20)
+
+Protected run39375348490 passed approval but stopped before its first target DDL:
+the backup queried optional sync audit tables absent in an empty foundation-only
+tenant. No target retirement completion was logged; the failure handler restarted
+the service successfully. Backups now inspect actual relation existence and treat
+absent optional audit stores as zero records. Existing stores must still be fully
+read and validated; errors are never swallowed. Stage-only diagnostics contain no
+business records or credentials. A disposable PostGIS test drops both optional
+audit tables and verifies forward/retry/recovery with unchanged unrelated data.
+Migration0047 is unchanged. The protected retry remains required for production
+removal counts, preservation fingerprints and actual API/package smoke.

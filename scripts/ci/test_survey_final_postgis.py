@@ -316,6 +316,25 @@ class SurveyFinalTests(unittest.TestCase):
                 self.assertEqual(delta['next_revision'],first)
             transaction.set_rollback(True)
 
+    def test_retirement_without_optional_sync_runtime(self):
+        # Empty live tenants have the GIS foundation without revision tables.
+        with transaction.atomic():
+            with connections['default'].cursor() as c:
+                c.execute('DROP TABLE gis.feature_change_log; DROP TABLE gis.changeset_receipt')
+                c.execute(retirement_migration().REVERSE_SQL)
+                before=preserved_inventory(c)
+                rows=backup_rows(c)
+                self.assertEqual(rows,{'targets':[],'logs':[],'receipts':[]})
+                apply_removal(c)
+                self.assertFalse(retirement_pending(c))
+                self.assertEqual(preserved_inventory(c),before)
+                apply_removal(c)
+                self.assertEqual(preserved_inventory(c),before)
+                restore(c,{'preserved':before,'rows':rows})
+                self.assertEqual(backup_rows(c),rows)
+                self.assertEqual(preserved_inventory(c),before)
+            transaction.set_rollback(True)
+
     def test_source_and_point_delete_do_not_change_assets(self):
         for delete_source in (False,True):
             point=self.run_import(self.payload())['points'][0]

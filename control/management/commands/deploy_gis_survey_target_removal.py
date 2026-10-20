@@ -62,15 +62,19 @@ def lock_gis(cursor):
 
 
 def backup_rows(cursor):
-    def rows(sql):
+    def rows(table, sql):
+        # GIS foundation may be installed before the optional sync runtime.
+        # Absence of an audit table means there are no such records to archive.
+        cursor.execute('SELECT to_regclass(%s)', ['gis.' + table])
+        if cursor.fetchone()[0] is None:
+            return []
         cursor.execute(sql)
         return [json.loads(r[0]) if isinstance(r[0],str) else r[0] for r in cursor.fetchall()]
-    cursor.execute("SELECT to_regclass('gis.survey_link')")
-    target_rows = rows('SELECT to_jsonb(t) FROM gis.survey_link t ORDER BY id') if cursor.fetchone()[0] else []
+    target_rows = rows(TABLE, 'SELECT to_jsonb(t) FROM gis.survey_link t ORDER BY id')
     return {
         'targets': target_rows,
-        'logs': rows("SELECT to_jsonb(t) FROM gis.feature_change_log t WHERE physical_name='survey_link' OR old_values ? 'survey_mapping_id' OR new_values ? 'survey_mapping_id' ORDER BY project_id,revision"),
-        'receipts': rows("SELECT to_jsonb(t) FROM gis.changeset_receipt t WHERE response_payload->>'protocol'='survey_link_changeset_v1' ORDER BY project_id,client_id,changeset_id"),
+        'logs': rows('feature_change_log', "SELECT to_jsonb(t) FROM gis.feature_change_log t WHERE physical_name='survey_link' OR old_values ? 'survey_mapping_id' OR new_values ? 'survey_mapping_id' ORDER BY project_id,revision"),
+        'receipts': rows('changeset_receipt', "SELECT to_jsonb(t) FROM gis.changeset_receipt t WHERE response_payload->>'protocol'='survey_link_changeset_v1' ORDER BY project_id,client_id,changeset_id"),
     }
 
 
@@ -151,6 +155,7 @@ class Command(BaseCommand):
                     restore(c, report)
                     self.stdout.write(f'survey_target_restore_tenant={index}:complete=yes')
                     continue
+                self.stdout.write(f'survey_target_removal_stage={index}:inventory_and_backup')
                 before = preserved_inventory(c)
                 rows = backup_rows(c)
                 # A retry never overwrites the original recovery file.
@@ -165,6 +170,7 @@ class Command(BaseCommand):
                     saved = json.loads(output.read_text())
                     if saved['rows'] != rows or saved['preserved'] != before:
                         raise CommandError('Recovery backup differs from current pre-drop state')
+                self.stdout.write(f'survey_target_removal_stage={index}:migration')
                 apply_removal(c)
                 after = preserved_inventory(c)
                 if before != after:
