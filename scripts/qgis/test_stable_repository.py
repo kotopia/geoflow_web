@@ -84,6 +84,56 @@ class StableRepositoryTests(unittest.TestCase):
         self.assertEqual(self.client.objects['qgis-plugins/stable/plugins.xml'],self.xml)
         self.assertFalse(any(key.startswith('qgis-plugins/releases/') or key.startswith('tenants/') for key in self.client.writes))
 
+    def test_missing_index_with_s3_403_is_created_conditionally(self):
+        original_get = self.client.get_object
+        key = publisher.repository_object_key('stable')
+        def get_object(**kwargs):
+            if kwargs['Key'] == key and key not in self.client.objects:
+                raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'GetObject')
+            return original_get(**kwargs)
+        with patch.object(self.client, 'get_object', side_effect=get_object), \
+                patch.object(self.client, 'put_object', wraps=self.client.put_object) as put:
+            publisher.publish('stable', self.index, self.package, self.confirm)
+        writes = [call.kwargs for call in put.call_args_list if call.kwargs['Key'] == key]
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0]['IfNoneMatch'], '*')
+        self.assertEqual(self.client.objects[key], self.xml)
+
+    def test_unreadable_existing_index_is_never_overwritten(self):
+        key = publisher.repository_object_key('stable')
+        self.client.objects[key] = b'existing stable index'
+        original_get = self.client.get_object
+        def get_object(**kwargs):
+            if kwargs['Key'] == key:
+                raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'GetObject')
+            return original_get(**kwargs)
+        with patch.object(self.client, 'get_object', side_effect=get_object):
+            with self.assertRaisesRegex(SystemExit, 'repository_put_failed.*PreconditionFailed'):
+                publisher.publish('stable', self.index, self.package, self.confirm)
+        self.assertEqual(self.client.objects[key], b'existing stable index')
+
+    def test_test_repository_denial_stops_before_writes_with_safe_diagnostics(self):
+        error = ClientError({'Error': {'Code': 'AccessDenied', 'Message': 'PRIVATE PRINCIPAL'},
+                             'ResponseMetadata': {'HTTPStatusCode': 403}}, 'GetObject')
+        with patch.object(self.client, 'get_object', side_effect=error):
+            with self.assertRaises(SystemExit) as caught:
+                publisher.publish('stable', self.index, self.package, self.confirm)
+        self.assertIn('key=qgis-plugins/test/plugins.xml:code=AccessDenied:status=403', str(caught.exception))
+        self.assertNotIn('PRIVATE PRINCIPAL', str(caught.exception))
+        self.assertEqual(self.client.writes, [])
+
+    def test_created_index_requires_successful_readback(self):
+        key = publisher.repository_object_key('stable')
+        original_get = self.client.get_object
+        def get_object(**kwargs):
+            if kwargs['Key'] == key:
+                raise ClientError({'Error': {'Code': 'AccessDenied'}}, 'GetObject')
+            return original_get(**kwargs)
+        with patch.object(self.client, 'get_object', side_effect=get_object):
+            with self.assertRaisesRegex(SystemExit, 'object_read_failed.*AccessDenied'):
+                publisher.publish('stable', self.index, self.package, self.confirm)
+        self.assertEqual(self.client.objects[key], self.xml)
+
     def test_hash_mismatch_stops_before_any_write(self):
         self.package.write_bytes(self.package.read_bytes()+b'changed')
         with self.assertRaisesRegex(SystemExit,'package_sha256_mismatch'):

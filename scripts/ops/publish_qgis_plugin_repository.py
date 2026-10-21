@@ -24,6 +24,7 @@ QGIS_PLUGIN_REPOSITORY_FILE_NAME = 'geoflow_connector.zip'
 PACKAGE_RE = re.compile(r'\Ageoflow_connector-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z')
 HISTORY_RE = re.compile(r'\Aqgis-plugins/stable/history/plugins-[0-9a-f]{64}\.xml\Z')
 SITE = 'https://geoflow.co.kr/gis/qgis/plugins/'
+UNREADABLE_INDEX = object()
 
 
 def fail(reason):
@@ -125,14 +126,28 @@ def validate_package(xml, package, channel):
     return filename,expected_hash,data
 
 
-def read_object(client,key):
+def s3_failure(reason, operation, key, exc):
+    # Log only controlled object paths and AWS error identifiers, never messages
+    # containing account/principal details or request/credential information.
+    code = str(exc.response.get('Error', {}).get('Code', 'Unknown'))
+    code = re.sub(r'[^A-Za-z0-9_]', '_', code)[:80]
+    status = exc.response.get('ResponseMetadata', {}).get('HTTPStatusCode', 'unknown')
+    fail(f'{reason}:operation={operation}:key={key}:code={code}:status={status}')
+
+
+def read_object(client,key, *, allow_create_only=False):
     try:
         result=client.get_object(Bucket=QGIS_PLUGIN_BUCKET,Key=key)
     except ClientError as exc:
         code=str(exc.response.get('Error',{}).get('Code',''))
         if code in {'404','NoSuchKey','NotFound'}:
             return None
-        fail('object_read_failed')
+        if allow_create_only and code in {'403', 'AccessDenied'}:
+            # Without ListBucket, S3 can return 403 for a nonexistent key.
+            # This is NOT proof of absence. Only an atomic create is allowed.
+            print('qgis_plugin_index_read=denied:create_only:key='+key)
+            return UNREADABLE_INDEX
+        s3_failure('object_read_failed', 'GetObject', key, exc)
     try:
         return result['Body'].read()
     finally:
@@ -147,7 +162,7 @@ def put_immutable(client,key,data,content_type):
     except ClientError as exc:
         code=str(exc.response.get('Error',{}).get('Code',''))
         if code not in {'PreconditionFailed','412','ConditionalRequestConflict'}:
-            fail('immutable_put_failed')
+            s3_failure('immutable_put_failed', 'PutObject', key, exc)
     # Verify the full object, not just caller-controlled metadata.
     if read_object(client,key) != data:
         fail('immutable_package_collision')
@@ -176,8 +191,10 @@ def publish(channel, repository, package, confirmation, *, verify_http=False):
     if channel=='stable' and test_before is None:
         fail('existing_test_repository_missing')
     test_http_before=http_bytes(SITE+'test/plugins.xml','application/xml') if verify_http else None
-    previous=read_object(client,index_key)
-    if previous is not None and channel=='stable':
+    previous=read_object(client,index_key,allow_create_only=channel=='stable')
+    if previous is UNREADABLE_INDEX:
+        print('qgis_plugin_previous_index=unknown:create_only')
+    elif previous is not None and channel=='stable':
         history_key=f'{QGIS_PLUGIN_PREFIX}/stable/history/plugins-{digest(previous)}.xml'
         put_immutable(client,history_key,previous,'application/xml; charset=utf-8')
         print('qgis_plugin_previous_index='+history_key)
@@ -187,9 +204,14 @@ def publish(channel, repository, package, confirmation, *, verify_http=False):
     # Archive each published index so rollback never relies on S3 bucket versioning.
     if channel=='stable':
         put_immutable(client,f'{QGIS_PLUGIN_PREFIX}/stable/history/plugins-{digest(xml)}.xml',xml,'application/xml; charset=utf-8')
-    client.put_object(Bucket=QGIS_PLUGIN_BUCKET,Key=index_key,Body=xml,
-                      ContentType='application/xml; charset=utf-8',CacheControl='no-cache,no-store,must-revalidate',
-                      Metadata={'package-sha256':expected_hash,'xml-sha256':digest(xml)},**get_sse_config())
+    create_only = previous is None or previous is UNREADABLE_INDEX
+    try:
+        client.put_object(Bucket=QGIS_PLUGIN_BUCKET,Key=index_key,Body=xml,
+                          ContentType='application/xml; charset=utf-8',CacheControl='no-cache,no-store,must-revalidate',
+                          Metadata={'package-sha256':expected_hash,'xml-sha256':digest(xml)},
+                          **({'IfNoneMatch': '*'} if create_only else {}), **get_sse_config())
+    except ClientError as exc:
+        s3_failure('repository_put_failed', 'PutObject', index_key, exc)
     if read_object(client,index_key) != xml:
         fail('repository_verification_hash_mismatch')
     if channel=='stable' and read_object(client,test_key) != test_before:

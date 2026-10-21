@@ -143,6 +143,12 @@ package, archives the current index and swaps only stable/plugins.xml. An initia
 stable publication may have no previous stable version; test is never used as a
 rollback substitute. Existing bucket versioning is not assumed or modified.
 No IAM grants are changed; denied access stops the protected publication.
+For an initial stable index, S3 may return403 instead of404 when the runtime
+cannot list the bucket. The publisher never equates403 with absence: it permits
+only an atomic `If-None-Match: *` index creation, verifies full readback, and
+stops if any index already exists. An unreadable existing index is never replaced.
+Required test-index and package reads still fail closed. S3 failures report only
+operation, plugin object key, AWS error code and HTTP status for diagnosis.
 
 Plugin identity remains file_name=geoflow_connector.zip, so a1.4.2 installation
 can recognize stable1.4.3 as an update. The repository version string, compatibility
