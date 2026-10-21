@@ -38,5 +38,8 @@
   "runtime_retired_link_references": 0,
   "source_rebuild_sha256": "8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5",
   "live_authenticated_server_regression_rerun": false,
-  "scope_note": "Offscreen real QGIS application clean-profile load/restart plus local runtime tests with isolated fixtures/mocked API. No production CRUD or authenticated HTTP capture in this release pass."
+  "scope_note": "Offscreen real QGIS application clean-profile load/restart plus local runtime tests with isolated fixtures/mocked API. No production CRUD or authenticated HTTP capture in this release pass.",
+  "repository_qgis_contract_tests_run": 52,
+  "repository_qgis_contract_tests_passed": 49,
+  "repository_qgis_contract_tests_skipped": 3
 }

@@ -38,9 +38,11 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         source = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
         self.assertIn('PhotoSection', source)
         self.assertIn('page.tabs = page.form.tabs', source)
-        self.assertIn('page.form.add_auxiliary_tab(page.photos, "사진", visible=False)', source)
-        self.assertIn('p.form.set_auxiliary_tab_visible(p.photos, visible)', source)
-        self.assertIn('availabilityChanged.connect', source)
+        self.assertIn("page.form.add_auxiliary_tab(", source)
+        self.assertIn('photo_metadata["title"]', source)
+        self.assertIn("visible=False", source)
+        self.assertIn('page.form.set_auxiliary_tab_visible(page.photos, bool(needed))', source)
+        self.assertIn('tabNeededChanged.connect', source)
         self.assertIn('page.photos.set_feature(feature)', source)
 
     def test_async_policy_ready_refreshes_current_feature_without_form_rebuild(self):
@@ -52,7 +54,7 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         self.assertNotIn("photo_signature", host)
         self.assertIn('if state in {"idle", "loading"}:', section)
         self.assertIn('if state == "error":', section)
-        self.assertIn('if state == "unavailable":', section)
+        self.assertIn('if state == "unavailable" and self._is_managed_layer():', section)
         self.assertIn("service_project_id != active_project_id", section)
 
     def test_policy_states_control_tab_selectors_and_retry(self):
@@ -86,13 +88,14 @@ class PhotoPhase2ContractTests(unittest.TestCase):
         header = (ROOT / "ui/designer/form_header.ui").read_text(encoding="utf-8")
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
         host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
-        self.assertIn("QToolButton::ToolButtonPopupMode::MenuButtonPopup", header)
-        self.assertIn("bind_action_button(page.header.photoButton)", host)
+        self.assertIn('name="photoButton"', header)
+        self.assertIn("button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)", section)
+        self.assertIn("bind_action_button(page.form_actions.photoButton)", host)
         self.assertIn("def quick_capture(self):", section)
         self.assertIn("next_photo_slot", section)
         self.assertIn("def reclassify_pending", section)
         self.assertIn("사진 파일은 유지하고 분류만 변경했습니다.", section)
-        self.assertIn("self._set_available(self._tab_needed())", section)
+        self.assertIn("self.tabNeededChanged.emit(self.tab_needed())", section)
 
     def test_responsive_cards_internal_viewer_and_editor_are_used(self):
         section = (ROOT / "ui/photo_section.py").read_text(encoding="utf-8")
@@ -157,10 +160,10 @@ class PhotoPhase2ContractTests(unittest.TestCase):
             ET.fromstring(text)
         for forbidden in ("manager_open", "managerButton", "_toggle_manager", "_manager_label"):
             self.assertNotIn(forbidden, section + tab)
-        self.assertIn("return bool(self.photos or self.pending_add)", section)
-        for name in ("editButton", "replaceButton", "deleteButton", "photoPreview", "statusLabel"):
+        self.assertIn("return bool(self.photos or self.pending_add or self.extra_section_open)", section)
+        for name in ("editButton", "replaceButton", "deleteButton", "photoPreview", "pendingLabel"):
             self.assertIn(f'name="{name}"', card)
-        for name in ("slotTitleLabel", "countLabel", "photoCardsHost", "extraFieldsHost", "addPhotoButton"):
+        for name in ("slotTitleLabel", "photoCardsHost", "extraFieldsHost", "addPhotoButton"):
             self.assertIn(f'name="{name}"', slot)
 
     def test_photo_studio_fixed_toolbar_is_designer_owned(self):

@@ -53,8 +53,9 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         self.assertIn('geoflowRole", "fieldError', layout)
         self.assertIn("attach_error_label", layout)
         self.assertIn("def showPopup(self):", widgets)
-        self.assertLess(widgets.index("isinstance(widget, QDateTimeEdit)"),
-                        widgets.index("isinstance(widget, QDateEdit)"))
+        # QDateEdit subclasses QDateTimeEdit: the specific date branch must be first.
+        self.assertLess(widgets.index("isinstance(widget, QDateEdit)"),
+                        widgets.index("isinstance(widget, QDateTimeEdit)"))
 
         for state in ('[error="true"]', '[readonly="true"]', ":disabled",
                       ":hover", ":focus"):
@@ -93,7 +94,7 @@ class DynamicRuntimeContractTests(unittest.TestCase):
 
     def test_validation_feedback_preserves_rule_validation_result(self):
         form = (ROOT / "forms/dynamic/form.py").read_text(encoding="utf-8")
-        self.assertIn("errors = validate(self.definition, self.fields, self.values())", form)
+        self.assertIn("errors = validate(self.definition, validation_fields, values)", form)
         self.assertIn("return errors", form)
 
     def test_local_layout_is_qsettings_only_and_shutdown_host_does_not_reopen(self):
@@ -112,13 +113,14 @@ class DynamicRuntimeContractTests(unittest.TestCase):
         shutdown = host.split("def shutdown(self):", 1)[1]
         self.assertNotIn("self.show_retained()", shutdown)
 
-    def test_recovery_approval_allows_the_original_close_event(self):
+    def test_save_discard_guard_allows_only_approved_close_event(self):
         unified = (ROOT / "app/unified.py").read_text(encoding="utf-8")
         self.assertIn("if self._approved:", unified)
         self.assertIn("event.accept()", unified)
-        self.assertIn("복구 JSON을 저장하지 못해 전환을 중단했습니다.", unified)
+        self.assertIn("not work.guard_transition(label)", unified)
+        self.assertIn("if report['buffers']:", unified)
         protection = (ROOT / "app/protection.py").read_text(encoding="utf-8")
-        self.assertIn("getattr(page, 'layer_id', '')", protection)
+        self.assertIn("if l.isModified()", protection)
         host = (ROOT / "ui/form_host.py").read_text(encoding="utf-8")
         self.assertIn("저장 후 종료", host)
         self.assertIn("변경 취소 후 종료", host)
