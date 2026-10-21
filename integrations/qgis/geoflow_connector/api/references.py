@@ -42,7 +42,7 @@ def worker_reference_codes(catalog):
 
 
 def fields_with_worker_references(fields, catalog):
-    """Clone presentation metadata and attach workers to worker_id fields only."""
+    """Attach worker choices without overriding the central widget type."""
     codes = worker_reference_codes(catalog)
     result = []
     for source in fields:
@@ -55,8 +55,9 @@ def fields_with_worker_references(fields, catalog):
         }
         if 'worker_id' in names:
             field['worker_reference'] = True
-            field['widget_type'] = 'relation'
-            field['reference_codes'] = deepcopy(codes)
+            widget_type = str(field.get('widget_type') or '').strip().casefold()
+            if widget_type in {'combo', 'relation'}:
+                field['reference_codes'] = deepcopy(codes)
         result.append(field)
     return result
 
@@ -115,8 +116,54 @@ def normalize_catalog(payload):
     if not isinstance(workers, list) or any(not isinstance(w, dict) or not isinstance(w.get('id'), str) or not isinstance(w.get('resolved'), bool) for w in workers):
         raise ValueError('invalid_worker_response')
     current = payload.get('current_user')
-    return dict(ok=True, groups=groups, bindings=bindings, workers=workers,
-                current_user=current if isinstance(current, dict) else {})
+    # The reference endpoint is project-scoped.  Keep its explicit active L2
+    # business scope instead of discarding it while normalizing field codes.
+    # Older servers may place the same list below ``project``.
+    project = payload.get('project') if isinstance(payload.get('project'), dict) else {}
+    business_types = None
+    business_type_source = ''
+    for container_name, container in (('catalog', payload), ('catalog.project', project)):
+        for key in (
+                'business_types', 'project_l2', 'active_l2',
+                'business_scopes', 'l2'):
+            value = container.get(key)
+            if isinstance(value, list):
+                business_types = value
+                business_type_source = f'{container_name}.{key}'
+                break
+        if business_types is not None:
+            break
+    normalized_business_types = []
+    seen_business_types = set()
+    for position, row in enumerate(business_types or []):
+        if not isinstance(row, dict):
+            raise ValueError('invalid_business_type')
+        if row.get('active') is False or row.get('enabled') is False:
+            continue
+        code = row.get('code') or row.get('id') or row.get('value')
+        label = row.get('label') or row.get('name') or row.get('display_name')
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError('invalid_business_type')
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError('invalid_business_type')
+        code = code.strip()
+        if code in seen_business_types:
+            continue
+        seen_business_types.add(code)
+        normalized_business_types.append({
+            'code': code,
+            'label': label.strip(),
+            'sort_order': int(row.get('sort_order') or position),
+        })
+    normalized_business_types.sort(
+        key=lambda row: (row['sort_order'], row['code'])
+    )
+    return dict(
+        ok=True, groups=groups, bindings=bindings, workers=workers,
+        current_user=current if isinstance(current, dict) else {},
+        business_types=normalized_business_types,
+        business_type_source=business_type_source,
+    )
 
 
 # ============================================================
@@ -223,5 +270,7 @@ class ReferenceService(QObject):
         return dict(state=self.state, group_count=len(keys),
                      binding_count=len(self.catalog.get('bindings', [])),
                      worker_count=len(workers),
+                     l2_count=len(self.catalog.get('business_types', [])),
+                     l2_source=self.catalog.get('business_type_source', ''),
                      unresolved_worker_count=sum(not row['resolved'] for row in workers),
                      missing_groups=[])

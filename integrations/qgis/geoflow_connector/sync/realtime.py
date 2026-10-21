@@ -20,7 +20,7 @@ except ImportError:  # QGIS builds do not always re-export QtWebSockets via qgis
         except ImportError:  # pragma: no cover - depends on the bundled QGIS Qt build
             QWebSocket = None
 
-from .queue import read_last_applied_revision
+from .online import read_last_applied_revision
 
 
 # ============================================================

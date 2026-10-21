@@ -5,10 +5,12 @@ from __future__ import annotations
 import datetime as dt
 import os
 
+from qgis.PyQt.QtCore import QSettings
+from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.core import QgsProject, QgsRectangle, QgsVectorLayer, Qgis
 
-from ..sync.queue import ensure_changeset_tables, outbox_count, pending_count
-from .recovery import recover_untracked_snapshot_changes
+from ..layers.default_style import apply_default_qgis_style
+from ..sync.online import clear_legacy_queue, legacy_queue_packages
 from .snapshot import select_reusable_snapshot, stamp_snapshot
 
 
@@ -23,9 +25,22 @@ class SnapshotReuseMixin:
 
     The first open still downloads a server GeoPackage. Later opens validate the
     cached package against the current project/definition-revision/layer schema and reuse it
-    in place. A cache carrying pending/outbox work is preferred so offline edits
-    are never silently replaced by a fresh Snapshot.
+    in place. Legacy queue rows are inert and handled only by an explicit
+    one-time migration prompt.
     """
+
+    def _pull_clean_snapshot_delta(self, client, package_path: str, manifest: dict) -> int:
+        """Apply server Delta and make the local recovery baseline match it.
+
+        A clean reusable Snapshot has no local work to preserve.  Delta rows
+        applied here are server state, not user edits; leaving the old baseline
+        behind makes the next open queue those rows as local changes.
+        """
+        self.log('project_materialize_delta_pull_start')
+        received = self._pull_and_apply_delta(client)
+        self._refresh_local_baseline(package_path, manifest)
+        self.log(f'project_materialize_delta_pull_done count={received}')
+        return received
 
     def _materialize_project(
         self,
@@ -60,14 +75,11 @@ class SnapshotReuseMixin:
             and transport.get("changeset_url")
             and transport.get("delta_url")
         )
-        fallback_sync_supported = bool(
-            write_authorized
-            and transport.get("sync_supported")
-            and transport.get("sync_url")
-            and not changeset_supported
-        )
-        sync_supported = bool(changeset_supported or fallback_sync_supported)
-        can_write = bool(write_authorized and sync_supported)
+        fallback_sync_supported = False
+        sync_supported = bool(changeset_supported)
+        # Online-only editing requires the atomic changeset endpoint.  The old
+        # whole-GeoPackage fallback committed locally before server success.
+        can_write = bool(write_authorized and changeset_supported)
 
         app_root = self._app_data_location()
         project_dir = os.path.join(
@@ -100,21 +112,38 @@ class SnapshotReuseMixin:
             with open(package_path, "wb") as handle:
                 handle.write(raw)
             package_size = len(raw)
-            if changeset_supported:
-                ensure_changeset_tables(package_path)
             stamp_snapshot(package_path, manifest)
+        self.log('project_materialize_package_ready')
 
         qgs_project = QgsProject.instance()
         root = qgs_project.layerTreeRoot()
         group_name = f"GeoFlow · {project_code}"
         if cache_reused:
-            if changeset_supported:
-                ensure_changeset_tables(package_path)
             stamp_snapshot(package_path, manifest)
 
-        recovered = {"created": 0, "updated": 0, "deleted": 0, "total": 0}
-        if changeset_supported and cache_reused and outbox_count(package_path) == 0:
-            recovered = recover_untracked_snapshot_changes(package_path, manifest)
+        legacy_packages = legacy_queue_packages(project_dir)
+        legacy_total = sum(sum(status.values()) for _path, status in legacy_packages)
+        if legacy_total:
+            setting_key = f"GeoFlowConnector/onlineOnlyQueuePrompted/{project_id}"
+            settings = QSettings()
+            if not bool(settings.value(setting_key, False, type=bool)):
+                choice = QMessageBox.question(
+                    self.iface.mainWindow(),
+                    "GeoFlow 온라인 전용 전환",
+                    f"기존 GeoFlow 로컬 동기화 항목 {legacy_total}건이 있습니다.\n"
+                    "온라인 전용 구조에서는 더 이상 자동 전송하지 않습니다.\n\n"
+                    "기존 큐 항목을 삭제하시겠습니까?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                settings.setValue(setting_key, True)
+                if choice == QMessageBox.StandardButton.Yes:
+                    for legacy_path, _status in legacy_packages:
+                        clear_legacy_queue(legacy_path)
+                    legacy_total = 0
+                    self.log("legacy_local_queue_cleared")
+                else:
+                    self.log(f"legacy_local_queue_retained count={legacy_total}")
 
         group = root.addGroup(group_name)
         group.setCustomProperty('geoflow/context_owner', project_id)
@@ -160,6 +189,12 @@ class SnapshotReuseMixin:
                 layer_def.get("row_count", -1),
             )
 
+            # A default is only considered for this newly constructed layer,
+            # after every GeoFlow identity/runtime property has been attached.
+            # Existing layers take the same-project reuse path above and are
+            # intentionally never restyled.
+            apply_default_qgis_style(layer, standard_name)
+
             qgs_project.addMapLayer(layer, False)
             self._domain_group(
                 group,
@@ -173,7 +208,7 @@ class SnapshotReuseMixin:
                 if hasattr(layer, "beforeCommitChanges"):
                     try:
                         self._connect_sync(layer, layer.beforeCommitChanges,
-                            lambda *signal_args, lid=layer.id(): self._capture_layer_changes(
+                            lambda *signal_args, lid=layer.id(): self._before_online_commit(
                                 lid, *signal_args
                             )
                         )
@@ -182,18 +217,22 @@ class SnapshotReuseMixin:
                 if hasattr(layer, "afterCommitChanges"):
                     try:
                         self._connect_sync(layer, layer.afterCommitChanges,
-                            lambda *signal_args, lid=layer.id(): self._after_layer_commit(
+                            lambda *signal_args, lid=layer.id(): self._after_online_commit(
                                 lid, *signal_args
                             )
                         )
                     except Exception:
                         pass
-            elif fallback_sync_supported and hasattr(layer, "afterCommitChanges"):
-                try:
-                    self._connect_sync(layer, layer.afterCommitChanges,self._schedule_auto_sync)
-                except Exception:
-                    pass
-
+                if hasattr(layer, "afterRollBack"):
+                    try:
+                        self._connect_sync(
+                            layer,
+                            layer.afterRollBack,
+                            lambda *signal_args, lid=layer.id():
+                                self._discard_captured_layer_changes(lid, *signal_args),
+                        )
+                    except Exception:
+                        pass
             if layer.featureCount() > 0:
                 extent = layer.extent()
                 if not extent.isEmpty():
@@ -202,6 +241,7 @@ class SnapshotReuseMixin:
                     else:
                         combined_extent.combineExtentWith(extent)
 
+        self.log(f'project_materialize_layers_loaded count={loaded}')
         self._write_project_metadata(
             qgs_project,
             manifest,
@@ -228,18 +268,14 @@ class SnapshotReuseMixin:
         }
         self.active_client = client
 
-        if changeset_supported:
+        if changeset_supported and not legacy_total:
             try:
-                if pending_count(package_path) or outbox_count(package_path):
-                    self._sync_changesets(client)
-                else:
-                    self._pull_and_apply_delta(client)
+                self._pull_clean_snapshot_delta(client, package_path, manifest)
             except RuntimeError as exc:
                 # Retain the existing clean-cache expiry recovery. Retire only this
                 # staged candidate; the previous active context still belongs to
                 # the outer transaction and must survive if the fresh load fails.
-                if (cache_reused and _SNAPSHOT_REQUIRED_TEXT in str(exc)
-                        and pending_count(package_path) == 0 and outbox_count(package_path) == 0):
+                if cache_reused and _SNAPSHOT_REQUIRED_TEXT in str(exc):
                     self._disconnect_sync_layers(managed_layer_ids)
                     qgs_project.removeMapLayers(managed_layer_ids)
                     if not group.findLayers():
@@ -256,16 +292,10 @@ class SnapshotReuseMixin:
         mode_label = "로컬 편집 가능" if can_write else "읽기 전용"
         if changeset_supported:
             sync_label = "Changeset + Delta"
-        elif fallback_sync_supported:
-            sync_label = "GeoPackage fallback sync"
         else:
             sync_label = "서버 동기화 비활성"
         source_label = "로컬 Snapshot 재사용" if cache_reused else "서버 Snapshot"
-        recovery_label = (
-            f" · 미전송 변경 {recovered['total']}건 복구"
-            if recovered["total"]
-            else ""
-        )
+        recovery_label = f" · 비활성 기존 큐 {legacy_total}건" if legacy_total else ""
         size_mb = package_size / (1024 * 1024)
         self.iface.messageBar().pushMessage(
             "GeoFlow",
@@ -280,5 +310,5 @@ class SnapshotReuseMixin:
             "loaded": loaded,
             "sync_supported": sync_supported,
             "cache_reused": cache_reused,
-            "recovered": recovered,
+            "legacy_queue_items": legacy_total,
         }

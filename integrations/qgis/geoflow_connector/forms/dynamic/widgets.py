@@ -12,6 +12,8 @@ from qgis.PyQt.QtWidgets import (
     QTextEdit, QWidget,
 )
 
+from .boolean_codes import boolean_code_values, canonical_boolean_code
+
 
 def _repolish(widget):
     style = widget.style()
@@ -199,7 +201,11 @@ class WidgetHandle:
         self.widget = widget
         self.editor = editor or widget
         self._all_codes = list(field.get("reference_codes", []))
+        self._setting_value = False
+        self._touched = False
+        self._loaded_value = None
         self.error_label = None
+        self.field_block = None
 
     def connect_changed(self, slot):
         widget = self.editor
@@ -207,7 +213,11 @@ class WidgetHandle:
                      "dateTimeChanged", "toggled", "currentIndexChanged"):
             signal = getattr(widget, name, None)
             if signal is not None:
-                signal.connect(slot)
+                def changed(*args):
+                    if not self._setting_value:
+                        self._touched = True
+                    slot(*args)
+                signal.connect(changed)
                 return
 
     def set_readonly(self, value):
@@ -222,6 +232,20 @@ class WidgetHandle:
     def attach_error_label(self, label):
         self.error_label = label
 
+    def attach_field_block(self, block):
+        """Remember the complete label/editor/error block for behavior visibility."""
+        self.field_block = block
+
+    def set_behavior_active(self, active):
+        """Hide and disable a field without changing its draft value."""
+        active = bool(active)
+        visible = bool(self.field.get("visible", True)) and active
+        if self.field_block is not None:
+            self.field_block.setVisible(visible)
+        else:
+            self.widget.setVisible(visible)
+        self.widget.setEnabled(active)
+
     def set_error(self, message=None):
         setter = getattr(self.editor, "set_validation_error", None)
         if setter is not None:
@@ -232,6 +256,15 @@ class WidgetHandle:
 
     def set_value(self, value):
         widget = self.editor
+        self._setting_value = True
+        try:
+            self._set_editor_value(widget, value)
+        finally:
+            self._setting_value = False
+        self._loaded_value = canonical_boolean_code(self.field, value)
+        self._touched = False
+
+    def _set_editor_value(self, widget, value):
         if isinstance(widget, QComboBox):
             index = widget.findData(None if value is None else str(value))
             if index < 0 and value not in (None, ""):
@@ -250,17 +283,18 @@ class WidgetHandle:
                 widget.setToolTip("")
             widget.setCurrentIndex(index if index >= 0 else 0)
         elif isinstance(widget, QCheckBox):
-            widget.setChecked(bool(value))
+            codes = boolean_code_values(self.field)
+            widget.setChecked(value == codes[1] if codes is not None else bool(value))
         elif isinstance(widget, QSpinBox):
             widget.setValue(int(value or 0))
         elif isinstance(widget, QDoubleSpinBox):
             widget.setValue(float(value or 0))
-        elif isinstance(widget, QDateTimeEdit):
-            parsed = _datetime_value(value)
-            widget.setDateTime(parsed if parsed.isValid() else widget.minimumDateTime())
         elif isinstance(widget, QDateEdit):
             parsed = _date_value(value)
             widget.setDate(parsed if parsed.isValid() else widget.minimumDate())
+        elif isinstance(widget, QDateTimeEdit):
+            parsed = _datetime_value(value)
+            widget.setDateTime(parsed if parsed.isValid() else widget.minimumDateTime())
         elif isinstance(widget, (QLineEdit, QTextEdit)):
             setter = getattr(widget, "setPlainText", None) or widget.setText
             setter("" if value is None else str(value))
@@ -270,17 +304,22 @@ class WidgetHandle:
         if isinstance(widget, QComboBox):
             return widget.currentData()
         if isinstance(widget, QCheckBox):
-            return widget.isChecked()
+            codes = boolean_code_values(self.field)
+            if codes is None:
+                return widget.isChecked()
+            if not self._touched:
+                return self._loaded_value
+            return codes[1] if widget.isChecked() else codes[0]
         if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
             return widget.value()
-        if isinstance(widget, QDateTimeEdit):
-            if widget.dateTime() == widget.minimumDateTime():
-                return None
-            return widget.dateTime().toString("yyyy-MM-ddTHH:mm:ss")
         if isinstance(widget, QDateEdit):
             if widget.date() == widget.minimumDate():
                 return None
             return widget.date().toString("yyyy-MM-dd")
+        if isinstance(widget, QDateTimeEdit):
+            if widget.dateTime() == widget.minimumDateTime():
+                return None
+            return widget.dateTime().toString("yyyy-MM-ddTHH:mm:ss")
         if isinstance(widget, QTextEdit):
             return widget.toPlainText().strip() or None
         if isinstance(widget, QLineEdit):
@@ -330,7 +369,7 @@ def _photo_widget(parent):
 def create_widget(field: dict, parent=None) -> WidgetHandle:
     kind = field.get("widget_type") or field.get("semantic_data_type") or "text"
     codes = field.get("reference_codes", [])
-    if kind in {"combo", "relation"} or codes:
+    if kind in {"combo", "relation"}:
         editor = GeoFlowComboBox(parent)
         handle = WidgetHandle(field, editor)
         handle.set_allowed_codes(None)

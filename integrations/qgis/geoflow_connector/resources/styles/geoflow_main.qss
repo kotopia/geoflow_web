@@ -20,7 +20,8 @@ BACKGROUND     #ffffff
    1. ROOT / BASE
    ========================================================= */
 #GeoFlowProjectSelection,
-#GeoFlowLayerWorkspace {
+#GeoFlowLayerWorkspace,
+#GeoFlowSettingsDialog {
     background: #f8f9fa;
     color: #495057;
     font-size: 12px;
@@ -30,6 +31,7 @@ BACKGROUND     #ffffff
    2. INPUT WIDGETS
    ========================================================= */
 QWidget[geoflowMain="true"] QLineEdit,
+QWidget[geoflowMain="true"] QDoubleSpinBox,
 QWidget[geoflowMain="true"] QComboBox {
     background: #ffffff;
     color: #495057;
@@ -40,16 +42,19 @@ QWidget[geoflowMain="true"] QComboBox {
 }
 
 QWidget[geoflowMain="true"] QLineEdit:hover,
+QWidget[geoflowMain="true"] QDoubleSpinBox:hover,
 QWidget[geoflowMain="true"] QComboBox:hover {
     border-color: #adb5bd;
 }
 
 QWidget[geoflowMain="true"] QLineEdit:focus,
+QWidget[geoflowMain="true"] QDoubleSpinBox:focus,
 QWidget[geoflowMain="true"] QComboBox:focus {
     border-color: #3b7ddd;
 }
 
 QWidget[geoflowMain="true"] QLineEdit:disabled,
+QWidget[geoflowMain="true"] QDoubleSpinBox:disabled,
 QWidget[geoflowMain="true"] QComboBox:disabled {
     background: #e9ecef;
     color: #adb5bd;
@@ -58,6 +63,37 @@ QWidget[geoflowMain="true"] QComboBox:disabled {
 
 QWidget[geoflowMain="true"] QLineEdit {
     padding: 0 9px;
+}
+
+QWidget[geoflowMain="true"] QPushButton {
+    background: #ffffff;
+    color: #495057;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    padding: 5px 12px;
+}
+
+QWidget[geoflowMain="true"] QPushButton:hover {
+    background: #f1f5f9;
+    border-color: #3b7ddd;
+}
+
+QWidget[geoflowMain="true"] QTabWidget::pane {
+    background: #ffffff;
+    border: 1px solid #ced4da;
+}
+
+QWidget[geoflowMain="true"] QTabBar::tab {
+    background: #f1f5f9;
+    color: #495057;
+    border: 1px solid #ced4da;
+    padding: 6px 12px;
+}
+
+QWidget[geoflowMain="true"] QTabBar::tab:selected {
+    background: #e8f1ff;
+    color: #212529;
+    border-color: #3b7ddd;
 }
 
 /* =========================================================
@@ -144,6 +180,61 @@ QWidget[geoflowMain="true"] QToolButton:disabled {
     border-color: transparent;
 }
 
+QWidget[geoflowMain="true"] #projectNameLabel {
+    color: #212529;
+    font-weight: 600;
+}
+
+QWidget[geoflowMain="true"] #projectCrsLabel {
+    color: #495057;
+}
+
+QWidget[geoflowMain="true"] #projectCrsButton {
+    background: #ffffff;
+    color: #3b7ddd;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    padding: 3px 8px;
+}
+
+QWidget[geoflowMain="true"] #projectCrsButton:hover {
+    background: #f1f5f9;
+    border-color: #3b7ddd;
+}
+
+QWidget[geoflowMain="true"] #projectCrsButton:disabled {
+    background: #e9ecef;
+    color: #adb5bd;
+    border-color: #dee2e6;
+}
+
+QWidget[geoflowMain="true"] #editModeButton {
+    background: #ffffff;
+    color: #3b7ddd;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    padding: 5px 9px;
+}
+
+QWidget[geoflowMain="true"] #editModeButton:checked {
+    background: #e8f1ff;
+    color: #212529;
+    border-color: #3b7ddd;
+}
+
+QWidget#GeoFlowEditToolsPalette {
+    background: #ffffff;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+}
+
+QWidget[geoflowMain="true"] QWidget[geoflowEditTools="true"] QGroupBox {
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    margin-top: 7px;
+    padding-top: 5px;
+}
+
 /* =========================================================
    5. COMBOBOX / POPUP / ARROW
    ========================================================= */
@@ -189,15 +280,4 @@ QWidget[geoflowMain="true"] QTreeView::branch:has-children:closed {
 
 QWidget[geoflowMain="true"] QTreeView::branch:has-children:open {
     image: url(:/geoflow/feather/chevron-down.svg);
-}
-
-/* VisibilityButton paints its Feather icon itself and stays frameless. */
-QWidget[geoflowMain="true"] VisibilityButton,
-QWidget[geoflowMain="true"] VisibilityButton:hover,
-QWidget[geoflowMain="true"] VisibilityButton:pressed,
-QWidget[geoflowMain="true"] VisibilityButton:checked,
-QWidget[geoflowMain="true"] VisibilityButton:disabled {
-    background: transparent;
-    border: none;
-    padding: 0;
 }

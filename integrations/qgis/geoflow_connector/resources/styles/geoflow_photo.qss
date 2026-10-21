@@ -1,0 +1,143 @@
+/* GeoFlow Connector photo-tab presentation.
+   Structure lives in the .ui files; runtime state is expressed by properties. */
+
+/* =========================================================
+   PHOTO TAB
+   ========================================================= */
+#photoTabRoot {
+    background: #ffffff;
+    color: #495057;
+    border: none;
+}
+
+#photoTabRoot QLabel#slotTitleLabel,
+#photoTabRoot QLabel#titleLabel {
+    color: #212529;
+    font-weight: 600;
+}
+
+#photoTabRoot QWidget#templateRow QComboBox,
+#photoTabRoot QWidget#variantRow QComboBox {
+    background: #ffffff;
+    color: #495057;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    padding: 0 28px 0 9px;
+    selection-background-color: #e8f1ff;
+    selection-color: #212529;
+}
+
+#photoTabRoot QWidget#templateRow QComboBox:hover,
+#photoTabRoot QWidget#variantRow QComboBox:hover {
+    border-color: #adb5bd;
+}
+
+#photoTabRoot QWidget#templateRow QComboBox:focus,
+#photoTabRoot QWidget#variantRow QComboBox:focus {
+    border-color: #3b7ddd;
+}
+
+#photoTabRoot QWidget#templateRow QComboBox:disabled,
+#photoTabRoot QWidget#variantRow QComboBox:disabled {
+    background: #e9ecef;
+    color: #adb5bd;
+    border-color: #dee2e6;
+}
+
+#photoTabRoot QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 26px;
+    border: none;
+    background: transparent;
+}
+
+#photoTabRoot QComboBox::down-arrow {
+    image: url(:/geoflow/feather/chevron-down.svg);
+    width: 12px;
+    height: 12px;
+}
+
+#photoTabRoot QScrollArea#cardsScrollArea,
+#photoTabRoot QWidget#cardsHost {
+    background: transparent;
+    border: none;
+}
+
+/* =========================================================
+   SLOT
+   ========================================================= */
+#photoTabRoot QFrame#photoSlotFrame {
+    background: transparent;
+}
+
+/* =========================================================
+   PHOTO CARD
+   ========================================================= */
+#photoTabRoot QFrame#photoCardFrame {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+}
+
+#photoTabRoot QFrame#photoCardFrame:hover {
+    border-color: #adb5bd;
+}
+
+#photoTabRoot QWidget#photoPreview {
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 5px;
+}
+
+#photoTabRoot QLabel#originalNameLabel {
+    color: #6b7280;
+    font-size: 11px;
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+#photoTabRoot QFrame#photoCardFrame QToolButton {
+    background: transparent;
+    color: #495057;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 4px 7px;
+}
+
+#photoTabRoot QFrame#photoCardFrame QToolButton:hover {
+    background: #f1f5f9;
+    border-color: #adb5bd;
+}
+
+#photoTabRoot QPushButton#addPhotoButton {
+    background: #ffffff;
+    color: #3b7ddd;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    padding: 6px 10px;
+}
+
+#photoTabRoot QPushButton#addPhotoButton:hover {
+    background: #f1f5f9;
+    border-color: #adb5bd;
+}
+
+#photoTabRoot QPushButton#addPhotoButton:disabled {
+    background: #e9ecef;
+    color: #adb5bd;
+    border-color: #dee2e6;
+}
+
+/* =========================================================
+   STATES
+   ========================================================= */
+#photoTabRoot QFrame#photoCardFrame[pending="true"] {
+    border-color: #d97706;
+}
+
+#photoTabRoot QLabel#pendingLabel {
+    color: #d97706;
+    font-weight: 600;
+}

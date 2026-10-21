@@ -25,11 +25,40 @@ def row_field_weight(value):
 
 
 def _visible_fields(fields):
-    """화면 배치 대상만 추린다. 중앙 visible/widget_type 판단은 변경하지 않는다."""
+    """일반 속성 배치 대상만 추린다.
+
+    중앙 ``photo`` 항목은 저장 컬럼용 입력 위젯이 아니라 공통
+    PhotoSection의 배치 선언이다. Form host가 같은 중앙 tab 위치에
+    실제 PhotoSection을 연결하므로 일반 필드 블록으로 렌더링하지 않는다.
+    """
     return [
+        field for field in fields
+        if field.get("visible", True)
+        and field.get("widget_type") not in {"hidden", "photo"}
+    ]
+
+
+def central_photo_tab_spec(fields):
+    """Return the central photo tab title/index, or ``None`` when undefined."""
+    visible = [
         field for field in fields
         if field.get("visible", True) and field.get("widget_type") != "hidden"
     ]
+    photo = next(
+        (field for field in visible if field.get("widget_type") == "photo"),
+        None,
+    )
+    if photo is None:
+        return None
+    metadata = photo.get("layout") if isinstance(photo.get("layout"), dict) else {}
+    title = str(metadata.get("tab") or photo.get("label") or "사진").strip() or "사진"
+    tab_titles = []
+    for field in visible:
+        field_layout = field.get("layout") if isinstance(field.get("layout"), dict) else {}
+        field_title = str(field_layout.get("tab") or "기본 정보").strip() or "기본 정보"
+        if field_title not in tab_titles:
+            tab_titles.append(field_title)
+    return {"title": title, "index": tab_titles.index(title)}
 
 
 # ============================================================

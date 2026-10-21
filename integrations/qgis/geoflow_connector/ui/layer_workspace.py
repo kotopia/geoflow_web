@@ -1,241 +1,153 @@
-# 제목: ui/layer_workspace.py
-# 기능: 레이어 트리, 검색, 가시성 버튼 및 manifest 기반 편집 설정
-from __future__ import annotations
+"""GeoFlow layer workspace backed by QGIS' native layer tree."""
+from pathlib import Path
 
-from qgis.PyQt.QtCore import Qt, QSignalBlocker
+from qgis.PyQt.QtCore import QSize, Qt
+from qgis.PyQt.QtGui import QIcon
 try:
     from qgis.PyQt.QtGui import QAction
 except ImportError:
     from qgis.PyQt.QtWidgets import QAction
-from qgis.PyQt.QtWidgets import (
-    QDockWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QToolButton,
-    QWidget,
-)
-from pathlib import Path
+from qgis.PyQt.QtWidgets import QDockWidget, QToolButton, QWidget
 from qgis.PyQt.uic import loadUi
-from qgis.PyQt.QtGui import QColor, QIcon, QPainter
 from qgis.core import (
     QgsEditFormConfig,
     QgsEditorWidgetSetup,
     QgsFieldConstraints,
-    QgsProject,
     Qgis,
 )
 
-from ..layers.model import domain_label, editor_widget_spec, form_field_label, grouped_layer_rows, layer_reference_bindings, reference_groups, setting_enabled
-from .layer_name_delegate import LayerNameDelegate, COUNT_ROLE
-from .main_style import apply_main_style
-from ..api.references import ReferenceService, field_options
 from ..api.definitions import DefinitionService
 from ..api.photos import PhotoPolicyService
+from ..api.references import ReferenceService, field_options
+from ..layers.model import (
+    editor_widget_spec,
+    form_field_label,
+    layer_reference_bindings,
+)
+from .main_style import apply_main_style
 
 
-def _qt_value(enum_name: str, member_name: str, legacy_name: str):
-    enum = getattr(Qt, enum_name, None)
-    if enum is not None and hasattr(enum, member_name):
-        return getattr(enum, member_name)
-    return getattr(Qt, legacy_name)
+_RIGHT_DOCK = Qt.DockWidgetArea.RightDockWidgetArea
 
 
-_USER_ROLE = _qt_value("ItemDataRole", "UserRole", "UserRole")
-_CHECKED = _qt_value("CheckState", "Checked", "Checked")
-_UNCHECKED = _qt_value("CheckState", "Unchecked", "Unchecked")
-_RIGHT_DOCK = _qt_value("DockWidgetArea", "RightDockWidgetArea", "RightDockWidgetArea")
-
-
-class VisibilityButton(QToolButton):
-    """Paint only the Designer icon; native button frames and press offsets are omitted."""
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        if self.property('emptyLayer'):
-            opacity = self.property('emptyOpacity')
-            painter.setOpacity(float(opacity) if opacity is not None else 0.4)
-        size = self.iconSize()
-        rect = self.rect()
-        rect.setSize(size)
-        rect.moveCenter(self.rect().center())
-        state = QIcon.State.On if self.isChecked() else QIcon.State.Off
-        self.icon().paint(painter, rect, Qt.AlignmentFlag.AlignCenter, QIcon.Mode.Normal, state)
-        painter.end()
-
-
-class VisibilityTree(QTreeWidget):
-    def mousePressEvent(self, event):
-        pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
-        item = self.itemAt(pos)
-        if item is not None and item.parent() is not None and self.indexAt(pos).column() == 0:
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
-        if self.indexAt(pos).column() == 0:
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
-
-
-# ============================================================
-# 레이어 검색·선택·가시성 Workspace
-# ============================================================
 class GeoFlowLayerWorkspace(QWidget):
-    """Metadata-driven layer workspace with one reusable native form."""
+    """GeoFlow styling and form controls around a QgsLayerTreeView."""
 
     def __init__(self, plugin, parent=None):
         super().__init__(parent)
         self.plugin = plugin
         self.model = plugin._workspace_model
-        self.rows: list[dict] = []
         self.integrated = False
-        self._items = {}
-        self._building = False
 
-        loadUi(str(Path(__file__).resolve().parents[1] / 'ui' / 'designer' / 'layer_workspace.ui'), self)
+        loadUi(
+            str(Path(__file__).resolve().parent / "designer" / "layer_workspace.ui"),
+            self,
+        )
+        # Designer cannot construct a plugin-parameterized tree, so replace its
+        # neutral placeholder with the real QGIS view at the same layout slot.
+        from .native_layer_tree import GeoFlowNativeLayerTree
+        placeholder = self.tree
+        self.tree = GeoFlowNativeLayerTree(plugin, self)
+        self.tree.setObjectName("tree")
+        self.workspace_layout.replaceWidget(placeholder, self.tree)
+        placeholder.deleteLater()
+        self._install_tree_toolbar()
         apply_main_style(self)
-        self.tree.setItemDelegateForColumn(1, LayerNameDelegate(self.tree))
-        self.model.rowsChanged.connect(self._rebuild)
+
+        self.model.rowsChanged.connect(self._refresh_tree)
         self.model.selectionChanged.connect(self._model_selection_changed)
         self.model.revealRequested.connect(self._reveal)
-        self.model.visibilityChanged.connect(self._sync_checks)
-
-
-        self.search.textChanged.connect(self._rebuild)
+        self.model.visibilityChanged.connect(self.tree.refresh_presentation)
+        self.model.symbologyChanged.connect(self.tree.refresh_symbology)
+        self.search.textChanged.connect(self.tree.set_filter_text)
         self.form_edge.clicked.connect(self._toggle_form)
-        self.tree.currentItemChanged.connect(self._selection_requested)
-        self.tree.itemChanged.connect(self._visibility_changed)
-        self.tree.itemDoubleClicked.connect(lambda *_args: self._activate())
+
+    def _tree_button(self, icon, tooltip, *, checkable=False):
+        button = QToolButton(self)
+        button.setAutoRaise(True)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        button.setIcon(QIcon(str(
+            Path(__file__).resolve().parents[1]
+            / "resources" / "icons" / "feather" / icon
+        )))
+        button.setIconSize(QSize(18, 18))
+        button.setFixedSize(28, 28)
+        button.setToolTip(tooltip)
+        button.setCheckable(checkable)
+        return button
+
+    def _install_tree_toolbar(self):
+        self.expand_groups_button = self._tree_button(
+            "folder-plus.svg", "그룹 펼치기 (레이어 legend는 유지)"
+        )
+        self.collapse_all_button = self._tree_button(
+            "folder-minus.svg", "전체 접기"
+        )
+        self.count_toggle_button = self._tree_button(
+            "hash.svg", "수량 표시/숨김", checkable=True
+        )
+        self.count_toggle_button.setChecked(True)
+        for offset, button in enumerate((
+            self.expand_groups_button,
+            self.collapse_all_button,
+            self.count_toggle_button,
+        ), start=1):
+            self.searchLayout.insertWidget(offset, button)
+        self.expand_groups_button.clicked.connect(self.tree.expand_groups_only)
+        self.collapse_all_button.clicked.connect(self.tree.collapse_all_rows)
+        self.count_toggle_button.toggled.connect(self.tree.set_count_visible)
 
     def set_project(self, manifest: dict) -> None:
+        del manifest
+        self.tree.install_project_model()
         self.model.refresh()
 
     def set_integrated(self, enabled):
-        self.integrated = enabled
-        self.form_edge.setVisible(enabled)
+        self.integrated = bool(enabled)
+        self.form_edge.setVisible(self.integrated)
 
     def _toggle_form(self):
         from .presentation import PanelMode
         presentation = self.plugin.presentation
-        presentation.set_mode(PanelMode.LAYERS if presentation.mode == PanelMode.FULL else PanelMode.FULL)
+        presentation.set_mode(
+            PanelMode.LAYERS
+            if presentation.mode == PanelMode.FULL
+            else PanelMode.FULL
+        )
 
-    def _layer_for_item(self, item=None):
-        if item is None:
-            item = self.tree.currentItem()
-        if item is None or item.parent() is None:
-            return None
-        return self.model.layers().get(str(item.data(0, _USER_ROLE) or ''))
+    def _refresh_tree(self, *args):
+        self.tree.install_project_model()
+        self.tree.set_counts(self.model.rows)
+        self.tree.set_filter_text(self.search.text())
 
-    def _rebuild(self, *args) -> None:
-        self._building = True
-        blocker = QSignalBlocker(self.tree)
-        expanded = {self.tree.topLevelItem(i).text(1): self.tree.topLevelItem(i).isExpanded() for i in range(self.tree.topLevelItemCount())}
-        self.tree.clear()
-        self._items = {}
-        self._eyes = {}
-        self.rows = self.model.rows
-        managed = self.model.layers()
-        for domain, rows in grouped_layer_rows(self.rows, self.search.text()).items():
-            parent = QTreeWidgetItem(['', domain_label(domain)])
-            self.tree.addTopLevelItem(parent)
-            for row in rows:
-                layer = managed.get(row['layer_id'])
-                if layer is None:
-                    continue
-                item = QTreeWidgetItem(['', str(row['label'])])
-                item.setData(1, COUNT_ROLE, str(row['row_count']))
-                if row['row_count'] == 0:
-                    item.setForeground(1, QColor(self.tree.property('emptyLayerColor')))
-                item.setToolTip(1, f"{row['label']} ({row['row_count']})")
-                item.setData(1, Qt.ItemDataRole.AccessibleTextRole, f"{row['label']} ({row['row_count']})")
-                item.setToolTip(0, str(row['standard_name']))
-                item.setData(0, _USER_ROLE, layer.id())
-                node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
-                parent.addChild(item)
-                eye = loadUi(str(Path(__file__).resolve().parent / 'designer' / 'layer_visibility.ui'))
-                eye.setProperty('emptyLayer', row['row_count'] == 0)
-                eye.clicked.connect(lambda checked=False, lid=layer.id(): self._toggle_eye(lid))
-                self.tree.setItemWidget(item, 0, eye)
-                self._eyes[layer.id()] = eye
-                self._update_eye(layer.id())
-                self._items[layer.id()] = item
-            parent.setExpanded(expanded.get(domain_label(domain), True))
-        item = self._items.get(self.model.selected_id)
-        self.tree.setCurrentItem(item)
-        self.tree.setColumnWidth(0, int(self.tree.property('visibilityColumnWidth') or 56))
-        self.tree.resizeColumnToContents(1)
-        del blocker
-        self._building = False
-    def _selection_requested(self, current, previous):
-        if self._building:
-            return
-        layer = self._layer_for_item(current)
-        if layer is not None:
-            self.model.select_layer(layer.id())
+    def _model_selection_changed(self, layer_id):
+        self.tree.set_current_layer_id(layer_id)
 
-    def _model_selection_changed(self, lid):
-        blocker = QSignalBlocker(self.tree)
-        self.tree.setCurrentItem(self._items.get(lid))
-        del blocker
-
-    def _reveal(self, lid):
-        if lid not in self._items and self.search.text():
-            self.search.clear()  # Explicit external selection reveals the actual current layer.
-        item = self._items.get(lid)
-        if item is not None:
-            self._model_selection_changed(lid)
-            self.tree.scrollToItem(item)
-
-    def shutdown(self):
-        for signal, slot in ((self.model.rowsChanged, self._rebuild),
-                             (self.model.selectionChanged, self._model_selection_changed),
-                             (self.model.revealRequested, self._reveal),
-                             (self.model.visibilityChanged, self._sync_checks)):
-            signal.disconnect(slot)
-
-    def _update_eye(self, lid):
-        node = QgsProject.instance().layerTreeRoot().findLayer(lid)
-        visible = bool(node and node.isVisible())
-        eye = self._eyes[lid]
-        eye.setChecked(visible)
-        eye.setToolTip('레이어 숨기기' if visible else '레이어 표시')
-        eye.setAccessibleName(eye.toolTip())
-
-    def _toggle_eye(self, lid):
-        node = QgsProject.instance().layerTreeRoot().findLayer(lid)
-        if node is not None:
-            node.setItemVisibilityChecked(not node.isVisible())
-            if node.itemVisibilityChecked():
-                node.setItemVisibilityCheckedParentRecursive(True)
-        self._sync_checks()
-
-    def _sync_checks(self):
-        for lid in getattr(self, '_eyes', {}):
-            self._update_eye(lid)
-
-
-    def _visibility_changed(self, item, _column) -> None:
-        if self._building:
-            return
-        layer = self._layer_for_item(item)
+    def _reveal(self, layer_id):
+        layer = self.model.layers().get(layer_id)
         if layer is None:
             return
-        node = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
-        if node is not None:
-            node.setItemVisibilityChecked(item.checkState(0) == _CHECKED)
+        if self.search.text() and not self.tree._managed_match(layer):
+            self.search.clear()
+        self.tree.set_current_layer_id(layer_id)
+        if self.tree.currentIndex().isValid():
+            self.tree.scrollTo(self.tree.currentIndex())
 
-    def _activate(self) -> None:
-        layer = self._layer_for_item()
-        if layer is not None:
-            self.model.select_layer(layer.id())
+    def shutdown(self):
+        for signal, slot in (
+            (self.model.rowsChanged, self._refresh_tree),
+            (self.model.selectionChanged, self._model_selection_changed),
+            (self.model.revealRequested, self._reveal),
+            (self.model.visibilityChanged, self.tree.refresh_presentation),
+            (self.model.symbologyChanged, self.tree.refresh_symbology),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+        self.tree.shutdown()
 
 
-# ============================================================
-# Workspace 생명주기와 중앙 메타데이터 연결
-# ============================================================
 class LayerWorkspaceMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -257,8 +169,7 @@ class LayerWorkspaceMixin:
         from ..layers.selection import LayerWorkspaceState
         self._workspace_model = LayerWorkspaceState(self)
         self._layer_workspace_action = QAction(
-            "GeoFlow 레이어 패널",
-            self.iface.mainWindow(),
+            "GeoFlow 레이어 패널", self.iface.mainWindow()
         )
         self._layer_workspace_action.setEnabled(False)
         self._layer_workspace_action.triggered.connect(self._show_layer_workspace)
@@ -290,8 +201,12 @@ class LayerWorkspaceMixin:
 
     def _ensure_layer_workspace(self):
         if self._layer_workspace is None:
-            self._layer_workspace = QDockWidget('GeoFlow 레이어', self.iface.mainWindow())
-            self._workspace_panel = GeoFlowLayerWorkspace(self, self._layer_workspace)
+            self._layer_workspace = QDockWidget(
+                "GeoFlow 레이어", self.iface.mainWindow()
+            )
+            self._workspace_panel = GeoFlowLayerWorkspace(
+                self, self._layer_workspace
+            )
             self._layer_workspace.setWidget(self._workspace_panel)
             self.iface.addDockWidget(_RIGHT_DOCK, self._layer_workspace)
         return self._workspace_panel
@@ -311,81 +226,89 @@ class LayerWorkspaceMixin:
         self._photo_policy_service.open(manifest, client)
 
     def _definition_changed(self):
-        # Form pages rebuild only through the existing project-scoped adapter.
         callback = getattr(self, "_integration_changed", None)
         if callback is not None:
             callback()
 
     def _reference_changed(self):
         service = self._reference_service
-        self._reference_catalog = service.catalog if service.state == 'ready' else {'bindings': [], 'groups': []}
-        context = getattr(self, 'active_context', None) or {}
-        project_id = str(((context.get('manifest') or {}).get('project') or {}).get('id') or '')
-        if service.state != 'ready' or not service.scope or service.scope[2] != project_id:
+        self._reference_catalog = (
+            service.catalog
+            if service.state == "ready"
+            else {"bindings": [], "groups": []}
+        )
+        context = getattr(self, "active_context", None) or {}
+        project_id = str(
+            ((context.get("manifest") or {}).get("project") or {}).get("id")
+            or ""
+        )
+        if (
+            service.state != "ready"
+            or not service.scope
+            or service.scope[2] != project_id
+        ):
             return
         if "current_user" in service.catalog:
             context["user"] = dict(service.catalog["current_user"])
-        # Catalog arrival is asynchronous. Update native editor choices too,
-        # without reapplying permissions, defaults or replacing business forms.
         for layer in self._managed_layers():
             definition = self._layer_def(layer) or {}
-            standard = definition.get('standard_name', '')
-            for field in definition.get('fields') or []:
-                name = field['name']
-                index = self._field_index(layer, name)
+            standard = definition.get("standard_name", "")
+            for field in definition.get("fields") or []:
+                index = self._field_index(layer, field["name"])
                 if index < 0:
                     continue
-                widget, config = editor_widget_spec(field, field_options(self._reference_catalog, standard, field))
+                widget, config = editor_widget_spec(
+                    field,
+                    field_options(self._reference_catalog, standard, field),
+                )
                 if widget:
-                    layer.setEditorWidgetSetup(index, QgsEditorWidgetSetup(widget, config))
+                    layer.setEditorWidgetSetup(
+                        index, QgsEditorWidgetSetup(widget, config)
+                    )
 
     def refresh_reference_catalog(self):
-        """One explicit refresh for all open forms, preserving their edit buffers."""
         self._reference_service.refresh()
         self._definition_service.refresh()
         self._photo_policy_service.refresh()
 
     def _configure_layer_fields(
-        self,
-        layer,
-        layer_def: dict,
-        project_id: str,
-        can_write: bool,
+        self, layer, layer_def: dict, project_id: str, can_write: bool
     ) -> None:
         super()._configure_layer_fields(layer, layer_def, project_id, can_write)
         standard_name = str(layer_def.get("standard_name") or "")
-        groups = reference_groups(self._reference_catalog)
         bindings = {
             str(row.get("field_name") or ""): row
             for row in layer_reference_bindings(
-                self._reference_catalog,
-                standard_name,
+                self._reference_catalog, standard_name
             )
         }
         for field in layer_def.get("fields") or []:
             field_name = str(field.get("name") or "")
-            idx = self._field_index(layer, field_name)
+            index = self._field_index(layer, field_name)
             label = form_field_label(field)
-            if idx >= 0 and label and hasattr(layer, "setFieldAlias"):
-                layer.setFieldAlias(idx, label)
-            if idx < 0:
+            if index >= 0 and label and hasattr(layer, "setFieldAlias"):
+                layer.setFieldAlias(index, label)
+            if index < 0:
                 continue
-            binding = bindings.get(field_name) or {}
-            binding_label = str(binding.get("field_label") or "")
+            binding_label = str(
+                (bindings.get(field_name) or {}).get("field_label") or ""
+            )
             if binding_label and hasattr(layer, "setFieldAlias"):
                 layer.setFieldAlias(
-                    idx,
+                    index,
                     form_field_label({**field, "label": binding_label}),
                 )
-            values = field_options(self._reference_catalog, standard_name, field)
+            values = field_options(
+                self._reference_catalog, standard_name, field
+            )
             widget_name, widget_config = editor_widget_spec(field, values)
             if widget_name and hasattr(layer, "setEditorWidgetSetup"):
                 layer.setEditorWidgetSetup(
-                    idx,
+                    index,
                     QgsEditorWidgetSetup(widget_name, widget_config),
                 )
             if can_write and bool(field.get("required")):
-                self._set_not_null_constraint(layer, idx)
+                self._set_not_null_constraint(layer, index)
         if can_write:
             self._force_attribute_form_on_add(layer)
 
@@ -397,7 +320,9 @@ class LayerWorkspaceMixin:
             if constraint_enum is not None
             else None
         ) or getattr(QgsFieldConstraints, "ConstraintNotNull", None)
-        strength_enum = getattr(QgsFieldConstraints, "ConstraintStrength", None)
+        strength_enum = getattr(
+            QgsFieldConstraints, "ConstraintStrength", None
+        )
         strength = (
             getattr(strength_enum, "ConstraintStrengthHard", None)
             if strength_enum is not None
@@ -437,12 +362,16 @@ class LayerWorkspaceMixin:
             pass
 
     def _materialize_project(self, manifest: dict, client, **kwargs) -> dict:
+        self.log("project_materialize_reference_catalog_start")
         self._load_reference_catalog(manifest, client)
+        self.log("project_materialize_reference_catalog_done")
         result = super()._materialize_project(manifest, client, **kwargs)
+        self.log("project_materialize_sync_bind_start")
         panel = self._ensure_layer_workspace()
         panel.set_project(manifest)
         if self._workspace_host is None and self._layer_workspace is not None:
             self._layer_workspace.show()
         if self._layer_workspace_action is not None:
             self._layer_workspace_action.setEnabled(True)
+        self.log("project_materialize_sync_bind_done")
         return result

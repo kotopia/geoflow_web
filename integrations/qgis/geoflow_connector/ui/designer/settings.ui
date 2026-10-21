@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>GeoFlowSettingsDialog</class>
+ <widget class="QDialog" name="GeoFlowSettingsDialog">
+  <property name="windowTitle"><string>GeoFlow 환경설정</string></property>
+  <property name="minimumSize"><size><width>500</width><height>390</height></size></property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item><widget class="QLabel" name="projectLabel"><property name="text"><string>프로젝트 설정</string></property></widget></item>
+   <item><widget class="QTabWidget" name="settingsTabs">
+    <widget class="QWidget" name="nearbyTab"><attribute name="title"><string>주변값</string></attribute>
+     <layout class="QFormLayout" name="nearbyLayout">
+      <item row="0" column="0"><widget class="QLabel" name="defaultRadiusLabel"><property name="text"><string>기본 주변값 검색 반경</string></property></widget></item>
+      <item row="0" column="1"><widget class="QDoubleSpinBox" name="defaultRadiusSpin"><property name="decimals"><number>1</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10000.000000000000000</double></property><property name="suffix"><string> m</string></property></widget></item>
+      <item row="1" column="0"><widget class="QLabel" name="depthRadiusLabel"><property name="text"><string>심도 계산 검색 반경</string></property></widget></item>
+      <item row="1" column="1"><widget class="QDoubleSpinBox" name="depthRadiusSpin"><property name="decimals"><number>1</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10000.000000000000000</double></property><property name="suffix"><string> m</string></property></widget></item>
+      <item row="2" column="0"><widget class="QLabel" name="manholeRadiusLabel"><property name="text"><string>맨홀 속성 복사 검색 반경</string></property></widget></item>
+      <item row="2" column="1"><widget class="QDoubleSpinBox" name="manholeRadiusSpin"><property name="decimals"><number>1</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10000.000000000000000</double></property><property name="suffix"><string> m</string></property></widget></item>
+      <item row="3" column="0" colspan="2"><widget class="QCheckBox" name="nearestFirstCheck"><property name="text"><string>가장 가까운 객체 우선</string></property></widget></item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="geometryTab"><attribute name="title"><string>도형</string></attribute>
+     <layout class="QFormLayout" name="geometryLayout">
+      <item row="0" column="0"><widget class="QLabel" name="upperArcLabel"><property name="text"><string>상단 호 크기</string></property></widget></item>
+      <item row="0" column="1"><widget class="QDoubleSpinBox" name="upperArcSpin"><property name="enabled"><bool>false</bool></property></widget></item>
+      <item row="1" column="0"><widget class="QLabel" name="lowerArcLabel"><property name="text"><string>하단 호 크기</string></property></widget></item>
+      <item row="1" column="1"><widget class="QDoubleSpinBox" name="lowerArcSpin"><property name="enabled"><bool>false</bool></property></widget></item>
+      <item row="2" column="0" colspan="2"><widget class="QLabel" name="geometryNotice"><property name="text"><string>현재 호 생성 기능의 단위·렌더링 계약이 없어 비활성화되어 있습니다.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+     </layout>
+    </widget>
+    <widget class="QWidget" name="formTab"><attribute name="title"><string>폼</string></attribute>
+     <layout class="QVBoxLayout" name="formLayout">
+      <item><widget class="QCheckBox" name="showNearbyCheck"><property name="text"><string>주변값 버튼 표시</string></property></widget></item>
+      <item><widget class="QCheckBox" name="showPreviousCheck"><property name="text"><string>이전값 버튼 표시</string></property></widget></item>
+      <item><widget class="QCheckBox" name="showFieldActionsCheck"><property name="text"><string>필드 action 버튼 표시</string></property></widget></item>
+      <item><widget class="QLabel" name="layoutNotice"><property name="text"><string>폼 배치 편집 기능은 이 설정과 독립적으로 유지됩니다.</string></property></widget></item>
+      <item><spacer name="formSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+     </layout>
+    </widget>
+   </widget></item>
+   <item><layout class="QHBoxLayout" name="buttonLayout">
+    <item><widget class="QPushButton" name="defaultsButton"><property name="text"><string>기본값</string></property></widget></item>
+    <item><spacer name="buttonSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+    <item><widget class="QPushButton" name="cancelButton"><property name="text"><string>취소</string></property></widget></item>
+    <item><widget class="QPushButton" name="saveButton"><property name="text"><string>저장</string></property><property name="default"><bool>true</bool></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

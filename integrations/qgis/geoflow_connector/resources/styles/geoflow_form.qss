@@ -10,6 +10,35 @@
     font-size: 12px;
 }
 
+#GeoFlowDynamicForm #shapeSwitchHost {
+    background: transparent;
+    border: none;
+}
+
+#GeoFlowDynamicForm QToolButton[fieldAction="true"] {
+    padding: 0;
+    color: #495057;
+    background: #ffffff;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+}
+
+#GeoFlowDynamicForm QToolButton[fieldAction="true"]:hover {
+    border-color: #adb5bd;
+    background: #f1f5f9;
+}
+
+#GeoFlowDynamicForm QToolButton[fieldAction="true"]:pressed {
+    background: #e8f1ff;
+    border-color: #3b7ddd;
+}
+
+#GeoFlowDynamicForm QToolButton[fieldAction="true"]:disabled {
+    color: #adb5bd;
+    background: #e9ecef;
+    border-color: #dee2e6;
+}
+
 #GeoFlowDynamicForm QGroupBox {
     background: #ffffff;
     border: 1px solid #e9ecef;
@@ -290,23 +319,6 @@
     selection-background-color: #e8f1ff;
     selection-color: #1b1d1f;
     border: 1px solid #ced4da;
-}
-
-#GeoFlowDynamicForm QLabel#photoSectionTitle,
-#GeoFlowDynamicForm QLabel#slotTitleLabel,
-#GeoFlowDynamicForm QLabel#titleLabel {
-    color: #343a40;
-    font-weight: 600;
-}
-
-#GeoFlowDynamicForm QLabel#fileNameLabel {
-    color: #6b7280;
-    font-size: 11px;
-}
-
-#GeoFlowDynamicForm QLabel#statusLabel {
-    color: #d97706;
-    font-weight: 600;
 }
 
 /* ==========================================================

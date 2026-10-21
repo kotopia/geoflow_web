@@ -1,16 +1,154 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>PhotoTabForm</class>
- <widget class="QGroupBox" name="PhotoTabForm">
-  <property name="title"><string>사진</string></property>
+ <class>photoTabRoot</class>
+ <widget class="QWidget" name="photoTabRoot">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>728</width>
+    <height>381</height>
+   </rect>
+  </property>
   <layout class="QVBoxLayout" name="rootLayout">
-   <property name="leftMargin"><number>10</number></property><property name="topMargin"><number>10</number></property><property name="rightMargin"><number>10</number></property><property name="bottomMargin"><number>10</number></property>
-   <item><widget class="QLabel" name="statusLabel"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-   <item><widget class="QPushButton" name="retryButton"><property name="text"><string>다시 시도</string></property><property name="visible"><bool>false</bool></property></widget></item>
-   <item><widget class="QWidget" name="templateRow" native="true"><layout class="QHBoxLayout" name="templateLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><item><widget class="QLabel" name="templateLabel"><property name="text"><string>사진 업무</string></property></widget></item><item><widget class="QComboBox" name="templateCombo"/></item><item><spacer name="templateSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item></layout></widget></item>
-   <item><widget class="QWidget" name="variantRow" native="true"><layout class="QHBoxLayout" name="variantLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><item><widget class="QLabel" name="variantLabel"><property name="text"><string>촬영 방식</string></property></widget></item><item><widget class="QComboBox" name="variantCombo"/></item><item><spacer name="variantSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item></layout></widget></item>
-   <item><widget class="QScrollArea" name="cardsScrollArea"><property name="widgetResizable"><bool>true</bool></property><property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum></property><widget class="QWidget" name="cardsHost"><layout class="QVBoxLayout" name="cardsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>10</number></property></layout></widget></widget></item>
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="photoCountLabel">
+     <property name="text"><string>0장</string></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="retryButton">
+     <property name="visible">
+      <bool>false</bool>
+     </property>
+     <property name="text">
+      <string>다시 시도</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QWidget" name="templateRow" native="true">
+     <layout class="QHBoxLayout" name="templateLayout">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="templateLabel">
+        <property name="text">
+         <string>사진 업무</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="templateCombo"/>
+      </item>
+      <item>
+       <spacer name="templateSpacer">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QWidget" name="variantRow" native="true">
+        <layout class="QHBoxLayout" name="variantLayout">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="variantLabel">
+           <property name="text">
+            <string>촬영 방식</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="variantCombo"/>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QScrollArea" name="cardsScrollArea">
+     <property name="frameShape">
+      <enum>QFrame::Shape::NoFrame</enum>
+     </property>
+     <property name="horizontalScrollBarPolicy">
+      <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+     </property>
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
+     <widget class="QWidget" name="cardsHost">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>700</width>
+        <height>283</height>
+       </rect>
+      </property>
+      <layout class="QVBoxLayout" name="cardsLayout">
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+      </layout>
+     </widget>
+    </widget>
+   </item>
   </layout>
  </widget>
- <resources/><connections/>
+ <resources/>
+ <connections/>
 </ui>

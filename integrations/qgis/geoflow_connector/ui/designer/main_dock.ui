@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>363</width>
-    <height>368</height>
+    <height>381</height>
    </rect>
   </property>
   <layout class="QHBoxLayout" name="dock_layout">
@@ -27,7 +27,7 @@
     <number>0</number>
    </property>
    <item>
-    <widget class="QWidget" name="rail">
+    <widget class="QWidget" name="rail" native="true">
      <layout class="QVBoxLayout" name="rail_layout">
       <property name="spacing">
        <number>4</number>
@@ -59,9 +59,9 @@
          </size>
         </property>
         <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/chevrons-right.svg</normaloff>
-          <normalon>:/geoflow/feather/chevrons-left.svg</normalon>:/geoflow/feather/chevrons-right.svg</iconset>
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/arrow-bar-to-right.svg</normaloff>
+          <normalon>:/geoflow/tabler/arrow-bar-left.svg</normalon>:/geoflow/tabler/arrow-bar-to-right.svg</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -78,6 +78,19 @@
         <property name="autoRaise">
          <bool>true</bool>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="GeoFlowRail_info">
+        <property name="minimumSize"><size><width>38</width><height>34</height></size></property>
+        <property name="maximumSize"><size><width>38</width><height>34</height></size></property>
+        <property name="toolTip"><string>프로젝트 정보</string></property>
+        <property name="accessibleName"><string>프로젝트 정보</string></property>
+        <property name="text"><string/></property>
+        <property name="icon"><iconset resource="../../resources/tabler.qrc"><normaloff>:/geoflow/tabler/info-circle.svg</normaloff>:/geoflow/tabler/info-circle.svg</iconset></property>
+        <property name="iconSize"><size><width>20</width><height>20</height></size></property>
+        <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property>
+        <property name="autoRaise"><bool>true</bool></property>
        </widget>
       </item>
       <item>
@@ -104,8 +117,8 @@
          <string>프</string>
         </property>
         <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/folder.svg</normaloff>:/geoflow/feather/folder.svg</iconset>
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/database.svg</normaloff>:/geoflow/tabler/database.svg</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -142,8 +155,8 @@
          <string>객</string>
         </property>
         <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/mouse-pointer.svg</normaloff>:/geoflow/feather/mouse-pointer.svg</iconset>
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/pointer.svg</normaloff>:/geoflow/tabler/pointer.svg</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -230,6 +243,43 @@
         <property name="autoRaise">
          <bool>true</bool>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="editModeButton">
+        <property name="minimumSize">
+         <size><width>38</width><height>34</height></size>
+        </property>
+        <property name="maximumSize">
+         <size><width>38</width><height>34</height></size>
+        </property>
+        <property name="text"><string/></property>
+        <property name="icon">
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/pencil.svg</normaloff>:/geoflow/tabler/pencil.svg</iconset>
+        </property>
+        <property name="iconSize"><size><width>20</width><height>20</height></size></property>
+        <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property>
+        <property name="autoRaise"><bool>true</bool></property>
+        <property name="checkable"><bool>true</bool></property>
+        <property name="toolTip"><string>편집 도구</string></property>
+        <property name="accessibleName"><string>편집 도구</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="GeoFlowRail_sync">
+        <property name="minimumSize"><size><width>38</width><height>34</height></size></property>
+        <property name="maximumSize"><size><width>38</width><height>34</height></size></property>
+        <property name="text"><string/></property>
+        <property name="icon">
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/cloud-exclamation.svg</normaloff>:/geoflow/tabler/cloud-exclamation.svg</iconset>
+        </property>
+        <property name="iconSize"><size><width>20</width><height>20</height></size></property>
+        <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property>
+        <property name="autoRaise"><bool>true</bool></property>
+        <property name="toolTip"><string>동기화 센터</string></property>
+        <property name="accessibleName"><string>동기화 센터</string></property>
        </widget>
       </item>
       <item>
@@ -333,11 +383,27 @@
       </item>
       <item>
        <widget class="QLabel" name="profilePhotoLabel">
-        <property name="minimumSize"><size><width>38</width><height>38</height></size></property>
-        <property name="maximumSize"><size><width>38</width><height>38</height></size></property>
-        <property name="toolTip"><string>로그인 사용자</string></property>
-        <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
-        <property name="scaledContents"><bool>false</bool></property>
+        <property name="minimumSize">
+         <size>
+          <width>38</width>
+          <height>38</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>38</width>
+          <height>38</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>로그인 사용자</string>
+        </property>
+        <property name="scaledContents">
+         <bool>false</bool>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignmentFlag::AlignCenter</set>
+        </property>
        </widget>
       </item>
       <item>
@@ -364,8 +430,8 @@
          <string>로</string>
         </property>
         <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/log-out.svg</normaloff>:/geoflow/feather/log-out.svg</iconset>
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/logout.svg</normaloff>:/geoflow/tabler/logout.svg</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -420,7 +486,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="content">
+    <widget class="QWidget" name="content" native="true">
      <layout class="QVBoxLayout" name="content_layout">
       <property name="leftMargin">
        <number>0</number>
@@ -434,25 +500,6 @@
       <property name="bottomMargin">
        <number>0</number>
       </property>
-      <item>
-       <widget class="QWidget" name="header">
-        <layout class="QHBoxLayout" name="header_layout">
-         <item>
-          <widget class="QLabel" name="user_label">
-           <property name="text">
-            <string/>
-           </property>
-           <property name="textFormat">
-            <enum>Qt::TextFormat::PlainText</enum>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
       <item>
        <widget class="QLabel" name="message">
         <property name="text">
@@ -488,6 +535,7 @@
  </widget>
  <resources>
   <include location="../../resources/feather.qrc"/>
+  <include location="../../resources/tabler.qrc"/>
  </resources>
  <connections/>
 </ui>
