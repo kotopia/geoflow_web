@@ -32,6 +32,12 @@ urlpatterns = [
          feature_photo_views.feature_photos_api, name="feature_photos_api"),
     path("projects/<uuid:project_id>/api/layers/<uuid:layer_id>/features/<uuid:feature_id>/photos/<uuid:photo_id>/",
          feature_photo_views.feature_photo_item_api, name="feature_photo_item_api"),
+    path("qgis/plugins/plugins.xml", qgis_plugin_repository_views.qgis_plugin_repository_xml,
+         name="qgis_plugin_stable_repository_xml"),
+    path("qgis/plugins/packages/<str:filename>", qgis_plugin_repository_views.qgis_plugin_package,
+         {"channel": "stable"}, name="qgis_plugin_stable_package"),
+    path("qgis/plugins/download/", qgis_plugin_repository_views.qgis_plugin_stable_download,
+         name="qgis_plugin_stable_download"),
     path(
         "qgis/plugins/<str:channel>/plugins.xml",
         qgis_plugin_repository_views.qgis_plugin_repository_xml,

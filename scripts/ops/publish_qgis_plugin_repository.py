@@ -1,171 +1,253 @@
 #!/usr/bin/env python3
+"""Publish reviewed immutable QGIS artifacts to one explicitly approved channel."""
 from __future__ import annotations
 
 import argparse
+import configparser
 import hashlib
-from pathlib import Path
+import io
 import os
+from pathlib import Path
 import re
+import tempfile
 import xml.etree.ElementTree as ET
-from urllib.parse import unquote, urlsplit
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "geoflow_project.settings")
-
-import django
-
-django.setup()
+from urllib.parse import urlsplit
+from urllib.request import urlopen
+import zipfile
 
 from botocore.exceptions import ClientError
 
-from geoflow_ops.services.s3_service import get_s3_client, get_sse_config
+QGIS_PLUGIN_BUCKET = 'geoflow-upload'
+QGIS_PLUGIN_PREFIX = 'qgis-plugins'
+QGIS_PLUGIN_REPOSITORY_FILE_NAME = 'geoflow_connector.zip'
+PACKAGE_RE = re.compile(r'\Ageoflow_connector-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z')
+HISTORY_RE = re.compile(r'\Aqgis-plugins/stable/history/plugins-[0-9a-f]{64}\.xml\Z')
+SITE = 'https://geoflow.co.kr/gis/qgis/plugins/'
 
 
-QGIS_PLUGIN_BUCKET = "geoflow-upload"
-QGIS_PLUGIN_PREFIX = "qgis-plugins"
-QGIS_PLUGIN_PACKAGE_RE = re.compile(
-    r"\Ageoflow_connector-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z"
-)
-QGIS_PLUGIN_REPOSITORY_FILE_NAME = "geoflow_connector.zip"
+def fail(reason):
+    raise SystemExit('qgis_plugin_repository_blocker='+reason)
 
 
-def repository_object_key(channel: str) -> str:
-    if channel not in {"test", "stable"}:
-        fail("unsupported_channel")
-    return f"{QGIS_PLUGIN_PREFIX}/{channel}/plugins.xml"
+def get_s3_client():
+    from geoflow_ops.services.s3_service import get_s3_client as client
+    return client()
 
 
-def package_object_key(filename: str) -> str:
-    if not QGIS_PLUGIN_PACKAGE_RE.fullmatch(filename):
-        fail("repository_package_name_invalid")
-    return f"{QGIS_PLUGIN_PREFIX}/releases/{filename}"
+def get_sse_config():
+    from geoflow_ops.services.s3_service import get_sse_config as config
+    return config()
 
 
-def fail(reason: str) -> None:
-    raise SystemExit(f"qgis_plugin_repository_blocker={reason}")
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
 
 
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def repository_object_key(channel):
+    if channel not in {'test','stable'}:
+        fail('unsupported_channel')
+    return f'{QGIS_PLUGIN_PREFIX}/{channel}/plugins.xml'
 
 
-def repository_package(repository: Path) -> tuple[str, str]:
+def package_object_key(filename, channel='test'):
+    if not PACKAGE_RE.fullmatch(filename):
+        fail('repository_package_name_invalid')
+    repository_object_key(channel)
+    folder = 'stable/packages' if channel == 'stable' else 'releases'
+    return f'{QGIS_PLUGIN_PREFIX}/{folder}/{filename}'
+
+
+def repository_package(repository, channel='test'):
+    data = repository.read_bytes() if isinstance(repository,Path) else repository
     try:
-        plugin = ET.fromstring(repository.read_bytes()).find("pyqgis_plugin")
-    except (OSError, ET.ParseError):
-        fail("repository_xml_invalid")
-    if plugin is None or plugin.attrib.get("name") != "GeoFlow Connector":
-        fail("repository_plugin_invalid")
-    repository_filename = str(plugin.findtext("file_name") or "").strip()
-    if repository_filename != QGIS_PLUGIN_REPOSITORY_FILE_NAME:
-        fail("repository_plugin_id_invalid")
-    download_url = str(plugin.findtext("download_url") or "").strip()
-    parsed_url = urlsplit(download_url)
-    if parsed_url.scheme != "https" or parsed_url.netloc != "geoflow.co.kr":
-        fail("repository_download_url_invalid")
-    filename = unquote(parsed_url.path.rsplit("/", 1)[-1])
-    version = str(plugin.attrib.get("version") or "").strip()
-    if filename != f"geoflow_connector-{version}.zip":
-        fail("repository_package_version_mismatch")
-    expected_hash = str(plugin.findtext("sha256_sum") or "").strip().lower()
-    package_object_key(filename)
-    if len(expected_hash) != 64:
-        fail("repository_sha256_invalid")
-    return filename, expected_hash
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        fail('repository_xml_invalid')
+    plugins = root.findall('pyqgis_plugin')
+    if root.tag != 'plugins' or len(plugins) != 1:
+        fail('repository_plugin_invalid')
+    plugin = plugins[0]
+    if plugin.attrib.get('name') != 'GeoFlow Connector':
+        fail('repository_plugin_invalid')
+    if plugin.findtext('file_name') != QGIS_PLUGIN_REPOSITORY_FILE_NAME:
+        fail('repository_plugin_id_invalid')
+    version = plugin.attrib.get('version','')
+    if plugin.findtext('version') != version:
+        fail('repository_version_invalid')
+    filename = f'geoflow_connector-{version}.zip'
+    package_object_key(filename, channel)
+    prefix = 'packages/' if channel == 'stable' else 'releases/'
+    if plugin.findtext('download_url') != SITE+prefix+filename:
+        fail('repository_download_url_invalid')
+    expected_hash = plugin.findtext('sha256_sum','')
+    if not re.fullmatch('[0-9a-f]{64}',expected_hash):
+        fail('repository_sha256_invalid')
+    if channel == 'stable' and (plugin.attrib.get('experimental','').lower() != 'false'
+            or plugin.findtext('experimental','').lower() != 'false'
+            or plugin.findtext('deprecated','').lower() != 'false'):
+        fail('stable_flags_invalid')
+    return filename,expected_hash
 
 
-def existing_head(client, key: str):
-    try:
-        return client.head_object(Bucket=QGIS_PLUGIN_BUCKET, Key=key)
-    except ClientError as exc:
-        code = str(exc.response.get("Error", {}).get("Code") or "")
-        if code in {"404", "NoSuchKey", "NotFound"}:
-            return None
-        fail(f"head_denied_{code or 'unknown'}")
-
-
-def publish(channel: str, repository: Path, package: Path, confirmation: str) -> None:
-    expected_confirmation = (
-        f"PUBLISH_QGIS_PLUGIN:{channel}:{QGIS_PLUGIN_BUCKET}:qgis-plugins"
-    )
-    if confirmation != expected_confirmation:
-        fail("confirmation_mismatch")
-    if channel != "test":
-        fail("only_test_channel_is_authorized")
-    filename, expected_hash = repository_package(repository)
+def validate_package(xml, package, channel):
+    filename, expected_hash = repository_package(xml,channel)
+    data = package.read_bytes()
     if package.name != filename:
-        fail("package_filename_mismatch")
-    actual_hash = digest(package)
-    if actual_hash != expected_hash:
-        fail("package_sha256_mismatch")
-
-    package_key = package_object_key(filename)
-    repository_key = repository_object_key(channel)
-    if package_key.startswith("tenants/") or repository_key.startswith("tenants/"):
-        fail("tenant_prefix_forbidden")
-
-    client = get_s3_client()
+        fail('package_filename_mismatch')
+    if digest(data) != expected_hash:
+        fail('package_sha256_mismatch')
     try:
-        client.put_object(
-            Bucket=QGIS_PLUGIN_BUCKET,
-            Key=package_key,
-            Body=package.read_bytes(),
-            ContentType="application/zip",
-            CacheControl="public,max-age=31536000,immutable",
-            Metadata={"sha256": actual_hash},
-            IfNoneMatch="*",
-            **get_sse_config(),
-        )
-        print("qgis_plugin_package=uploaded")
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            names = archive.namelist()
+            if archive.testzip() or len(names) != len(set(names)):
+                fail('zip_crc_or_duplicate_invalid')
+            for name in names:
+                parts = name.rstrip('/').split('/')
+                if parts[0] != 'geoflow_connector' or '\\' in name or any(p in ('','..','.') for p in parts):
+                    fail('zip_root_or_path_invalid')
+            parser = configparser.ConfigParser(interpolation=None)
+            parser.read_string(archive.read('geoflow_connector/metadata.txt').decode('utf-8'))
+            values = dict(parser.items('general'))
+    except (zipfile.BadZipFile,KeyError,UnicodeError,configparser.Error):
+        fail('zip_metadata_invalid')
+    plugin = ET.fromstring(xml).find('pyqgis_plugin')
+    mapping = {'name':'name','version':'version','description':'description','about':'about',
+               'author_name':'author','homepage':'homepage','tracker':'tracker','repository':'repository',
+               'qgis_minimum_version':'qgisminimumversion','qgis_maximum_version':'qgismaximumversion',
+               'experimental':'experimental','deprecated':'deprecated'}
+    for tag,key in mapping.items():
+        left,right = plugin.findtext(tag,''), values.get(key,'')
+        if tag in ('experimental','deprecated'):
+            left,right=left.lower(),right.lower()
+        if left != right:
+            fail('xml_metadata_mismatch_'+tag)
+    return filename,expected_hash,data
+
+
+def read_object(client,key):
+    try:
+        result=client.get_object(Bucket=QGIS_PLUGIN_BUCKET,Key=key)
     except ClientError as exc:
-        code = str(exc.response.get("Error", {}).get("Code") or "")
-        if code not in {"PreconditionFailed", "412", "ConditionalRequestConflict"}:
-            fail(f"package_put_denied_{code or 'unknown'}")
-        print("qgis_plugin_package=already_present")
-
-    verified = existing_head(client, package_key)
-    if verified is None:
-        fail("package_verification_missing")
-    if str(verified.get("Metadata", {}).get("sha256") or "").lower() != actual_hash:
-        fail("immutable_package_collision")
-    if int(verified.get("ContentLength") or -1) != package.stat().st_size:
-        fail("immutable_package_collision")
-
-    client.put_object(
-        Bucket=QGIS_PLUGIN_BUCKET,
-        Key=repository_key,
-        Body=repository.read_bytes(),
-        ContentType="application/xml; charset=utf-8",
-        CacheControl="no-cache,no-store,must-revalidate",
-        Metadata={"package-sha256": actual_hash},
-        **get_sse_config(),
-    )
-    repository_head = existing_head(client, repository_key)
-    if repository_head is None:
-        fail("repository_verification_missing")
-    if (
-        str(repository_head.get("Metadata", {}).get("package-sha256") or "").lower()
-        != actual_hash
-    ):
-        fail("repository_verification_hash_mismatch")
-
-    print(f"qgis_plugin_bucket={QGIS_PLUGIN_BUCKET}")
-    print(f"qgis_plugin_channel={channel}")
-    print(f"qgis_plugin_package_key={package_key}")
-    print(f"qgis_plugin_repository_key={repository_key}")
-    print(f"qgis_plugin_sha256={actual_hash}")
-    print("RESULT qgis_plugin_test_repository=SUCCESS")
+        code=str(exc.response.get('Error',{}).get('Code',''))
+        if code in {'404','NoSuchKey','NotFound'}:
+            return None
+        fail('object_read_failed')
+    try:
+        return result['Body'].read()
+    finally:
+        result['Body'].close()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--channel", choices=("test", "stable"), required=True)
-    parser.add_argument("--repository", type=Path, required=True)
-    parser.add_argument("--package", type=Path, required=True)
-    parser.add_argument("--confirm", required=True)
-    args = parser.parse_args()
-    publish(args.channel, args.repository, args.package, args.confirm)
+def put_immutable(client,key,data,content_type):
+    try:
+        client.put_object(Bucket=QGIS_PLUGIN_BUCKET,Key=key,Body=data,
+                          ContentType=content_type,CacheControl='public,max-age=31536000,immutable',
+                          Metadata={'sha256':digest(data)},IfNoneMatch='*',**get_sse_config())
+    except ClientError as exc:
+        code=str(exc.response.get('Error',{}).get('Code',''))
+        if code not in {'PreconditionFailed','412','ConditionalRequestConflict'}:
+            fail('immutable_put_failed')
+    # Verify the full object, not just caller-controlled metadata.
+    if read_object(client,key) != data:
+        fail('immutable_package_collision')
+
+
+def http_bytes(url, content_type):
+    with urlopen(url,timeout=60) as response:
+        if response.status != 200 or response.geturl() != url:
+            fail('public_http_status_or_redirect')
+        if response.headers.get_content_type() != content_type:
+            fail('public_content_type_invalid')
+        return response.read()
+
+
+def publish(channel, repository, package, confirmation, *, verify_http=False):
+    if confirmation != f'PUBLISH_QGIS_PLUGIN:{channel}:{QGIS_PLUGIN_BUCKET}:qgis-plugins':
+        fail('confirmation_mismatch')
+    xml=repository.read_bytes()
+    filename, expected_hash, data=validate_package(xml,package,channel)
+    package_key, index_key=package_object_key(filename,channel),repository_object_key(channel)
+    if package_key.startswith('tenants/') or index_key.startswith('tenants/'):
+        fail('tenant_prefix_forbidden')
+    client=get_s3_client()
+    test_key=repository_object_key('test')
+    test_before=read_object(client,test_key) if channel=='stable' else None
+    if channel=='stable' and test_before is None:
+        fail('existing_test_repository_missing')
+    test_http_before=http_bytes(SITE+'test/plugins.xml','application/xml') if verify_http else None
+    previous=read_object(client,index_key)
+    if previous is not None and channel=='stable':
+        history_key=f'{QGIS_PLUGIN_PREFIX}/stable/history/plugins-{digest(previous)}.xml'
+        put_immutable(client,history_key,previous,'application/xml; charset=utf-8')
+        print('qgis_plugin_previous_index='+history_key)
+    else:
+        print('qgis_plugin_previous_index=none')
+    put_immutable(client,package_key,data,'application/zip')
+    # Archive each published index so rollback never relies on S3 bucket versioning.
+    if channel=='stable':
+        put_immutable(client,f'{QGIS_PLUGIN_PREFIX}/stable/history/plugins-{digest(xml)}.xml',xml,'application/xml; charset=utf-8')
+    client.put_object(Bucket=QGIS_PLUGIN_BUCKET,Key=index_key,Body=xml,
+                      ContentType='application/xml; charset=utf-8',CacheControl='no-cache,no-store,must-revalidate',
+                      Metadata={'package-sha256':expected_hash,'xml-sha256':digest(xml)},**get_sse_config())
+    if read_object(client,index_key) != xml:
+        fail('repository_verification_hash_mismatch')
+    if channel=='stable' and read_object(client,test_key) != test_before:
+        fail('test_repository_changed')
+    if verify_http:
+        public_index=SITE+('plugins.xml' if channel=='stable' else 'test/plugins.xml')
+        if http_bytes(public_index,'application/xml') != xml:
+            fail('public_repository_bytes_mismatch')
+        public_data=http_bytes(ET.fromstring(xml).find('pyqgis_plugin').findtext('download_url'),'application/zip')
+        if len(public_data)!=len(data) or digest(public_data)!=expected_hash:
+            fail('public_package_hash_mismatch')
+        if http_bytes(SITE+'test/plugins.xml','application/xml') != test_http_before:
+            fail('public_test_repository_changed')
+        print('qgis_plugin_public_xml=200:valid_utf8_xml')
+        print('qgis_plugin_public_zip=200:sha256_verified')
+        print('qgis_plugin_public_test=200:unchanged')
+    print('qgis_plugin_channel='+channel)
+    print('qgis_plugin_package_key='+package_key)
+    print('qgis_plugin_repository_key='+index_key)
+    print('qgis_plugin_sha256='+expected_hash)
+    print(f'RESULT qgis_plugin_{channel}_repository=SUCCESS')
+
+
+def rollback_index(key, confirmation, verify_http):
+    if not HISTORY_RE.fullmatch(key):
+        fail('rollback_key_outside_stable_history')
+    client=get_s3_client()
+    xml=read_object(client,key)
+    if xml is None or digest(xml) not in key:
+        fail('rollback_index_missing_or_corrupt')
+    filename,expected_hash=repository_package(xml,'stable')
+    data=read_object(client,package_object_key(filename,'stable'))
+    if data is None or digest(data)!=expected_hash:
+        fail('rollback_package_missing_or_corrupt')
+    with tempfile.TemporaryDirectory(prefix='qgis-stable-rollback-') as directory:
+        root=Path(directory);(root/'plugins.xml').write_bytes(xml);(root/filename).write_bytes(data)
+        publish('stable',root/'plugins.xml',root/filename,confirmation,verify_http=verify_http)
+
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--channel',choices=('test','stable'),required=True)
+    parser.add_argument('--repository',type=Path)
+    parser.add_argument('--package',type=Path)
+    parser.add_argument('--confirm',required=True)
+    parser.add_argument('--verify-http',action='store_true')
+    parser.add_argument('--rollback-index-key')
+    args=parser.parse_args()
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE','geoflow_project.settings')
+    import django
+    django.setup()
+    if args.rollback_index_key:
+        if args.channel!='stable': fail('rollback_channel_invalid')
+        rollback_index(args.rollback_index_key,args.confirm,args.verify_http)
+    else:
+        if not args.repository or not args.package: fail('repository_and_package_required')
+        publish(args.channel,args.repository,args.package,args.confirm,verify_http=args.verify_http)
     return 0
 
 
-if __name__ == "__main__":
+if __name__=='__main__':
     raise SystemExit(main())

@@ -104,7 +104,9 @@ jobs:
             geoflow_ops.test_s3_default_credential_chain
 
       - name: GIS common foundation contract regression
-        run: python scripts/ci/run_gis_unit_tests.py
+        run: |
+          python scripts/ci/run_gis_unit_tests.py
+          python -m unittest scripts.qgis.test_build_plugin_repository scripts.qgis.test_stable_repository geoflow_ops.test_qgis_plugin_repository_publish_contract -v
 
       - name: Strict repository release preflight
         run: python manage.py check_release_preflight --strict

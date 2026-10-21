@@ -28,7 +28,6 @@ from .qfield_auth import (
     issue_qfield_package_import_token,
     qfield_ticket_runtime_enabled,
 )
-from .qgis_plugin_repository import QGIS_PLUGIN_TEST_PACKAGE
 from .registry import domain_counts_for_rows, feature_by_name, feature_rows
 
 
@@ -295,7 +294,6 @@ def project_dashboard(request, project_id):
                 if plan.get("ready") and plan.get("gis_enabled")
                 else ""
             ),
-            "qgis_plugin_test_package": QGIS_PLUGIN_TEST_PACKAGE,
         },
     )
 
