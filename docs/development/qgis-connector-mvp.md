@@ -82,22 +82,71 @@ Restart QGIS (or reload plugins), then enable:
 
 `Plugins > Manage and Install Plugins > Installed > GeoFlow Connector`
 
-## Managed test repository
+## Managed production and test repositories
 
-The PowerShell installer above remains a development-only convenience. User
-testing and releases use a QGIS plugin repository backed by the private
-`geoflow-upload` bucket:
+The existing private `geoflow-upload` S3 bucket and Django streaming routes serve
+both channels. No public S3 ACL, nginx static directory, CDN or new storage service
+is introduced. XML has no-store headers; immutable versioned ZIPs have a one-year
+cache lifetime. Public proxy/cache behavior is checked after deployment.
 
-- repository object: `qgis-plugins/test/plugins.xml`
-- immutable packages: `qgis-plugins/releases/geoflow_connector-<version>.zip`
-- QGIS repository URL: `https://geoflow.co.kr/gis/qgis/plugins/test/plugins.xml`
+| Channel | Public repository | S3 index | Versioned packages |
+| --- | --- | --- | --- |
+| Production | https://geoflow.co.kr/gis/qgis/plugins/plugins.xml | qgis-plugins/stable/plugins.xml | qgis-plugins/stable/packages/geoflow_connector-VERSION.zip |
+| Test | https://geoflow.co.kr/gis/qgis/plugins/test/plugins.xml | qgis-plugins/test/plugins.xml | qgis-plugins/releases/geoflow_connector-VERSION.zip |
 
-The `tenants/` prefix is outside this repository and must never be read,
-written, listed, or reused by plugin publication. GeoFlow exposes only the two
-validated plugin artifact routes, so the bucket and tenant uploads stay
-private. The test channel contains experimental builds; promotion to
-`qgis-plugins/stable/plugins.xml` requires a separate reviewed release after
-user validation.
+Production download URLs use `/gis/qgis/plugins/packages/`. The Web installation
+modal defaults to the production repository and follows its current index for a
+direct ZIP download; later releases need no hardcoded Web version update.
+The existing `/stable/plugins.xml` alias resolves the same stable index. Test
+URLs and package objects remain intact. Normal stable promotion writes only the
+stable prefix and verifies the test index remains byte-identical, including over
+public HTTP. `tenants/` is never used by plugin publication.
+
+Development → local Codex tests → explicit protected test publisher → final
+approval → release lock → protected GIS deployment with stable promotion.
+Test publishing is workflow_dispatch only, derives the version from metadata and
+retains its existing channel-specific confirmation. A stable-source merge never
+automatically overwrites the test index. Reviewers should approve the current
+combined GIS deploy run, not a stale pre-transition test-publisher run.
+
+The release promotion descriptor is `docs/operations/qgis-plugin-stable-release.json`.
+It pins the source commit, ZIP name, size and SHA256; the existing source release
+manifest and file inventory provide independent byte-level checks. The1.4.3 ZIP
+was produced on Windows:13 Git-normalized text files are reconstructed only if
+their declared file hashes prove the exact CRLF bytes; Windows path ordering and
+ZIP creator platform are fixed. Any mismatch prevents publication. New release
+origins require a reviewed matching archive profile or the original artifact;
+never replace the approved SHA with a convenient local rebuild hash.
+
+The stable publisher verifies ZIP CRC, one geoflow_connector root, metadata,
+nonexperimental/nondeprecated flags, UTF-8 XML escaping and channel URL. All
+immutable objects are read back in full; an existing different ZIP is rejected.
+Before replacing the stable XML it saves that XML under
+`qgis-plugins/stable/history/plugins-XML_SHA256.xml`; every new index is archived
+as well. Previous ZIPs are retained. Publication is serialized by the existing
+protected GIS deployment concurrency and a server file lock.
+
+Rollback, while using compatible server routes, is an explicitly protected
+publisher operation. On the server, invoke the reviewed Python runtime with:
+
+```sh
+PYTHONPATH="$repo" "$repo/.venv/bin/python" scripts/ops/publish_qgis_plugin_repository.py \
+  --channel stable --rollback-index-key qgis-plugins/stable/history/plugins-XML_SHA256.xml \
+  --confirm PUBLISH_QGIS_PLUGIN:stable:geoflow-upload:qgis-plugins --verify-http
+```
+
+Replace XML_SHA256 with a recorded previous index hash. This verifies the prior
+package, archives the current index and swaps only stable/plugins.xml. An initial
+stable publication may have no previous stable version; test is never used as a
+rollback substitute. Existing bucket versioning is not assumed or modified.
+No IAM grants are changed; denied access stops the protected publication.
+
+Plugin identity remains file_name=geoflow_connector.zip, so a1.4.2 installation
+can recognize stable1.4.3 as an update. The repository version string, compatibility
+range3.28–4.99 and download bytes are verified. Actual QGIS4.2.2 clean-profile
+install/load/restart evidence is in the1.4.3 handoff; the Work host has no QGIS
+application/bindings and cannot claim a fresh graphical Plugin Manager test.
+Operational login/CRUD was not repeated for the Connector release.
 
 ## Test flow
 

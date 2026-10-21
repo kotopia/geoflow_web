@@ -8,15 +8,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
-    def test_publish_is_exact_bucket_prefix_and_test_only(self):
+    def test_publish_is_exact_bucket_prefix_and_channel_isolated(self):
         source = (ROOT / "scripts/ops/publish_qgis_plugin_repository.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("only_test_channel_is_authorized", source)
+        self.assertIn("test_repository_changed", source)
         self.assertIn("tenant_prefix_forbidden", source)
         self.assertIn("immutable_package_collision", source)
-        self.assertIn('QGIS_PLUGIN_REPOSITORY_FILE_NAME = "geoflow_connector.zip"', source)
-        self.assertIn("repository_package_version_mismatch", source)
+        self.assertIn("QGIS_PLUGIN_REPOSITORY_FILE_NAME = 'geoflow_connector.zip'", source)
+        self.assertIn("repository_version_invalid", source)
         self.assertIn("PUBLISH_QGIS_PLUGIN:{channel}", source)
         self.assertNotIn("delete_object", source)
         self.assertNotIn("put_bucket", source)
@@ -27,7 +27,9 @@ class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("environment: production", workflow)
         self.assertIn("PUBLISH_QGIS_PLUGIN:test:geoflow-upload:qgis-plugins", workflow)
-        self.assertIn("geoflow_connector-1.4.2.zip", workflow)
+        self.assertNotIn("geoflow_connector-1.4.2.zip", workflow)
+        self.assertIn("PLUGIN_VERSION", workflow)
+        self.assertNotIn("  push:", workflow)
         self.assertIn("release/stabilized-deploy", workflow)
         self.assertNotIn("tenants/", workflow)
         self.assertNotIn("aws s3 sync", workflow)

@@ -1,14 +1,6 @@
 name: QGIS plugin test repository publish
 
 on:
-  push:
-    branches:
-      - release/stabilized-deploy
-    paths:
-      - integrations/qgis/geoflow_connector/**
-      - scripts/qgis/build_plugin_repository.py
-      - scripts/ops/publish_qgis_plugin_repository.py
-      - .github/workflows/qgis-plugin-test-repository-publish.yml
   workflow_dispatch:
     inputs:
       confirmation:
@@ -59,8 +51,10 @@ jobs:
           python3 scripts/qgis/build_plugin_repository.py \
             --source integrations/qgis/geoflow_connector \
             --output "$RUNNER_TEMP/qgis-plugin-repository"
+          version="$(python3 -c 'from scripts.qgis.build_plugin_repository import metadata; from pathlib import Path; print(metadata(Path("integrations/qgis/geoflow_connector"))["version"])')"
+          echo "PLUGIN_VERSION=$version" >> "$GITHUB_ENV"
           test -f "$RUNNER_TEMP/qgis-plugin-repository/plugins.xml"
-          test -f "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-1.4.2.zip"
+          test -f "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-${version}.zip"
 
       - name: Configure strict SSH trust
         shell: bash
@@ -77,6 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version="$PLUGIN_VERSION"
           remote_dir="/tmp/geoflow-qgis-plugin-$GITHUB_RUN_ID"
           ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
@@ -85,7 +80,7 @@ jobs:
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             scripts/ops/publish_qgis_plugin_repository.py \
             "$RUNNER_TEMP/qgis-plugin-repository/plugins.xml" \
-            "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-1.4.2.zip" \
+            "$RUNNER_TEMP/qgis-plugin-repository/releases/geoflow_connector-${version}.zip" \
             "$SSH_USER@$SSH_HOST:$remote_dir/"
 
       - name: Publish exact test repository prefix
@@ -95,10 +90,12 @@ jobs:
           ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" \
-            "bash -s -- '$GITHUB_RUN_ID' '$CONFIRMATION'" <<'REMOTE'
+            "bash -s -- '$GITHUB_RUN_ID' '$CONFIRMATION' '$PLUGIN_VERSION'" <<'REMOTE'
           set -euo pipefail
           run_id="$1"
           confirmation="$2"
+          version="$3"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
           remote_dir="/tmp/geoflow-qgis-plugin-$run_id"
           trap 'find "$remote_dir" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null || true; rmdir "$remote_dir" 2>/dev/null || true' EXIT
 
@@ -118,12 +115,12 @@ jobs:
           [ -x "$python" ] || fail 'venv_python_missing'
           [ -f "$remote_dir/publish_qgis_plugin_repository.py" ] || fail 'publisher_missing'
           [ -f "$remote_dir/plugins.xml" ] || fail 'repository_missing'
-          [ -f "$remote_dir/geoflow_connector-1.4.2.zip" ] || fail 'package_missing'
+          [ -f "$remote_dir/geoflow_connector-${version}.zip" ] || fail 'package_missing'
 
           cd "$repo"
           PYTHONPATH="$repo" "$python" "$remote_dir/publish_qgis_plugin_repository.py" \
             --channel test \
             --repository "$remote_dir/plugins.xml" \
-            --package "$remote_dir/geoflow_connector-1.4.2.zip" \
+            --package "$remote_dir/geoflow_connector-${version}.zip" \
             --confirm "$confirmation"
           REMOTE

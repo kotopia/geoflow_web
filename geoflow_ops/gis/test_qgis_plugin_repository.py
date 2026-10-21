@@ -9,7 +9,6 @@ from django.template.loader import get_template
 from django.test import RequestFactory, SimpleTestCase
 
 from .qgis_plugin_repository import (
-    QGIS_PLUGIN_TEST_PACKAGE,
     package_object_key,
     repository_object_key,
 )
@@ -84,6 +83,21 @@ class QgisPluginRepositoryTests(SimpleTestCase):
         self.assertIn('qgis/plugins/<str:channel>/plugins.xml', urls)
         self.assertIn('qgis/plugins/releases/<str:filename>', urls)
 
+    @patch("geoflow_ops.gis.qgis_plugin_repository_views._private_plugin_object",
+           return_value={"Body":_Body(b"<plugins />")})
+    def test_stable_index_uses_its_own_storage_key(self,mocked):
+        response=qgis_plugin_repository_xml(self.request)
+        self.assertEqual(b"".join(response.streaming_content),b"<plugins />")
+        mocked.assert_called_once_with("qgis-plugins/stable/plugins.xml")
+
+    @patch("geoflow_ops.gis.qgis_plugin_repository_views._private_plugin_object",
+           return_value={"Body":_Body(b"PK")})
+    def test_stable_zip_has_separate_storage_and_immutable_headers(self,mocked):
+        response=qgis_plugin_package(self.request,"geoflow_connector-1.4.3.zip",channel="stable")
+        self.assertEqual(b"".join(response.streaming_content),b"PK")
+        mocked.assert_called_once_with("qgis-plugins/stable/packages/geoflow_connector-1.4.3.zip")
+        self.assertIn("immutable",response['Cache-Control'])
+
     def test_project_page_contains_repository_install_flow(self):
         template_path = (
             Path(__file__).resolve().parents[1]
@@ -91,7 +105,6 @@ class QgisPluginRepositoryTests(SimpleTestCase):
         )
         source = template_path.read_text(encoding="utf-8")
         self.assertIn("QGIS 플러그인 설치", source)
-        self.assertIn("실험적 플러그인도 표시", source)
-        self.assertIn("qgis_plugin_test_package", source)
-        self.assertEqual(QGIS_PLUGIN_TEST_PACKAGE, "geoflow_connector-1.4.0.zip")
+        self.assertIn("정식 저장소 주소", source)
+        self.assertIn("qgis_plugin_stable_download", source)
         get_template("geoflow_ops/gis/project_dashboard.html")

@@ -4,7 +4,8 @@ from __future__ import annotations
 import argparse
 import configparser
 import hashlib
-from pathlib import Path, PurePosixPath
+import json
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import stat
 import xml.etree.ElementTree as ET
@@ -53,9 +54,44 @@ def package_files(source: Path):
         yield path, PurePosixPath(PACKAGE_DIR, *relative.parts)
 
 
-def build_zip(source: Path, destination: Path) -> str:
+def release_payloads(source: Path, manifest: Path, inventory: Path):
+    release = json.loads(manifest.read_text(encoding='utf-8'))
+    values = metadata(source)
+    if release['version'] != values['version'] or release['zip_filename'] != f"{PACKAGE_DIR}-{values['version']}.zip":
+        raise ValueError('Release version/filename mismatch')
+    if release.get('experimental') is not False or release.get('deprecated') is not False:
+        raise ValueError('Stable release flags must be false')
+    if values.get('experimental','').lower() != 'false' or values.get('deprecated','').lower() != 'false':
+        raise ValueError('Stable metadata flags must be false')
+    expected = json.loads(inventory.read_text(encoding='utf-8'))
+    actual = {str(name.relative_to(PACKAGE_DIR)): path for path,name in package_files(source)}
+    if len(expected) != len(actual) or {item['path'] for item in expected} != set(actual):
+        raise ValueError('Release file inventory differs from runtime allowlist')
+    result = []
+    for item in expected:
+        path = actual[item['path']]
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != item['sha256']:
+            # Git text normalization must not change the approved Windows ZIP.
+            # Reconstruct only when the declared per-file hash proves the bytes.
+            data = data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+        if len(data) != item['size'] or hashlib.sha256(data).hexdigest() != item['sha256']:
+            raise ValueError('Release file bytes differ: ' + item['path'])
+        result.append((data, PurePosixPath(PACKAGE_DIR,item['path'])))
+    result.sort(key=lambda item: PureWindowsPath(str(item[1])))
+    return release, result
+
+
+def build_zip(source: Path, destination: Path, *, release_manifest: Path | None = None,
+              inventory: Path | None = None) -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    files = list(package_files(source))
+    release = None
+    if release_manifest is not None:
+        if inventory is None:
+            raise ValueError('Release inventory is required')
+        release, files = release_payloads(source, release_manifest, inventory)
+    else:
+        files = [(path.read_bytes(), name) for path,name in package_files(source)]
     directories = {PurePosixPath(PACKAGE_DIR)}
     for _, archive_path in files:
         directories.update(
@@ -69,15 +105,23 @@ def build_zip(source: Path, destination: Path) -> str:
                 str(archive_path).rstrip("/") + "/",
                 date_time=(2026, 1, 1, 0, 0, 0),
             )
+            if release is not None:
+                info.create_system = 0
             info.compress_type = zipfile.ZIP_STORED
             info.external_attr = ((stat.S_IFDIR | 0o755) << 16) | 0x10
             archive.writestr(info, b"")
-        for path, archive_path in files:
+        for data, archive_path in files:
             info = zipfile.ZipInfo(str(archive_path), date_time=(2026, 1, 1, 0, 0, 0))
+            if release is not None:
+                info.create_system = 0
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = (stat.S_IFREG | 0o644) << 16
-            archive.writestr(info, path.read_bytes())
-    return hashlib.sha256(destination.read_bytes()).hexdigest()
+            archive.writestr(info, data)
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    if release is not None and (digest != release['sha256'] or destination.stat().st_size != release['size_bytes']):
+        destination.unlink()
+        raise ValueError('Approved ZIP SHA256/size mismatch; publication prohibited')
+    return digest
 
 
 def build_xml(values: dict[str, str], download_url: str, filename: str, digest: str) -> bytes:
@@ -111,7 +155,7 @@ def build_xml(values: dict[str, str], download_url: str, filename: str, digest: 
         ("file_name", QGIS_REPOSITORY_FILE_NAME),
         ("download_url", download_url),
         ("experimental", experimental),
-        ("deprecated", "false"),
+        ("deprecated", values.get("deprecated", "false").strip().lower()),
         ("trusted", "false"),
         ("sha256_sum", digest),
     )
@@ -128,11 +172,13 @@ def main() -> int:
     parser.add_argument(
         "--base-url", default="https://geoflow.co.kr/gis/qgis/plugins/releases"
     )
+    parser.add_argument("--release-manifest", type=Path)
+    parser.add_argument("--inventory", type=Path)
     args = parser.parse_args()
     values = metadata(args.source)
     filename = f"{PACKAGE_DIR}-{values['version']}.zip"
     package = args.output / "releases" / filename
-    digest = build_zip(args.source, package)
+    digest = build_zip(args.source, package, release_manifest=args.release_manifest, inventory=args.inventory)
     repository = args.output / "plugins.xml"
     repository.parent.mkdir(parents=True, exist_ok=True)
     repository.write_bytes(
