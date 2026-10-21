@@ -3,8 +3,11 @@
 """Central rule evaluation; this module contains no business-specific values."""
 from __future__ import annotations
 
+from .boolean_codes import boolean_code_values, canonical_boolean_code
+
 
 def code_id(field: dict, value):
+    value = canonical_boolean_code(field, value)
     if value in (None, ""):
         return None
     return next((row["id"] for row in field.get("reference_codes", [])
@@ -31,13 +34,19 @@ def allowed_code_ids(definition: dict, target_id: str, values: dict) -> set[str]
 def validate(definition: dict, fields: list[dict], values: dict) -> list[str]:
     errors = []
     for field in fields:
-        value = values.get(field["id"])
+        value = canonical_boolean_code(field, values.get(field["id"]))
         if field.get("visible") and field.get("required") and value in (None, ""):
             errors.append(field["label"] + " 필드는 필수입니다.")
         codes = field.get("reference_codes", [])
-        if codes and value not in (None, "") and code_id(field, value) is None:
+        kind = str(
+            field.get("widget_type") or field.get("semantic_data_type") or ""
+        ).casefold()
+        code_domain = bool(codes) and not (
+            kind == "boolean" and boolean_code_values(field) is None
+        )
+        if code_domain and value not in (None, "") and code_id(field, value) is None:
             errors.append(field["label"] + " 코드값이 중앙 정의와 일치하지 않습니다.")
-        allowed = allowed_code_ids(definition, field["id"], values)
+        allowed = allowed_code_ids(definition, field["id"], values) if code_domain else None
         selected = code_id(field, value)
         if allowed is not None and value not in (None, "") and selected not in allowed:
             errors.append(field["label"] + " 값이 연결 규칙에서 허용되지 않습니다.")

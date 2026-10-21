@@ -25,11 +25,16 @@ class SnapshotCacheCandidate:
     last_applied_revision: int
     pending_count: int
     outbox_count: int
+    conflict_count: int
+    photo_count: int
     mtime: float
 
     @property
     def dirty(self) -> bool:
-        return bool(self.pending_count or self.outbox_count)
+        return bool(
+            self.pending_count or self.outbox_count or self.conflict_count
+            or self.photo_count
+        )
 
 
 def _version_tuple(value: str) -> tuple[int, ...]:
@@ -188,6 +193,8 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
 
         pending = _row_count_if_table(conn, "_geoflow_pending_change")
         outbox = _row_count_if_table(conn, "_geoflow_outbox")
+        conflicts = _row_count_if_table(conn, "_geoflow_conflict")
+        photos = _row_count_if_table(conn, "_geoflow_pending_photo")
         stat = snapshot.stat()
         return SnapshotCacheCandidate(
             path=str(snapshot),
@@ -195,6 +202,8 @@ def inspect_snapshot(path: str, manifest: dict) -> SnapshotCacheCandidate | None
             last_applied_revision=last_revision,
             pending_count=pending,
             outbox_count=outbox,
+            conflict_count=conflicts,
+            photo_count=photos,
             mtime=float(stat.st_mtime),
         )
     except (OSError, sqlite3.Error):
@@ -242,9 +251,7 @@ def select_reusable_snapshot(project_dir: str, manifest: dict) -> SnapshotCacheC
         return None
 
     dirty = [candidate for candidate in candidates if candidate.dirty]
-    if len(dirty) > 1:
-        raise RuntimeError(
-            "동일 GeoFlow 프로젝트에 미전송 변경이 남은 로컬 Snapshot이 둘 이상 있습니다. "
-            "자동 선택으로 변경을 잃을 수 있어 프로젝트 열기를 중단했습니다."
-        )
-    return dirty[0] if dirty else max(candidates, key=lambda row: row.mtime)
+    # Legacy queue rows are inert in online-only mode. Select the newest
+    # candidate deterministically so the project-open migration prompt can ask
+    # the user whether to remove them; never replay or silently delete them.
+    return max(dirty or candidates, key=lambda row: row.mtime)

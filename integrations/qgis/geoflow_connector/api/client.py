@@ -31,6 +31,57 @@ class GeoFlowClientError(RuntimeError):
         self.http_status = http_status
 
 
+def _safe_api_error_value(value, key=""):
+    """Keep server diagnostics while redacting storage/auth/request values."""
+    sensitive = {"presigned_url", "object_key", "original_file_key", "headers",
+                 "authorization", "token", "cookie", "csrf", "password"}
+    if str(key).casefold() in sensitive:
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {str(name): _safe_api_error_value(child, str(name))
+                for name, child in value.items()}
+    if isinstance(value, list):
+        return [_safe_api_error_value(child, key) for child in value[:50]]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:1000]
+
+
+class GeoFlowDetailedApiError(GeoFlowClientError):
+    """Structured, redacted HTTP error for APIs needing actionable diagnostics."""
+
+    def __init__(self, *, http_status, payload):
+        payload = payload if isinstance(payload, dict) else {}
+        safe_payload = _safe_api_error_value(payload)
+        error = safe_payload.get("error")
+        error_payload = error if isinstance(error, dict) else {}
+        self.code = str(
+            safe_payload.get("code") or safe_payload.get("error_code")
+            or error_payload.get("code") or error_payload.get("error_code")
+            or (error if isinstance(error, str) and " " not in error else "")
+            or ""
+        )
+        self.server_message = str(
+            safe_payload.get("message") or error_payload.get("message")
+            or (error if isinstance(error, str) else "") or ""
+        )[:1000]
+        detail = safe_payload.get("detail")
+        if detail is None:
+            detail = error_payload.get("detail")
+        self.detail = detail
+        fields = safe_payload.get("field_errors")
+        if fields is None:
+            fields = safe_payload.get("errors")
+        if fields is None:
+            fields = error_payload.get("field_errors")
+        if fields is None:
+            fields = error_payload.get("errors")
+        self.field_errors = fields
+        self.response_keys = sorted(str(key) for key in payload.keys())
+        label = self.code or self.server_message or f"HTTP {http_status}"
+        super().__init__(f"GeoFlow API failed: {label}", http_status=http_status)
+
+
 class GeoFlowPresignedUrlExpired(GeoFlowClientError):
     """An external signed download URL expired; contains no provider details."""
 
@@ -55,9 +106,41 @@ def is_presigned_url_expired(error) -> bool:
 class GeoFlowChangesetConflict(GeoFlowClientError):
     """Structured server conflict; callers may repair only known-safe cases."""
 
-    def __init__(self, message: str, *, conflicts: list[dict], payload: dict):
+    def __init__(self, message: str, *, conflicts: list[dict], payload: dict,
+                 http_status=409):
         self.conflicts = [dict(row) for row in conflicts if isinstance(row, dict)]
-        self.payload = dict(payload)
+        self.payload = _safe_api_error_value(dict(payload))
+        error = self.payload.get("error")
+        error_payload = error if isinstance(error, dict) else {}
+        first = self.conflicts[0] if self.conflicts else {}
+        self.code = str(
+            self.payload.get("code") or self.payload.get("error_code")
+            or error_payload.get("code") or error_payload.get("error_code") or "conflict"
+        )
+        self.reason = str(
+            self.payload.get("reason") or error_payload.get("reason")
+            or first.get("reason") or "conflict"
+        )
+        self.server_message = str(
+            self.payload.get("message") or error_payload.get("message")
+            or message or "Changeset conflict"
+        )[:1000]
+        self.conflict_type = str(
+            self.payload.get("conflict_type") or error_payload.get("conflict_type")
+            or first.get("conflict_type") or first.get("type") or ""
+        )
+        self.expected_revision = (
+            self.payload.get("expected_revision")
+            or error_payload.get("expected_revision")
+            or first.get("expected_revision")
+        )
+        self.actual_revision = (
+            self.payload.get("actual_revision")
+            or self.payload.get("current_revision")
+            or error_payload.get("actual_revision")
+            or first.get("actual_revision") or first.get("current_revision")
+        )
+        self.response_keys = sorted(str(key) for key in self.payload)
         details = []
         for row in self.conflicts[:3]:
             layer = str(row.get("layer") or "?")
@@ -67,7 +150,10 @@ class GeoFlowChangesetConflict(GeoFlowClientError):
         suffix = f" (충돌 {len(self.conflicts)}건)"
         if details:
             suffix += " · " + "; ".join(details)
-        super().__init__(f"GeoFlow Changeset failed: {message}{suffix}")
+        super().__init__(
+            f"GeoFlow Changeset failed: {self.server_message}{suffix}",
+            http_status=http_status,
+        )
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -278,54 +364,78 @@ class GeoFlowHttpClient:
     def post_json(self, path: str, payload: dict) -> dict:
         return self._send_json(path, payload, "POST")
 
+    def post_json_detailed(self, path: str, payload: dict) -> dict:
+        return self._send_json(path, payload, "POST", detailed_errors=True)
+
     def patch_json(self, path: str, payload: dict) -> dict:
         return self._send_json(path, payload, "PATCH")
 
     def delete_json(self, path: str) -> dict:
         return self._send_json(path, None, "DELETE")
 
-    def _send_json(self, path: str, payload, method: str) -> dict:
+    def delete_json_detailed(self, path: str) -> dict:
+        """DELETE variant retaining the server's structured error diagnostics."""
+        return self._send_json(path, None, "DELETE", detailed_errors=True)
+
+    def _send_json(self, path: str, payload, method: str, *, detailed_errors=False) -> dict:
         csrf = self._cookie_value("csrftoken")
         if not csrf:
             raise GeoFlowClientError("GeoFlow CSRF cookie is unavailable. Log in again.")
-        body = json.dumps(
-            payload or {},
-            ensure_ascii=False,
-            separators=(",", ":"),
+        body = None if method == "DELETE" and payload is None else json.dumps(
+            payload or {}, ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
+        headers = {
+            "Accept": "application/json",
+            "X-CSRFToken": csrf,
+            "Referer": self._url("/gis/"),
+        }
+        if body is not None:
+            headers.update({
+                "Content-Type": "application/json; charset=utf-8",
+                "Content-Length": str(len(body)),
+            })
         request = urllib.request.Request(
             self._url(path),
             data=body,
             method=method,
-            headers={
-                "Content-Type": "application/json; charset=utf-8",
-                "Content-Length": str(len(body)),
-                "Accept": "application/json",
-                "X-CSRFToken": csrf,
-                "Referer": self._url("/gis/"),
-            },
+            headers=headers,
         )
         try:
             with self.opener.open(request, timeout=max(self.timeout, 120)) as response:
+                response_status = response.status
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             raw = exc.read()
             self._notify_access_loss(exc.code)
             try:
                 response_payload = json.loads(raw.decode("utf-8"))
+                if detailed_errors and isinstance(response_payload, dict):
+                    raise GeoFlowDetailedApiError(
+                        http_status=exc.code, payload=response_payload)
+                error_payload = response_payload.get("error")
+                nested_error = error_payload if isinstance(error_payload, dict) else {}
                 message = (
                     response_payload.get("message")
-                    or response_payload.get("error")
+                    or nested_error.get("message")
+                    or response_payload.get("detail")
+                    or (error_payload if isinstance(error_payload, str) else "")
                     or f"HTTP {exc.code}"
                 )
-                conflicts = response_payload.get("conflicts") or []
-                if conflicts:
+                conflicts = (
+                    response_payload.get("conflicts")
+                    or nested_error.get("conflicts")
+                    or []
+                )
+                if conflicts or exc.code in (409, 412):
                     raise GeoFlowChangesetConflict(
                         str(message),
                         conflicts=conflicts,
                         payload=response_payload,
+                        http_status=exc.code,
                     )
             except GeoFlowChangesetConflict:
+                raise
+            except GeoFlowDetailedApiError:
                 raise
             except Exception:
                 message = raw.decode("utf-8", errors="replace")[:300]
@@ -341,7 +451,13 @@ class GeoFlowHttpClient:
             raise GeoFlowClientError(
                 "GeoFlow Changeset returned a non-JSON response."
             ) from None
-        if not isinstance(response_payload, dict) or not response_payload.get("ok"):
+        valid = (isinstance(response_payload, dict)
+                 and response_payload.get("ok") is not False
+                 and (method == "DELETE" or response_payload.get("ok") is True))
+        if not valid:
+            if detailed_errors and isinstance(response_payload, dict):
+                raise GeoFlowDetailedApiError(
+                    http_status=response_status, payload=response_payload)
             raise GeoFlowClientError("GeoFlow Changeset returned an invalid response.")
         return response_payload
 
@@ -353,6 +469,33 @@ class GeoFlowHttpClient:
         with open(file_path, "rb") as handle:
             body = handle.read()
         self.put_presigned_bytes(url, body, headers)
+
+    def put_presigned_source_file(self, url: str, file_path: str, headers: dict,
+                                  method: str = "PUT") -> None:
+        """Upload a validated Survey source without applying photo size policy."""
+        if not str(url).startswith("https://"):
+            raise GeoFlowClientError("안전하지 않은 원본 파일 업로드 주소를 거부했습니다.")
+        if str(method).upper() != "PUT":
+            raise GeoFlowClientError("지원하지 않는 원본 파일 업로드 방식입니다.")
+        if not os.path.isfile(file_path):
+            raise GeoFlowClientError("측량 원본 파일을 찾을 수 없습니다.")
+        with open(file_path, "rb") as handle:
+            body = handle.read()
+        if not body:
+            raise GeoFlowClientError("빈 측량 원본 파일은 업로드할 수 없습니다.")
+        request = urllib.request.Request(
+            str(url), data=body, method="PUT",
+            headers={**{str(k): str(v) for k, v in (headers or {}).items()},
+                     "Content-Length": str(len(body))},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=max(self.timeout, 120)) as response:
+                if response.status not in (200, 201, 204):
+                    raise GeoFlowClientError(f"원본 파일 업로드 실패: HTTP {response.status}")
+        except urllib.error.HTTPError as exc:
+            raise GeoFlowClientError(f"원본 파일 업로드 실패: HTTP {exc.code}") from None
+        except urllib.error.URLError as exc:
+            raise GeoFlowClientError(f"원본 파일 업로드 연결 실패: {exc.reason}") from None
 
     def put_presigned_bytes(self, url: str, body: bytes, headers: dict) -> None:
         """Upload an in-memory edited image without writing it beside project data."""

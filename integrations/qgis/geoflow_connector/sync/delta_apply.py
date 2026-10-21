@@ -43,6 +43,8 @@ class DeltaApplyMixin:
         for change in changes:
             grouped.setdefault(str(change.get("layer") or ""), []).append(change)
 
+        previous_origin = getattr(self, "_change_origin", "USER_EDIT")
+        self._change_origin = "DELTA_APPLY"
         self._suppress_auto_sync = True
         try:
             for standard_name, layer_changes in grouped.items():
@@ -128,6 +130,7 @@ class DeltaApplyMixin:
                     raise
         finally:
             self._suppress_auto_sync = False
+            self._change_origin = previous_origin
 
     def _configure_layer_fields(self, layer, layer_def: dict, project_id: str, can_write: bool) -> None:
         super()._configure_layer_fields(layer, layer_def, project_id, can_write)

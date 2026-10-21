@@ -162,11 +162,18 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(Path(selected.path), dirty)
         self.assertTrue(selected.dirty)
 
-    def test_multiple_dirty_snapshots_are_not_auto_selected(self):
-        self._package("dirty-a.gpkg", revision=30, pending=1)
-        self._package("dirty-b.gpkg", revision=31, pending=1)
-        with self.assertRaises(RuntimeError):
-            select_reusable_snapshot(str(self.root), self.manifest)
+    def test_multiple_legacy_dirty_snapshots_select_newest_without_mutation(self):
+        older = self._package("dirty-a.gpkg", revision=30, pending=1)
+        newer = self._package("dirty-b.gpkg", revision=31, pending=1)
+        os.utime(older, (1000, 1000))
+        os.utime(newer, (2000, 2000))
+        before = {path: path.read_bytes() for path in (older, newer)}
+        selected = select_reusable_snapshot(str(self.root), self.manifest)
+        self.assertEqual(Path(selected.path), newer)
+        self.assertTrue(selected.dirty)
+        # Online-only migration selection never replays or deletes old queue data.
+        for path, data in before.items():
+            self.assertEqual(path.read_bytes(), data)
 
 
 if __name__ == "__main__":

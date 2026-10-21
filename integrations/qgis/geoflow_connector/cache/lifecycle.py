@@ -26,10 +26,11 @@ class CacheInventoryItem:
     last_opened_at: dt.datetime
     pending_count: int
     outbox_count: int
+    photo_count: int
 
     @property
     def dirty(self) -> bool:
-        return bool(self.pending_count or self.outbox_count)
+        return bool(self.pending_count or self.outbox_count or self.photo_count)
 
     @property
     def completed(self) -> bool:
@@ -115,6 +116,7 @@ def inspect_cache_file(path: str) -> CacheInventoryItem | None:
             ),
             pending_count=_row_count_if_table(conn, "_geoflow_pending_change"),
             outbox_count=_row_count_if_table(conn, "_geoflow_outbox"),
+            photo_count=_row_count_if_table(conn, "_geoflow_pending_photo"),
         )
     except (OSError, sqlite3.Error):
         return None

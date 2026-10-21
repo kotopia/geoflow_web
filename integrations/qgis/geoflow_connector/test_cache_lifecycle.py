@@ -42,6 +42,7 @@ class CacheLifecycleTests(SimpleTestCase):
             last_opened_at=now - dt.timedelta(days=days_old),
             pending_count=pending,
             outbox_count=outbox,
+            photo_count=0,
         )
 
     def test_age_policy_uses_90_days_active_and_30_days_completed(self):

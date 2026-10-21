@@ -1,0 +1,45 @@
+{
+  "qgis_runtime": "4.2.2",
+  "zip_files_match_installed_files": true,
+  "clean_profile_phases": [
+    {
+      "phase": 1,
+      "runtime": "4.2.2-Belém do Pará",
+      "pid": 36776,
+      "version": "1.4.3",
+      "modules_imported": 97,
+      "class_factory": true,
+      "init_gui": true,
+      "login_ui": true,
+      "dynamic_form_host": true,
+      "project_save_or_reload": true,
+      "ok": true,
+      "zip_sha256": "8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5"
+    },
+    {
+      "phase": 2,
+      "runtime": "4.2.2-Belém do Pará",
+      "pid": 21632,
+      "version": "1.4.3",
+      "modules_imported": 97,
+      "class_factory": true,
+      "init_gui": true,
+      "login_ui": true,
+      "dynamic_form_host": true,
+      "project_save_or_reload": true,
+      "ok": true,
+      "zip_sha256": "8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5"
+    }
+  ],
+  "regression_programs": 16,
+  "regression_programs_passed": 16,
+  "qgis_python_unit_tests_passed": 31,
+  "repository_builder_tests_passed": 4,
+  "runtime_retired_link_references": 0,
+  "source_rebuild_sha256": "8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5",
+  "live_authenticated_server_regression_rerun": false,
+  "scope_note": "Offscreen real QGIS application clean-profile load/restart plus local runtime tests with isolated fixtures/mocked API. No production CRUD or authenticated HTTP capture in this release pass.",
+  "repository_qgis_contract_tests_run": 52,
+  "repository_qgis_contract_tests_passed": 49,
+  "repository_qgis_contract_tests_skipped": 3
+}

@@ -9,16 +9,21 @@ from qgis.PyQt.QtWidgets import (
     QToolBar, QVBoxLayout, QWidget,
 )
 from qgis.PyQt.uic import loadUiType
+from qgis.core import QgsMessageLog, Qgis
 
 from .connector_adapter import ConnectorAdapter
-from .form_header import FormHeader
+from .form_actions import FormActionToolbar
 from .photo_section import PhotoSection
+from .behaviors import create_shape_switches
 from ..api.references import fields_with_worker_references, worker_reference_codes
 from ..forms.dynamic.binding import DynamicFormBinding
 from ..forms.dynamic.contract import layer_fields
 from ..forms.dynamic.form import DynamicForm
+from ..forms.dynamic.layout_model import central_photo_tab_spec
 from ..forms.dynamic.layout_editor import FormLayoutEditor, LocalFormLayoutStore
 from ..layers.identify import IdentifyGeometry
+from ..services.previous_values import PreviousValueService
+from ..services.settings import GeoFlowSettingsService
 
 
 FORM_CLASS, _ = loadUiType(os.path.join(os.path.dirname(__file__), "designer", "form_host.ui"))
@@ -42,6 +47,8 @@ class Main(QWidget, FORM_CLASS):
         from ..forms.common.lifecycle import BusinessFormSettings
         self._form_settings = BusinessFormSettings()
         self._layout_store = LocalFormLayoutStore()
+        self.previous_values = PreviousValueService(plugin)
+        self.geoflow_settings = GeoFlowSettingsService(plugin)
         self.setupUi(self)
         self.status = self.connectionStatus
         self.status.setTextFormat(Qt.TextFormat.PlainText)
@@ -76,6 +83,9 @@ class Main(QWidget, FORM_CLASS):
                        self.zoom_button, self.retained_button, self.layout_button,
                        self.reference_diagnostic_button):
             toolbar.addWidget(button)
+        # Saving remains wired to the existing lifecycle, but its user-facing
+        # entry point now lives in the Dynamic Form tab corner toolbar.
+        self.save_button.hide()
         self.add_button.setEnabled(False)
         self.add_button.setToolTip("도형 추가는 QGIS 편집 도구를 사용합니다.")
         self.open_button.clicked.connect(self.adapter.open_connector)
@@ -87,7 +97,10 @@ class Main(QWidget, FORM_CLASS):
         self.layout_button.clicked.connect(self.edit_form_layout)
         self.verticalLayout.insertWidget(1, toolbar)
         self.verticalLayout.setStretch(2, 1)
-        self.select_tool = IdentifyGeometry(plugin.mapCanvas, layer_provider=self.adapter.layers_by_id)
+        self.select_tool = IdentifyGeometry(
+            plugin.mapCanvas, layer_provider=self.adapter.layers_by_id,
+            active_layer=plugin.iface.activeLayer,
+            notify=lambda text: plugin.iface.messageBar().pushMessage('GeoFlow', text, duration=3))
         self.select_tool.geomIdentified.connect(self.on_feature_selected)
         self.select_tool.noFeatureIdentified.connect(self._empty_map_clicked)
         plugin.mapCanvas.mapToolSet.connect(self._sync_select_tool_state)
@@ -98,18 +111,16 @@ class Main(QWidget, FORM_CLASS):
         if self._photo_policy_service is not None:
             self._photo_policy_service.changed.connect(self._photo_policy_changed)
         self._retained_window = None
-        self.formStack.currentChanged.connect(self._sync_header)
-        self.placeholderHeader.layoutButton.setEnabled(False)
         self.refresh_connection()
         self._sync_select_tool_state()
 
     @property
     def formHeader(self):
-        return self.headerStack.currentWidget()
+        page = self.formStack.currentWidget()
+        return getattr(page, "form_actions", None)
 
     def _sync_header(self, *args):
-        page = self.formStack.currentWidget()
-        self.headerStack.setCurrentWidget(getattr(page, "header", self.placeholderHeader))
+        return None
 
     def _sync_select_tool_state(self, *args):
         active = self.plugin.mapCanvas.mapTool() is self.select_tool
@@ -167,13 +178,11 @@ class Main(QWidget, FORM_CLASS):
         page.binding.has_actual_changes()
         page = self.pages.pop(layer_id)
         page.binding.dispose()
-        self.headerStack.removeWidget(page.header)
-        page.layout().insertWidget(0, page.header)
-        page.header.setEnabled(False)
         page.form.setEnabled(False)
         self.formStack.removeWidget(page)
         if page.dirty and not self._shutting_down:
             page.note.setText("이전 연결·객체의 입력을 보존했습니다. 편집·저장할 수 없습니다.\n" + page.note.text())
+            page.note.show()
             self._retained().tabs.addTab(page, page.project_name + " · " + page.standard)
             self.archives.append(page)
         else:
@@ -267,6 +276,7 @@ class Main(QWidget, FORM_CLASS):
         if page is None or page.feature_id is None or not page.photos.feature_uuid:
             return
         page.photos.refresh_policy()
+        self._sync_photo_tab(page)
 
     def _display_layer(self, layer_id):
         layer = self.adapter.layers_by_id().get(layer_id)
@@ -308,6 +318,7 @@ class Main(QWidget, FORM_CLASS):
             QTimer.singleShot(0, lambda: self.workspaceSplitter.setSizes([200, 500]) if not self._closed else None)
         self.formStack.setCurrentWidget(page)
         self._update_page_dirty(page)
+        QTimer.singleShot(0, lambda p=page: self._log_form_runtime(p))
 
     def _create_form(self, layer, standard, fields):
         state, service = self.adapter.state(), self._definition_service()
@@ -316,28 +327,75 @@ class Main(QWidget, FORM_CLASS):
         page.project_id, page.layer_id = state.get("project_id", ""), layer.id()
         page.readonly, page.feature_id, page.dirty = layer.readOnly(), None, False
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         page.note = QLabel(f"{standard} · 객체를 선택하세요")
         page.note.setTextFormat(Qt.TextFormat.PlainText)
         page.note.setWordWrap(True)
+        page.note.hide()
         layout.addWidget(page.note)
-        page.header = FormHeader(self.headerStack)
         manifest_layers = (self.plugin.active_context or {}).get("manifest", {}).get("layers", [])
-        page.header.layerNameLabel.setText(next((row.get("label") for row in manifest_layers
-            if str(row.get("standard_name", "")).upper() == standard), standard))
-        page.header.layoutButton.clicked.connect(self.edit_form_layout)
-        page.header.referenceRefreshButton.clicked.connect(self.plugin.refresh_reference_catalog)
-        page.header.pushButtonUpdate.clicked.connect(self.save_current)
-        self.headerStack.addWidget(page.header)
+        page.display_name = self._layer_display_name(manifest_layers, standard)
         local_layout = self._layout_store.load(standard, fields)
         page.form = DynamicForm(
             service.definition, fields, page, layer=standard, form_layout=local_layout
         )
+        page.shape_switches = create_shape_switches(layer, page.form, page.form)
         page.tabs = page.form.tabs
-        page.photos = PhotoSection(self.plugin, page, layer, page.tabs)
-        page.photos.bind_action_button(page.header.photoButton)
-        page.form.add_auxiliary_tab(page.photos, "사진", visible=False)
-        page.photos.availabilityChanged.connect(
-            lambda visible, p=page: p.form.set_auxiliary_tab_visible(p.photos, visible)
+        page.form_actions = FormActionToolbar(page.form)
+        page.form_actions.apply_preferences(
+            self.geoflow_settings, page.project_id
+        )
+        page.form.set_header_widget(page.form_actions)
+        self._apply_page_chrome(page)
+        page.form.layoutChanged.connect(
+            lambda p=page: self._apply_page_chrome(p)
+        )
+        page.form_actions.saveButton.clicked.connect(
+            lambda _checked=False, p=page: self._save_page(p)
+        )
+        page.form_actions.layoutButton.clicked.connect(self.edit_form_layout)
+        page.form_actions.referenceRefreshButton.clicked.connect(
+            self.plugin.refresh_reference_catalog
+        )
+        tab_count_before = page.tabs.count()
+        photo_tab = central_photo_tab_spec(fields)
+        has_photo_capability = bool(
+            layer.customProperty("geoflow/managed", False)
+            and layer.customProperty("geoflow/definition_layer_id", "")
+        )
+        page.photo_dialog = None
+        if has_photo_capability:
+            photo_metadata = photo_tab or {"title": "사진", "index": None}
+            page.photos = PhotoSection(self.plugin, page, layer, page.tabs)
+            page.photo_tab_index = page.form.add_auxiliary_tab(
+                page.photos,
+                photo_metadata["title"],
+                visible=False,
+                index=photo_metadata["index"],
+            )
+            page.photos.tabNeededChanged.connect(
+                lambda needed, p=page: self._sync_photo_tab(p, needed)
+            )
+        else:
+            page.photo_dialog = QDialog(page)
+            page.photo_dialog.setObjectName("GeoFlowPhotoManagerDialog")
+            page.photo_dialog.setModal(False)
+            page.photo_dialog.setWindowTitle("사진 보기/관리")
+            page.photo_dialog.resize(720, 600)
+            photo_dialog_layout = QVBoxLayout(page.photo_dialog)
+            photo_dialog_layout.setContentsMargins(0, 0, 0, 0)
+            page.photos = PhotoSection(
+                self.plugin, page, layer, page.photo_dialog
+            )
+            photo_dialog_layout.addWidget(page.photos)
+        page.photos.bind_action_button(page.form_actions.photoButton)
+        self._log_photo_runtime(
+            page,
+            has_photo_capability=has_photo_capability,
+            photo_tab=photo_tab,
+            tab_count_before=tab_count_before,
+            stage="build",
         )
         layout.addWidget(page.form)
         layout.setStretch(1, 1)
@@ -347,21 +405,131 @@ class Main(QWidget, FORM_CLASS):
         page.binding = DynamicFormBinding(
             page, layer, page.form, state["can_write"],
             user_context=getattr(self.plugin, "current_user_context", lambda: {})(),
+            commit_callback=getattr(self.plugin, "commit_layer_online", None),
         )
+        page.form_actions.saveButton.setEnabled(False)
         page.update_dirty = lambda p=page: self._update_page_dirty(p)
+        edit_tools = getattr(self.plugin, "edit_tools", None)
+        if edit_tools is not None:
+            edit_tools.register_form_page(page, layer)
         page.photos.dirtyChanged.connect(lambda _dirty, p=page: self._update_page_dirty(p))
         self._update_page_dirty(page)
+
+    @staticmethod
+    def _sync_photo_tab(page, needed=None):
+        """Show the registered photo tab only for content or explicit use."""
+        if needed is None:
+            needed = page.photos.tab_needed()
+        page.form.set_auxiliary_tab_visible(page.photos, bool(needed))
+
+    @staticmethod
+    def _layer_display_name(manifest_layers, standard):
+        """Resolve the central/manifest label without a local name mapping."""
+        return str(next((row.get("label") for row in manifest_layers
+            if str(row.get("standard_name", "")).upper() == standard), standard) or standard)
+
+    @staticmethod
+    def _apply_page_chrome(page):
+        """Keep a stable one-line layer/action header above central tabs."""
+        page.form_actions.set_layer_title(page.display_name)
+        page.form_actions.show()
+
+    @staticmethod
+    def _geometry_text(widget):
+        geometry = widget.geometry()
+        return f"{geometry.x()},{geometry.y()},{geometry.width()},{geometry.height()}"
+
+    @classmethod
+    def _log_form_runtime(cls, page):
+        """Log non-sensitive runtime geometry for the installed QGIS UI."""
+        try:
+            header = page.form_actions
+            tabs = page.tabs
+            buttons = (
+                "saveButton", "previousButton", "nearbyButton", "layoutButton",
+                "referenceRefreshButton", "photoButton",
+            )
+            button_state = []
+            for name in buttons:
+                button = getattr(header, name)
+                button_state.append(
+                    f"{name}:visible={int(button.isVisible())},hidden={int(button.isHidden())},"
+                    f"enabled={int(button.isEnabled())},geometry={cls._geometry_text(button)},"
+                    f"parent={type(button.parentWidget()).__name__}"
+                )
+            photo_index = tabs.indexOf(page.photos)
+            message = (
+                f"form_runtime layer={page.standard} "
+                f"header_geometry={cls._geometry_text(header)} "
+                f"header_visible={int(header.isVisible())} "
+                f"tabs_geometry={cls._geometry_text(tabs)} "
+                f"tabbar_geometry={cls._geometry_text(tabs.tabBar())} "
+                f"corner_widget={int(tabs.cornerWidget(Qt.Corner.TopRightCorner) is not None)} "
+                f"photo_parent={type(page.photos.parentWidget()).__name__} "
+                f"photo_tab_index={photo_index} actions=[{' ; '.join(button_state)}]"
+            )
+            if message == getattr(page, "_runtime_geometry_log", ""):
+                return
+            page._runtime_geometry_log = message
+            QgsMessageLog.logMessage(message, "GeoFlow", Qgis.MessageLevel.Info)
+        except (AttributeError, RuntimeError, TypeError):
+            return
+
+    @staticmethod
+    def _log_photo_runtime(
+        page, *, has_photo_capability=None, photo_tab=None,
+        tab_count_before=None, stage="feature",
+    ):
+        """Trace central photo-tab binding independently from photo capability."""
+        try:
+            tabs = page.tabs
+            if has_photo_capability is None:
+                layer = page.photos.layer
+                has_photo_capability = bool(
+                    layer.customProperty("geoflow/managed", False)
+                    and layer.customProperty("geoflow/definition_layer_id", "")
+                )
+            if photo_tab is None:
+                photo_tab = central_photo_tab_spec(page.form.fields)
+            actual_index = tabs.indexOf(page.photos)
+            tab_visible = bool(
+                actual_index >= 0 and tabs.isTabVisible(actual_index)
+            )
+            titles = [tabs.tabText(index) for index in range(tabs.count())]
+            message = (
+                f"[PHOTO] stage={stage} layer={str(page.standard).lower()} "
+                f"definition_photo_section={str(photo_tab is not None).lower()} "
+                f"capability={str(bool(has_photo_capability)).lower()} "
+                f"PhotoSection_created={str(page.photos is not None).lower()} "
+                f"policy_found={'yes' if getattr(page.photos, 'policy', None) else 'no'} "
+                f"tab_needed={str(page.photos.tab_needed()).lower()} "
+                f"parent={type(page.photos.parentWidget()).__name__} "
+                f"requested_tab_index={photo_tab['index'] if photo_tab else -1} "
+                f"photo_tab_index={actual_index} "
+                f"tab_visible={str(tab_visible).lower()} "
+                f"tab_count_before={tab_count_before if tab_count_before is not None else tabs.count()} "
+                f"actual_tab_count={tabs.count()} titles={titles!r} "
+                f"feature_id={getattr(page.photos, 'feature_uuid', '') or '-'} "
+                f"existing_photos={len(getattr(page.photos, 'photos', ()) or ())}"
+            )
+            QgsMessageLog.logMessage(message, "GeoFlow", Qgis.MessageLevel.Info)
+        except (AttributeError, RuntimeError, TypeError):
+            return
 
     def _update_page_dirty(self, page):
         binding = getattr(page, "binding", None)
         photos = getattr(page, "photos", None)
+        # Object navigation guards only unsaved Dynamic Form attributes.
+        # Geometry/create/delete work belongs to the layer edit session and is
+        # committed as one changeset from the explicit save action.
         form_dirty = bool(binding and binding.dirty)
         photo_dirty = bool(photos and photos.has_pending_changes())
         page.dirty = form_dirty or photo_dirty
         suffix = " *" if page.dirty else ""
         if self.formStack.currentWidget() is page:
             self.save_button.setText("현재 객체 저장" + suffix)
-        page.header.pushButtonUpdate.setText("현재 객체 저장" + suffix)
+        if hasattr(page, "form_actions"):
+            page.form_actions.saveButton.setToolTip("현재 객체 저장" + suffix)
         return page.dirty
 
     def _discard_page(self, page):
@@ -384,12 +552,19 @@ class Main(QWidget, FORM_CLASS):
                 + " / ".join(result["errors"][:3])
             )
             return False
-        self.plugin._run_auto_sync()
-        page.note.setText("현재 객체의 기본정보와 사진을 저장했습니다.")
+        self.previous_values.capture(page)
+        edit_tools = getattr(self.plugin, "edit_tools", None)
+        if edit_tools is not None:
+            edit_tools.refresh()
+        page.note.setText("현재 객체의 기본정보와 사진을 서버에 저장했습니다.")
         return True
 
     def _dirty_page(self, incoming_page=None, incoming_feature_id=None):
         for page in self.pages.values():
+            if page.binding.is_feature_deleted():
+                self._clear_deleted_page(page)
+                continue
+            page.binding.has_actual_changes()
             self._update_page_dirty(page)
             if not page.dirty:
                 continue
@@ -398,10 +573,27 @@ class Main(QWidget, FORM_CLASS):
             return page
         return None
 
+    def _clear_deleted_page(self, page):
+        """Detach a deleted feature from the form without rolling back DELETE."""
+        page.photos.clear()
+        page.binding.clear_deleted()
+        page.dirty = False
+        page.note.setText("객체가 삭제되었습니다. 다른 객체를 선택하세요.")
+        page.form_actions.saveButton.setEnabled(False)
+        if self.formStack.currentWidget() is page:
+            self.save_button.setEnabled(False)
+        self._update_page_dirty(page)
+
     def _guard_object_transition(self, incoming_page, feature_id):
         page = self._dirty_page(incoming_page, feature_id)
         if page is None:
             return True
+        reason = "form_dirty" if page.binding.has_form_changes() else "qgis_buffer_dirty"
+        QgsMessageLog.logMessage(
+            f"[NAV] blocked reason={reason} layer_id={page.layer_id} "
+            f"feature_id={page.feature_id}",
+            "GeoFlow", Qgis.MessageLevel.Info,
+        )
         dialog = QMessageBox(self)
         dialog.setWindowTitle("GeoFlow · 객체 이동")
         dialog.setText("현재 객체에 저장하지 않은 변경사항이 있습니다.")
@@ -425,9 +617,22 @@ class Main(QWidget, FORM_CLASS):
         return False
 
     def guard_transition(self, label):
-        dirty = [page for page in self.pages.values() if self._update_page_dirty(page)]
+        dirty = []
+        for page in self.pages.values():
+            if page.binding.is_feature_deleted():
+                self._clear_deleted_page(page)
+                continue
+            if self._update_page_dirty(page):
+                dirty.append(page)
         if not dirty:
             return True
+        for page in dirty:
+            reason = "form_dirty" if page.binding.has_form_changes() else "qgis_buffer_dirty"
+            QgsMessageLog.logMessage(
+                f"[NAV] blocked reason={reason} label={label} "
+                f"layer_id={page.layer_id} feature_id={page.feature_id}",
+                "GeoFlow", Qgis.MessageLevel.Info,
+            )
         closing = label == "QGIS 종료"
         dialog = QMessageBox(self)
         dialog.setWindowTitle("GeoFlow · " + label)
@@ -484,6 +689,16 @@ class Main(QWidget, FORM_CLASS):
         page = self.pages.get(layer_id)
         if page is None:
             return
+        if page.binding.saving:
+            return
+        layer = self.adapter.layers_by_id().get(layer_id)
+        if layer is not None and bool(layer.customProperty(
+            "geoflow/delete_commit_in_progress", False
+        )):
+            return
+        if page.binding.is_feature_deleted():
+            self._clear_deleted_page(page)
+            return
         if not self._guard_object_transition(None, None):
             return
         if page.binding.clear():
@@ -492,18 +707,44 @@ class Main(QWidget, FORM_CLASS):
             page.note.setText("객체를 선택하세요 · 미저장 입력은 보존되어 있습니다.")
         self.save_button.setEnabled(False)
         page.photos.clear()
-        page.header.pushButtonUpdate.setEnabled(False)
+        page.form_actions.saveButton.setEnabled(False)
+
+    def complete_committed_delete(self, layer_id, deleted_ids):
+        """Clear stale UI references only after the provider DELETE succeeds."""
+        page = self.pages.get(str(layer_id))
+        if page is None or not page.binding.clear_after_committed_delete(deleted_ids):
+            return False
+        page.photos.clear()
+        page.dirty = False
+        page.note.setText("객체가 서버에서 삭제되었습니다. 다른 객체를 선택하세요.")
+        page.form_actions.saveButton.setEnabled(False)
+        if self.formStack.currentWidget() is page:
+            self.save_button.setEnabled(False)
+        self._update_page_dirty(page)
+        return True
+
+    def clear_staged_delete_context(self, layer_id, deleted_ids):
+        """Clear a deleted object's form while retaining its QGIS DELETE buffer."""
+        page = self.pages.get(str(layer_id))
+        if page is None or page.feature_id is None:
+            return False
+        if int(page.feature_id) not in {int(fid) for fid in (deleted_ids or ())}:
+            return False
+        self._clear_deleted_page(page)
+        return True
 
     def _empty_map_clicked(self):
-        selected_layer_id = self.adapter.selected_layer_id()
-        for layer in self.adapter.layers_by_id().values():
-            if layer.selectedFeatureIds():
-                layer.removeSelection()
-        if selected_layer_id:
-            self._clear_selected_feature(selected_layer_id)
+        layer = self.plugin.iface.activeLayer()
+        if layer is None or self.adapter.layers_by_id().get(layer.id()) is not layer:
+            return
+        if layer.selectedFeatureIds():
+            layer.removeSelection()
+        self._clear_selected_feature(layer.id())
 
     def on_feature_selected(self, layer, feature):
         if self._closed or layer is None or feature is None or not feature.isValid():
+            return
+        if any(page.binding.saving for page in self.pages.values()):
             return
         self.refresh_connection()
         layer_id = layer.id()
@@ -524,9 +765,11 @@ class Main(QWidget, FORM_CLASS):
         page.feature_id = feature.id()
         page.binding.load(feature)
         page.photos.set_feature(feature)
+        self._sync_photo_tab(page)
+        self._log_photo_runtime(page, stage="feature")
         page.note.setText(f"{page.standard} · 객체 {feature.id()} · 중앙 Dynamic Form")
         self.save_button.setEnabled(page.binding.can_save)
-        page.header.pushButtonUpdate.setEnabled(page.binding.can_save)
+        page.form_actions.saveButton.setEnabled(page.binding.can_save)
         for other_id, other_layer in self.adapter.layers_by_id().items():
             if other_id != layer_id and other_layer.selectedFeatureIds():
                 other_layer.removeSelection()
@@ -542,8 +785,51 @@ class Main(QWidget, FORM_CLASS):
         self._sync_select_tool_state()
 
     def save_current(self):
-        page = self.pages.get(self.adapter.selected_layer_id())
-        return self._save_page(page) if page is not None else False
+        selected_layer_id = self.adapter.selected_layer_id()
+        page = self.pages.get(selected_layer_id)
+        layer = self.adapter.layers_by_id().get(selected_layer_id)
+        pending_delete_ids = (
+            layer.customProperty("geoflow/pending_delete_ids", [])
+            if layer is not None else []
+        )
+        buffer = layer.editBuffer() if layer is not None else None
+        native_deleted_ids = list(
+            buffer.deletedFeatureIds() if buffer is not None else ()
+        )
+        deleted_ids = list(pending_delete_ids or native_deleted_ids)
+        if layer is not None and deleted_ids and layer.isModified():
+            result = self.plugin.commit_layer_online(layer, stop_editing=False)
+            if not result.get("ok"):
+                return False
+            self.complete_committed_delete(layer.id(), deleted_ids)
+            layer.removeSelection()
+            workspace = getattr(self.plugin, "_workspace_model", None)
+            if workspace is not None:
+                workspace.refresh()
+            return True
+        if page is not None and page.binding.is_feature_deleted():
+            deleted_ids = list(buffer.deletedFeatureIds()) if buffer is not None else []
+            result = self.plugin.commit_layer_online(layer, stop_editing=False)
+            if not result.get("ok"):
+                return False
+            self.complete_committed_delete(page.layer_id, deleted_ids)
+            layer.removeSelection()
+            workspace = getattr(self.plugin, "_workspace_model", None)
+            if workspace is not None:
+                workspace.refresh()
+            return True
+        if page is not None:
+            return self._save_page(page)
+        if layer is None or not layer.isModified():
+            return False
+        result = self.plugin.commit_layer_online(layer, stop_editing=False)
+        if not result.get("ok"):
+            return False
+        layer.removeSelection()
+        workspace = getattr(self.plugin, "_workspace_model", None)
+        if workspace is not None:
+            workspace.refresh()
+        return True
 
     def get_manh_layer(self):
         return self.adapter.layers().get("WTL_MANH_PS")

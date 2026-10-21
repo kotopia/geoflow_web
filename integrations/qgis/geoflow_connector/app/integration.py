@@ -27,7 +27,7 @@ class ConnectorIntegrationMixin:
     integration_api_version = 2
 
     def acquire_layer_workspace(self, host):
-        """Loan the one list widget to a host; never create a second list/model."""
+        """Loan the one native layer-tree view; never create a shadow tree."""
         if not self._integration_live or self._workspace_host not in (None, host):
             return None
         panel = self._ensure_layer_workspace()
@@ -161,7 +161,6 @@ class ConnectorIntegrationMixin:
         if definitions is not None:
             definitions.clear()
         self.active_client = None
-        self._auto_sync_timer.stop()
         for name in ('_realtime_delta_timer', '_realtime_reconnect_timer', '_realtime_poll_timer'):
             timer = getattr(self, name, None)
             if timer is not None:

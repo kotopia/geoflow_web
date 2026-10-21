@@ -16,6 +16,7 @@ class LayerWorkspaceState(QObject):
     revealRequested = pyqtSignal(str)
     objectSelected = pyqtSignal(str, object)
     visibilityChanged = pyqtSignal()
+    symbologyChanged = pyqtSignal(str)
 
     def __init__(self, plugin):
         super().__init__(plugin.iface.mainWindow())
@@ -77,6 +78,9 @@ class LayerWorkspaceState(QObject):
                     (layer.selectionChanged, lambda *args, key=lid: self._objects_changed(key)),
                     (layer.afterCommitChanges, self.refresh),
                     (layer.afterRollBack, self.refresh),
+                    (layer.rendererChanged, lambda *args, key=lid: self.symbologyChanged.emit(key)),
+                    (layer.styleChanged, lambda *args, key=lid: self.symbologyChanged.emit(key)),
+                    (layer.legendChanged, lambda *args, key=lid: self.symbologyChanged.emit(key)),
                 )
                 for signal, slot in callbacks:
                     signal.connect(slot)

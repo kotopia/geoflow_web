@@ -74,7 +74,7 @@
     </layout>
    </item>
    <item>
-    <widget class="VisibilityTree" name="tree">
+    <widget class="QTreeView" name="tree">
      <property name="font">
       <font>
        <family>Arial</family>
@@ -86,42 +86,13 @@
      <property name="indentation">
       <number>12</number>
      </property>
-     <property name="columnCount">
-      <number>2</number>
-     </property>
-     <property name="emptyLayerColor" stdset="0">
-      <string>#919ba5</string>
-     </property>
-     <property name="visibilityColumnWidth" stdset="0">
-      <number>48</number>
-     </property>
      <attribute name="headerVisible">
       <bool>false</bool>
      </attribute>
-     <attribute name="headerDefaultSectionSize">
-      <number>50</number>
-     </attribute>
-     <column>
-      <property name="text">
-       <string/>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string notr="true">2</string>
-      </property>
-     </column>
     </widget>
    </item>
   </layout>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>VisibilityTree</class>
-   <extends>QTreeWidget</extends>
-   <header>geoflow_connector.layer_workspace</header>
-  </customwidget>
- </customwidgets>
  <resources>
   <include location="../../resources/feather.qrc"/>
  </resources>

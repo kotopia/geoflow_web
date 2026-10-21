@@ -4,7 +4,9 @@ from __future__ import annotations
 import datetime as dt
 
 
-WORK_DATE_NAMES = {"work_date", "workdate", "wrk_date", "survey_date", "작업일"}
+# Current Final Form/manifest contract uses the physical field ``date``.
+# The remaining identifiers are accepted metadata aliases from older definitions.
+WORK_DATE_NAMES = {"date", "work_date", "workdate", "wrk_date", "survey_date", "작업일"}
 
 
 def field_names(field):

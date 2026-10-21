@@ -49,6 +49,9 @@ class PanelPresentation(QObject):
         )
         button('save', lambda: self.invoke('save_current'))
         button('zoom', lambda: engine.zoom_workspace_layer())
+        # Persistent queue management is retired in online-only mode.
+        self.buttons['sync'] = root.GeoFlowRail_sync
+        root.GeoFlowRail_sync.hide()
         button('drafts', lambda: self.invoke('show_retained'))
         button('logout', engine.logout_requested)
         button('hide', engine.dock.hide)
@@ -60,6 +63,9 @@ class PanelPresentation(QObject):
             action = menu.addAction(title)
             action.setToolTip(tip)
             action.triggered.connect(lambda checked=False, method=method: self.invoke(method))
+        settings_action = menu.addAction('환경설정')
+        settings_action.setToolTip('현재 GeoFlow 프로젝트의 주변값·도형·폼 설정을 관리합니다.')
+        settings_action.triggered.connect(engine.show_settings)
         menu.setToolTipsVisible(True)
         menu.aboutToShow.connect(self._update_business_menu)
         root.moreActionsButton.setMenu(menu)
@@ -119,6 +125,7 @@ class PanelPresentation(QObject):
         actions = self.root.moreActionsButton.menu().actions()
         actions[0].setEnabled(ready)
         actions[1].setEnabled(ready and bool(work.archives))
+        actions[2].setEnabled(ready)
 
     def attach_work(self, work):
         self.work = work
@@ -160,6 +167,7 @@ class PanelPresentation(QObject):
         self.content.setVisible(not working or self.mode != PanelMode.ICONS)
         for key in ('select', 'save', 'zoom', 'drafts'):
             self.buttons[key].setEnabled(e.integration_state()['ready'])
+        self.buttons['sync'].setEnabled(bool(e.active_context))
         self.edge.setVisible(working)
         self.edge.setChecked(self.mode != PanelMode.ICONS)
         self.edge.setToolTip('레이어 펼치기' if self.mode == PanelMode.ICONS else '한 단계 접기')

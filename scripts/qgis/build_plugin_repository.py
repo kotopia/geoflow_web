@@ -14,7 +14,11 @@ import zipfile
 PACKAGE_DIR = "geoflow_connector"
 QGIS_REPOSITORY_FILE_NAME = f"{PACKAGE_DIR}.zip"
 VERSION_RE = re.compile(r"\A[0-9]+\.[0-9]+\.[0-9]+\Z")
-EXCLUDED_NAMES = {"__pycache__", ".DS_Store"}
+EXCLUDED_NAMES = {"__pycache__", ".DS_Store", ".git", ".github", ".vscode", ".pytest_cache",
+                  "tests", "test_artifacts", "release", "scripts", "docs", "logs"}
+RUNTIME_DIRECTORIES = {"api", "app", "cache", "forms", "layers", "resources", "services", "survey", "sync", "ui"}
+ROOT_FILES = {"__init__.py", "metadata.txt", "photo_selection.py", "realtime_auth.py", "CHANGELOG.md"}
+RUNTIME_SUFFIXES = {".py", ".ui", ".qss", ".qml", ".svg", ".png", ".jpg", ".jpeg", ".ico", ".qrc", ".json", ".txt", ".md", ".db"}
 
 
 def metadata(source: Path) -> dict[str, str]:
@@ -36,9 +40,15 @@ def package_files(source: Path):
         relative = path.relative_to(source)
         if any(part in EXCLUDED_NAMES for part in relative.parts):
             continue
-        if path.is_dir():
+        if path.is_dir() or path.is_symlink():
             continue
-        if path.suffix in {".pyc", ".pyo"} or path.name.startswith("test_"):
+        if any(part.startswith('.') for part in relative.parts):
+            continue
+        if len(relative.parts) == 1 and path.name not in ROOT_FILES:
+            continue
+        if len(relative.parts) > 1 and relative.parts[0] not in RUNTIME_DIRECTORIES:
+            continue
+        if path.suffix.lower() not in RUNTIME_SUFFIXES and path.name not in {'LICENSE', 'NOTICE'}:
             continue
         yield path, PurePosixPath(PACKAGE_DIR, *relative.parts)
 

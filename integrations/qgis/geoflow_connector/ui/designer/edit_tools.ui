@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>GeoFlowEditTools</class>
+ <widget class="QWidget" name="GeoFlowEditTools">
+  <property name="geoflowEditTools" stdset="0"><bool>true</bool></property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing"><number>4</number></property>
+   <property name="leftMargin"><number>4</number></property>
+   <property name="topMargin"><number>4</number></property>
+   <property name="rightMargin"><number>4</number></property>
+   <property name="bottomMargin"><number>4</number></property>
+   <item><layout class="QVBoxLayout" name="toolLayout">
+    <property name="spacing"><number>3</number></property>
+    <item><widget class="QToolButton" name="addFeatureButton"><property name="toolTip"><string>현재 레이어에 객체 생성</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="moveButton"><property name="toolTip"><string>객체 이동</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="vertexButton"><property name="toolTip"><string>버텍스 수정</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="splitButton"><property name="toolTip"><string>분할</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="deleteButton"><property name="toolTip"><string>선택 객체 삭제</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="snappingButton"><property name="toolTip"><string>스내핑</string></property><property name="text"><string/></property><property name="checkable"><bool>true</bool></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="undoButton"><property name="toolTip"><string>실행 취소</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+    <item><widget class="QToolButton" name="redoButton"><property name="toolTip"><string>다시 실행</string></property><property name="text"><string/></property><property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property><property name="autoRaise"><bool>true</bool></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

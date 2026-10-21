@@ -2,9 +2,6 @@
 # 기능: 레이어 그룹·검색·표시명과 필드 편집기 설정의 순수 변환
 from __future__ import annotations
 
-from collections import OrderedDict
-
-
 # ============================================================
 # 레이어 목록·검색·도메인 그룹 순수 변환
 # ============================================================
@@ -32,44 +29,6 @@ SYSTEM_FORM_FIELDS = {
     "created_by",
     "updated_by",
 }
-
-
-def layer_search_text(row: dict) -> str:
-    return " ".join(
-        str(row.get(key) or "")
-        for key in ("label", "standard_name", "physical_name", "domain")
-    ).casefold()
-
-
-def filtered_layer_rows(rows: list[dict], query: str = "") -> list[dict]:
-    needle = str(query or "").strip().casefold()
-    selected = [row for row in rows if not needle or needle in layer_search_text(row)]
-    return sorted(
-        selected,
-        key=lambda row: (
-            str(row.get("domain") or "OTHER"),
-            str(row.get("label") or row.get("standard_name") or "").casefold(),
-        ),
-    )
-
-
-def grouped_layer_rows(rows: list[dict], query: str = "") -> OrderedDict[str, list[dict]]:
-    grouped: OrderedDict[str, list[dict]] = OrderedDict()
-    for row in filtered_layer_rows(rows, query):
-        domain = str(row.get("domain") or "OTHER").upper()
-        grouped.setdefault(domain, []).append(row)
-    return grouped
-
-
-def domain_label(domain: str) -> str:
-    key = str(domain or "OTHER").upper()
-    return DOMAIN_LABELS.get(key, key if key != "OTHER" else "기타")
-
-
-def setting_enabled(value) -> bool:
-    if isinstance(value, str):
-        return value.strip().casefold() not in {"", "0", "false", "no", "off"}
-    return bool(value)
 
 
 def reference_groups(catalog: dict) -> dict[str, list[dict]]:

@@ -1,0 +1,82 @@
+[
+  {
+    "test": "qgis_project_materialize_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_project_materialize_runtime.py.txt"
+  },
+  {
+    "test": "qgis_native_layer_tree_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_native_layer_tree_runtime.py.txt"
+  },
+  {
+    "test": "qgis_layer_workspace_state_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_layer_workspace_state_runtime.py.txt"
+  },
+  {
+    "test": "qgis_form_lifecycle_smoke.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_form_lifecycle_smoke.py.txt"
+  },
+  {
+    "test": "qgis_online_commit_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_online_commit_runtime.py.txt"
+  },
+  {
+    "test": "qgis_delete_action_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_delete_action_runtime.py.txt"
+  },
+  {
+    "test": "qgis_survey_popup_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_survey_popup_runtime.py.txt"
+  },
+  {
+    "test": "qgis_survey_creation_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_survey_creation_runtime.py.txt"
+  },
+  {
+    "test": "qgis_survey_spatial_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_survey_spatial_runtime.py.txt"
+  },
+  {
+    "test": "qgis_selection_feedback_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_selection_feedback_runtime.py.txt"
+  },
+  {
+    "test": "qgis_settings_nearby_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_settings_nearby_runtime.py.txt"
+  },
+  {
+    "test": "qgis_field_tools_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_field_tools_runtime.py.txt"
+  },
+  {
+    "test": "qgis_edit_tools_integration_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_edit_tools_integration_runtime.py.txt"
+  },
+  {
+    "test": "qgis_photo_local_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_photo_local_runtime.py.txt"
+  },
+  {
+    "test": "qgis_form_header_photo_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_form_header_photo_runtime.py.txt"
+  },
+  {
+    "test": "qgis_default_style_runtime.py",
+    "exit_code": 0,
+    "log": "release/validation/qgis_default_style_runtime.py.txt"
+  }
+]

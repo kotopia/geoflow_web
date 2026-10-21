@@ -38,6 +38,35 @@ def next_photo_slot(variant, photos, last_slot_id=""):
     )
 
 
+def is_extra_photo(photo):
+    """Return whether a photo uses the server's unstructured extra classification."""
+    slot_id = str((photo or {}).get("slot_id") or "")
+    return not slot_id or slot_id.upper() == "EXTRA"
+
+
+def should_show_extra_photo(allow_extra, server_photos, pending_photos, explicitly_opened):
+    """Keep existing/pending extras visible; gate only a new empty area by policy."""
+    return bool(
+        any(is_extra_photo(row) for row in (server_photos or []))
+        or any(is_extra_photo(row) for row in (pending_photos or []))
+        or (allow_extra and explicitly_opened)
+    )
+
+
+def photo_pending_labels(photo):
+    """Return the compact card-badge labels for pending photo operations."""
+    labels = []
+    if (photo or {}).get("_pending_add"):
+        labels.append("추가")
+    if (photo or {}).get("_pending_replace"):
+        labels.append("변경")
+    if (photo or {}).get("_pending_edit"):
+        labels.append("편집")
+    if (photo or {}).get("_pending_delete"):
+        labels.append("삭제 예정")
+    return labels
+
+
 def photo_classification_options(policy, include_extra=True):
     """Flatten ordered catalogue choices for pending-photo reclassification."""
     result = []

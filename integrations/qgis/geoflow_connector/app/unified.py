@@ -5,7 +5,7 @@ import traceback
 
 from qgis.PyQt.QtCore import Qt, QEvent, QObject, QTimer
 from qgis.PyQt.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QStackedWidget, QPushButton, QLabel, QMessageBox, QDialog)
+    QStackedWidget, QPushButton, QToolButton, QLabel, QMessageBox, QDialog)
 from qgis.core import QgsProject, QgsMessageLog, Qgis
 from qgis import utils
 from qgis.PyQt import sip
@@ -88,6 +88,8 @@ class UnifiedMixin:
         self._selector_extent = None
         self._unloading = False
         self._last_sync_error = False
+        self.sync_center = None
+        self._settings_dialog = None
         self._form_connections = []
         self._sync_connections = []
         self._exit_guard = ExitGuard(self)
@@ -102,13 +104,6 @@ class UnifiedMixin:
             'GeoFlow',
             Qgis.MessageLevel.Critical,
         )
-
-    def _checkpoint_safely(self, reason):
-        try:
-            return True, protection.checkpoint(self)
-        except Exception as exc:
-            self.log_exception(f'draft_checkpoint_failure reason={reason}', exc)
-            return False, None
 
     def check_single_instance(self):
         others = getattr(utils, 'active_plugins', [])
@@ -142,15 +137,39 @@ class UnifiedMixin:
             state.update(ready=False, can_write=False, layers=())
         return state
 
+    def show_settings(self):
+        if not self.integration_state().get('ready'):
+            return
+        from ..ui.settings_dialog import GeoFlowSettingsDialog
+        if self._settings_dialog is None:
+            self._settings_dialog = GeoFlowSettingsDialog(self)
+        else:
+            self._settings_dialog.reload()
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
+
     def _ensure_ui(self):
         if self.dialog is not None:
             return
+        self.log('edit_tools_init')
         self.dialog = LoginDialog(self)
         self.dock = QDockWidget('GeoFlow', self.iface.mainWindow())
         self.dock.setObjectName('GeoFlowMainDock')
-        root = loadUi(str(Path(__file__).resolve().parents[1] / 'ui' / 'designer' / 'main_dock.ui'))
-        for name in ('header', 'user_label',
-                     'message', 'stack', 'error_page', 'retry_button'):
+        main_dock_path = Path(__file__).resolve().parents[1] / 'ui' / 'designer' / 'main_dock.ui'
+        self.log('edit_tools_main_dock_path=' + str(main_dock_path.resolve()))
+        root = loadUi(str(main_dock_path))
+        edit_button = root.findChild(QToolButton, 'editModeButton')
+        self.log(
+            'edit_tools_button_found=' + ('yes' if edit_button is not None else 'no')
+        )
+        if edit_button is None:
+            raise RuntimeError(
+                'GeoFlow main dock edit toggle is missing'
+            )
+        for name in ('GeoFlowRail_info', 'editModeButton',
+                     'message', 'stack', 'error_page',
+                     'retry_button'):
             setattr(self, name, getattr(root, name))
         self.project_page = self.dialog.project_panel
         self.return_button = self.project_page.return_button
@@ -160,6 +179,24 @@ class UnifiedMixin:
         self.presentation = PanelPresentation(self, root)
         self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
         self.dock.hide()
+        from ..ui.project_info import ProjectInfoPopup
+        self.project_info = ProjectInfoPopup(self, self.GeoFlowRail_info)
+        self.projectNameLabel = self.project_info.project_label
+        self.projectCrsLabel = self.project_info.crs_label
+        self.projectCrsButton = self.project_info.crs_button
+        from ..ui.project_crs import ProjectCrsController
+        self.project_crs = ProjectCrsController(
+            self, self.projectNameLabel, self.projectCrsLabel,
+            self.projectCrsButton,
+        )
+        from ..ui import edit_tools as edit_tools_module
+        self.log(
+            'edit_tools_module_path='
+            + str(Path(edit_tools_module.__file__).resolve())
+        )
+        self.edit_tools = edit_tools_module.EditToolsController(
+            self, self.editModeButton,
+        )
         self.retry_button.clicked.connect(self.recover_screen)
         self.dialog.refresh_button.clicked.connect(self.refresh_projects)
 
@@ -193,7 +230,9 @@ class UnifiedMixin:
             return
         manager = self.state_manager
         self.message.setText(manager.message)
-        self.user_label.setText(self.dialog.email_edit.text() if manager.authenticated else '')
+        self.project_info.set_user(
+            self.dialog.email_edit.text() if manager.authenticated else ""
+        )
         busy = manager.state in (State.PROJECT_LOADING, State.PROJECT_SWITCHING)
         self.dialog._set_busy(busy)
         self.dialog.refresh_button.setEnabled(not busy and manager.authenticated)
@@ -207,16 +246,50 @@ class UnifiedMixin:
         else:
             self.stack.setCurrentWidget(self.project_page)
         self._update_presentation()
+        self._sync_center_changed()
+
+    def show_sync_center(self, status_filter=None):
+        self.iface.messageBar().pushMessage(
+            "GeoFlow",
+            "온라인 전용 저장에서는 로컬 동기화 큐를 사용하지 않습니다.",
+            level=Qgis.Info,
+            duration=6,
+        )
+
+    def _sync_center_changed(self):
+        center = getattr(self, "sync_center", None)
+        if center is not None:
+            center.refresh_if_visible()
+
+    def notify_sync_items(self, status="ALL", count=1):
+        """Show a safe message-bar shortcut without changing sync lifecycle."""
+        status = str(status or "ALL").upper()
+        label = "충돌" if status == "CONFLICT" else "동기화 항목"
+        text = f"확인이 필요한 {label} {int(count or 0)}건이 있습니다."
+        bar = self.iface.messageBar()
+        create = getattr(bar, "createMessage", None)
+        push_widget = getattr(bar, "pushWidget", None)
+        if callable(create) and callable(push_widget):
+            widget = create("GeoFlow", text)
+            view = QPushButton("보기", widget)
+            view.clicked.connect(
+                lambda _checked=False, value=status: self.show_sync_center(value)
+            )
+            widget.layout().addWidget(view)
+            push_widget(widget, Qgis.Warning, 12)
+        else:
+            bar.pushMessage("GeoFlow", text, level=Qgis.Warning, duration=12)
 
     def _update_presentation(self):
         available = bool(self.active_context and self.dialog.project_opened and self.state_manager.authenticated)
         self.return_button.setVisible(available)
         self.return_button.setEnabled(available and not self._opening)
-        project = ((self.active_context or {}).get('manifest') or {}).get('project') or {}
         working = self.work is not None and self.stack.currentWidget() is self.work
-        self.header.setVisible(not working)
         self.message.setVisible(not working and bool(self.state_manager.message))
         self.presentation.apply()
+        if hasattr(self, 'edit_tools'):
+            self.edit_tools.refresh()
+            QTimer.singleShot(0, self.edit_tools.log_runtime_state)
 
     def _ensure_work(self):
         if self.work is None:
@@ -256,7 +329,7 @@ class UnifiedMixin:
         self.run()
 
     # ============================================================
-    # 미저장 입력·편집 버퍼·전송 큐 전환 보호
+    # 미저장 입력·QGIS 편집 버퍼 전환 보호
     # ============================================================
     def guard_transition(self, label):
         if self._opening or self._sync_in_progress:
@@ -268,39 +341,18 @@ class UnifiedMixin:
             report = protection.inspect(self)
         except Exception as exc:
             self.log_exception('transition_inspection_failure', exc)
-            self.iface.messageBar().pushMessage('GeoFlow', '로컬 큐 확인 실패로 전환을 중단했습니다.', level=Qgis.Warning)
+            self.iface.messageBar().pushMessage('GeoFlow', 'QGIS 편집 상태 확인 실패로 전환을 중단했습니다.', level=Qgis.Warning)
             return False
-        if report['drafts']:
-            choice = QMessageBox.question(self.iface.mainWindow(), 'GeoFlow · ' + label,
-                '폼에만 남은 입력이 있습니다. 프로젝트·객체 정보와 함께 복구용 JSON으로 보존하고 계속할까요?\n자동으로 다른 객체에 적용하지 않습니다.',
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
-            if choice != QMessageBox.StandardButton.Yes:
-                return False
-            ok, path = self._checkpoint_safely(label)
-            if ok:
-                self.iface.messageBar().pushMessage('GeoFlow 입력 보존', str(path), level=Qgis.Info)
-            else:
-                self.iface.messageBar().pushMessage(
-                    'GeoFlow', '복구 JSON을 저장하지 못해 전환을 중단했습니다.',
-                    level=Qgis.Critical,
-                )
-                return False
         if report['buffers']:
             self.iface.messageBar().pushMessage('GeoFlow', 'QGIS 편집 버퍼를 먼저 저장하거나 명시적으로 취소하세요. 전환을 중단했습니다.', level=Qgis.Warning)
-            return False
-        if self._last_sync_error or any(report['queue'].values()):
-            if label == 'QGIS 종료':
-                return QMessageBox.question(self.iface.mainWindow(), 'GeoFlow · 전송 대기',
-                    '서버 전송이 완료되지 않았습니다. 프로젝트별 로컬 큐를 유지하고 QGIS를 종료할까요?',
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                    QMessageBox.StandardButton.Cancel) == QMessageBox.StandardButton.Yes
-            self.iface.messageBar().pushMessage('GeoFlow', '서버 미전송 큐 또는 동기화 오류가 있습니다. 동기화 후 다시 시도하세요. 로컬 데이터는 보존됩니다.', level=Qgis.Warning)
             return False
         return True
 
     def show_projects(self):
         # Keep A alive while selecting B, and only retire A after B is ready.
         if not self._opening and self.state_manager.authenticated:
+            if hasattr(self, 'edit_tools'):
+                self.edit_tools.set_mode(False)
             if not self._project_selector_visible and self.active_context:
                 from qgis.core import QgsRectangle
                 self._selector_extent = QgsRectangle(self.mapCanvas.extent())
@@ -367,11 +419,11 @@ class UnifiedMixin:
             self._selector_extent = None
             self.state_manager.set(State.PROJECT_READY, '프로젝트 열기 성공 · 로컬 저장과 서버 동기화는 별도 상태입니다.')
             self.log('project_open_success')
-        except Exception:
+        except Exception as exc:
             self._integration_epoch = old_epoch
             self.dialog.project_opened = bool(self.active_context and self.dialog.client)
             self.state_manager.fail('project_load', '프로젝트 로딩에 실패했습니다. 이전 프로젝트를 보존했습니다. 연결·레이어·metadata를 확인하고 재시도하세요.', previous)
-            self.log('project_load_failure')
+            self.log_exception('project_load_failure', exc)
         finally:
             self._opening = False
             self.render_state()
@@ -392,6 +444,7 @@ class UnifiedMixin:
     def _materialize_project(self, manifest, client, **kwargs):
         if not self.check_single_instance():
             raise RuntimeError('Duplicate GeoFlow plugins')
+        self.log('project_materialize_manifest_ok')
         old = self.active_context
         old_client = self.active_client
         old_catalog = self._reference_catalog
@@ -411,17 +464,29 @@ class UnifiedMixin:
                 self._configure_layer_fields(layer, self._layer_def(layer), old['project_id'], allowed)
                 layer.setCustomProperty('geoflow/local_editing', allowed)
             self.active_client = client
+            project = manifest.get('project') or {}
+            code = str(project.get('code') or old.get('project_code') or '')
+            name = str(project.get('name') or code)
+            title = f"{code} {name}" if code and code not in name else name
+            self.project_crs.activate(old['project_id'], title)
             return {'loaded': len(protection.owned_layers(old)), 'sync_supported': old.get('sync_supported', False)}
         try:
+            self.log('project_materialize_super_start')
             result = super()._materialize_project(manifest, client, **kwargs)
             if not result.get('loaded'):
                 raise RuntimeError('No project layers loaded')
+            project = manifest.get('project') or {}
+            code = str(project.get('code') or (self.active_context or {}).get('project_code') or '')
+            name = str(project.get('name') or code)
+            title = f"{code} {name}" if code and code not in name else name
+            self.project_crs.activate((self.active_context or {}).get('project_id', ''), title)
             self._disconnect_sync_layers((old or {}).get('layer_ids', []))
             protection.remove_owned(old)
+            self.log('project_materialize_done')
             return result
         except Exception:
             self._stop_realtime_socket()
-            for timer in (self._auto_sync_timer, self._realtime_delta_timer, self._realtime_reconnect_timer, self._realtime_poll_timer):
+            for timer in (self._realtime_delta_timer, self._realtime_reconnect_timer, self._realtime_poll_timer):
                 timer.stop()
             # Only newly materialized, tagged layers, never user layers.
             added = [lid for lid, layer in project.mapLayers().items() if lid not in before and layer.customProperty('geoflow/managed', False)]
@@ -438,8 +503,14 @@ class UnifiedMixin:
             self.active_client = old_client if self.dialog and self.dialog.client is old_client else None
             if old and self.active_client is not None:
                 self._load_reference_catalog(old['manifest'], self.active_client)
+                old_project = (old.get('manifest') or {}).get('project') or {}
+                old_code = str(old_project.get('code') or old.get('project_code') or '')
+                old_name = str(old_project.get('name') or old_code)
+                old_title = f"{old_code} {old_name}" if old_code and old_code not in old_name else old_name
+                self.project_crs.activate(old.get('project_id', ''), old_title)
             else:
                 self._reference_service.clear()
+                self.project_crs.deactivate()
             self._watch_integration_layers()
             if self.active_client is not None:
                 self._start_realtime_socket()
@@ -454,8 +525,10 @@ class UnifiedMixin:
             return result
         except Exception:
             self._last_sync_error = True
-            self.log('sync_failure_queue_preserved')
+            self.log('online_server_refresh_failed')
             raise
+        finally:
+            self._sync_center_changed()
 
     def logout_requested(self):
         if not self.guard_transition('로그아웃'):
@@ -465,20 +538,33 @@ class UnifiedMixin:
         self._disconnect_sync_layers((old or {}).get('layer_ids', []))
         protection.remove_owned(old)
         self.active_context = None
+        if hasattr(self, 'project_crs'):
+            self.project_crs.deactivate()
+        if hasattr(self, 'edit_tools'):
+            self.edit_tools.set_mode(False)
         QgsProject.instance().removeEntry('GeoFlow', '')
         self.state_manager.set(State.LOGGED_OUT)
         self._integration_changed()
 
     def _integration_auth_changing(self):
-        if getattr(self, 'work', None) is not None:
-            self._checkpoint_safely('인증 전환')
         super()._integration_auth_changing()
 
     def unload(self):
         self._unloading = True
+        if self._settings_dialog is not None:
+            self._settings_dialog.close()
+            self._settings_dialog = None
+        if self.sync_center is not None:
+            self.sync_center.close()
+            self.sync_center = None
+        if hasattr(self, 'edit_tools'):
+            self.edit_tools.close()
+        if hasattr(self, 'project_crs'):
+            self.project_crs.close()
+        if hasattr(self, 'project_info'):
+            self.project_info.close()
         if hasattr(self, 'presentation'):
             self.presentation.close()
-        self._checkpoint_safely('플러그인 unload')
         self._disconnect_sync_layers()
         self.iface.mainWindow().removeEventFilter(self._exit_guard)
         if self.work is not None:

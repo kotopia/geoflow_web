@@ -8,9 +8,10 @@ import json
 import os
 import re
 import sqlite3
+from time import perf_counter
 import uuid
 
-from qgis.PyQt.QtCore import QSettings, QStandardPaths, QTimer
+from qgis.PyQt.QtCore import QSettings, QStandardPaths
 try:
     from qgis.PyQt.QtGui import QAction
 except ImportError:
@@ -26,7 +27,9 @@ from qgis.core import (
     Qgis,
 )
 
-from ..sync.queue import acknowledge_outbox, ensure_changeset_tables, outbox_count, pending_count, prepare_outbox, queue_change, read_last_applied_revision, repair_uuid_exists_outbox, write_last_applied_revision
+from ..sync.online import (
+    change_signature, read_last_applied_revision, write_last_applied_revision,
+)
 from ..api.client import GeoFlowChangesetConflict
 from ..layers.model import DOMAIN_LABELS as _DOMAIN_LABELS, SYSTEM_FORM_FIELDS as _SYSTEM_FIELDS
 
@@ -46,11 +49,11 @@ class GeoFlowConnectorPlugin:
         self.active_client = None
         self._sync_in_progress = False
         self._suppress_auto_sync = False
-        self._captured_changes: dict[str, list[dict]] = {}
-        self._auto_sync_timer = QTimer()
-        self._auto_sync_timer.setSingleShot(True)
-        self._auto_sync_timer.setInterval(700)
-        self._auto_sync_timer.timeout.connect(self._run_auto_sync)
+        self._change_origin = "USER_EDIT"
+        self._online_save_trigger = "geoflow_save"
+        # Retry identity is transient and exists only while this QGIS process is
+        # open.  No feature payload is persisted outside QGIS' edit buffer.
+        self._online_attempts: dict[str, dict] = {}
 
     def initGui(self):
         self.action = QAction("GeoFlow Connector", self.iface.mainWindow())
@@ -59,8 +62,7 @@ class GeoFlowConnectorPlugin:
         self.iface.addToolBarIcon(self.action)
 
     def unload(self):
-        self._auto_sync_timer.stop()
-        self._captured_changes.clear()
+        self._online_attempts.clear()
         if self.action is not None:
             self.iface.removePluginMenu("GeoFlow", self.action)
             self.iface.removeToolBarIcon(self.action)
@@ -316,18 +318,18 @@ class GeoFlowConnectorPlugin:
             return ""
         return str(uuid.UUID(str(row[0])))
 
-    def _capture_layer_changes(self, layer_id: str, *args) -> None:
-        if self._suppress_auto_sync:
-            return
+    def _capture_layer_changes(self, layer_id: str, *args) -> list[dict]:
+        if self._suppress_auto_sync or self._change_origin != "USER_EDIT":
+            return []
         context = self.active_context or {}
         if not context.get("changeset_supported"):
-            return
+            return []
         layer = QgsProject.instance().mapLayer(layer_id)
         if layer is None:
-            return
+            return []
         buffer = layer.editBuffer()
         if buffer is None:
-            return
+            return []
 
         package_path = str(context.get("package_path") or "")
         physical_name = str(layer.customProperty("geoflow/physical_name", "") or "")
@@ -411,65 +413,752 @@ class GeoFlowConnectorPlugin:
                 "id": object_id,
             }
 
-        self._captured_changes[layer_id] = list(changes.values())
+        return list(changes.values())
 
-    def _after_layer_commit(self, layer_id: str, *args) -> None:
-        if self._suppress_auto_sync:
-            self._captured_changes.pop(layer_id, None)
+    def _log_delete_payload(self, changeset_id, base_revision, changes):
+        """Log the DELETE contract shape without values or sensitive content."""
+        log = getattr(self, "log", None)
+        if not callable(log):
             return
-        context = self.active_context or {}
-        package_path = str(context.get("package_path") or "")
-        if context.get("changeset_supported") and package_path:
-            changes = self._captured_changes.pop(layer_id, [])
-            try:
-                for change in changes:
-                    queue_change(
-                        package_path,
-                        layer=change["layer"],
-                        object_id=change["id"],
-                        action=change["action"],
-                        attributes=change.get("attributes") or {},
-                        geometry_wkb=change.get("geometry_wkb"),
-                    )
-            except Exception as exc:
-                self.iface.messageBar().pushMessage(
-                    "GeoFlow 로컬 Changeset 저장 실패",
-                    str(exc),
-                    level=Qgis.Warning,
-                    duration=10,
-                )
-                return
-        self._schedule_auto_sync()
-
-    def _schedule_auto_sync(self, *args):
-        if self._sync_in_progress or self._suppress_auto_sync:
-            return
-        context = self.active_context or {}
-        if not (
-            context.get("changeset_supported") or context.get("fallback_sync_supported")
-        ) or self.active_client is None:
-            return
-        self._auto_sync_timer.start()
-
-    def _run_auto_sync(self):
-        if self._sync_in_progress or self.active_client is None:
-            return
-        for layer in self._managed_layers():
-            try:
-                if layer.isModified():
-                    self._auto_sync_timer.start()
-                    return
-            except Exception:
-                pass
-        try:
-            self._sync_active_project(self.active_client, automatic=True)
-        except Exception as exc:
-            self.iface.messageBar().pushMessage(
-                "GeoFlow 자동 동기화 실패",
-                str(exc),
-                level=Qgis.Warning,
-                duration=10,
+        revision_names = ("object_revision", "revision", "version")
+        for change in changes or ():
+            if change.get("action") != "delete":
+                continue
+            revision_name = next(
+                (name for name in revision_names if name in change), None
             )
+            fields = {
+                "changeset_id": changeset_id,
+                "base_revision": base_revision,
+                "layer": change.get("layer"),
+                "feature_id": change.get("id"),
+                "operation": change.get("action"),
+                "object_revision_field_present": bool(revision_name),
+                "object_revision_value": (
+                    change.get(revision_name) if revision_name else None
+                ),
+                "feature_attributes_keys": sorted(
+                    str(name) for name in (change.get("attributes") or {})
+                ),
+                "properties_present": "properties" in change,
+                "geometry_present": "geometry_wkb" in change,
+            }
+            for name, value in fields.items():
+                log(f"[DELETE_PAYLOAD] {name}={value}")
+
+    def _log_delete_conflict(self, exc):
+        """Preserve redacted 409 diagnostics supplied by the server."""
+        log = getattr(self, "log", None)
+        if not callable(log):
+            return
+        rows = []
+        for row in getattr(exc, "conflicts", ()):
+            rows.append({
+                "layer": row.get("layer"), "feature_id": row.get("id"),
+                "reason": row.get("reason"),
+                "conflict_type": row.get("conflict_type") or row.get("type"),
+                "expected_revision": row.get("expected_revision"),
+                "actual_revision": row.get("actual_revision")
+                    or row.get("current_revision"),
+            })
+        fields = {
+            "http_status": getattr(exc, "http_status", None),
+            "error_code": getattr(exc, "code", None),
+            "reason": getattr(exc, "reason", None),
+            "message": getattr(exc, "server_message", None) or str(exc),
+            "conflict_type": getattr(exc, "conflict_type", None),
+            "expected_revision": getattr(exc, "expected_revision", None),
+            "actual_revision": getattr(exc, "actual_revision", None),
+            "raw_response_keys": getattr(exc, "response_keys", []),
+            "conflicts": rows,
+        }
+        for name, value in fields.items():
+            log(f"[DELETE_CONFLICT] {name}={value}")
+
+    @staticmethod
+    def _snapshot_edit_buffer(layer) -> dict:
+        """Copy transient QGIS edits so QGIS 4.2 can restore a vetoed save."""
+        buffer = layer.editBuffer()
+        if buffer is None:
+            return {"added": [], "attributes": {}, "geometries": {}, "deleted": set()}
+        return {
+            "added": [QgsFeature(feature) for feature in (buffer.addedFeatures() or {}).values()],
+            "attributes": {
+                int(fid): dict(values)
+                for fid, values in (buffer.changedAttributeValues() or {}).items()
+            },
+            "geometries": {
+                int(fid): QgsGeometry(geometry)
+                for fid, geometry in (buffer.changedGeometries() or {}).items()
+            },
+            "deleted": {int(fid) for fid in (buffer.deletedFeatureIds() or set())},
+        }
+
+    def _neutralize_failed_commit(self, layer_id: str, layer, replay: dict) -> None:
+        """Keep failed changes out of the provider until after commit returns."""
+        attempt = self._online_attempts.setdefault(layer_id, {})
+        attempt.update(failed=True, replay=replay, sent=False)
+        stack = layer.undoStack()
+        guard = 0
+        while layer.isModified() and stack.canUndo() and guard < 10000:
+            stack.undo()
+            guard += 1
+        if layer.isModified():
+            # Managed feature edits are undoable.  Refuse to disguise an
+            # unsupported schema/provider edit as an online-only save.
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 편집 유지 실패",
+                "QGIS 편집 버퍼를 안전하게 보존할 수 없는 변경입니다. 저장을 취소하고 레이어를 다시 여세요.",
+                level=Qgis.Critical,
+                duration=15,
+            )
+
+    @staticmethod
+    def _restore_failed_edit_buffer(layer, replay: dict) -> None:
+        if not layer.isEditable() and not layer.startEditing():
+            return
+        layer.beginEditCommand("GeoFlow 서버 저장 실패 복원")
+        try:
+            added_old_ids = {feature.id() for feature in replay.get("added") or []}
+            for feature in replay.get("added") or []:
+                layer.addFeature(QgsFeature(feature))
+            for fid, values in (replay.get("attributes") or {}).items():
+                if fid in added_old_ids:
+                    continue
+                for field_index, value in values.items():
+                    layer.changeAttributeValue(int(fid), int(field_index), value)
+            for fid, geometry in (replay.get("geometries") or {}).items():
+                if fid not in added_old_ids:
+                    layer.changeGeometry(int(fid), QgsGeometry(geometry))
+            for fid in replay.get("deleted") or set():
+                if fid not in added_old_ids:
+                    layer.deleteFeature(int(fid))
+        finally:
+            layer.endEditCommand()
+
+    def _before_online_commit(self, layer_id: str, *args) -> None:
+        """Send the current QGIS buffer before allowing its provider commit."""
+        if self._suppress_auto_sync or self._change_origin != "USER_EDIT":
+            return
+        layer = QgsProject.instance().mapLayer(layer_id)
+        if layer is None:
+            return
+        layer.setCustomProperty("geoflow/last_server_result", "pending")
+        replay = self._snapshot_edit_buffer(layer)
+        context = self.active_context or {}
+        client = self.active_client
+        changeset_url = str(context.get("changeset_url") or "")
+        client_id = str(context.get("client_id") or "")
+        package_path = str(context.get("package_path") or "")
+        try:
+            changes = self._capture_layer_changes(layer_id)
+        except Exception as exc:
+            self._neutralize_failed_commit(layer_id, layer, replay)
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"변경사항을 수집하지 못했습니다: {exc}\nQGIS 편집 상태는 유지됩니다.",
+                level=Qgis.Critical,
+                duration=15,
+            )
+            return
+        if not changes:
+            self._online_attempts.pop(layer_id, None)
+            return
+        if client is None or not changeset_url or not client_id or not package_path:
+            self._neutralize_failed_commit(layer_id, layer, replay)
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                "온라인 저장 연결이 준비되지 않았습니다. 변경사항은 QGIS 편집 상태에 남아 있습니다.",
+                level=Qgis.Critical,
+                duration=12,
+            )
+            return
+
+        signature = change_signature(changes)
+        attempt = self._online_attempts.get(layer_id)
+        if attempt and attempt.get("signature") == signature and attempt.get("sent"):
+            return
+        if not attempt or attempt.get("signature") != signature:
+            attempt = {
+                "signature": signature,
+                "changeset_id": str(uuid.uuid4()),
+                "sent": False,
+            }
+            self._online_attempts[layer_id] = attempt
+        layer.setCustomProperty("geoflow/last_changeset_id", attempt["changeset_id"])
+        attempt["replay"] = replay
+        try:
+            payload = {
+                "client_id": str(uuid.UUID(client_id)),
+                "changeset_id": attempt["changeset_id"],
+                "base_revision": read_last_applied_revision(package_path),
+                "changes": changes,
+            }
+        except Exception as exc:
+            self._neutralize_failed_commit(layer_id, layer, replay)
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"온라인 저장 컨텍스트를 확인하지 못했습니다: {exc}\nQGIS 편집 상태는 유지됩니다.",
+                level=Qgis.Critical,
+                duration=15,
+            )
+            return
+        has_delete = any(change.get("action") == "delete" for change in changes)
+        self._log_delete_payload(
+            attempt["changeset_id"], payload["base_revision"], changes
+        )
+        self._sync_in_progress = True
+        try:
+            result = client.post_json(changeset_url, payload)
+        except GeoFlowChangesetConflict as exc:
+            if has_delete:
+                self._log_delete_conflict(exc)
+            layer.setCustomProperty("geoflow/last_server_result", "conflict")
+            self._neutralize_failed_commit(layer_id, layer, replay)
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 충돌",
+                "서버 객체가 다른 사용자에 의해 변경되었습니다. 현재 변경은 저장되지 않았으며 QGIS 편집 상태에 남아 있습니다. "
+                + str(exc),
+                level=Qgis.Critical,
+                duration=15,
+            )
+            return
+        except Exception as exc:
+            layer.setCustomProperty(
+                "geoflow/last_server_result", f"failed:{type(exc).__name__}"
+            )
+            self._neutralize_failed_commit(layer_id, layer, replay)
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"{exc}\n변경사항은 QGIS 편집 상태에 남아 있습니다. 다시 저장해 주세요.",
+                level=Qgis.Critical,
+                duration=15,
+            )
+            return
+        finally:
+            self._sync_in_progress = False
+        attempt["sent"] = True
+        attempt["result"] = dict(result or {})
+        layer.setCustomProperty(
+            "geoflow/last_server_result",
+            json.dumps(dict(result or {}), ensure_ascii=False, sort_keys=True),
+        )
+        revision = (
+            (result or {}).get("new_revision")
+            or (result or {}).get("revision")
+            or (result or {}).get("current_revision")
+        )
+        if revision not in (None, ""):
+            try:
+                write_last_applied_revision(package_path, int(revision))
+            except (OSError, sqlite3.Error, TypeError, ValueError):
+                # Server save already succeeded.  A later Delta refresh can
+                # advance the local cursor; never turn this into a resend.
+                pass
+
+    def commit_layers_online(self, layers, *, stop_editing=False,
+                             trigger="geoflow_save"):
+        """Send multiple layer buffers in one atomic server changeset."""
+        unique = []
+        seen = set()
+        for layer in layers or ():
+            if layer is not None and layer.id() not in seen:
+                seen.add(layer.id())
+                unique.append(layer)
+        log = getattr(self, "log", None)
+        def event(name, value):
+            if callable(log):
+                log(f"[ONLINE_SAVE] {name}={value}")
+        changes = []
+        for layer in unique:
+            changes.extend(self._capture_layer_changes(layer.id()))
+        counts = {
+            action: sum(1 for row in changes if row.get("action") == action)
+            for action in ("create", "update", "delete")
+        }
+        feature_ids = [str(row.get("id") or "") for row in changes]
+        layer_names = [str(layer.customProperty(
+            "geoflow/standard_name", ""
+        ) or layer.name()) for layer in unique]
+        event("trigger", trigger)
+        event("layer", layer_names)
+        event("layers", layer_names)
+        event("creates", counts["create"])
+        event("updates", counts["update"])
+        event("deletes", counts["delete"])
+        event("feature_ids", feature_ids)
+        if not changes:
+            event("server_result", "no_changes")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("buffer_dirty_after", any(layer.isModified() for layer in unique))
+            return {
+                "ok": not any(layer.isModified() for layer in unique),
+                "server_result": "no_changes", "operation_counts": counts,
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        context = self.active_context or {}
+        client = self.active_client
+        changeset_url = str(context.get("changeset_url") or "")
+        client_id = str(context.get("client_id") or "")
+        package_path = str(context.get("package_path") or "")
+        if client is None or not changeset_url or not client_id or not package_path:
+            event("server_result", "not_ready")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("buffer_dirty_after", True)
+            return {
+                "ok": False, "server_result": "not_ready",
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        signature = change_signature(changes)
+        attempt_key = "batch:" + ",".join(sorted(seen))
+        attempt = self._online_attempts.get(attempt_key)
+        if not attempt or attempt.get("signature") != signature:
+            attempt = {
+                "signature": signature, "changeset_id": str(uuid.uuid4()),
+                "sent": False,
+            }
+            self._online_attempts[attempt_key] = attempt
+        try:
+            base_revision = read_last_applied_revision(package_path)
+            payload = {
+                "client_id": str(uuid.UUID(client_id)),
+                "changeset_id": attempt["changeset_id"],
+                "base_revision": base_revision,
+                "changes": changes,
+            }
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            event("server_result", "invalid_context")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("buffer_dirty_after", True)
+            return {
+                "ok": False, "server_result": "invalid_context",
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        event("base_revision", base_revision)
+        event("server_revision_before", base_revision)
+        event("changeset_id", attempt["changeset_id"])
+        event("object_revisions", "not_in_changeset_v1_contract")
+        self._log_delete_payload(
+            attempt["changeset_id"], base_revision, changes
+        )
+        event("layer_revisions", {
+            name: base_revision for name in layer_names
+        })
+        for layer in unique:
+            layer.setCustomProperty(
+                "geoflow/last_changeset_id", attempt["changeset_id"]
+            )
+            layer.setCustomProperty("geoflow/last_base_revision", base_revision)
+        self._sync_in_progress = True
+        server_started = perf_counter()
+        try:
+            result = client.post_json(changeset_url, payload)
+        except GeoFlowChangesetConflict as exc:
+            self._online_attempts.pop(attempt_key, None)
+            if counts["delete"]:
+                self._log_delete_conflict(exc)
+            server_revision = (getattr(exc, "payload", None) or {}).get(
+                "current_revision"
+            )
+            event("server_result", "conflict")
+            event("server_revision_after", server_revision or "unknown")
+            event("server_object_revisions", [
+                {
+                    "layer": row.get("layer"), "id": row.get("id"),
+                    "revision": row.get("object_revision")
+                    or row.get("revision") or row.get("version"),
+                }
+                for row in getattr(exc, "conflicts", ())
+            ])
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("buffer_dirty_after", True)
+            for layer in unique:
+                layer.setCustomProperty("geoflow/last_server_result", "conflict")
+                if server_revision not in (None, ""):
+                    layer.setCustomProperty(
+                        "geoflow/last_server_revision", server_revision
+                    )
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 충돌",
+                "서버의 데이터가 현재 로컬 기준보다 변경되었습니다. "
+                "현재 삭제/수정 내용은 QGIS 편집 상태에 남아 있습니다.",
+                level=Qgis.Critical, duration=15,
+            )
+            return {
+                "ok": False, "server_result": "conflict",
+                "server_revision": server_revision,
+                "error_code": getattr(exc, "code", None) or "conflict",
+                "server_message": getattr(exc, "server_message", None) or str(exc),
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        except Exception as exc:
+            event("server_result", f"failed:{type(exc).__name__}")
+            event("server_revision_after", "unknown")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("buffer_dirty_after", True)
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"{exc}\nProvider commit은 호출되지 않았고 QGIS 편집 버퍼를 유지했습니다.",
+                level=Qgis.Critical, duration=15,
+            )
+            return {
+                "ok": False, "server_result": "failed",
+                "error_code": getattr(exc, "code", None),
+                "server_message": getattr(exc, "server_message", None) or str(exc),
+                "error_type": type(exc).__name__,
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        finally:
+            self._sync_in_progress = False
+        server_request_ms = (perf_counter() - server_started) * 1000
+        attempt["sent"] = True
+        attempt["result"] = dict(result or {})
+        revision = (
+            (result or {}).get("new_revision")
+            or (result or {}).get("revision")
+            or (result or {}).get("current_revision")
+        )
+        if revision not in (None, ""):
+            try:
+                write_last_applied_revision(package_path, int(revision))
+            except (OSError, sqlite3.Error, TypeError, ValueError):
+                pass
+        event("server_result", "success")
+        event("server_revision_after", revision or "unknown")
+        event("provider_commit_called", "true")
+        provider_results = []
+        provider_started = perf_counter()
+        self._suppress_auto_sync = True
+        try:
+            for layer in unique:
+                provider_results.append(bool(layer.commitChanges(
+                    bool(stop_editing)
+                )))
+        finally:
+            self._suppress_auto_sync = False
+        committed = bool(provider_results and all(provider_results))
+        provider_commit_ms = (perf_counter() - provider_started) * 1000
+        event("provider_commit_result", str(committed).lower())
+        event("buffer_dirty_after", any(layer.isModified() for layer in unique))
+        if committed:
+            self._online_attempts.pop(attempt_key, None)
+        return {
+            "ok": committed, "server_result": "success",
+            "server_revision": revision,
+            "changeset_id": attempt["changeset_id"],
+            "base_revision": base_revision,
+            "operation_counts": counts, "feature_ids": feature_ids,
+            "server_request_ms": server_request_ms,
+            "provider_commit_ms": provider_commit_ms,
+            "provider_commit_called": True,
+            "provider_commit_result": committed,
+        }
+
+    def commit_layer_online(self, layer, *, stop_editing=False):
+        """Send one server changeset, then and only then commit the provider."""
+        layer_id = layer.id()
+        context = self.active_context or {}
+        client = self.active_client
+        changeset_url = str(context.get("changeset_url") or "")
+        client_id = str(context.get("client_id") or "")
+        package_path = str(context.get("package_path") or "")
+        try:
+            changes = self._capture_layer_changes(layer_id)
+        except Exception as exc:
+            log = getattr(self, "log", None)
+            if callable(log):
+                log(f"[SAVE] start=true")
+                log(f"[SAVE] layer={layer.name()}")
+                log(f"[SAVE] server_result=capture_failed:{type(exc).__name__}")
+                log("[SAVE] provider_commit_called=false")
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"변경사항을 수집하지 못했습니다: {exc}\n"
+                "Provider commit은 호출하지 않았고 QGIS 편집 버퍼를 유지했습니다.",
+                level=Qgis.Critical, duration=15,
+            )
+            return {
+                "ok": False, "server_result": "capture_failed",
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        counts = {
+            action: sum(1 for row in changes if row.get("action") == action)
+            for action in ("create", "update", "delete")
+        }
+        feature_ids = [str(row.get("id") or "") for row in changes]
+        log = getattr(self, "log", None)
+        def event(name, value):
+            if callable(log):
+                log(f"[SAVE] {name}={value}")
+        trigger = str(getattr(
+            self, "_online_save_trigger", "geoflow_save"
+        ) or "geoflow_save")
+        def online_event(name, value):
+            if callable(log):
+                log(f"[ONLINE_SAVE] {name}={value}")
+        has_delete = bool(counts["delete"])
+        def delete_event(name, value):
+            if has_delete and callable(log):
+                log(f"[DELETE] {name}={value}")
+        event("start", "true")
+        event("layer", str(layer.customProperty(
+            "geoflow/standard_name", ""
+        ) or layer.name()))
+        event("qgis_modified_before", str(bool(layer.isModified())).lower())
+        event("feature_ids", feature_ids)
+        event("operation_counts", counts)
+        online_event("trigger", trigger)
+        online_event("layer", str(layer.customProperty(
+            "geoflow/standard_name", ""
+        ) or layer.name()))
+        online_event("creates", counts["create"])
+        online_event("updates", counts["update"])
+        online_event("deletes", counts["delete"])
+        online_event("feature_ids", feature_ids)
+        if not changes:
+            return {
+                "ok": not layer.isModified(), "server_result": "no_changes",
+                "provider_commit_called": False, "provider_commit_result": False,
+            }
+        if client is None or not changeset_url or not client_id or not package_path:
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                "온라인 저장 연결이 준비되지 않았습니다. QGIS 편집 버퍼는 유지됩니다.",
+                level=Qgis.Critical, duration=12,
+            )
+            event("server_result", "not_ready")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("qgis_modified_after", str(bool(layer.isModified())).lower())
+            delete_event("server_result", "not_ready")
+            delete_event("provider_commit_called", "false")
+            delete_event("provider_commit_result", "false")
+            online_event("server_result", "not_ready")
+            online_event("provider_commit_called", "false")
+            online_event("provider_commit_result", "false")
+            online_event("buffer_dirty_after", str(bool(layer.isModified())).lower())
+            return {"ok": False, "server_result": "not_ready",
+                    "provider_commit_called": False, "provider_commit_result": False}
+
+        signature = change_signature(changes)
+        attempt = self._online_attempts.get(layer_id)
+        if not attempt or attempt.get("signature") != signature:
+            attempt = {
+                "signature": signature,
+                "changeset_id": str(uuid.uuid4()),
+                "sent": False,
+            }
+            self._online_attempts[layer_id] = attempt
+        try:
+            base_revision = read_last_applied_revision(package_path)
+            payload = {
+                "client_id": str(uuid.UUID(client_id)),
+                "changeset_id": attempt["changeset_id"],
+                "base_revision": base_revision,
+                "changes": changes,
+            }
+        except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+            event("server_result", f"invalid_context:{type(exc).__name__}")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("qgis_modified_after", str(bool(layer.isModified())).lower())
+            delete_event("server_result", f"invalid_context:{type(exc).__name__}")
+            delete_event("provider_commit_called", "false")
+            delete_event("provider_commit_result", "false")
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"온라인 저장 컨텍스트를 확인하지 못했습니다: {exc}\n"
+                "Provider commit은 호출하지 않았고 QGIS 편집 버퍼를 유지했습니다.",
+                level=Qgis.Critical, duration=15,
+            )
+            return {
+                "ok": False, "server_result": "invalid_context",
+                "provider_commit_called": False,
+                "provider_commit_result": False,
+            }
+        layer.setCustomProperty("geoflow/last_changeset_id", attempt["changeset_id"])
+        layer.setCustomProperty("geoflow/last_base_revision", base_revision)
+        event("changeset_id", attempt["changeset_id"])
+        event("base_revision", base_revision)
+        online_event("base_revision", base_revision)
+        online_event("server_revision_before", base_revision)
+        online_event("changeset_id", attempt["changeset_id"])
+        online_event("object_revisions", "not_in_changeset_v1_contract")
+        online_event("project_revision", base_revision)
+        online_event("layer_revision", layer.customProperty(
+            "geoflow/last_server_revision", base_revision
+        ))
+        delete_event("changeset_id", attempt["changeset_id"])
+        delete_event("base_revision", base_revision)
+        self._log_delete_payload(
+            attempt["changeset_id"], base_revision, changes
+        )
+        self._sync_in_progress = True
+        try:
+            result = client.post_json(changeset_url, payload)
+        except GeoFlowChangesetConflict as exc:
+            self._online_attempts.pop(layer_id, None)
+            if has_delete:
+                self._log_delete_conflict(exc)
+            layer.setCustomProperty("geoflow/last_server_result", "conflict")
+            current_revision = (getattr(exc, "payload", None) or {}).get(
+                "current_revision"
+            )
+            if current_revision not in (None, ""):
+                layer.setCustomProperty(
+                    "geoflow/last_server_revision", current_revision
+                )
+            event("server_result", "conflict")
+            event("server_revision", current_revision or "unknown")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("qgis_modified_after", str(bool(layer.isModified())).lower())
+            delete_event("server_result", "conflict")
+            delete_event("server_revision", current_revision or "unknown")
+            delete_event("provider_commit_called", "false")
+            delete_event("provider_commit_result", "false")
+            online_event("server_result", "conflict")
+            online_event("server_revision_after", current_revision or "unknown")
+            online_event("server_object_revisions", [
+                {
+                    "layer": row.get("layer"), "id": row.get("id"),
+                    "revision": row.get("object_revision")
+                    or row.get("revision") or row.get("version"),
+                }
+                for row in getattr(exc, "conflicts", ())
+            ])
+            online_event("provider_commit_called", "false")
+            online_event("provider_commit_result", "false")
+            online_event("buffer_dirty_after", str(bool(layer.isModified())).lower())
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 충돌",
+                "서버 객체가 변경되었습니다. Provider commit은 호출되지 않았고 QGIS 편집 버퍼를 유지했습니다. "
+                + str(exc),
+                level=Qgis.Critical, duration=15,
+            )
+            return {"ok": False, "server_result": "conflict",
+                    "provider_commit_called": False, "provider_commit_result": False}
+        except Exception as exc:
+            layer.setCustomProperty(
+                "geoflow/last_server_result", f"failed:{type(exc).__name__}"
+            )
+            event("server_result", f"failed:{type(exc).__name__}")
+            event("provider_commit_called", "false")
+            event("provider_commit_result", "false")
+            event("qgis_modified_after", str(bool(layer.isModified())).lower())
+            delete_event("server_result", f"failed:{type(exc).__name__}")
+            delete_event("provider_commit_called", "false")
+            delete_event("provider_commit_result", "false")
+            online_event("server_result", f"failed:{type(exc).__name__}")
+            online_event("server_revision_after", "unknown")
+            online_event("provider_commit_called", "false")
+            online_event("provider_commit_result", "false")
+            online_event("buffer_dirty_after", str(bool(layer.isModified())).lower())
+            self.iface.messageBar().pushMessage(
+                "GeoFlow 서버 저장 실패",
+                f"{exc}\nProvider commit은 호출되지 않았고 QGIS 편집 버퍼를 유지했습니다.",
+                level=Qgis.Critical, duration=15,
+            )
+            return {"ok": False, "server_result": "failed",
+                    "provider_commit_called": False, "provider_commit_result": False}
+        finally:
+            self._sync_in_progress = False
+
+        attempt["sent"] = True
+        attempt["result"] = dict(result or {})
+        revision = (
+            (result or {}).get("new_revision")
+            or (result or {}).get("revision")
+            or (result or {}).get("current_revision")
+        )
+        layer.setCustomProperty(
+            "geoflow/last_server_result",
+            json.dumps(dict(result or {}), ensure_ascii=False, sort_keys=True),
+        )
+        if revision not in (None, ""):
+            try:
+                revision_value = int(revision)
+                write_last_applied_revision(package_path, revision_value)
+            except (OSError, sqlite3.Error, TypeError, ValueError):
+                # The server accepted the changeset. A later delta refresh can
+                # repair the local cursor without resending this changeset.
+                revision_value = str(revision)
+            layer.setCustomProperty("geoflow/last_server_revision", revision_value)
+        event("server_result", "success")
+        event("server_revision", revision or "unknown")
+        event("provider_commit_called", "true")
+        delete_event("server_result", "success")
+        delete_event("server_revision", revision or "unknown")
+        delete_event("provider_commit_called", "true")
+        online_event("server_result", "success")
+        online_event("server_revision_after", revision or "unknown")
+        online_event("provider_commit_called", "true")
+        self._suppress_auto_sync = True
+        try:
+            committed = bool(layer.commitChanges(bool(stop_editing)))
+        finally:
+            self._suppress_auto_sync = False
+        event("provider_commit_result", str(committed).lower())
+        event("qgis_modified_after", str(bool(layer.isModified())).lower())
+        delete_event("provider_commit_result", str(committed).lower())
+        online_event("provider_commit_result", str(committed).lower())
+        online_event("buffer_dirty_after", str(bool(layer.isModified())).lower())
+        if committed:
+            layer.setCustomProperty("geoflow/online_commit_failed", False)
+            layer.removeCustomProperty("geoflow/pending_delete_ids")
+        return {
+            "ok": committed,
+            "server_result": "success",
+            "server_revision": revision,
+            "changeset_id": attempt["changeset_id"],
+            "base_revision": base_revision,
+            "operation_counts": counts,
+            "feature_ids": feature_ids,
+            "provider_commit_called": True,
+            "provider_commit_result": committed,
+        }
+
+    def _after_online_commit(self, layer_id: str, *args) -> None:
+        """Clear only transient request identity after QGIS commit succeeds."""
+        attempt = self._online_attempts.get(layer_id)
+        layer = QgsProject.instance().mapLayer(layer_id)
+        if attempt and attempt.get("failed"):
+            if layer is not None:
+                self._restore_failed_edit_buffer(layer, attempt.get("replay") or {})
+                layer.setCustomProperty("geoflow/online_commit_failed", True)
+            attempt["failed"] = False
+            return
+        attempt = self._online_attempts.pop(layer_id, None)
+        if not attempt or not attempt.get("sent"):
+            return
+        if layer is not None:
+            layer.setCustomProperty("geoflow/online_commit_failed", False)
+        result = attempt.get("result") or {}
+        self.iface.messageBar().pushMessage(
+            "GeoFlow",
+            "서버 저장 완료 · 신규 {0} · 수정 {1} · 삭제 {2}".format(
+                int(result.get("created") or 0),
+                int(result.get("updated") or 0),
+                int(result.get("deleted") or 0),
+            ),
+            level=Qgis.Success,
+            duration=6,
+        )
+
+    def _discard_captured_layer_changes(self, layer_id: str, *args) -> None:
+        """Discard transient retry identity when QGIS rolls its buffer back."""
+        self._online_attempts.pop(layer_id, None)
 
     def current_user_context(self) -> dict:
         context = self.active_context or {}
@@ -498,19 +1187,18 @@ class GeoFlowConnectorPlugin:
         }
 
 
-    def _commit_active_edits(self) -> None:
-        context = self.active_context or {}
-        package_path = str(context.get("package_path") or "")
-        if not package_path:
-            raise RuntimeError("동기화할 GeoFlow 프로젝트가 열려 있지 않습니다.")
-
+    def _assert_no_draft_edits(self) -> None:
+        """A sync command must not silently turn an edit buffer into a save."""
         for layer in self._managed_layers():
-            if layer.isEditable():
-                if not layer.commitChanges():
-                    errors = "; ".join(layer.commitErrors()) if hasattr(layer, "commitErrors") else ""
-                    raise RuntimeError(
-                        f"{layer.name()}: 로컬 편집 저장에 실패했습니다.{(' ' + errors) if errors else ''}"
-                    )
+            try:
+                modified = bool(layer.isModified())
+            except Exception:
+                continue
+            if modified:
+                raise RuntimeError(
+                    "저장하지 않은 편집이 있습니다. 폼 또는 QGIS 편집 도구에서 "
+                    "저장하거나 취소한 뒤 동기화하세요."
+                )
 
     @staticmethod
     def _delta_value(value):
@@ -559,53 +1247,8 @@ class GeoFlowConnectorPlugin:
                 raise RuntimeError("GeoFlow Delta cursor가 전진하지 않았습니다.")
         return total
 
-    def _sync_changesets(self, client) -> dict:
-        context = self.active_context or {}
-        package_path = str(context.get("package_path") or "")
-        changeset_url = str(context.get("changeset_url") or "")
-        client_id = str(context.get("client_id") or "")
-        if not package_path or not changeset_url or not client_id:
-            raise RuntimeError("GeoFlow Changeset 컨텍스트가 불완전합니다.")
-
-        totals = {"created": 0, "updated": 0, "deleted": 0, "total": 0}
-        while True:
-            prepared = prepare_outbox(package_path, client_id=client_id)
-            if prepared is None:
-                break
-            changeset_id, payload = prepared
-            try:
-                result = client.post_json(changeset_url, payload)
-            except GeoFlowChangesetConflict as exc:
-                repaired = repair_uuid_exists_outbox(
-                    package_path,
-                    changeset_id,
-                    exc.conflicts,
-                )
-                if repaired is None:
-                    raise
-                changeset_id, payload = repaired
-                self.iface.messageBar().pushMessage(
-                    "GeoFlow",
-                    "기존 서버 객체와 충돌한 로컬 관로를 수정 작업으로 안전 복구합니다.",
-                    level=Qgis.Info,
-                    duration=6,
-                )
-                result = client.post_json(changeset_url, payload)
-            acknowledge_outbox(package_path, changeset_id)
-            totals["created"] += int(result.get("created") or 0)
-            totals["updated"] += int(result.get("updated") or 0)
-            totals["deleted"] += int(result.get("deleted") or 0)
-            totals["total"] += int(result.get("total") or 0)
-
-        received = self._pull_and_apply_delta(client)
-        if pending_count(package_path) == 0 and outbox_count(package_path) == 0:
-            self._refresh_local_baseline(
-                package_path,
-                context.get("manifest") or {},
-            )
-        return {"ok": True, **totals, "delta_received": received}
-
     def _sync_active_project(self, client, automatic: bool = False) -> dict:
+        """Refresh server Delta only; outgoing edits are sent at QGIS commit."""
         context = self.active_context or {}
         if not context.get("sync_supported"):
             raise RuntimeError("현재 프로젝트는 GeoFlow 서버 동기화가 활성화되어 있지 않습니다.")
@@ -618,18 +1261,13 @@ class GeoFlowConnectorPlugin:
         self._sync_in_progress = True
         self._suppress_auto_sync = True
         try:
-            if not automatic:
-                self._suppress_auto_sync = False
-                self._commit_active_edits()
-                self._suppress_auto_sync = True
-            if context.get("changeset_supported"):
-                result = self._sync_changesets(client)
-            else:
-                sync_url = str(context.get("sync_url") or "")
-                if not sync_url:
-                    raise RuntimeError("GeoFlow fallback sync URL이 없습니다.")
-                result = client.post_file_json(sync_url, package_path, field_name="package")
-                self._refresh_local_baseline(package_path, context.get("manifest") or {})
+            self._assert_no_draft_edits()
+            received = self._pull_and_apply_delta(client)
+            self._refresh_local_baseline(package_path, context.get("manifest") or {})
+            result = {
+                "ok": True, "created": 0, "updated": 0, "deleted": 0,
+                "total": 0, "delta_received": received,
+            }
         finally:
             self._suppress_auto_sync = False
             self._sync_in_progress = False
@@ -639,8 +1277,7 @@ class GeoFlowConnectorPlugin:
         deleted = int(result.get("deleted") or 0)
         received = int(result.get("delta_received") or 0)
         if created or updated or deleted or received:
-            prefix = "자동 동기화 완료" if automatic else "동기화 완료"
-            text = f"{prefix} · 신규 {created} · 수정 {updated} · 삭제 {deleted}"
+            text = f"서버 새로고침 완료 · 신규 {created} · 수정 {updated} · 삭제 {deleted}"
             if received:
                 text += f" · 수신 {received}"
             self.iface.messageBar().pushMessage(

@@ -6,6 +6,7 @@
 # repository test environment where the QGIS Python bindings are unavailable.
 try:
     from ..resources import feather_rc  # noqa: F401
+    from ..resources import tabler_rc  # noqa: F401
 except ModuleNotFoundError as exc:
     if exc.name != "qgis":
         raise

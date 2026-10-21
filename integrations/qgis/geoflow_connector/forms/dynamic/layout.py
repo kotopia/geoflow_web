@@ -15,7 +15,7 @@ from .layout_model import render_layout, row_field_id, row_field_weight
 # ============================================================
 class LayoutRenderer:
     @staticmethod
-    def _field_block(field, handle, parent):
+    def _field_block(field, handle, parent, actions=()):
         block = QWidget(parent)
         block.setProperty("geoflowRole", "fieldBlock")
         block.setMinimumWidth(0)
@@ -42,7 +42,14 @@ class LayoutRenderer:
             label_row.addWidget(marker)
         label_row.addStretch(1)
         layout.addLayout(label_row)
-        layout.addWidget(handle.widget)
+
+        editor_row = QHBoxLayout()
+        editor_row.setContentsMargins(0, 0, 0, 0)
+        editor_row.setSpacing(4)
+        editor_row.addWidget(handle.widget, 1)
+        for action in actions:
+            editor_row.addWidget(action, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(editor_row)
 
         error = QLabel("", block)
         error.setProperty("geoflowRole", "fieldError")
@@ -50,12 +57,14 @@ class LayoutRenderer:
         error.hide()
         layout.addWidget(error)
         handle.attach_error_label(error)
+        handle.attach_field_block(block)
         return block
 
     # ============================================================
     # 사용자 배치에 따른 탭·그룹·행 렌더링
     # ============================================================
-    def populate_tabs(self, tabs, fields, handles, *, layer="", layout=None):
+    def populate_tabs(self, tabs, fields, handles, *, layer="", layout=None,
+                      field_actions=None):
         """Append form tabs to a shared host and return the created tab pages."""
         fields_by_id = {str(field["id"]): field for field in fields}
         effective = render_layout(layout, layer, fields)
@@ -71,17 +80,22 @@ class LayoutRenderer:
                 form.setContentsMargins(10, 12, 10, 10)
                 form.setSpacing(12)
                 for row_spec in group_spec["rows"]:
-                    row = QHBoxLayout()
+                    row_host = QWidget(box)
+                    row_host.setProperty("geoflowRole", "fieldRow")
+                    row = QHBoxLayout(row_host)
                     row.setContentsMargins(0, 0, 0, 0)
                     row.setSpacing(12)
                     for field_spec in row_spec:
                         field_id = row_field_id(field_spec)
                         field = fields_by_id[field_id]
                         row.addWidget(
-                            self._field_block(field, handles[field_id], box),
+                            self._field_block(
+                                field, handles[field_id], row_host,
+                                (field_actions or {}).get(field_id, ()),
+                            ),
                             row_field_weight(field_spec),
                         )
-                    form.addLayout(row)
+                    form.addWidget(row_host)
                 tab_layout.addWidget(box)
             tab_layout.addStretch(1)
             scroll = QScrollArea(tabs)

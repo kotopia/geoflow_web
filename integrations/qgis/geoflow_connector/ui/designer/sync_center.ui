@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>GeoFlowSyncCenter</class>
+ <widget class="QDialog" name="GeoFlowSyncCenter">
+  <property name="windowTitle"><string>GeoFlow 동기화 센터</string></property>
+  <property name="minimumSize"><size><width>860</width><height>520</height></size></property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing"><number>8</number></property>
+   <item><layout class="QHBoxLayout" name="statusLayout">
+    <item><widget class="QPushButton" name="allFilterButton"><property name="text"><string>전체 0</string></property><property name="checkable"><bool>true</bool></property><property name="checked"><bool>true</bool></property></widget></item>
+    <item><widget class="QPushButton" name="pendingFilterButton"><property name="text"><string>대기 0</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+    <item><widget class="QPushButton" name="retryFilterButton"><property name="text"><string>재시도 0</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+    <item><widget class="QPushButton" name="conflictFilterButton"><property name="text"><string>충돌 0</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+    <item><widget class="QPushButton" name="failedFilterButton"><property name="text"><string>실패 0</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+    <item><widget class="QPushButton" name="pausedFilterButton"><property name="text"><string>보류 0</string></property><property name="checkable"><bool>true</bool></property></widget></item>
+    <item><spacer name="statusSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+   </layout></item>
+   <item><layout class="QHBoxLayout" name="filterLayout">
+    <item><widget class="QLabel" name="projectLabel"><property name="text"><string>프로젝트</string></property></widget></item>
+    <item><widget class="QComboBox" name="projectCombo"/></item>
+    <item><widget class="QLabel" name="layerLabel"><property name="text"><string>레이어</string></property></widget></item>
+    <item><widget class="QComboBox" name="layerCombo"/></item>
+    <item><widget class="QLabel" name="operationLabel"><property name="text"><string>작업</string></property></widget></item>
+    <item><widget class="QComboBox" name="operationCombo"/></item>
+    <item><widget class="QToolButton" name="refreshButton"><property name="toolTip"><string>목록 새로고침</string></property><property name="text"><string>새로고침</string></property></widget></item>
+   </layout></item>
+   <item><widget class="QTableWidget" name="syncTable">
+    <property name="alternatingRowColors"><bool>true</bool></property>
+    <property name="selectionMode"><enum>QAbstractItemView::SelectionMode::ExtendedSelection</enum></property>
+    <property name="selectionBehavior"><enum>QAbstractItemView::SelectionBehavior::SelectRows</enum></property>
+    <property name="editTriggers"><set>QAbstractItemView::EditTrigger::NoEditTriggers</set></property>
+    <property name="sortingEnabled"><bool>true</bool></property>
+    <column><property name="text"><string>상태</string></property></column>
+    <column><property name="text"><string>레이어</string></property></column>
+    <column><property name="text"><string>객체</string></property></column>
+    <column><property name="text"><string>작업</string></property></column>
+    <column><property name="text"><string>발생시각</string></property></column>
+    <column><property name="text"><string>마지막 시도</string></property></column>
+    <column><property name="text"><string>사유</string></property></column>
+    <column><property name="text"><string>재시도횟수</string></property></column>
+   </widget></item>
+   <item><widget class="QLabel" name="noticeLabel"><property name="text"><string>‘큐에서 제거’는 서버 객체 삭제가 아니라 로컬 동기화 작업을 버리는 동작입니다.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><layout class="QHBoxLayout" name="actionLayout">
+    <item><widget class="QPushButton" name="detailButton"><property name="text"><string>상세 보기</string></property></widget></item>
+    <item><widget class="QPushButton" name="retryButton"><property name="text"><string>선택 항목 다시 시도</string></property></widget></item>
+    <item><widget class="QPushButton" name="removeButton"><property name="text"><string>선택 항목 큐에서 제거</string></property></widget></item>
+    <item><spacer name="actionSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+    <item><widget class="QPushButton" name="closeButton"><property name="text"><string>닫기</string></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

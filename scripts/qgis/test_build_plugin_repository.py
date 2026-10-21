@@ -90,6 +90,25 @@ class BuildPluginRepositoryTests(unittest.TestCase):
         )
         self.assertEqual(plugin.findtext("sha256_sum"), hashlib.sha256(package.read_bytes()).hexdigest())
 
+    def test_runtime_cache_code_survives_but_development_data_is_excluded(self):
+        files = ['cache/__init__.py', 'cache/reuse.py', 'cache/user.gpkg',
+                 'tests/live_probe.py', 'test_artifacts/session.json',
+                 'release/old.zip', 'scripts/helper.py', '.env',
+                 'ui/form.ui', 'ui/form.ui.bak', 'ui/debug.log',
+                 'resources/icons/LICENSE', '.github/workflows/test.yml']
+        for name in files:
+            target = self.source / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('fixture', encoding='utf-8')
+        archive_path = self.root / 'filtered.zip'
+        build_zip(self.source, archive_path)
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+            for name in ['cache/__init__.py', 'cache/reuse.py', 'ui/form.ui', 'resources/icons/LICENSE']:
+                self.assertIn('geoflow_connector/' + name, names)
+            for name in set(files) - {'cache/__init__.py', 'cache/reuse.py', 'ui/form.ui', 'resources/icons/LICENSE'}:
+                self.assertNotIn('geoflow_connector/' + name, names)
+
     def test_xml_rejects_download_url_filename_mismatch(self):
         values = metadata(self.source)
         with self.assertRaisesRegex(ValueError, "does not match"):

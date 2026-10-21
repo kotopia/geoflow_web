@@ -1,0 +1,60 @@
+GeoFlow Connector 1.4.3 release handoff ? 2026-10-21
+
+1. Previous version: 1.4.2 (user confirmed; existing test repository entry matches).
+2. New stable version: 1.4.3.
+3. Patch increment: current connector corrections and spatial Survey workflow stabilization; plugin identity and compatibility range preserved.
+4. Final metadata.txt:
+[general]
+name=GeoFlow Connector
+qgisMinimumVersion=3.28
+qgisMaximumVersion=4.99
+description=GeoFlow project login, persistent local Snapshot reuse, cache lifecycle management, field-level Changeset synchronization, revision Delta updates, and realtime multi-user Delta hints.
+version=1.4.3
+author=GeoFlow
+email=iroom0@naver.com
+about=GeoFlow connects project snapshots, dynamic forms, Survey imports and field Changeset synchronization. Version 1.4.3 uses spatial Survey and depth searches, active-layer-only selection, a shared 2.0m default search radius, and timed inline depth calculation feedback. Existing project radius overrides are preserved.
+category=Database
+experimental=False
+deprecated=False
+tracker=https://github.com/kotopia/geoflow_web/issues
+repository=https://github.com/kotopia/geoflow_web
+homepage=https://geoflow.co.kr
+tags=geoflow,gis,qgis,qfield,postgis,geopackage,snapshot,cache,lifecycle,pin,changeset,delta,sync,websocket,realtime,session
+
+5. ZIP absolute path: C:\Users\Intel®Core™Ultra5\AppData\Roaming\QGIS\QGIS4\profiles\default\python\plugins\geoflow_connector\release\geoflow_connector-1.4.3.zip
+6. ZIP filename: geoflow_connector-1.4.3.zip
+7. ZIP size: 5221008 bytes.
+8. SHA256: 8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5
+9. ZIP root: geoflow_connector/; 5600 runtime/resource files; __init__.py and metadata.txt at that root. No extra release/ nesting. Excluded development files, tests, caches, user settings and unused symbology-style.db. Runtime cache/*.py retained.
+10. Manifest: C:\Users\Intel®Core™Ultra5\AppData\Roaming\QGIS\QGIS4\profiles\default\python\plugins\geoflow_connector\release\geoflow_connector-release.json
+11. XML draft: C:\Users\Intel®Core™Ultra5\AppData\Roaming\QGIS\QGIS4\profiles\default\python\plugins\geoflow_connector\release\plugin-entry.xml
+12. Changelog: C:\Users\Intel®Core™Ultra5\AppData\Roaming\QGIS\QGIS4\profiles\default\python\plugins\geoflow_connector\CHANGELOG.md; this release note is the publisher handoff.
+13. Clean install: final ZIP extracted into a separate profile; all 5600 installed file bytes verified against the ZIP. No development plugin imports.
+14. QGIS 4.2.2: clean application processes 36776 and 21632 passed load, classFactory/initGui, 97 runtime module imports, metadata 1.4.3, login dialog creation, form host creation, unload, and persistent project save/reload. Offscreen runtime, not a manual visual review.
+15. Retired link runtime strings: survey-links, survey_link, SurveyTargetLink, no_linked_survey, survey_links_exist: 0 runtime matches. FACILITY/DEPTH remain as Survey code categories, not target relation roles. Audit/test/history text is not a runtime dependency. This release did not capture authenticated production HTTP or repeat production CRUD, so this result is not a new live-server traffic claim.
+16. Source comparison: latest release branch base fbf712e8; local plugin contains newer connector implementation (repository connector remained 1.4.2). 40 differing files, 5221 local-only files, 340 same after line-ending normalization. Repository-only code reviewed separately. Five unreferenced obsolete runtime files removed: cache/recovery.py, sync/queue.py, layer_workspace.py, ui/layer_name_delegate.py, ui/designer/layer_visibility.ui. Existing repository tests and architecture documentation retained/updated; resources include the runtime icon library. Full list: source-comparison.json; full final package inventory: package-files.json. Main changes: api/client.py, app/plugin.py, forms/dynamic/*, services/*, survey/*, ui/*, styles, metadata, CHANGELOG, release builder and tests. Original C:\GeoFlow\geoflow_web checkout and its existing changes were not overwritten.
+17. Source Git commit: 4467baa1c30bbf5ad34fc1096c0810d80ff7ea33; branch codex/qgis-connector-1.4.3, isolated geoflow_web worktree C:\Users\Public\Documents\ESTsoft\CreatorTemp\geoflow-qgis-1.4.3. A subsequent evidence commit contains this manifest/report. Installed plugin folder is not a new Git repository. ZIP excluded from Git according to existing policy.
+18. Exact Work artifact set (all under C:\Users\Intel®Core™Ultra5\AppData\Roaming\QGIS\QGIS4\profiles\default\python\plugins\geoflow_connector\release):
+- geoflow_connector-1.4.3.zip
+- geoflow_connector-1.4.3.zip.sha256
+- geoflow_connector-release.json
+- plugin-entry.xml
+- release-notes.txt
+- validation-summary.json
+- package-audit.json
+- package-files.json
+- source-comparison.json
+- regression-results.json
+- test-repository-reference.xml (read-only reference, NOT a replacement repository index)
+Also carry source CHANGELOG.md and the Git source/evidence commits.
+
+Validation boundaries:
+16 local QGIS regression programs passed, covering materialization, layer tree/workspace, Dynamic Form, create/update/delete and online-save behavior with isolated fixtures/mocked API, Survey import/source/code/mapping/creation/spatial duplicate checks, depth calculation, active-layer selection, 2.0m settings and photos. QGIS Python unit suite: 31 passed. Repository builder: 4 passed. Package credential/path-pattern scan: no findings. Git diff whitespace check passed after cleanup; source-worktree rebuild hash matches ZIP.
+Login dialog loading was tested; authenticated login/project list was not re-tested on the operational server during release preparation. Prior production validation is historical evidence, not a fresh final-ZIP production test. Compatibility metadata stays 3.28?4.99; only installed QGIS 4.2.2 was run here.
+
+Publisher instructions:
+Confirm destination, then publish the exact ZIP/checksum and merge the XML entry through the authorized Work deployment step. download_url is a proposed production location, not an existing published release. Preserve XML file_name=geoflow_connector.zip (stable QGIS plugin id), while download_url contains the versioned ZIP. XML field order/schema matches the saved test repository entry. Metadata email/repository/tracker/homepage use the user-provided values; homepage HTTP 200 and Git remote fetch confirmed, public unauthenticated repository visibility not assumed.
+Current .github/workflows/qgis-plugin-test-repository-publish.yml still refers to 1.4.2; Work must update/review it before using that publishing workflow. Do not run it unchanged for 1.4.3.
+No deployment, production/test plugins.xml modification, S3 write, server restart or production data mutation was performed. publication_ready=false means publisher destination/review remains; artifact_ready=true means this package and local checks are complete. Do not merge a release-triggering PR as part of this preparation.
+
+Repository CI follow-up: initial release-preflight found outdated pre-1.4.3 contract expectations and a missing photo_count fixture field. Updated the existing tests to the current online save/explicit discard guard, content-driven photo UI and specific-before-base Qt date dispatch. Added byte-preservation assertions for legacy dirty snapshot selection. Focused repository QGIS suite: 52 run, 49 passed, 3 skipped (QGIS bindings unavailable in generic Python). No packaged runtime files changed. Updated architecture prose to remove obsolete offline photo queue/recovery claims. Draft PR: https://github.com/kotopia/geoflow_web/pull/426; no merge/deployment.
