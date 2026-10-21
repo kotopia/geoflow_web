@@ -9,6 +9,7 @@ import io
 import os
 from pathlib import Path
 import re
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from urllib.parse import urlsplit
@@ -237,6 +238,9 @@ def main():
     parser.add_argument('--verify-http',action='store_true')
     parser.add_argument('--rollback-index-key')
     args=parser.parse_args()
+    # Direct file execution sets sys.path[0] to scripts/ops, not the project.
+    # Resolve from this file so deployment and rollback work from any directory.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     os.environ.setdefault('DJANGO_SETTINGS_MODULE','geoflow_project.settings')
     import django
     django.setup()

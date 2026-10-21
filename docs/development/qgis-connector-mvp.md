@@ -118,6 +118,9 @@ ZIP creator platform are fixed. Any mismatch prevents publication. New release
 origins require a reviewed matching archive profile or the original artifact;
 never replace the approved SHA with a convenient local rebuild hash.
 
+The publisher resolves the Django project root from its own file before setup,
+so direct deployment and rollback execution do not require a caller-provided
+`PYTHONPATH` or a particular working directory.
 The stable publisher verifies ZIP CRC, one geoflow_connector root, metadata,
 nonexperimental/nondeprecated flags, UTF-8 XML escaping and channel URL. All
 immutable objects are read back in full; an existing different ZIP is rejected.

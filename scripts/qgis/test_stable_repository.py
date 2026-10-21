@@ -3,7 +3,10 @@ import configparser
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -36,6 +39,26 @@ class MemoryS3:
 
 
 class StableRepositoryTests(unittest.TestCase):
+    def test_direct_publisher_execution_finds_project_without_pythonpath(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Stop at Django setup: exercise the real entry point without DB/S3.
+            root.joinpath('django.py').write_text(
+                "def setup():\n"
+                "    import importlib.util\n"
+                "    assert importlib.util.find_spec('geoflow_project') is not None\n"
+                "    print('project_importable')\n"
+                "    raise SystemExit(0)\n"
+            )
+            env = dict(os.environ, PYTHONPATH=directory)
+            result = subprocess.run(
+                [sys.executable, str(ROOT/'scripts/ops/publish_qgis_plugin_repository.py'),
+                 '--channel', 'stable', '--confirm', 'bootstrap-only'],
+                cwd=directory, env=env, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('project_importable', result.stdout)
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.source=self.root/'geoflow_connector';self.source.mkdir()
