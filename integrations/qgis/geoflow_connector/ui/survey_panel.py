@@ -34,7 +34,7 @@ from ..survey.code_normalizer import (
 from .survey_import_dialog import ImportDialog
 
 from ..survey.creation import apply_target_inheritance
-from ..services.survey_spatial import nearby_targets, points_overlap
+from ..services.survey_spatial import nearby_targets, overlap_distance_m
 
 class SurveyValidationError(ValueError):
     """Actionable Survey validation failure with structured log context."""
@@ -2000,9 +2000,26 @@ class SurveyPanel(QDialog):
                         raise ValueError('주변에 동일 심도 객체가 존재합니다.')
                     planned_targets.append(('WTL_PIPE_PS', str(depth_code)))
                 for previous in selected:
-                    if (set(planned_targets).intersection(previous['planned_targets'])
-                            and points_overlap(self.plugin, point, previous['point'])):
-                        raise ValueError('선택한 측량점 사이에 동일/근접 시설물 중복이 있습니다.')
+                    shared_targets = set(planned_targets).intersection(previous['planned_targets'])
+                    if not shared_targets:
+                        continue
+                    metres = overlap_distance_m(self.plugin, point, previous['point'])
+                    if metres is not None:
+                        other = previous['point']
+                        first_label = point.get('source_row_id') or point.get('survey_no') or point.get('id')
+                        other_label = other.get('source_row_id') or other.get('survey_no') or other.get('id')
+                        targets_text = ', '.join(f'{layer_name} / {target_code}'
+                                                 for layer_name, target_code in sorted(shared_targets))
+                        raise SurveyValidationError(
+                            'batch_spatial_duplicate',
+                            f'{first_label} ↔ {other_label}: 동일/근접 시설물 중복 '
+                            f'(동일 대상: {targets_text}, 거리: {metres:.3f}m)',
+                            survey_id=point.get('id', ''),
+                            conflicting_survey_id=other.get('id', ''),
+                            survey_no=point.get('survey_no', ''),
+                            conflicting_survey_no=other.get('survey_no', ''),
+                            shared_targets=sorted(shared_targets), distance_m=metres,
+                        )
                 selected.append({
                     "index": index, "point": point, "survey_code": standard_code,
                     "facility": facility, "storage_code": code, "allowed": allowed,
