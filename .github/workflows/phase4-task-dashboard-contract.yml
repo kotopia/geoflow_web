@@ -81,6 +81,21 @@ jobs:
           npm install --prefix /tmp/overview-browser --no-save playwright@1.55.0
           NODE_PATH=/tmp/overview-browser/node_modules node scripts/ci/test_admin_overview_browser.cjs
 
+      - name: Verify shared compact layout and sidebar navigation
+        env:
+          CHROME_CHANNEL: chrome
+        run: |
+          python scripts/ci/render_compact_layout.py
+          NODE_PATH=/tmp/overview-browser/node_modules node scripts/ci/test_compact_layout_browser.cjs
+
+      - name: Upload compact layout browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compact-layout-screenshots
+          path: artifacts/compact-layout/*.png
+          if-no-files-found: error
+
       - name: Upload dashboard browser screenshots
         if: always()
         uses: actions/upload-artifact@v4

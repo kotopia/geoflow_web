@@ -3,17 +3,20 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/png" sizes="48x48" href="{% static 'control/img/icons/icon-48x48.png' %}">
   <link class="js-stylesheet" rel="stylesheet" href="{% static 'control/css/light.css' %}">
   <script src="{% static 'control/js/settings.js' %}"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
   <title>{% block title %}Central Admin{% endblock %}</title>
   <script>
     window.STATIC_PREFIX = "{% static '' %}";  // 보통 "/static/"
     window.ASSET_NS = "control";
   </script>
 
+  <link rel="stylesheet" href="{% static 'control/css/geoflow-compact.css' %}">
 </head>
-<body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+<body class="gf-compact" data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
   <div class="wrapper">
     {% include "control/partials/sidebar.html" %}
     <div class="main">
@@ -24,6 +27,7 @@
     </div>
   </div>
   <script src="{% static 'control/js/app.js' %}"></script>
+  <script src="{% static 'control/js/geoflow-compact.js' %}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

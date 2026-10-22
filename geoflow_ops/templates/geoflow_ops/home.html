@@ -1,7 +1,6 @@
 {% extends "geoflow_ops/base_tenant.html" %}
 {% load static humanize %}
 {% block title %}관리자 종합 현황 | GeoFlow{% endblock %}
-{% block extra_head %}{{ block.super }}<meta name="viewport" content="width=device-width, initial-scale=1">{% endblock %}
 {% block content %}
 <div id="overview" data-today="{{ today|date:'Y-m-d' }}" data-calendar-url="{% url 'tenant:calendar_events' %}">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
