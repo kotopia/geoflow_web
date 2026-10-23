@@ -48,13 +48,7 @@ jobs:
 
       - name: Install GeoDjango system libraries
         run: |
-          # Avoid the Azure HTTP mirror throttling large GeoDjango/font downloads.
-          # Keep Ubuntu's signed package sources and the exact same test packages.
-          for mirror_list in /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors-security.txt; do
-            if [ -f "$mirror_list" ]; then
-              sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' "$mirror_list"
-            fi
-          done
+          bash scripts/ci/use_ubuntu_https_mirrors.sh
           sudo apt-get update
           sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev fonts-noto-cjk
 

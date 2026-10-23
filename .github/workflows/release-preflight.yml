@@ -73,6 +73,7 @@ jobs:
 
       - name: Install GeoDjango system libraries
         run: |
+          bash scripts/ci/use_ubuntu_https_mirrors.sh
           sudo apt-get update
           sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev
 
@@ -156,6 +157,7 @@ jobs:
 
       - name: Install migration rehearsal dependencies
         run: |
+          bash scripts/ci/use_ubuntu_https_mirrors.sh
           sudo apt-get update
           sudo apt-get install -y gdal-bin libgdal-dev libgeos-dev postgresql-client
           python -m pip install --upgrade pip
