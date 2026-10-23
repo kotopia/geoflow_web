@@ -1,0 +1,76 @@
+/* GeoFlow density layer over AdminKit Pro. Keep vendor CSS and root rem intact. */
+body.gf-compact {
+  --bs-body-font-size: .75rem;
+  --bs-body-line-height: 1.5;
+  font-size: .75rem;
+}
+.gf-compact h1, .gf-compact .h1 { font-size: 1.5rem; }
+.gf-compact h2, .gf-compact .h2 { font-size: 1.3125rem; }
+.gf-compact h3, .gf-compact .h3 { font-size: 1.125rem; }
+.gf-compact h4, .gf-compact .h4 { font-size: 1rem; }
+.gf-compact h5, .gf-compact .h5, .gf-compact .card-title { font-size: .8125rem; }
+.gf-compact h6, .gf-compact .h6 { font-size: .75rem; }
+/* Fixed readable floor: nested small/badge elements must not compound 80%. */
+.gf-compact small, .gf-compact .small, .gf-compact .form-text,
+.gf-compact .badge, .gf-compact .badge-xs, .gf-compact .gf-tab .count { font-size: .6875rem; }
+.gf-compact .btn {
+  --bs-btn-font-size: .75rem;
+  --bs-btn-padding-y: .25rem;
+  --bs-btn-padding-x: .625rem;
+  min-height: 2rem;
+}
+.gf-compact .btn-sm { --bs-btn-padding-y: .2rem; --bs-btn-padding-x: .5rem; }
+.gf-compact .form-control, .gf-compact .form-select,
+.gf-compact .input-group-text, .gf-compact .form-control-plaintext {
+  font-size: .75rem;
+  min-height: 2rem;
+}
+.gf-compact .form-control, .gf-compact .input-group-text { padding: .25rem .625rem; }
+.gf-compact .form-select { padding-top: .25rem; padding-bottom: .25rem; padding-left: .625rem; }
+.gf-compact .form-label { margin-bottom: .25rem; }
+.gf-compact .dropdown-menu { --bs-dropdown-font-size: .75rem; }
+.gf-compact .nav { --bs-nav-link-font-size: .75rem; }
+.gf-compact .pagination { --bs-pagination-font-size: .75rem; }
+.gf-compact .card {
+  --bs-card-spacer-y: 1rem;
+  --bs-card-spacer-x: 1rem;
+  --bs-card-cap-padding-y: .75rem;
+  --bs-card-cap-padding-x: 1rem;
+  margin-bottom: 1rem;
+}
+.gf-compact .modal { --bs-modal-padding: 1rem; --bs-modal-header-padding: .75rem 1rem; }
+/* Low specificity lets domain-specific dense tables keep their own dimensions.
+   DataTables sorting/expand reserves remain untouched by horizontal padding. */
+:where(.gf-compact) .table:not(.table-sm) > :not(caption) > * > * {
+  padding-top: .5rem;
+  padding-bottom: .5rem;
+}
+.gf-compact .content { padding: 2rem 2rem 1rem; }
+.gf-compact .navbar { padding: .625rem 1rem; }
+.gf-compact .sidebar-link, .gf-compact a.sidebar-link { font-size: .75rem; padding-top: .5rem; padding-bottom: .5rem; }
+.gf-compact .sidebar-header { font-size: .6875rem; padding-top: 1rem; padding-bottom: .25rem; }
+.gf-compact .sidebar-brand { padding-top: .875rem; padding-bottom: .875rem; font-size: 1rem; }
+.gf-compact .sidebar-brand-icon { margin: auto; object-fit: contain; }
+.gf-compact .sidebar-link:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+/* AdminKit compact mode is the stock 74px icon rail + 220px flyouts.
+   Extend its hover behavior to keyboard focus and Bootstrap click toggles. */
+body.gf-compact[data-sidebar-layout=compact] .sidebar-nav > .sidebar-item:focus-within > .sidebar-dropdown,
+body.gf-compact[data-sidebar-layout=compact] .sidebar-nav > .sidebar-item > .sidebar-dropdown.show { display: block; }
+body.gf-compact[data-sidebar-layout=compact] .sidebar-nav > .sidebar-item > .sidebar-link {
+  min-height: 2.5rem;
+}
+.gf-compact .fc .fc-toolbar-title { font-size: 1rem; }
+.gf-compact .fc .fc-button { font-size: .75rem; }
+@media (max-width: 991.98px) {
+  .gf-compact .content { padding: 1rem; }
+  body.gf-compact[data-sidebar-layout=default] .sidebar [data-simplebar] { width: 208px; }
+  body.gf-compact[data-sidebar-layout=default] .sidebar { min-width: 208px; max-width: 208px; }
+  body.gf-compact[data-sidebar-layout=default]:not([data-sidebar-position=right]) .sidebar { margin-left: -208px; }
+  body.gf-compact[data-sidebar-layout=default]:not([data-sidebar-position=right]) .sidebar.collapsed { margin-left: 0; }
+  body.gf-compact[data-sidebar-layout=default][data-sidebar-position=right] .sidebar { margin-right: -208px; }
+  body.gf-compact[data-sidebar-layout=default][data-sidebar-position=right] .sidebar.collapsed { margin-right: 0; }
+  .gf-compact .sidebar-link, .gf-compact a.sidebar-link { min-height: 2.75rem; }
+  .gf-compact .btn, .gf-compact .form-control, .gf-compact .form-select { min-height: 2.5rem; }
+  /* Avoid focus zoom on mobile browsers; do not shrink form interaction targets. */
+  .gf-compact .form-control, .gf-compact .form-select { font-size: 1rem; }
+}

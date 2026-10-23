@@ -1,8 +1,10 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
     <head>
         <meta charset="utf-8" />
+        <title>{% block title %}GeoFlow{% endblock %}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="shortcut icon" href="{% static 'control/img/icons/icon-48x48.png' %}" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
         <link class="js-stylesheet" href="{% static 'control/css/light.css' %}" rel="stylesheet">
@@ -10,9 +12,10 @@
         <link rel="stylesheet" href="{% static 'geoflow_ops/css/process-timeline-horizontal.css' %}">
         <script src="{% static 'control/js/settings.js' %}"></script>
         {% block extra_head %}{% endblock %}
+        <link rel="stylesheet" href="{% static 'control/css/geoflow-compact.css' %}">
     </head>
 
-    <body data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+    <body class="gf-compact" data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
         <div id="globalSpinner" class="gf-spinner-overlay d-none" aria-hidden="true"><div class="text-center"><div class="spinner-border" role="status" aria-label="Loading"></div><div class="mt-2 text-muted small">로딩중…</div></div></div>
         <style>.gf-spinner-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background-color:rgba(255,255,255,.6);backdrop-filter:blur(2px);z-index:2000;}</style>
         <div class="wrapper">
@@ -46,6 +49,7 @@
         <script src="{% static 'geoflow_ops/js/project-contract-card-parity.js' %}?v=20260901-1"></script>
         <script src="{% static 'geoflow_ops/js/contract-finance-summary.js' %}?v=20260902-1"></script>
         <script src="{% static 'geoflow_ops/js/finance-company-filter.js' %}?v=20260902-1"></script>
+        <script src="{% static 'control/js/geoflow-compact.js' %}"></script>
         {% block scripts %}{% endblock %}
     </body>
 </html>
