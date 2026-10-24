@@ -357,10 +357,22 @@ class CreationTests(unittest.TestCase):
         self.points[1]['longitude'] = self.points[0]['longitude']
         self.popup.point_rows = self.points
         self.popup.render_features()
-        with self.assertRaisesRegex(ValueError, '중복'):
+        with self.assertRaisesRegex(SurveyValidationError, 'P2 ↔ P1.*A / A1.*0.000m') as caught:
             self.popup.start_selected()
+        self.assertEqual(caught.exception.context['conflicting_survey_id'], self.points[0]['id'])
+        self.assertEqual(caught.exception.context['distance_m'], 0)
         self.plugin.commit_layers_online.assert_not_called()
         self.assertEqual(sum(layer.featureCount() for layer in self.layers), 0)
+
+    def test_nearby_different_target_layers_are_allowed(self):
+        self.points[3]['longitude'] = self.points[0]['longitude'] + .000005
+        self.popup.render_features()
+        self.assertEqual(self.popup.start_selected()['created'], 10)
+
+    def test_nearby_same_layer_different_storage_codes_are_allowed(self):
+        self.points[5]['longitude'] = self.points[3]['longitude'] + .000005
+        self.popup.render_features()
+        self.assertEqual(self.popup.start_selected()['created'], 10)
 
     def test_spatial_status_uses_type_project_and_current_geometry(self):
         point = self.points[0]
