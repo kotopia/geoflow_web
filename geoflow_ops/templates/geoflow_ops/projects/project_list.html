@@ -57,9 +57,8 @@
               data-href="{% url 'tenant:project_detail' p.pk %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
             <td data-col="code">{{ p.contract.code }}</td>
             <td data-col="name" class="text-truncate">{{ p.contract.name }}</td>
-            <td data-col="workflow" class="text-center">
-              <span class="badge {{ wf.phase_class }}">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
-              {% for event_label in wf.active_event_labels %}<span class="badge bg-warning-subtle text-warning-emphasis border ms-1">{{ event_label }}</span>{% endfor %}
+            <td data-col="workflow" class="text-center" data-event-labels="{{ wf.active_event_labels|join:', ' }}">
+              {% include "geoflow_ops/partials/workflow_badge.html" %}
             </td>
             <td data-col="start">{{ p.contract.start_date|date:"Y-m-d" }}</td>
             <td data-col="end">{{ p.contract.end_date|date:"Y-m-d" }}</td>

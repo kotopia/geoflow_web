@@ -27,6 +27,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  async function filter(criteria,logic='AND',id=1){await page.evaluate(({criteria,logic,id})=>$('#contract-filter-'+id+' table').DataTable().searchBuilder.rebuild({criteria,logic}),{criteria,logic,id});}
  const term=(origData,data,type,condition,value)=>({origData,data,type,condition,value});
  await page.goto('http://preview.local/contracts/');await page.waitForSelector('#contractsCard:not([hidden])');
+ assert.deepEqual(await page.evaluate(()=>{const row=$('#datatables-contracts').DataTable().rows().nodes().toArray().find(r=>r.querySelector('.gf-event-count'));return [row.querySelector('.gf-event-count').textContent,row.querySelector('.gf-event-suspension').textContent];}),['3','Ⅱ']);
  assert.equal(await baseCount(),11);assert.equal(await page.locator('#contract-column-search').isVisible(),false);
  await page.click('#contract-column-toggle');
  await page.getByLabel('계약명 검색',{exact:true}).fill('시험 계약 2');assert.equal(await baseCount(),2);
@@ -70,7 +71,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 12건/);
  await filter([term('events','표시 중인 이벤트','string','contains',['중지'])]);
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 1건/);
- await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);await page.screenshot({path:'artifacts/contract-filters/mobile.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(450);await page.screenshot({path:'artifacts/contract-filters/mobile.png',fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.click('#contract-base-tab');
  await page.getByRole('button',{name:'계약 메뉴',exact:true}).click();

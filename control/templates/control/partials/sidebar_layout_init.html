@@ -1,0 +1,12 @@
+<script>
+(function () {
+  var narrow = window.matchMedia('(max-width: 991.98px)');
+  function apply() {
+    var layout = narrow.matches ? 'default' : 'compact';
+    if (document.body.dataset.sidebarLayout !== layout) document.body.dataset.sidebarLayout = layout;
+  }
+  apply();
+  new MutationObserver(apply).observe(document.body, {attributes: true, attributeFilter: ['data-sidebar-layout']});
+  narrow.addEventListener('change', apply);
+})();
+</script>

@@ -4,8 +4,15 @@ document.addEventListener('DOMContentLoaded', function () {
   if (!sidebar) return;
   var narrow = window.matchMedia('(max-width: 991.98px)');
   function applyLayout() {
-    document.body.dataset.sidebarLayout = narrow.matches ? 'default' : 'compact';
+
     sidebar.querySelectorAll('.sidebar-nav > .sidebar-item > .sidebar-dropdown').forEach(function (menu) {
+      var parentLink = menu.parentElement.querySelector('.sidebar-link');
+      var first = menu.querySelector('a[href]');
+      if (parentLink && first) {
+        parentLink.href = first.href;
+        if (narrow.matches) parentLink.setAttribute('data-bs-toggle', 'collapse');
+        else parentLink.removeAttribute('data-bs-toggle');
+      }
       var active = !!menu.querySelector('[aria-current="page"]');
       menu.classList.toggle('show', narrow.matches && active);
       var trigger = menu.parentElement.querySelector('[data-bs-toggle="collapse"]');
@@ -15,13 +22,20 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   }
-  // Runs after AdminKit settings restores its legacy localStorage defaults.
+  // Initial layout is applied before sidebar markup; only menu interaction waits for DOM readiness.
   applyLayout();
   narrow.addEventListener('change', applyLayout);
   sidebar.querySelectorAll('.sidebar-nav > .sidebar-item > .sidebar-link').forEach(function (link) {
     var label = link.textContent.trim();
     link.setAttribute('aria-label', label);
     link.setAttribute('title', label);
+    link.addEventListener('click', function (event) {
+      if (!narrow.matches || !event.target.closest('svg, i')) return;
+      var first = link.parentElement.querySelector('.sidebar-dropdown a[href]');
+      if (!first) return;
+      event.preventDefault(); event.stopPropagation();
+      window.location.assign(first.href);
+    });
   });
   sidebar.querySelectorAll('.sidebar-dropdown a[href]').forEach(function (link) {
     if (link.pathname !== window.location.pathname) return;
