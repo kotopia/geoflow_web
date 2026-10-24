@@ -52,14 +52,16 @@ def backup_error_code(error):
     return 'tool_failed'
 
 
-def backup_tools(connection):
+def backup_tools(connection, private_root=None):
     # Ubuntu may have multiple client versions and pg_wrapper may select the
     # oldest default. Resolve a compatible installed pair without changing the OS.
     connection.ensure_connection()
     server_major = connection.pg_version // 10000
     candidates = []
     default = shutil.which('pg_dump')
-    paths = ([Path(default)] if default else []) + list(Path('/usr/lib/postgresql').glob('*/bin/pg_dump'))
+    private_root = private_root or os.environ.get('GEOFLOW_PG_CLIENT_ROOT')
+    private_paths = [Path(private_root) / 'bin/pg_dump'] if private_root else []
+    paths = private_paths + ([Path(default)] if default else []) + list(Path('/usr/lib/postgresql').glob('*/bin/pg_dump'))
     for path in paths:
         restore = path.with_name('pg_restore')
         if not restore.is_file():
@@ -87,7 +89,20 @@ def backup_central(connection, directory):
     backup = directory / 'central-before-saved-filters.dump'
     if backup.exists():
         raise CommandError('backup_already_exists_use_new_run_directory')
-    dump, restore = backup_tools(connection)
+    try:
+        dump, restore = backup_tools(connection)
+    except CommandError as error:
+        if 'compatible_client_missing_server_major_16' not in str(error):
+            raise
+        # Official signed packages, extracted under this private backup directory.
+        # No package installation, system service or global library changes.
+        script = Path(__file__).resolve().parents[3] / 'scripts/ops/prepare_private_pg_client.sh'
+        private_root = directory / 'client'
+        try:
+            subprocess.run(['bash', str(script), str(private_root)], check=True, timeout=300)
+        except (OSError, subprocess.SubprocessError):
+            raise CommandError('private_pg_client_preparation_failed_no_schema_applied') from None
+        dump, restore = backup_tools(connection, private_root)
     cfg = connection.settings_dict
     env = os.environ.copy()
     env['PGPASSWORD'] = str(cfg.get('PASSWORD') or '')
