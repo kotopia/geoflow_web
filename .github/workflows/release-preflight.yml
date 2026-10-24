@@ -185,6 +185,13 @@ jobs:
           python manage.py activate_admin_visibility --apply
           python manage.py activate_admin_visibility --apply
 
+      - name: Rehearse saved filters backup, exact activation and retry
+        run: |
+          python manage.py activate_saved_filters
+          python manage.py activate_saved_filters --apply --backup-dir /tmp/geoflow-saved-filter-backup
+          python manage.py activate_saved_filters --apply
+          python manage.py activate_admin_visibility --apply
+
       - name: Rehearse central migrations and launch schema audit
         run: |
           python manage.py migrate --plan --database=default

@@ -35,7 +35,8 @@ class Command(BaseCommand):
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ["geoflow-central-visibility-0007"])
             executor = MigrationExecutor(connection)
             executor.loader.check_consistent_history(connection)
-            plan = executor.migration_plan([TARGET])
+            # A later central migration must never be rolled back on a retry.
+            plan = [] if TARGET in executor.recorder.applied_migrations() else executor.migration_plan([TARGET])
             if any((migration.app_label, migration.name) != TARGET or backwards for migration, backwards in plan):
                 raise CommandError("unexpected_central_migration_plan")
             self.stdout.write(f"central_visibility_pending={len(plan)}")

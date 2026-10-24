@@ -15,7 +15,19 @@ permissions:
 jobs:
   task-dashboard-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      filter-db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ci_contract_filters
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: isolated-filter-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ci_contract_filters"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DJANGO_SECRET_KEY: ci-phase4-task-dashboard-key-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij
       DJANGO_DEBUG: "0"
@@ -104,3 +116,22 @@ jobs:
           name: admin-overview-screenshots
           path: artifacts/admin-overview/*.png
           if-no-files-found: error
+
+      - name: Verify contract filters and personal preference migration
+        env:
+          CHROME_CHANNEL: chrome
+          GEOFLOW_FILTER_TEST_DB: ci_contract_filters
+          GEOFLOW_FILTER_TEST_PASSWORD: isolated-filter-ci
+        run: |
+          python scripts/ci/test_contract_filters_isolated.py
+          python scripts/ci/rehearse_saved_filters.py
+          python scripts/ci/render_contract_filters.py
+          NODE_PATH=/tmp/overview-browser/node_modules node scripts/ci/test_contract_filters_browser.cjs
+          node scripts/ci/test_filter_aggregate.cjs
+
+      - name: Upload contract filter screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-filter-screenshots
+          path: artifacts/contract-filters/*.png

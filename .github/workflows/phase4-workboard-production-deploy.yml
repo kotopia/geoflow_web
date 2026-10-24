@@ -293,6 +293,12 @@ jobs:
           "$python" "$repo/manage.py" activate_admin_visibility
           "$python" "$repo/manage.py" activate_admin_visibility --apply
           "$python" "$repo/manage.py" test control.test_admin_visibility --verbosity 1
+          # Approved 2026-10-24 contract-filter rollout: central control.0008 only.
+          # Backup is private on the host. Schema remains on code rollback.
+          saved_filter_backup="/var/backups/geoflow/saved-filters/$candidate_sha/$(date -u +%Y%m%dT%H%M%SZ)"
+          sudo -n install -d -m 0700 -o "$(id -un)" "$saved_filter_backup"
+          "$python" "$repo/manage.py" activate_saved_filters
+          "$python" "$repo/manage.py" activate_saved_filters --apply --backup-dir "$saved_filter_backup"
           "$python" "$repo/manage.py" collectstatic --noinput
 
           sudo -n systemctl restart "$service"
