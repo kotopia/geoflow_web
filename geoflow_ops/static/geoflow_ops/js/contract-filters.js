@@ -31,6 +31,8 @@
     const error=document.getElementById('contract-filter-error');
     function fail(e){error.textContent=e.message||String(e);error.hidden=false;}
     const filterRow=document.getElementById('contract-column-search'), toggle=document.getElementById('contract-column-toggle');
+    const search=base.table().container().querySelector('.dataTables_filter');
+    if(search){search.classList.add('contract-search-tools');search.prepend(toggle);}
     base.columns().every(function(index){
       const column=this, input=el('input','form-control form-control-sm');
       const label=fields[index][1];input.type='search';input.placeholder=label;input.setAttribute('aria-label',label+' 검색');

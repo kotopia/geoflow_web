@@ -13,3 +13,9 @@
 
 #contract-filter-panes .filter-table-wrap table { min-width: 900px; }
 #contract-filter-panes .filter-table-wrap th { white-space: nowrap; }
+
+#datatables-contracts_wrapper .contract-search-tools { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; }
+#datatables-contracts_wrapper .contract-search-tools label { margin-bottom: 0; }
+@media(max-width: 767px) {
+  #datatables-contracts_wrapper .contract-search-tools { justify-content: center; }
+}

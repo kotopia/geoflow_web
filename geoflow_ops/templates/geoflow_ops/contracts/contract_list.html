@@ -20,10 +20,6 @@
     <h1 class="h3 d-inline align-middle"><span>계약</span> <span class="h5 text-muted">Contract</span></h1>
   </div>
 
-  <div class="d-flex gap-2 mb-3">
-    <button type="button" class="btn btn-outline-primary" id="contract-column-toggle" aria-expanded="false" aria-controls="contract-column-search">필터</button>
-    <button type="button" class="btn btn-outline-primary" id="contract-advanced-add">+ 상세필터</button>
-  </div>
   <div id="contract-filter-error" class="alert alert-danger" role="alert" hidden></div>
   <ul class="nav nav-tabs mb-3" id="contract-filter-tabs" role="tablist" hidden>
     <li class="nav-item" role="presentation"><button type="button" class="nav-link active" role="tab" id="contract-base-tab" aria-controls="contract-base-pane" aria-selected="true">계약 목록</button></li>
@@ -35,8 +31,11 @@
     <div class="card-header pb-0">
       <div class="card-actions float-end">
         <div class="dropdown position-relative">
-          <a href="#" data-bs-toggle="dropdown" data-bs-display="static"><i class="align-middle" data-feather="more-horizontal"></i></a>
-          <div class="dropdown-menu dropdown-menu-end"><a class="dropdown-item" href="{% url 'tenant:contract_create' %}">계약 생성</a></div>
+          <a href="#" role="button" aria-label="계약 메뉴" aria-expanded="false" data-bs-toggle="dropdown" data-bs-display="static"><i class="align-middle" data-feather="more-horizontal"></i></a>
+          <div class="dropdown-menu dropdown-menu-end">
+            <a class="dropdown-item" href="{% url 'tenant:contract_create' %}">계약 생성</a>
+            <button type="button" class="dropdown-item" id="contract-advanced-add">상세필터</button>
+          </div>
         </div>
       </div>
       <div class="d-flex align-items-center mb-3">
@@ -49,6 +48,7 @@
     </div>
 
     <div class="card-body">
+      <button type="button" class="btn btn-outline-primary btn-sm" id="contract-column-toggle" aria-expanded="false" aria-controls="contract-column-search">필터</button>
       <table id="datatables-contracts" class="table table-responsive table-striped table-hover" width="100%" style="cursor: pointer" data-current-year="{{ current_year }}">
         <thead class="text-center">
           <tr><th>번호</th><th>사업명</th><th>상태</th><th>시작</th><th>종료</th><th>계약</th><th>금액</th><th>발주처</th><th>계약자</th></tr>

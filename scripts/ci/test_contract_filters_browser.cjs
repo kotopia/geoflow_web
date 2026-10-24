@@ -17,6 +17,11 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   if(!fs.existsSync(f))return route.fulfill({status:404,body:''});
   return route.fulfill({path:f,contentType:{'.css':'text/css','.js':'text/javascript','.html':'text/html','.png':'image/png'}[path.extname(f)]});
  });
+ async function openAdvanced(){
+  if(await page.locator('#contract-base-tab').isVisible())await page.click('#contract-base-tab');
+  await page.getByRole('button',{name:'계약 메뉴',exact:true}).click();
+  await page.click('#contract-advanced-add');
+ }
  const baseCount=()=>page.evaluate(()=>$('#datatables-contracts').DataTable().rows({search:'applied'}).count());
  const table=()=>page.locator('#contract-filter-1 table');
  async function filter(criteria,logic='AND',id=1){await page.evaluate(({criteria,logic,id})=>$('#contract-filter-'+id+' table').DataTable().searchBuilder.rebuild({criteria,logic}),{criteria,logic,id});}
@@ -30,7 +35,8 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.getByLabel('계약명 검색',{exact:true}).fill('');
  await page.check('#showPreviousCompleted');assert.equal(await baseCount(),12);
  await page.uncheck('#showPreviousCompleted');assert.equal(await baseCount(),11);
- await page.click('#contract-advanced-add');await page.waitForSelector('#contract-filter-1 .dtsb-searchBuilder');
+ await page.screenshot({path:'artifacts/contract-filters/base-desktop.png',fullPage:true});
+ await openAdvanced();await page.waitForSelector('#contract-filter-1 .dtsb-searchBuilder');
  assert.equal(await table().locator('tbody tr').count(),10);
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 12건/);
  const conditions=[term('kind','계약종류','string','=','용역'.split()),term('amount','계약금액','num','>=',['10000000']),term('amount','계약금액','num','<=',['200000000'])];
@@ -41,7 +47,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await filter([...conditions,term('amount','계약금액','num','>=',['50000000'])]);
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 4건/);
  await filter(conditions);assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 8건/);
- await page.click('#contract-advanced-add');assert.match(await page.locator('#contract-filter-2 .filter-summary').textContent(),/선택 12건/);
+ await openAdvanced();assert.match(await page.locator('#contract-filter-2 .filter-summary').textContent(),/선택 12건/);
  await page.locator('#contract-filter-2').getByRole('button',{name:'조건 추가',exact:true}).click();
  await page.locator('#contract-filter-2 .dtsb-data').selectOption({label:'계약금액'});
  await page.locator('#contract-filter-2 .dtsb-condition').selectOption({label:'이상'});
@@ -54,7 +60,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  assert.equal(saved[0].definition.conditions.criteria.length,3);
  await page.waitForTimeout(200);
  await page.screenshot({path:'artifacts/contract-filters/desktop.png',fullPage:true});
- await page.reload();await page.click('#contract-advanced-add');await page.waitForFunction(()=>document.querySelector('#contract-filter-1 select[aria-label="저장 필터"]').options.length===2);
+ await page.reload();await openAdvanced();await page.waitForFunction(()=>document.querySelector('#contract-filter-1 select[aria-label="저장 필터"]').options.length===2);
  await page.locator('#contract-filter-1').getByLabel('저장 필터',{exact:true}).selectOption('1');
  await page.locator('#contract-filter-1').getByRole('button',{name:'불러오기',exact:true}).click();
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 10건/);
@@ -66,6 +72,9 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 1건/);
  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);await page.screenshot({path:'artifacts/contract-filters/mobile.png',fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await page.click('#contract-base-tab');
+ await page.getByRole('button',{name:'계약 메뉴',exact:true}).click();
+ await page.screenshot({path:'artifacts/contract-filters/base-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);
  console.log('PASS column toggle, completion filter, 10/25/50, compound amount, AND/OR, date, event search, selection, tabs, save/reload, responsive and JS errors');
  await browser.close();
