@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');
+const {calculate}=require('../../geoflow_ops/static/geoflow_ops/js/filter-aggregate.js');
+assert.deepEqual(calculate([]),{count:0,amountCount:0,missing:0,sum:'0',average:null});
+assert.deepEqual(calculate([{amount:'10000000'},{amount:'20000000'},{amount:''}]),{count:3,amountCount:2,missing:1,sum:'30000000',average:'15000000'});
+const rows=Array.from({length:5000},()=>({amount:'99999999999999'}));
+assert.equal(calculate(rows).sum,'499999999999995000');
+assert.equal(calculate(rows).average,'99999999999999');
+assert.equal(calculate([{amount:'1'},{amount:'2'}]).average,'2');
+assert.equal(calculate([{amount:'-1'},{amount:'-2'}]).average,'-2');
+assert.throws(()=>calculate([{amount:'invalid'}]));
+console.log('PASS exact large sums, empty/missing amounts, rounding, invalid values');

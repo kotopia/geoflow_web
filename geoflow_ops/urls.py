@@ -1,3 +1,4 @@
+from . import views_saved_filters
 from django.urls import path
 from . import views_contracts, views_projects, views_employees, views_catalog, views_myinfo, views_uploads, views_events, views_workboard, views_contract_access, views_calendar
 from . import security_views, upload_guard_views, employee_security_views, event_security_views, settings_security_views, myinfo_security_views, finance_security_views, finance_attachment_views, finance_documents_views
@@ -18,6 +19,7 @@ urlpatterns = [
     path('bids/<uuid:notice_id>/review/', bid_security_views.review_save, name='bid_review_save'),
     path('bids/sync/', bid_security_views.sync_now, name='bid_sync'),
 
+    path('contracts/saved-filters/', views_saved_filters.contract_saved_filters, name='contract_saved_filters'),
     path('contracts/', security_views.contract_list, name='contract_list'),
     path("contracts/new/", security_views.contract_create, name="contract_create"),
     path("contracts/<uuid:pk>/", security_views.contract_detail, name="contract_detail"),

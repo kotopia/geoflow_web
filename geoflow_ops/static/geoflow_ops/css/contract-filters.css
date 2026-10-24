@@ -1,0 +1,13 @@
+/* Keep AdminKit/Bootstrap components and the shared compact density. */
+#contract-column-search input { min-width: 4rem; width: 100%; }
+#contract-filter-tabs { flex-wrap: wrap; }
+#contract-filter-tabs .nav-item { display: flex; }
+#contract-filter-panes .dtsb-searchBuilder { font-size: inherit; }
+#contract-filter-panes .dtsb-criteria { flex-wrap: wrap; }
+#contract-filter-panes .dtsb-value { max-width: 100%; }
+#contract-filter-panes .filter-table-wrap { overflow-x: auto; }
+#contract-filter-panes .filter-summary { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+@media(max-width: 767px) {
+  #contract-filter-panes .dtsb-group { margin-left: .5rem !important; }
+  #contract-filter-panes .dtsb-criteria select { max-width: 100%; }
+}
