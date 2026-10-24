@@ -1,6 +1,8 @@
 """Guarded rollout of the approved central personal-filter table only."""
 import hashlib
 import os
+import re
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -23,6 +25,58 @@ def forward_plan(executor, target):
     return plan
 
 
+def backup_error_code(error):
+    if isinstance(error, FileNotFoundError):
+        return 'executable_missing'
+    if isinstance(error, PermissionError):
+        return 'filesystem_permission_denied'
+    if isinstance(error, subprocess.TimeoutExpired):
+        return 'timeout'
+    stderr = getattr(error, 'stderr', b'') or b''
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode('utf-8', errors='replace')
+    text = stderr.lower()
+    for marker, code in (
+        ('server version mismatch', 'server_version_mismatch'),
+        ('password authentication failed', 'authentication_failed'),
+        ('no password supplied', 'password_missing'),
+        ('permission denied', 'database_or_file_permission_denied'),
+        ('no pg_hba.conf entry', 'connection_policy_denied'),
+        ('could not translate host name', 'host_resolution_failed'),
+        ('connection refused', 'connection_refused'),
+        ('no space left', 'backup_disk_full'),
+        ('unsupported version', 'archive_version_mismatch'),
+    ):
+        if marker in text:
+            return code
+    return 'tool_failed'
+
+
+def backup_tools(connection):
+    # Ubuntu may have multiple client versions and pg_wrapper may select the
+    # oldest default. Resolve a compatible installed pair without changing the OS.
+    connection.ensure_connection()
+    server_major = connection.pg_version // 10000
+    candidates = []
+    default = shutil.which('pg_dump')
+    paths = ([Path(default)] if default else []) + list(Path('/usr/lib/postgresql').glob('*/bin/pg_dump'))
+    for path in paths:
+        restore = path.with_name('pg_restore')
+        if not restore.is_file():
+            continue
+        try:
+            output = subprocess.run([str(path), '--version'], check=True, capture_output=True, timeout=10).stdout.decode()
+            match = re.search(r'PostgreSQL\) (\d+)', output)
+            if match and int(match[1]) >= server_major:
+                candidates.append((int(match[1]), str(path), str(restore)))
+        except (OSError, subprocess.SubprocessError):
+            continue
+    if not candidates:
+        raise CommandError(f'central_backup_compatible_client_missing_server_major_{server_major}')
+    _, dump, restore = min(candidates)
+    return dump, restore
+
+
 def backup_central(connection, directory):
     directory = Path(directory)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -33,10 +87,11 @@ def backup_central(connection, directory):
     backup = directory / 'central-before-saved-filters.dump'
     if backup.exists():
         raise CommandError('backup_already_exists_use_new_run_directory')
+    dump, restore = backup_tools(connection)
     cfg = connection.settings_dict
     env = os.environ.copy()
     env['PGPASSWORD'] = str(cfg.get('PASSWORD') or '')
-    args = ['pg_dump', '--format=custom', '--no-password', '--file', str(backup),
+    args = [dump, '--format=custom', '--no-password', '--file', str(backup),
             '--host', str(cfg.get('HOST') or 'localhost'), '--port', str(cfg.get('PORT') or 5432),
             '--username', str(cfg['USER']), '--dbname', str(cfg['NAME'])]
     fd = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -45,9 +100,10 @@ def backup_central(connection, directory):
         subprocess.run(args, env=env, check=True, capture_output=True, timeout=300)
         if backup.stat().st_size == 0:
             raise CommandError('empty_central_backup')
-        subprocess.run(['pg_restore', '--list', str(backup)], check=True, capture_output=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        raise CommandError('central_backup_failed_no_schema_applied') from None
+        subprocess.run([restore, '--list', str(backup)], check=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        # Log only a fixed category, never raw pg_dump output or connection values.
+        raise CommandError('central_backup_failed_no_schema_applied:' + backup_error_code(error)) from None
     return backup
 
 

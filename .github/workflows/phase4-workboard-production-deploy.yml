@@ -6,6 +6,7 @@ on:
       - release/stabilized-deploy
     paths:
       - .github/workflows/phase4-workboard-production-deploy.yml
+      - control/management/commands/activate_saved_filters.py
       - geoflow_ops/views_dashboard.py
       - geoflow_ops/services/dashboard.py
       - geoflow_ops/views_calendar.py
