@@ -53,3 +53,22 @@ class BackupDiagnosticsTests(SimpleTestCase):
         dump,restore=backup_tools(Mock(pg_version=160004))
         self.assertEqual(dump,'/usr/lib/postgresql/16/bin/pg_dump')
         self.assertEqual(restore,'/usr/lib/postgresql/16/bin/pg_restore')
+
+    @patch('control.management.commands.activate_saved_filters.subprocess.run')
+    @patch('control.management.commands.activate_saved_filters.backup_tools')
+    def test_missing_16_client_prepares_private_bundle_before_dump(self, tools, run):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from control.management.commands.activate_saved_filters import backup_central
+        tools.side_effect=[CommandError('central_backup_compatible_client_missing_server_major_16'),('/private/pg_dump','/private/pg_restore')]
+        def execute(args, **kwargs):
+            if args[0]=='/private/pg_dump':Path(args[args.index('--file')+1]).write_bytes(b'fixture')
+            return Mock()
+        run.side_effect=execute
+        connection=Mock(settings_dict={'USER':'fixture','NAME':'fixture','PASSWORD':'private-value'})
+        with TemporaryDirectory() as directory:
+            backup=backup_central(connection,directory)
+            self.assertTrue(backup.exists())
+            self.assertEqual(run.call_args_list[0].args[0][0],'bash')
+            self.assertTrue(run.call_args_list[0].args[0][1].endswith('/scripts/ops/prepare_private_pg_client.sh'))
+            self.assertEqual(run.call_args_list[1].args[0][0],'/private/pg_dump')
