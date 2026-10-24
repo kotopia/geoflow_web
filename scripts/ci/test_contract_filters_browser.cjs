@@ -42,6 +42,12 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 4건/);
  await filter(conditions);assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 8건/);
  await page.click('#contract-advanced-add');assert.match(await page.locator('#contract-filter-2 .filter-summary').textContent(),/선택 12건/);
+ await page.locator('#contract-filter-2').getByRole('button',{name:'조건 추가',exact:true}).click();
+ await page.locator('#contract-filter-2 .dtsb-data').selectOption({label:'계약금액'});
+ await page.locator('#contract-filter-2 .dtsb-condition').selectOption({label:'이상'});
+ await page.locator('#contract-filter-2 input.dtsb-value').fill('100000000');
+ await page.locator('#contract-filter-2 input.dtsb-value').press('Tab');
+ await page.waitForFunction(()=>document.querySelector('#contract-filter-2 .filter-summary').textContent.includes('선택 2건'));
  await page.click('#contract-filter-1-tab');assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 8건/);
  await page.locator('#contract-filter-1').getByLabel('필터 이름',{exact:true}).fill('최근 용역');
  await page.locator('#contract-filter-1').getByRole('button',{name:'필터조건 저장',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#contract-filter-1 [role=status]').textContent==='저장했습니다.');

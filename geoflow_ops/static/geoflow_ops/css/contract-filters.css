@@ -8,6 +8,8 @@
 #contract-filter-panes .filter-table-wrap { overflow-x: auto; }
 #contract-filter-panes .filter-summary { display: flex; gap: 1.25rem; flex-wrap: wrap; }
 @media(max-width: 767px) {
-  #contract-filter-panes .dtsb-group { margin-left: .5rem !important; }
   #contract-filter-panes .dtsb-criteria select { max-width: 100%; }
 }
+
+#contract-filter-panes .filter-table-wrap table { min-width: 900px; }
+#contract-filter-panes .filter-table-wrap th { white-space: nowrap; }
