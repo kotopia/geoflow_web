@@ -71,7 +71,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 12건/);
  await filter([term('events','표시 중인 이벤트','string','contains',['중지'])]);
  assert.match(await page.locator('#contract-filter-1 .filter-summary').textContent(),/선택 1건/);
- await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);await page.screenshot({path:'artifacts/contract-filters/mobile.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(450);await page.screenshot({path:'artifacts/contract-filters/mobile.png',fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.click('#contract-base-tab');
  await page.getByRole('button',{name:'계약 메뉴',exact:true}).click();
