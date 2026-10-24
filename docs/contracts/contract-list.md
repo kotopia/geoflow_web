@@ -118,3 +118,14 @@ SearchBuilder의 안전한 ORM 변환을 별도 적용해야 한다. 기존 화�
 
 운영 배포 전: CI 전체 통과, 중앙 0008 적용 계획/승인 및 운영 backup 확인,
 실제 계정의 저장·불러오기 및 tenant 전환 확인. 구현·테스트 통과는 운영 migration/배포 완료가 아니다.
+
+### 운영 적용 절차 (2026-10-24 배포 지시)
+
+- 기존 production Environment 승인과 정확한 release SHA 검증을 유지한다.
+- `activate_saved_filters`는 검토된 0008 blob과 **정방향 단일 migration**만 허용한다.
+  처음 적용할 때 서버의 0700 전용 디렉터리에 중앙 DB custom-format 전체 백업(0600)을
+  만들고 pg_restore 목록 검증에 성공해야 DDL을 실행한다. 백업/DB 자격정보는 외부 전송하지 않는다.
+- 트랜잭션·advisory lock·시간 제한 하에 테이블/기록을 함께 적용하고 열과 고유 범위를 검증한다.
+- 기존 `activate_admin_visibility`도 이미 적용된 0007의 후속 migration을 되돌리지 않는다.
+- 재시도는 이미 적용된 0008을 읽어 확인하며, 코드 rollback은 새 테이블과 개인 조건을 보존한다.
+- 서비스 재시작 및 정적 자산·공개 로그인 정상 응답을 별도 확인한다.
