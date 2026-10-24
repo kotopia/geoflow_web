@@ -19,7 +19,7 @@ class ListEventBadgeAndProjectContractParityTests(SimpleTestCase):
         self.assertIn("wf.active_event_labels", contract_list)
         self.assertIn("{% contract_workflow p.contract as wf %}", project_list)
         self.assertIn("wf.active_event_labels", project_list)
-        self.assertIn("active_event_labels_for_contracts", workflow_tags)
+        self.assertIn("active_event_summaries_for_contracts", workflow_tags)
         self.assertIn('Q(scope_type="contract", scope_id__in=ids)', helper)
         self.assertIn('Q(scope_type="project", scope_id__in=project_ids)', helper)
         self.assertIn("project_to_contract", helper)

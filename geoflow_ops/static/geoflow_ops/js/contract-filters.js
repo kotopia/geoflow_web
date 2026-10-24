@@ -47,10 +47,11 @@
       const row={id:tr.dataset.id,href:tr.dataset.href};
       fields.slice(0,9).forEach(([key],i)=>row[key]=tr.children[i].textContent.trim());
       row.amount=tr.dataset.amount;
-      const badges=tr.children[2].querySelectorAll('.badge');
-      row.statusClass=badges[0]?.className||'badge bg-secondary';
-      row.status=badges[0]?.textContent.replace(/^✓\s*/, '').trim()||'';
-      row.events=Array.from(badges).slice(1).map(b=>b.textContent.trim()).join(', ');
+      const stage=tr.children[2].querySelector('.gf-workflow-stage');
+      row.statusClass=stage?.className||'badge bg-secondary';
+      row.status=stage?.textContent.replace(/^✓\s*/, '').trim()||'';
+      row.statusHtml=tr.children[2].innerHTML; // Authorized, escaped server markup; display only.
+      row.events=tr.children[2].dataset.eventLabels||'';
       return row;
     });
     const service=new SavedFilterService(panes.dataset.savedUrl,panes.querySelector('[name=csrfmiddlewaretoken]').value);
@@ -91,7 +92,7 @@
               render:(value,mode,row)=>{
                 if(mode!=='display')return value;
                 if(key==='name'){const a=el('a',null,value);a.href=row.href;return a.outerHTML;}
-                if(key==='status')return el('span',row.statusClass,value).outerHTML;
+                if(key==='status')return row.statusHtml;
                 if(key==='amount')return value===''?'—':money(value);
                 return renderText.display(value);
               }}))],

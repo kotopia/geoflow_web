@@ -8,7 +8,19 @@ const assert = require('node:assert/strict');
   const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.addInitScript(() => localStorage.setItem('adminkit_config_visited', 'true'));
+  await page.addInitScript(() => {
+    localStorage.setItem('adminkit_config_visited', 'true');
+    localStorage.setItem('adminkit_config_sidebarLayout', 'default');
+    window.layoutMismatches=[];
+    function sample(){
+      if(document.getElementById('sidebar')) {
+        const expected=matchMedia('(max-width: 991.98px)').matches?'default':'compact';
+        if(document.body.dataset.sidebarLayout!==expected)window.layoutMismatches.push(document.body.dataset.sidebarLayout);
+      }
+      requestAnimationFrame(sample);
+    }
+    requestAnimationFrame(sample);
+  });
   let fixture = 'tenant';
   await page.route('**/*', route => {
     const u = new URL(route.request().url());
@@ -22,7 +34,7 @@ const assert = require('node:assert/strict');
     if (!fs.existsSync(f)) return route.fulfill({status: 404, body: ''});
     return route.fulfill({path: f, contentType: {'.css':'text/css','.js':'text/javascript','.html':'text/html','.png':'image/png','.woff2':'font/woff2'}[path.extname(f)]});
   });
-  async function open(name, url='/') { fixture=name; await page.goto('http://preview.local'+url); await page.waitForTimeout(450); }
+  async function open(name, url='/') { fixture=name; await page.goto('http://preview.local'+url); await page.waitForTimeout(450); assert.deepEqual(await page.evaluate(()=>window.layoutMismatches),[]); }
   const width = selector => page.locator(selector).evaluate(el => el.getBoundingClientRect().width);
   const css = (selector, property) => page.locator(selector).first().evaluate((el,p)=>getComputedStyle(el)[p],property);
   await open('tenant');
@@ -32,6 +44,12 @@ const assert = require('node:assert/strict');
   assert.equal(await page.locator('#contract-menu a[href*="partner_list"]').count(),0);
   assert.equal(await page.locator('#company-menu a[href*="partner_list"]').count(),1);
   const company=page.locator('[data-bs-target="#company-menu"]');
+  await page.locator('[data-bs-target="#bid-menu"]').click();
+  await page.waitForURL('**/tenant/bid_notice_list/');
+  await page.locator('[data-bs-target="#contract-menu"]').click();
+  await page.waitForURL('**/tenant/contract_list/');
+  await company.click();
+  await page.waitForURL('**/tenant/myinfo_orgunit_list/');
   await company.hover();
   assert(await page.locator('#company-menu').isVisible());
   await page.screenshot({path:'artifacts/compact-layout/desktop.png',fullPage:true});

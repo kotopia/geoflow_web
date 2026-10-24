@@ -74,3 +74,8 @@ body.gf-compact[data-sidebar-layout=compact] .sidebar-nav > .sidebar-item > .sid
   /* Avoid focus zoom on mobile browsers; do not shrink form interaction targets. */
   .gf-compact .form-control, .gf-compact .form-select { font-size: 1rem; }
 }
+
+/* Count visible authorized event records without widening the status column. */
+.gf-workflow-summary { position: relative; display: inline-block; margin: .35rem .45rem .15rem 0; }
+.gf-event-count { position: absolute; top: -.65em; right: -.85em; padding: .15em .35em; line-height: 1; }
+.gf-event-suspension { font-weight: 700; }

@@ -1,0 +1,5 @@
+<span class="gf-workflow-summary" title="{% if wf.active_event_count %}표시 중인 이벤트 {{ wf.active_event_count }}건: {{ wf.active_event_labels|join:', ' }}{% else %}{{ wf.major_label }}{% endif %}">
+  <span class="badge {{ wf.phase_class }} gf-workflow-stage">{% if wf.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ wf.major_label }}</span>
+  {% if wf.active_event_count %}<span class="badge rounded-pill bg-danger gf-event-count" aria-label="표시 중인 이벤트 {{ wf.active_event_count }}건">{{ wf.active_event_count }}</span>{% endif %}
+</span>{% if wf.has_active_suspension %}<span class="text-danger ms-1 gf-event-suspension" title="표시 중인 중지 이벤트" aria-label="표시 중인 중지 이벤트">Ⅱ</span>{% endif %}
+<span class="visually-hidden">{{ wf.active_event_labels|join:', ' }}</span>

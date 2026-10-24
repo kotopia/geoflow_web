@@ -18,7 +18,7 @@ wf=types.ModuleType('filter_workflow'); wf.register=Library()
 @wf.register.simple_tag
 def contract_workflow(c):
     complete=c['code']=='24001'
-    return dict(filter_key='complete' if complete else 'active',is_complete=complete,major_code='settlement' if complete else 'execution',major_label='완료' if complete else '수행',phase_class='bg-secondary' if complete else 'bg-success',active_event_labels=['중지'] if c['code']=='26002' else [])
+    return dict(filter_key='complete' if complete else 'active',is_complete=complete,major_code='settlement' if complete else 'execution',major_label='완료' if complete else '수행',phase_class='bg-secondary' if complete else 'bg-success',active_event_labels=['중지'] if c['code']=='26002' else [],active_event_count=3 if c['code']=='26002' else 0,has_active_suspension=c['code']=='26002')
 sys.modules['filter_workflow']=wf
 root=Path.cwd()
 engine=Engine(dirs=[str(root/'geoflow_ops/templates'),str(root/'control/templates')],libraries={'static':'django.templatetags.static','l10n':'django.templatetags.l10n','humanize':'django.contrib.humanize.templatetags.humanize','acl_tags':'filter_acl','workflow_tags':'filter_workflow'})

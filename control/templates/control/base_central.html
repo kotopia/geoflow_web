@@ -16,7 +16,8 @@
 
   <link rel="stylesheet" href="{% static 'control/css/geoflow-compact.css' %}">
 </head>
-<body class="gf-compact" data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="default">
+<body class="gf-compact" data-theme="default" data-layout="fluid" data-sidebar-position="left" data-sidebar-layout="compact">
+  {% include "control/partials/sidebar_layout_init.html" %}
   <div class="wrapper">
     {% include "control/partials/sidebar.html" %}
     <div class="main">

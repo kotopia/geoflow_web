@@ -1,6 +1,6 @@
 """DB/S3-free regressions for the independent Finance permission boundary."""
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -16,7 +16,7 @@ from geoflow_ops import (
 )
 from geoflow_ops.models import ProcessEvent
 from geoflow_ops.services import entity_access, finance_access
-from geoflow_ops.services.active_event_badges import active_event_labels_for_contracts
+from geoflow_ops.services.active_event_badges import active_event_labels_for_contracts, active_event_summaries_for_contracts
 from geoflow_ops.services.workflow_state import contract_workflow_summaries
 
 
@@ -301,6 +301,37 @@ class FinancePresentationPermissionTests(SimpleTestCase):
             for request in (None, request_for({"contracts.view"})):
                 self.assertEqual(active_event_labels_for_contracts("tenant-test", [contract_id], request=request)[str(contract_id)], [])
             self.assertTrue(active_event_labels_for_contracts("tenant-test", [contract_id], request=request_for({"finance.view"}))[str(contract_id)])
+
+    def test_event_count_counts_records_and_preserves_visibility_boundaries(self):
+        from django.utils import timezone
+        contract_id, project_id = uuid4(), uuid4()
+        ordinary = [event_for(scope_id=contract_id) for _ in range(2)]
+        suspended = event_for(scope="project", scope_id=project_id)
+        suspended.event_type = "suspend"
+        finance = event_for(finance=True, scope_id=contract_id)
+        expired, future, void, disabled = [event_for(scope_id=contract_id) for _ in range(4)]
+        events = ordinary + [suspended, finance, expired, future, void, disabled]
+        for event in events:
+            event.occurred_at = timezone.localdate()
+            event.payload = {"display": {"highlight_enabled": True, "until_closed": True}}
+        expired.payload = {"display": {"highlight_enabled": True, "end_at": str(timezone.localdate()-timedelta(days=1))}}
+        future.occurred_at += timedelta(days=1)
+        void.status = "void"
+        disabled.payload = {}
+        with patch("geoflow_ops.services.active_event_badges._process_events_ready", return_value=True), patch("geoflow_ops.services.active_event_badges.Project.objects") as projects, patch.object(ProcessEvent, "objects") as manager, patch.object(entity_access, "authorize_scope_read", return_value=True):
+            projects.using.return_value.filter.return_value.values_list.return_value = [(project_id, contract_id)]
+            manager.using.return_value.filter.return_value.exclude.return_value.only.return_value.order_by.return_value = events
+            summary = active_event_summaries_for_contracts("tenant-test", [contract_id], request=request_for({"contracts.view"}))[str(contract_id)]
+            self.assertEqual(summary["count"], 3)
+            self.assertEqual(len(summary["labels"]), 2)
+            self.assertTrue(summary["has_suspension"])
+            summary = active_event_summaries_for_contracts("tenant-test", [contract_id], request=request_for({"contracts.view", "finance.view"}))[str(contract_id)]
+            self.assertEqual(summary["count"], 4)
+            manager.using.assert_called_with("tenant-test")
+            with patch.object(entity_access, "authorize_scope_read", return_value=False):
+                summary = active_event_summaries_for_contracts("tenant-test", [contract_id], request=request_for({"contracts.view", "finance.view"}))[str(contract_id)]
+                self.assertEqual(summary["count"], 0)
+                self.assertFalse(summary["has_suspension"])
 
     def test_finance_badge_filter_does_not_change_workflow_state(self):
         contract = SimpleNamespace(id=uuid4())

@@ -4,7 +4,7 @@ from django import template
 from django.db import connections
 
 from control.middleware import current_db_alias
-from geoflow_ops.services.active_event_badges import active_event_labels_for_contracts
+from geoflow_ops.services.active_event_badges import active_event_summaries_for_contracts
 from geoflow_ops.services.contract_access import (
     access_request_state,
     can_approve_contract_document_access,
@@ -34,9 +34,12 @@ def contract_workflow(context, contract):
     if cache is None:
         rows = _workflow_rows_from_context(context, contract)
         cache = contract_workflow_summaries(alias, rows, request=request)
-        active_labels = active_event_labels_for_contracts(alias, [row.id for row in rows], request=request)
+        active_events = active_event_summaries_for_contracts(alias, [row.id for row in rows], request=request)
         for contract_id, summary in cache.items():
-            summary["active_event_labels"] = active_labels.get(str(contract_id), summary.get("active_event_labels", []))
+            events = active_events.get(str(contract_id), {})
+            summary["active_event_labels"] = events.get("labels", [])
+            summary["active_event_count"] = events.get("count", 0)
+            summary["has_active_suspension"] = events.get("has_suspension", False)
         request._gf_contract_workflow_cache = cache
     return cache.get(str(contract.id), {"major_label": "-", "stage_label": "-", "major_code": "", "stage": "", "active_event_labels": []})
 

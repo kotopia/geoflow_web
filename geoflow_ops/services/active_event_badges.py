@@ -49,7 +49,7 @@ def _highlight_active(event) -> bool:
     return today <= occurred + timedelta(days=days - 1)
 
 
-def active_event_labels_for_contracts(alias: str, contract_ids, *, request=None) -> dict[str, list[str]]:
+def active_event_summaries_for_contracts(alias: str, contract_ids, *, request=None) -> dict[str, dict]:
     """Return active event labels using both canonical and legacy lineage.
 
     Older ProcessEvent rows can have contract_id/project_id unset while their
@@ -59,9 +59,9 @@ def active_event_labels_for_contracts(alias: str, contract_ids, *, request=None)
     empty badge lists rather than making contract/project navigation unavailable.
     """
     ids = [str(value) for value in contract_ids if value]
-    labels: dict[str, list[str]] = {contract_id: [] for contract_id in ids}
+    summaries = {contract_id: {"labels": [], "count": 0, "has_suspension": False} for contract_id in ids}
     if not ids or not _process_events_ready(alias):
-        return labels
+        return summaries
 
     project_rows = Project.objects.using(alias).filter(contract_id__in=ids).values_list("id", "contract_id")
     project_to_contract = {str(project_id): str(contract_id) for project_id, contract_id in project_rows}
@@ -85,14 +85,24 @@ def active_event_labels_for_contracts(alias: str, contract_ids, *, request=None)
         elif not has_event_finance_permission(None, event.stage, event.event_type, write=False):
             # Non-request callers must never return Finance presentation data.
             continue
-        contract_id = str(event.contract_id) if event.contract_id and str(event.contract_id) in labels else None
-        if contract_id is None and event.scope_type == "contract" and str(event.scope_id) in labels:
+        contract_id = str(event.contract_id) if event.contract_id and str(event.contract_id) in summaries else None
+        if contract_id is None and event.scope_type == "contract" and str(event.scope_id) in summaries:
             contract_id = str(event.scope_id)
         if contract_id is None and event.scope_type == "project":
             contract_id = project_to_contract.get(str(event.scope_id))
         if not contract_id or not _highlight_active(event):
             continue
         label = _EVENT_TYPE_LABELS.get(str(event.event_type or "").strip(), str(event.event_type or "").strip())
-        if label and label not in labels[contract_id]:
-            labels[contract_id].append(label)
-    return labels
+        summary = summaries[contract_id]
+        summary["count"] += 1
+        summary["has_suspension"] |= event.event_type == "suspend"
+        if label and label not in summary["labels"]:
+            summary["labels"].append(label)
+    return summaries
+
+
+def active_event_labels_for_contracts(alias: str, contract_ids, *, request=None) -> dict[str, list[str]]:
+    """Compatibility for label-only callers; counts share the same authorized query."""
+    return {key: value["labels"] for key, value in active_event_summaries_for_contracts(
+        alias, contract_ids, request=request
+    ).items()}
