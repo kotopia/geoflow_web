@@ -104,6 +104,26 @@ project configuration names the permitted source/target fields. `NearbyService`
 only finds and orders candidates; it never decides which business attributes
 to copy.
 
+### Survey creation and point deletion diagnostics
+
+Creation preflight compares target layer and resolved storage `ftr_cde` within
+the active project's configured nearby radius (default 2.0 metres). Different
+layers or storage codes do not conflict merely because their points are close.
+Auxiliary depth targets are included when that creation mode is selected.
+Batch errors identify both source row labels, the shared targets, and the WGS84
+ellipsoidal distance. Structured diagnostics also include both Survey UUIDs and
+management numbers. Each failed point may conflict with a different earlier
+selected point, rather than with another failed point.
+
+Existing GIS features with missing `ftr_cde` do not match a resolved storage
+code; coordinates or equal UUIDs are not substitutes for facility identity.
+Investigate those records as data quality issues without guessing their code.
+
+Survey Point DELETE uses ordinary changesets independently of creation
+preflight. The server must accept the operation before local provider commit.
+A DELETE payload alone is not proof of success: inspect HTTP response, revision,
+provider result, and server/local readback. Source deletion is a separate API.
+
 ## Release packaging
 
 The 1.4.3 release preserves the package identity and the existing QGIS 3.28?4.99 metadata range. Direct runtime verification is on QGIS 4.2.2. The repository builder excludes development tests, logs, per-user state, source-only scripts and release outputs. The cache Python package is required code and remains included. ZIP files remain untracked under the repository policy. See the release manifest and CHANGELOG for exact build and validation evidence.

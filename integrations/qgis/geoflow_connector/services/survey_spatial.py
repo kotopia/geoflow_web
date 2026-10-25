@@ -44,11 +44,17 @@ def nearby_targets(plugin, point, layer, code):
     )
 
 
-def points_overlap(plugin, first, second):
+def overlap_distance_m(plugin, first, second):
+    """Return the matching distance in metres, or None outside the radius."""
     distance = QgsDistanceArea()
     distance.setSourceCrs(QgsCoordinateReferenceSystem('EPSG:4326'),
                           QgsProject.instance().transformContext())
     distance.setEllipsoid('WGS84')
-    return within_radius(distance.measureLine(point_geometry(first).asPoint(),
-                                              point_geometry(second).asPoint()),
-                         GeoFlowSettingsService(plugin).get_default_nearby_radius())
+    metres = distance.measureLine(point_geometry(first).asPoint(),
+                                  point_geometry(second).asPoint())
+    radius = GeoFlowSettingsService(plugin).get_default_nearby_radius()
+    return metres if within_radius(metres, radius) else None
+
+
+def points_overlap(plugin, first, second):
+    return overlap_distance_m(plugin, first, second) is not None
