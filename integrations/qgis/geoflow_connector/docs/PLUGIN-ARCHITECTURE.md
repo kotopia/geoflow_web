@@ -1,4 +1,25 @@
-# GeoFlow Connector 1.4.3
+# GeoFlow Connector 1.4.4 candidate
+
+Survey inspection separates server-current observations from historical Source
+deletion evidence. Empty retained sets are not file choices. Source deletion
+requires the explicit server `source_and_points_soft_delete_v1` contract before
+confirmation and execution; older servers are blocked. The approved policy is
+Source + Point logical deletion while GIS assets remain independent.
+
+`ui/survey_inspection.py` owns read-only details, UUID copy, timed canvas highlights
+and pair comparison. Selection is independent of creation checkboxes. It never
+switches active layers or saves forms/edits. Missing current coordinates are not
+filled with raw values, and mapping requires geometry or explicit verified CRS.
+List UUID item data survives sorting; GIS comparison peers use layer ID/object UUID.
+The unmerged PR #431 metric duplicate diagnostics are incorporated without changing
+their target/radius criteria. Server and wire details are in
+[Survey contract](gis-survey-lineage-contract-v1.md).
+
+1.4.3 metadata, inventory and changed original runtime bytes are archived in
+`release/1.4.3`. Its exact ZIP SHA256 regression remains pinned to
+`8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5`.
+The new candidate has a separate inventory/hash. No existing published object
+is overwritten and no deployment is implied by local validation.
 
 ## Object edit session
 

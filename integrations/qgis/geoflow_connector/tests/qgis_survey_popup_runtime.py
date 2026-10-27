@@ -562,84 +562,38 @@ class PopupTests(unittest.TestCase):
 
 
 
-    def test_source_only_delete_preserves_points_and_features(self):
+    def test_unknown_delete_contract_blocks_before_confirmation_and_http(self):
         popup = SurveyPanel(self.plugin, self.window)
         self.select_source(popup)
-        base_get = self.plugin.active_client.get_json.side_effect
-        connected = {'delete': {'can_delete': False, 'blocked_reason': 'survey_source_in_use',
-                              'point_count': 22,
-                              'version': 1,
-                              'is_active': True, 'child_version_count': 0,
-                              'has_archived_object': True,
-                              'original_file_key': 'private/source.csv'}}
-        current = connected
-        self.plugin.active_client.get_json.side_effect = (
-            lambda url: current if f'survey-sources/{SOURCE}/' in url else base_get(url))
-        self.plugin.active_client.delete_json_detailed.return_value = {
-            'source_deleted': True, 'survey_points_deleted': 0,
-            'facilities_deleted': 0,
-            'deleted_point_count': 0,
-            'retained_point_count': 22, 'retained_target_count': 12,
-            'deleted_object': False, 'cleanup_pending': True,
-        }
-        point_rows_before = list(popup.point_rows)
-        feature_count = self.layer.featureCount()
-        with patch.object(popup, '_confirm_source_only_delete', return_value=True), \
-             patch('geoflow_connector.ui.survey_panel.QgsMessageLog.logMessage') as log:
+        self.plugin.active_client.get_json.return_value = {'delete': {'can_delete': True, 'point_count': 1}}
+        self.plugin.active_client.get_json.side_effect = None
+        with patch.object(popup, '_confirm_source_delete') as confirm, self.assertRaisesRegex(ValueError, '계약'):
             popup.delete_source()
-        self.plugin.active_client.delete_json_detailed.assert_called_with(
-            f'https://example.invalid/gis/projects/{PROJECT}/api/'
-            f'survey-sources/{SOURCE}/?mode=source_only'
-        )
-        self.assertEqual(popup.sourceCombo.findData(SOURCE), -1)
-        self.assertGreaterEqual(popup.sourceCombo.findData(popup.RETAINED_POINTS), 0)
-        self.assertEqual(popup.point_rows, point_rows_before)
-        self.assertEqual(self.layer.featureCount(), feature_count)
-        self.assertIn('원본 파일 정리가 지연', popup.statusLabel.text())
-        messages = [call.args[0] for call in log.call_args_list]
-        self.assertTrue(any('[SURVEY_SOURCE_DELETE] survey_count=22' in value
-                            for value in messages))
-        self.assertTrue(any('[SURVEY_SOURCE_DELETE] server_result={' in value
-                            for value in messages))
-        self.assertTrue(any(f'[SURVEY_SOURCE_DELETE] project_id={PROJECT}' in value
-                            for value in messages))
-        self.assertTrue(any('[SURVEY_SOURCE_DELETE] mode=source_only' in value
-                            for value in messages))
-        self.assertTrue(any('[SURVEY_SOURCE_DELETE] source_deleted=True' in value
-                            for value in messages))
-        self.assertTrue(any('[SURVEY_SOURCE_DELETE] survey_points_deleted=0' in value
-                            for value in messages))
-        reopened = SurveyPanel(self.plugin, self.window)
-        retained_index = reopened.sourceCombo.findData(reopened.RETAINED_POINTS)
-        self.assertGreaterEqual(retained_index, 0)
-        self.assertEqual(reopened.sourceCombo.findData(SOURCE), -1)
-        reopened.sourceCombo.setCurrentIndex(retained_index)
-        reopened.points()
-        self.assertEqual([row['id'] for row in reopened.point_rows], [SURVEY])
-        self.assertFalse(hasattr(reopened, '_links_by_point'))
-        reopened.close(); reopened.deleteLater()
-        popup.close(); popup.deleteLater()
+        confirm.assert_not_called()
+        self.plugin.active_client.delete_json_detailed.assert_not_called()
+        popup.close()
 
-    def test_source_only_rejects_server_child_deletion_response(self):
+    def test_confirmed_soft_delete_does_not_register_retained_points(self):
         popup = SurveyPanel(self.plugin, self.window)
         self.select_source(popup)
-        base_get = self.plugin.active_client.get_json.side_effect
-        allowed = {'delete': {
-            'can_delete_source_only': True, 'point_count': 1,
-        }}
-        self.plugin.active_client.get_json.side_effect = (
-            lambda url: allowed if f'survey-sources/{SOURCE}/' in url else base_get(url)
-        )
-        self.plugin.active_client.delete_json_detailed.return_value = {
-            'source_deleted': True, 'survey_points_deleted': 1,
-            'facilities_deleted': 0,
-        }
-        with patch.object(popup, '_confirm_source_only_delete', return_value=True), \
-             self.assertRaisesRegex(RuntimeError, 'Survey Point'):
+        response = {'ok': True, 'deletion_policy': 'source_and_points_soft_delete_v1',
+                    'source_id': SOURCE, 'source_deleted': True, 'survey_points_deleted': 1,
+                    'facilities_deleted': 0}
+        check = {'ok': True, 'delete': {'deletion_policy': response['deletion_policy'],
+                 'can_delete': True, 'point_count': 1}}
+        self.plugin.active_client.get_json.side_effect = lambda url: (
+            check if f'survey-sources/{SOURCE}/' in url else
+            {'ok': True, 'points': []} if 'survey-points/' in url else {'ok': True, 'sources': []})
+        self.plugin.active_client.delete_json_detailed.return_value = response
+        self.plugin._pull_and_apply_delta = Mock()
+        count = self.layer.featureCount()
+        with patch.object(popup, '_confirm_source_delete', return_value=True):
             popup.delete_source()
-        self.assertGreaterEqual(popup.sourceCombo.findData(SOURCE), 0)
+        self.assertEqual(self.layer.featureCount(), count)
         self.assertNotIn(SOURCE, popup._deleted_source_ids())
-        popup.close(); popup.deleteLater()
+        self.assertEqual(popup.sourceCombo.findData(popup.RETAINED_POINTS), -1)
+        self.assertIn('mode=source_and_points', self.plugin.active_client.delete_json_detailed.call_args.args[0])
+        popup.close()
 
     def test_explicit_raw_code_aliases_and_unknown_passes_through(self):
         settings = QSettings(
@@ -804,22 +758,17 @@ class PopupTests(unittest.TestCase):
         self.assertEqual(set(read_mappings(settings, legacy_key)), {"j", "je"})
         popup.close(); popup.deleteLater()
 
-    def test_source_only_delete_keeps_non_link_safety_blockers(self):
+    def test_explicit_delete_denial_is_never_overridden(self):
         popup = SurveyPanel(self.plugin, self.window)
         self.select_source(popup)
-        base_get = self.plugin.active_client.get_json.side_effect
-        blocked = {'delete': {
-            'can_delete': False, 'blocked_reason': 'invalid_object_key',
-            'point_count': 1, 'linked_target_count': 1,
-        }}
-        self.plugin.active_client.get_json.side_effect = (
-            lambda url: blocked if f'survey-sources/{SOURCE}/' in url else base_get(url)
-        )
-        with patch('geoflow_connector.ui.survey_panel.QMessageBox.information') as info:
+        self.plugin.active_client.get_json.side_effect = None
+        self.plugin.active_client.get_json.return_value = {'delete': {
+            'deletion_policy': 'source_and_points_soft_delete_v1', 'can_delete': False,
+            'point_count': 1, 'blocked_reason': 'survey_source_in_use'}}
+        with self.assertRaises(ValueError):
             popup.delete_source()
-        info.assert_called_once()
         self.plugin.active_client.delete_json_detailed.assert_not_called()
-        popup.close(); popup.deleteLater()
+        popup.close()
 
     def test_individual_feature_opens_dynamic_form_draft(self):
         get = self.plugin.active_client.get_json.side_effect

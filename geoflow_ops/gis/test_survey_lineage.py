@@ -140,7 +140,8 @@ class SurveyLineageContractTests(SimpleTestCase):
         sources = (root / "geoflow_ops" / "gis" / "survey_sources.py").read_text(encoding="utf-8")
         self.assertIn("expires_in=900", views)
         self.assertIn('"object_key": key, **signed', views)
-        self.assertIn("LIMIT 5000", views)
+        self.assertIn("LIMIT 5001", views)
+        self.assertIn('"truncated": len(rows) > 5000', views)
         self.assertIn('"points": points', views)
         self.assertNotIn("working_crs", sources)
 

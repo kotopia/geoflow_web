@@ -344,7 +344,7 @@ class Command(BaseCommand):
                             raise CommandError("survey_upload_smoke_delete_precheck=blocked")
                         delete_result = _json(call(
                             "DELETE",
-                            f"/gis/projects/{project_id}/api/survey-sources/{source_id}/",
+                            f"/gis/projects/{project_id}/api/survey-sources/{source_id}/?mode=source_and_points&deletion_policy=source_and_points_soft_delete_v1",
                         ))
                         after_sources = _json(call(
                             "GET", f"/gis/projects/{project_id}/api/survey-sources/"

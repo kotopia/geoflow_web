@@ -2,6 +2,7 @@
 import importlib.util
 import os
 import sqlite3
+from contextlib import closing
 import sys
 import threading
 import unittest
@@ -23,6 +24,7 @@ django.setup()
 from django.db import connections, transaction, IntegrityError
 from django.test.utils import CaptureQueriesContext
 from geoflow_ops.gis.survey_sources import import_survey_source, delete_survey_points, delete_survey_source
+from geoflow_ops.gis.survey_sources import list_survey_sources, survey_source_delete_precheck
 from geoflow_ops.gis.survey_final import decimal_input, survey_method
 from geoflow_ops.gis.survey_backfill import backfill_survey_project
 from geoflow_ops.gis.changeset import project_delta, apply_project_changeset, _reserve_receipt, _insert_change_log, _allocate_revisions
@@ -39,7 +41,7 @@ def bootstrap():
         c.execute('SELECT current_database()')
         assert c.fetchone()[0] == 'survey_final_test'
         c.execute('CREATE EXTENSION IF NOT EXISTS postgis; CREATE SCHEMA prj; CREATE SCHEMA gis; CREATE SCHEMA hr;')
-        c.execute('CREATE TABLE prj.projects(id uuid PRIMARY KEY); CREATE TABLE hr.employee_profile(id uuid PRIMARY KEY,is_deleted boolean DEFAULT false);')
+        c.execute('CREATE TABLE prj.projects(id uuid PRIMARY KEY); CREATE TABLE hr.employee_profile(id uuid PRIMARY KEY,name text,is_deleted boolean DEFAULT false);')
         for name in ('0044_gis_survey_lineage','0045_gis_survey_soft_delete','0046_gis_survey_final_fields'):
             spec = importlib.util.spec_from_file_location(name, ROOT/'geoflow_ops/migrations'/f'{name}.py')
             module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -79,6 +81,36 @@ def plan():
 
 
 class SurveyFinalTests(unittest.TestCase):
+    def test_inventory_separates_retained_deleted_and_active(self):
+        result = self.run_import(self.payload(count=2))
+        source = result['source_id']
+        self.assertEqual(survey_source_delete_precheck('default', project_id=self.project, source_id=source)['deletion_policy'], 'source_and_points_soft_delete_v1')
+        delete_survey_points('default', project_id=self.project, survey_ids=[result['points'][0]['id']])
+        inventory = list_survey_sources('default', project_id=self.project, include_deleted=True)
+        self.assertEqual((inventory[0]['point_count'], inventory[0]['deleted_point_count']), (1, 1))
+        # Historical preservation fixture, never a new production deletion policy.
+        with connections['default'].cursor() as c:
+            c.execute("UPDATE gis.survey_source SET deleted_at=now(),delete_reason='isolated_retained_fixture' WHERE id=%s", [source])
+        self.assertEqual(list_survey_sources('default', project_id=self.project), [])
+        inventory = list_survey_sources('default', project_id=self.project, include_deleted=True)
+        self.assertEqual(inventory[0]['point_count'], 1)
+        # Execute the actual route body against PostGIS without booting unrelated apps.
+        import ast
+        import json
+        from types import SimpleNamespace
+        from django.http import JsonResponse
+        tree = ast.parse((ROOT/'geoflow_ops/gis/survey_views.py').read_text(encoding='utf-8'))
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'project_survey_points_api')
+        function.decorator_list = []
+        namespace = {'connections': connections, 'JsonResponse': JsonResponse,
+                     '_context': lambda request, pid: ('default', SimpleNamespace(id=pid), {})}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), 'survey_views.py', 'exec'), namespace)
+        response = namespace['project_survey_points_api'](SimpleNamespace(GET={'source_state':'retained'}), self.project)
+        rows = json.loads(response.content)['points']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['source_state'], 'deleted')
+        self.assertEqual(rows[0]['current_crs'], 'EPSG:5186')
+
     def setUp(self):
         self.project = str(uuid4())
         with connections['default'].cursor() as c:
@@ -142,7 +174,7 @@ class SurveyFinalTests(unittest.TestCase):
             self.assertTrue({'survey_no','type','raw_x','raw_y','raw_z','x','y','z','longitude','latitude','antenna_height','survey_date','code','raw_code'} <= set(change['attributes']))
         path,meta=build_project_geopackage_file('default',project_id=self.project,plan=plan())
         try:
-            with sqlite3.connect(path) as c:
+            with closing(sqlite3.connect(path)) as c:
                 self.assertEqual(c.execute('SELECT count(*) FROM survey WHERE survey_no IS NOT NULL AND type=? AND x=? AND y=? AND z=?',('GNSS',235768.352,413130.660,49.196)).fetchone()[0],25)
                 self.assertEqual(c.execute('SELECT srs_id FROM gpkg_geometry_columns WHERE table_name=?',('survey',)).fetchone()[0],4326)
         finally:

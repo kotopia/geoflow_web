@@ -160,12 +160,14 @@ class SurveyController:
         if not isinstance(payload, dict) or not isinstance(payload.get("delete"), dict):
             raise ValueError("Source 삭제 사전 확인 응답에 delete 객체가 없습니다.")
         check = dict(payload["delete"])
-        allowed = check.get("can_delete_source_only", check.get("can_delete"))
+        if check.get("deletion_policy") != "source_and_points_soft_delete_v1":
+            raise ValueError("서버의 Source·측점 논리 삭제 계약을 확인할 수 없어 삭제를 중단했습니다. 서버와 Connector 업데이트가 필요합니다.")
+        allowed = check.get("can_delete")
         if type(allowed) is not bool:
             raise ValueError("Source 삭제 사전 확인 응답의 can_delete가 유효하지 않습니다.")
         check["can_delete"] = allowed
-        if check.get("source_only_blocked_reason") is not None:
-            check["blocked_reason"] = check.get("source_only_blocked_reason")
+        if type(check.get('point_count')) is not int or check['point_count'] < 0:
+            raise ValueError('삭제 대상 측점 수를 확인할 수 없습니다.')
         return check
 
     def source_delete_precheck(self, source_id):
@@ -175,35 +177,29 @@ class SurveyController:
         return payload, self._delete_precheck(payload)
 
     def delete_source(self, source_id):
-        """Delete Source metadata/file only; Survey points and GIS features must survive."""
+        """Soft delete Source and points; never modify GIS assets."""
         self.clean()
         _, api = self.context(write=True)
         latest = self._delete_precheck(api.source(source_id))
-        source_only_allowed = {
-            "survey_source_in_use",
-        }
         reason = str(latest.get("blocked_reason") or "")
-        if not latest["can_delete"] and reason not in source_only_allowed:
+        if not latest["can_delete"]:
             raise ValueError("Source 상태가 변경되어 삭제할 수 없습니다: " +
                              (reason or "unknown"))
         response = api.delete_source(source_id)
         if not isinstance(response, dict):
             raise ValueError("Source 삭제 응답이 JSON 객체가 아닙니다.")
+        if response.get('ok') is not True or response.get('deletion_policy') != 'source_and_points_soft_delete_v1':
+            raise RuntimeError('삭제 응답 계약 불일치: 자동 재시도하지 말고 서버 상태를 재조회하세요.')
         source_deleted = response.get("source_deleted")
         if source_deleted is None:
             source_deleted = str(response.get("deleted_source_id") or "") == str(source_id)
-        survey_points_deleted = int(response.get(
-            "survey_points_deleted", response.get("deleted_point_count", 0)
-        ) or 0)
-        facilities_deleted = int(response.get("facilities_deleted", 0) or 0)
+        survey_points_deleted = response.get('survey_points_deleted')
+        facilities_deleted = response.get('facilities_deleted')
+        if type(survey_points_deleted) is not int or survey_points_deleted < 0 or type(facilities_deleted) is not int:
+            raise RuntimeError('삭제 결과 건수를 확인할 수 없습니다. 자동 재시도하지 마세요.')
         if source_deleted is not True:
             raise RuntimeError(
                 "Source-only response did not confirm source_deleted=true."
-            )
-        if survey_points_deleted != 0:
-            raise RuntimeError(
-                "Source-only 삭제 응답이 Survey Point 삭제를 보고했습니다. "
-                "서버 삭제 정책을 확인하세요."
             )
         if facilities_deleted != 0:
             raise RuntimeError(

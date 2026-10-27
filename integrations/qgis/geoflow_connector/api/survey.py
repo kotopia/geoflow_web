@@ -180,18 +180,22 @@ class SurveyApi:
     def _post(self, endpoint, payload):
         return self.client.post_json(self.root + endpoint + "/", payload)
 
-    def sources(self, *, include_inactive=False):
-        return self._get("survey-sources", **(
-            {"include_inactive": 1} if include_inactive else {}))
+    def sources(self, *, include_inactive=False, include_deleted=False):
+        query = {}
+        if include_inactive:
+            query['include_inactive'] = 1
+        if include_deleted:
+            query['include_deleted'] = 1
+        return self._get("survey-sources", **query)
 
     def source(self, source_id):
         """Return the delete precheck fields for one source version."""
         return self._get("survey-sources/" + _uuid(source_id))
 
     def delete_source(self, source_id):
-        """Remove Source metadata/file while retaining Survey points and GIS features."""
+        """Execute only the explicitly acknowledged Source + Point contract."""
         url = (self.root + "survey-sources/" + _uuid(source_id)
-               + "/?mode=source_only")
+               + "/?mode=source_and_points&deletion_policy=source_and_points_soft_delete_v1")
         detailed = getattr(self.client, "delete_json_detailed", None)
         return (detailed or self.client.delete_json)(url)
 
@@ -207,7 +211,10 @@ class SurveyApi:
         return self.client.post_json_detailed(
             self.root + "survey-sources/", payload)
 
-    def points(self, *, source_id=None):
-        return self._get("survey-points", **(
-            {"source_id": _uuid(source_id)} if source_id is not None else {}
-        ))
+    def points(self, *, source_id=None, source_state=None):
+        query = {"source_id": _uuid(source_id)} if source_id is not None else {}
+        if source_state is not None:
+            if source_state != 'retained':
+                raise ValueError('Unsupported Source state')
+            query['source_state'] = source_state
+        return self._get("survey-points", **query)

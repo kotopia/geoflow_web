@@ -67,7 +67,7 @@ def _source_dict(row) -> dict[str, Any]:
     }
 
 
-def list_survey_sources(alias: str, *, project_id: str, include_inactive: bool = False) -> list[dict[str, Any]]:
+def list_survey_sources(alias: str, *, project_id: str, include_inactive: bool = False, include_deleted: bool = False) -> list[dict[str, Any]]:
     with connections[alias].cursor() as cursor:
         cursor.execute(
             """
@@ -79,17 +79,20 @@ def list_survey_sources(alias: str, *, project_id: str, include_inactive: bool =
                    COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
                        'id', ep.id::text, 'name', ep.name
                    )) FILTER (WHERE ep.id IS NOT NULL),'[]'::jsonb),
-                   src.survey_type,src.target_crs
+                   src.survey_type,src.target_crs,src.deleted_at,src.delete_reason,
+                   (SELECT count(*) FROM gis.survey d WHERE d.project_id=src.project_id
+                    AND d.source_id=src.id AND d.deleted_at IS NOT NULL)
               FROM gis.survey_source src
               LEFT JOIN gis.survey s ON s.source_id=src.id AND s.deleted_at IS NULL
               LEFT JOIN hr.employee_profile ep ON ep.id=s.worker_id AND ep.is_deleted=false
-             WHERE src.project_id=%s AND src.deleted_at IS NULL AND (%s OR src.is_active)
+             WHERE src.project_id=%s AND (%s OR src.deleted_at IS NULL) AND (%s OR src.is_active OR src.deleted_at IS NOT NULL)
              GROUP BY src.id
              ORDER BY src.source_group_id,src.version DESC
             """,
-            [project_id, include_inactive],
+            [project_id, include_deleted, include_inactive],
         )
-        return [_source_dict(row) for row in cursor.fetchall()]
+        return [{**_source_dict(row), "deleted_at": row[22].isoformat() if row[22] else None,
+                 "delete_reason": row[23], "deleted_point_count": row[24]} for row in cursor.fetchall()]
 
 
 def survey_source_delete_precheck(
@@ -147,6 +150,8 @@ def survey_source_delete_precheck(
     }
     # Source version history and archived-object handling remain unchanged.
     result["can_delete"] = True
+    result["deletion_policy"] = "source_and_points_soft_delete_v1"
+    result["facilities_deleted"] = 0
     result["blocked_reason"] = None
     return result
 
@@ -656,6 +661,7 @@ def delete_survey_source(
             )
         response = {
             "ok": True, "source_id": source_id, "source_deleted": True,
+            "deletion_policy": "source_and_points_soft_delete_v1",
             "survey_points_deleted": len(events), "deleted_point_count": len(events),
             "facilities_deleted": 0,
             "deleted_object": not bool(archived_object_key), "cleanup_pending": bool(object_key),

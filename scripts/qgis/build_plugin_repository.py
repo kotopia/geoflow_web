@@ -74,7 +74,11 @@ def release_payloads(source: Path, manifest: Path, inventory: Path):
         if hashlib.sha256(data).hexdigest() != item['sha256']:
             # Git text normalization must not change the approved Windows ZIP.
             # Reconstruct only when the declared per-file hash proves the bytes.
-            data = data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+            lf = data.replace(b'\r\n', b'\n')
+            for candidate in (lf, lf.replace(b'\n', b'\r\n')):
+                if len(candidate) == item['size'] and hashlib.sha256(candidate).hexdigest() == item['sha256']:
+                    data = candidate
+                    break
         if len(data) != item['size'] or hashlib.sha256(data).hexdigest() != item['sha256']:
             raise ValueError('Release file bytes differ: ' + item['path'])
         result.append((data, PurePosixPath(PACKAGE_DIR,item['path'])))

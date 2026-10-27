@@ -34,7 +34,8 @@ from ..survey.code_normalizer import (
 from .survey_import_dialog import ImportDialog
 
 from ..survey.creation import apply_target_inheritance
-from ..services.survey_spatial import nearby_targets, points_overlap
+from ..services.survey_spatial import nearby_targets, overlap_distance_m
+from ..services.settings import GeoFlowSettingsService
 
 class SurveyValidationError(ValueError):
     """Actionable Survey validation failure with structured log context."""
@@ -43,6 +44,18 @@ class SurveyValidationError(ValueError):
         super().__init__(message)
         self.reason = str(reason)
         self.context = dict(context)
+
+
+def inventory_rows(payload, kind):
+    if not isinstance(payload, dict) or payload.get('ok') is False:
+        raise ValueError(f'{kind} 조회 실패: 이전 이력은 유지됩니다.')
+    rows = payload.get(kind, payload.get('results'))
+    if not isinstance(rows, list):
+        raise ValueError(f'{kind} 목록 응답이 없어 0건으로 처리할 수 없습니다.')
+    parsed = display_rows({kind: rows}, kind)
+    if len(parsed) != len(rows):
+        raise ValueError(f'{kind} 응답의 행 식별자가 유효하지 않습니다.')
+    return parsed
 
 
 def _import_readback_verification(submitted_points, readback_points,
@@ -181,6 +194,8 @@ class SurveyPanel(QDialog):
         self._install_storage_actions()
         self._install_normalization_actions()
         self._wire()
+        from .survey_inspection import SurveyInspection
+        self.inspection = SurveyInspection(self)
         references = getattr(self.plugin, "_reference_service", None)
         if references is not None and hasattr(references, "changed"):
             references.changed.connect(self._reference_catalog_changed)
@@ -405,25 +420,30 @@ class SurveyPanel(QDialog):
 
     def sources(self, *, refresh_settings=True):
         _, api = self.controller.context()
-        payload = api.sources(include_inactive=True)
-        deleted_ids = self._deleted_source_ids()
-        rows = [
-            row for row in display_rows(payload, "sources")
-            if str(row.get("id") or "") not in deleted_ids
-            and not row.get("is_deleted") and not row.get("deleted_at")
-        ]
+        payload = api.sources(include_inactive=True, include_deleted=True)
+        all_sources = inventory_rows(payload, "sources")
+        rows = [row for row in all_sources if not row.get('deleted_at') and not row.get('is_deleted')]
+        point_payload = api.points(source_state='retained')
+        if not isinstance(point_payload, dict) or point_payload.get('ok') is False:
+            raise ValueError('보존 측점 조회 실패: 이전 이력은 유지됩니다.')
+        all_points = inventory_rows(point_payload, 'points')
+        self._inventory_incomplete = point_payload.get('truncated', len(all_points) >= 5000)
+        known = {str(row['id']) for row in rows}
+        self._retained_rows = [row for row in all_points
+                              if str(row.get('source_id') or '') not in known]
+        self._source_history = [row for row in all_sources if row.get('deleted_at')]
+        self._history_supported = payload.get('source_inventory_version') == 1
         selected = self.sourceCombo.currentData()
         self.sourceCombo.blockSignals(True); self.sourceCombo.clear()
         self.sourceCombo.addItem(self.SOURCE_PLACEHOLDER_TEXT, None)
         for row in rows:
-            label = f"{row.get('original_file_name', '측량자료')} · v{row.get('version', '-')}"
+            label = f"{row.get('original_file_name', '측량자료')} · 활성 측점 {row.get('point_count', '미확인')}점"
             if not row.get("is_active", True): label += " · 비활성"
             self.sourceCombo.addItem(label, str(row["id"]))
-        if deleted_ids:
+        if self._retained_rows:
+            suffix = ' 이상 · 조회 불완전' if self._inventory_incomplete else ''
             self.sourceCombo.addItem(
-                f"보존된 Survey Point · Source {len(deleted_ids)}개 삭제됨",
-                self.RETAINED_POINTS,
-            )
+                f'원본 삭제/출처 미확인 보존 측점 · {len(self._retained_rows)}점{suffix}', self.RETAINED_POINTS)
         self.source_rows = rows
         index = self.sourceCombo.findData(selected)
         self.sourceCombo.setCurrentIndex(index if index > 0 else 0)
@@ -436,7 +456,7 @@ class SurveyPanel(QDialog):
         # Refresh always reloads the selected Source. Initial/open state stays
         # on the non-source placeholder and clears all point-derived UI.
         self._source_changed()
-        self.statusLabel.setText(f"Source {len(rows)}건")
+        self.statusLabel.setText(f"Source {len(rows)}건" + (" · 5,000점 상한: 보존 목록 조회 불완전" if self._inventory_incomplete else ""))
         self._debug("sources", payload)
         if refresh_settings:
             self.load_project_settings(refresh_codes=True)
@@ -445,33 +465,6 @@ class SurveyPanel(QDialog):
     def _deleted_sources_key(self):
         _settings, key = self._settings()
         return key + "/source_only_deleted_ids"
-
-    def _retained_survey_ids_key(self):
-        _settings, key = self._settings()
-        return key + "/source_only_retained_survey_ids"
-
-    def _retained_source_map_key(self):
-        _settings, key = self._settings()
-        return key + "/source_only_retained_source_map"
-
-    def _retained_survey_ids(self):
-        try:
-            value = json.loads(str(QSettings().value(
-                self._retained_survey_ids_key(), "[]"
-            ) or "[]"))
-        except (TypeError, ValueError):
-            return set()
-        return {str(item) for item in value if item}
-
-    def _retained_source_map(self):
-        try:
-            value = json.loads(str(QSettings().value(
-                self._retained_source_map_key(), "{}"
-            ) or "{}"))
-        except (TypeError, ValueError):
-            return {}
-        return ({str(key): str(source) for key, source in value.items()
-                 if key and source} if isinstance(value, dict) else {})
 
     def _deleted_source_ids(self):
         try:
@@ -482,29 +475,11 @@ class SurveyPanel(QDialog):
             return set()
         return {str(item) for item in value if item}
 
-    def _remember_deleted_source(self, source_id, survey_ids=()):
-        values = self._deleted_source_ids()
-        values.add(str(source_id))
-        settings = QSettings()
-        settings.setValue(
-            self._deleted_sources_key(),
-            json.dumps(sorted(values), ensure_ascii=False),
-        )
-        retained = self._retained_survey_ids()
-        retained.update(str(item) for item in survey_ids if item)
-        settings.setValue(
-            self._retained_survey_ids_key(),
-            json.dumps(sorted(retained), ensure_ascii=False),
-        )
-        source_map = self._retained_source_map()
-        source_map.update({str(item): str(source_id) for item in survey_ids if item})
-        settings.setValue(
-            self._retained_source_map_key(),
-            json.dumps(source_map, ensure_ascii=False, sort_keys=True),
-        )
-        settings.sync()
-
     def _source_changed(self):
+        if hasattr(self, 'inspection'):
+            self.inspection.clear()
+            for box in self.inspection.details.values():
+                box.clear()
         self.stop_creation_queue()
         retained = self.sourceCombo.currentData() == self.RETAINED_POINTS
         self.sourceDeleteButton.setEnabled(not retained and bool(self.sourceCombo.currentData()))
@@ -546,119 +521,36 @@ class SurveyPanel(QDialog):
                 f"[{prefix}] {name}={value}", "GeoFlow", Qgis.MessageLevel.Info
             )
 
-    def _confirm_source_only_delete(self, message):
-        box = QMessageBox(QMessageBox.Icon.Warning, "Source만 삭제", message,
-                          QMessageBox.StandardButton.NoButton, self)
-        delete_button = box.addButton(
-            "Source만 삭제", QMessageBox.ButtonRole.AcceptRole
-        )
-        box.addButton("취소", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
-        return box.clickedButton() is delete_button
+    def _confirm_source_delete(self, message):
+        return QMessageBox.question(self, 'Source·측점 논리 삭제', message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
 
     def delete_source(self):
         source_id = self.current_source_id()
         payload, check = self.controller.source_delete_precheck(source_id)
-        retained_survey_ids = {
-            str(row.get("id") or "") for row in self.point_rows
-            if str(row.get("source_id") or source_id) == source_id
-        }
-        if not retained_survey_ids:
-            try:
-                _context, api = self.controller.context()
-                retained_survey_ids = {
-                    str(row.get("id") or "")
-                    for row in display_rows(
-                        api.points(source_id=source_id), "points"
-                    )
-                    if row.get("id")
-                }
-            except Exception:
-                retained_survey_ids = set()
-        survey_count = int(check.get('point_count', payload.get('point_count', 0)) or 0)
-        file_key = str(
-            check.get('original_file_key') or payload.get('original_file_key') or ""
-        )
-        api_label = f"DELETE survey-sources/{source_id}/?mode=source_only"
-        self._operation_log(
-            "SURVEY_SOURCE_DELETE", source_id=source_id,
-            project_id=self.plugin.integration_state().get("project_id", ""),
-            survey_count=survey_count,
-            file_key=file_key, mode="source_only", api=api_label,
-        )
-        source_only_reasons = {
-            'survey_source_in_use',
-        }
-        if (not check['can_delete']
-                and str(check.get('blocked_reason') or '') not in source_only_reasons):
-            message = (
-                self._delete_reason(check.get('blocked_reason'))
-                + f'\n\nSurvey Point: {survey_count}'
-            )
-            QMessageBox.information(self, 'Source 삭제 불가', message)
-            self.statusLabel.setText(self._delete_reason(check.get('blocked_reason')))
-            self._debug('source_delete_precheck', payload)
+        if not check['can_delete']:
+            raise ValueError(self._delete_reason(check.get('blocked_reason')))
+        if not self._confirm_source_delete(
+            f"원본 Source와 소속 활성 측점 {check['point_count']}점을 논리 삭제합니다.\n"
+            "측점은 활성 목록에서 사라집니다. GIS 시설물은 유지됩니다. 계속하시겠습니까?"):
             return
-        message = (
-            f"이 Source에는 Survey Point {survey_count}개가 있습니다.\n"
-            "원본 Source만 삭제하며 생성된 측량점과 시설물은 유지됩니다."
-        )
-        if not self._confirm_source_only_delete(message):
-            return
-        try:
-            result = self.controller.delete_source(source_id)
-        except Exception as exc:
-            self._operation_log(
-                "SURVEY_SOURCE_DELETE", server_result="failed",
-                error_code=(getattr(exc, "code", None)
-                            or getattr(exc, "http_status", None) or ""),
-                error_message=(getattr(exc, "server_message", None) or str(exc)),
-            )
-            raise
-        self._operation_log(
-            "SURVEY_SOURCE_DELETE", server_result=json.dumps({
-                key: result.get(key) for key in (
-                    "ok", "deleted_source_id", "source_deleted",
-                    "survey_points_deleted",
-                    "facilities_deleted", "deleted_point_count",
-                    "retained_point_count",
-                    "retained_target_count", "deleted_object", "cleanup_pending",
-                ) if key in result
-            }, ensure_ascii=False, sort_keys=True),
-            source_deleted=result.get("source_deleted"),
-            survey_points_deleted=result.get("survey_points_deleted"),
-            error_code="", error_message="",
-        )
-        self._remember_deleted_source(source_id, retained_survey_ids)
-        self.stop_creation_queue()
-        self.source_rows = [
-            row for row in self.source_rows if str(row.get("id") or "") != source_id
-        ]
-        self.sourceCombo.blockSignals(True)
-        source_index = self.sourceCombo.findData(source_id)
-        if source_index >= 0:
-            self.sourceCombo.removeItem(source_index)
-        retained_index = self.sourceCombo.findData(self.RETAINED_POINTS)
-        if retained_index < 0:
-            self.sourceCombo.addItem("보존된 Survey Point", self.RETAINED_POINTS)
-            retained_index = self.sourceCombo.findData(self.RETAINED_POINTS)
-        self.sourceCombo.setCurrentIndex(retained_index)
-        self.sourceCombo.blockSignals(False)
-        self.sourceDeleteButton.setEnabled(False)
-        self.recentSourceLabel.setText(
-            f"Source 삭제됨 · Survey Point {survey_count}개 보존"
-        )
-        for layer in QgsProject.instance().mapLayers().values():
-            if str(layer.customProperty('geoflow/survey_source_id', '')) == source_id:
-                layer.triggerRepaint()
-        self.plugin.iface.mapCanvas().refresh()
-        text = f'Source만 삭제 완료 · Survey Point {survey_count}개 보존'
-        if result.get('cleanup_pending') is True:
-            text += ' · 원본 파일 정리가 지연되고 있습니다.'
-        if result.get('revision_refresh_pending') is True:
-            text += ' · 다음 동기화에서 revision을 갱신합니다.'
-        self.statusLabel.setText(text)
-        self._debug('source_delete_result', result)
+        result = self.controller.delete_source(source_id)
+        # Never register deleted observations as retained, even after refresh failure.
+        self.point_rows = []
+        self.pointsTable.setRowCount(0)
+        self.featureTable.setRowCount(0)
+        self.sourceCombo.setCurrentIndex(0)
+        _, api = self.controller.context()
+        readback = api.points(source_id=source_id)
+        if not isinstance(readback, dict) or readback.get('ok') is not True:
+            raise RuntimeError('삭제 응답 수신 후 재조회 실패. 자동 재시도하지 마세요.')
+        remaining = inventory_rows(readback, 'points')
+        self.sources(refresh_settings=False)
+        self.statusLabel.setText(
+            f"Source 논리 삭제 · 응답상 측점 {result['survey_points_deleted']}점 삭제 · 재조회 활성 {len(remaining)}점"
+            + (' · 원본 파일 정리 대기' if result.get('cleanup_pending') else '')
+            + (' · Delta 갱신 대기' if result.get('revision_refresh_pending') else ''))
 
     def points(self):
         if not self.sourceCombo.currentData():
@@ -669,16 +561,16 @@ class SurveyPanel(QDialog):
             return {"results": []}
         _, api = self.controller.context()
         retained = self.sourceCombo.currentData() == self.RETAINED_POINTS
-        payload = api.points(source_id=None if retained else self.current_source_id())
-        self.point_rows = display_rows(payload, "points")
+        payload = api.points(source_id=None if retained else self.current_source_id(),
+                             source_state='retained' if retained else None)
+        self.point_rows = inventory_rows(payload, "points")
+        if not isinstance(payload, dict) or payload.get('ok') is False:
+            raise ValueError('측점 조회 실패')
+        incomplete = payload.get('truncated', len(self.point_rows) >= 5000)
         if retained:
-            deleted_ids = self._deleted_source_ids()
-            retained_ids = self._retained_survey_ids()
-            self.point_rows = [
-                row for row in self.point_rows
-                if str(row.get("source_id") or "") in deleted_ids
-                or str(row.get("id") or "") in retained_ids
-            ]
+            known = {str(row['id']) for row in self.source_rows}
+            self.point_rows = [row for row in self.point_rows if str(row.get('source_id') or '') not in known]
+        self._inventory_incomplete = incomplete
         self._fill_points(self.pointsTable, self.point_rows)
         self._fill_points(self.featureTable, self.point_rows)
         self.createBatchButton.setEnabled(bool(self.point_rows))
@@ -687,7 +579,7 @@ class SurveyPanel(QDialog):
         self.recentSourceLabel.setText(self.sourceCombo.currentText() + '\n측량기간: ' +
             (f'{dates[0]} ~ {dates[-1]}' if dates else '응답에 날짜 없음') +
             f" · 작업자 {len(workers)}명 (조회된 {len(self.point_rows)}점 기준)")
-        self.statusLabel.setText(f"측량점 {len(self.point_rows)}건 · 서버 목록 상한 5,000건")
+        self.statusLabel.setText(f"측량점 {len(self.point_rows)}건" + (" · 5,000점 상한: 조회 불완전, 전체 범위 확인 불가" if incomplete else ""))
         self._debug("points", payload)
         return payload
 
@@ -904,6 +796,8 @@ class SurveyPanel(QDialog):
 
     def _fill_points(self, table, rows):
         self._filling = True
+        sorting = table.isSortingEnabled()
+        table.setSortingEnabled(False)
         table.clear(); table.setColumnCount(len(self.POINT_COLUMNS)); table.setHorizontalHeaderLabels(self.POINT_COLUMNS)
         decorated = []
         for row in rows:
@@ -932,12 +826,12 @@ class SurveyPanel(QDialog):
             mapped = mapped and self._valid_point_coordinates(row)
             checked = eligible and mapped and self._selection.get(str(row['id']), True)
             values = (
-                "", row.get("survey_no") or row.get("source_row_id", ""),
+                "", row.get("survey_no") or "번호 없음",
                 self._survey_code(row) or "",
                 recommendation.get("facility_label", ""),
-                row.get("x", row.get("raw_x", "")),
-                row.get("y", row.get("raw_y", "")),
-                row.get("z", row.get("raw_z", "")),
+                row.get("x") if row.get("x") is not None else "좌표 없음",
+                row.get("y") if row.get("y") is not None else "좌표 없음",
+                row.get("z") if row.get("z") is not None else "좌표 없음",
                 "●",
             )
             for c, value in enumerate(values):
@@ -956,6 +850,7 @@ class SurveyPanel(QDialog):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 table.setItem(r, c, item)
         table.resizeColumnsToContents()
+        table.setSortingEnabled(sorting)
         self._filling = False
 
     def _mapping_options(self):
@@ -2000,9 +1895,29 @@ class SurveyPanel(QDialog):
                         raise ValueError('주변에 동일 심도 객체가 존재합니다.')
                     planned_targets.append(('WTL_PIPE_PS', str(depth_code)))
                 for previous in selected:
-                    if (set(planned_targets).intersection(previous['planned_targets'])
-                            and points_overlap(self.plugin, point, previous['point'])):
-                        raise ValueError('선택한 측량점 사이에 동일/근접 시설물 중복이 있습니다.')
+                    shared_targets = set(planned_targets).intersection(previous['planned_targets'])
+                    if not shared_targets:
+                        continue
+                    metres = overlap_distance_m(self.plugin, point, previous['point'])
+                    if metres is not None:
+                        other = previous['point']
+                        first_label = f"행 {point.get('source_row_id') or '-'} / 관리번호 {point.get('survey_no') or '-'}"
+                        other_label = f"행 {other.get('source_row_id') or '-'} / 관리번호 {other.get('survey_no') or '-'}"
+                        radius = GeoFlowSettingsService(self.plugin).get_default_nearby_radius()
+                        targets_text = ', '.join(f'{layer_name} / {target_code}'
+                                                 for layer_name, target_code in sorted(shared_targets))
+                        raise SurveyValidationError(
+                            'batch_spatial_duplicate',
+                            f'{first_label} ↔ {other_label}: 배치 내부 중복 후보 '
+                            f'(동일 대상: {targets_text}, 거리: {metres:.3f}m, 반경: {radius:.3f}m). '
+                            '측점을 확인하고 제외할 행의 선택을 해제한 뒤 다시 생성하세요.',
+                            survey_id=point.get('id', ''),
+                            conflicting_survey_id=other.get('id', ''),
+                            survey_no=point.get('survey_no', ''),
+                            conflicting_survey_no=other.get('survey_no', ''),
+                            shared_targets=sorted(shared_targets), distance_m=metres,
+                            radius_m=radius, collision_scope='selected_batch',
+                        )
                 selected.append({
                     "index": index, "point": point, "survey_code": standard_code,
                     "facility": facility, "storage_code": code, "allowed": allowed,
@@ -2018,6 +1933,7 @@ class SurveyPanel(QDialog):
                 )
         preflight_ms = (perf_counter() - preflight_started) * 1000
         if validation_errors:
+            self.inspection.compare(self.featureTable, rows=[point for point, _error in validation_errors])
             first_point, first_error = validation_errors[0]
             if isinstance(first_error, SurveyValidationError):
                 first_error.context["preflight_failures"] = [

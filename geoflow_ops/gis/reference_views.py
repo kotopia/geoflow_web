@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
+from django.db import connections
 from django.views.decorators.http import require_GET
 
 from geoflow_ops.services.entity_access import require_tenant_context
@@ -19,6 +20,14 @@ def _catalog_response(alias: str, plan: dict, request=None, project_id=None) -> 
         using=alias,
         standard_names=allowed_standard_names(plan),
     )
+    # The Final Layer Plan already resolves this project's selected catalog IDs.
+    # Expose their central active L2 labels; never infer scope from Survey data.
+    ids = [r['catalog_item_id'] for r in plan.get('capabilities', [])
+           if r.get('catalog_level') == 2]
+    with connections['default'].cursor() as cursor:
+        cursor.execute('''SELECT id::text,name FROM catalog.category_node
+                          WHERE level=2 AND active AND id=ANY(%s::uuid[]) ORDER BY name,id''', [ids])
+        payload['business_types'] = [{'code': row[0], 'label': row[1]} for row in cursor.fetchall()]
     if request is not None:
         payload["current_user"], payload["workers"] = project_workers(request, alias, project_id, plan)
     response = JsonResponse(payload, json_dumps_params={"ensure_ascii": False})
