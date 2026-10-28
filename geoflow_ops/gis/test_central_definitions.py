@@ -49,6 +49,19 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(by_id['f']['storage']['kind'],'ext_data')
         self.assertEqual(result['items'],result['fields'])
 
+    def test_direction_reads_json_text_without_using_project_layout_override(self):
+        settings = {'reference_layer_ids': ['reference'], 'method': 'connected'}
+        for layout, expected in (({}, None), ('{}', None), (None, None),
+                                 ({'direction': settings}, settings),
+                                 (json.dumps({'direction': settings}), settings)):
+            with self.subTest(layout=layout):
+                data = self.data()
+                data['fields'][0]['layout'] = layout
+                result = resolve(data, {'group_id': 'g', 'overrides': {
+                    'f': {'layout': {'direction': {'method': 'project_override'}}}}}, data['layers'])
+                self.assertEqual(result['fields'][0]['direction'], expected)
+                self.assertEqual(data['fields'][0]['layout'], layout)
+
     def test_saved_json_v3_roundtrip(self):
         cur=MagicMock(); cur.fetchone.side_effect=[('gis.project_definition',),('g','{"f":["m"]}','{}','{}',None),(None,)]
         config=project_config(cur,'project')

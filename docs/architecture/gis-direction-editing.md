@@ -56,3 +56,8 @@ QGIS 4.2.2의 offscreen 실제 엔진/Qt 및 메모리 레이어를 사용한다
 ZIP 실물 검증: 별도 프로필의 QGIS 4.2.2 실행 파일에서 후보 ZIP만 설치하여 101개 모듈 import, classFactory/initGui, 로그인 UI·Dynamic Form 생성, 프로젝트 저장 및 재시작 후 재열기, unload의 2단계를 통과했다. 운영 프로필과 설치본은 교체하지 않았다.
 
 패키지 회귀: 1.4.3·1.4.4의 승인된 런타임 바이트를 보존하여 기존 SHA256/크기를 그대로 재현하고, 1.4.5는 버전별 manifest로 검사한다. 로컬 패키지 검사 19개 통과. 중앙 설정의 실제 저장·Final Form 전파·기존 layout 보존·잘못된 기준선 거절·설정 해제는 CI의 격리 PostgreSQL에서 통과했다(실행 40661808590). 이는 운영 DB 쓰기 검증이 아니다.
+
+
+### Production deployment JSON cursor compatibility (2026-10-28)
+
+Deployment run 40664386879 failed in the read-only project runtime smoke: the production raw cursor returned field layout as JSON text, while direction extraction assumed a dictionary. The workflow rolled code back and confirmed the service active; stable 1.4.5 publication was not reached. Direction extraction now reuses the central JSON-object parser, preserving the authoritative field settings independently of project layout overrides without changing stored data. A regression reproduces both empty and configured JSON strings, alongside dictionary and null values. The installed Connector 1.4.5 archive is unchanged.
