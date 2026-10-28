@@ -41,3 +41,29 @@ class CompanyActivationTests(TestCase):
             self.assertTrue(enabled('ready'))
             self.assertFalse(enabled('unprepared'))
             self.assertFalse(enabled('default'))
+
+
+class CompanyActivationDiagnosticsTests(TestCase):
+    def test_safe_categories_never_expose_private_error_messages(self):
+        from django.db import OperationalError
+        from django.db.migrations.exceptions import InconsistentMigrationHistory
+        from control.services.tenant_db_secret_resolver import TenantDBCredentialError
+        from control.management.commands.activate_company_overview import activation_stage
+        for kind, category in [(OperationalError, 'database'),
+                               (InconsistentMigrationHistory, 'inconsistent_history'),
+                               (TenantDBCredentialError, 'credential_resolution'),
+                               (KeyError, 'configuration_key'), (AttributeError, 'attribute'),
+                               (RuntimeError, 'unexpected')]:
+            with self.assertRaises(CommandError) as caught:
+                with activation_stage('tenant_readiness'):
+                    raise kind('private credential host and tenant identifier')
+            self.assertEqual(str(caught.exception),
+                             'company_activation_stage=tenant_readiness category='+category)
+
+    def test_existing_guard_remains_fatal(self):
+        from control.management.commands.activate_company_overview import activation_stage
+        error = CommandError('company_unexpected_migration_plan')
+        with self.assertRaises(CommandError) as caught:
+            with activation_stage('migration_plan'):
+                raise error
+        self.assertIs(caught.exception, error)
