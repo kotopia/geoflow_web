@@ -39,3 +39,22 @@ jobs:
         run: |
           node --check geoflow_ops/static/geoflow_ops/js/company-overview.js
           node --check geoflow_ops/static/geoflow_ops/js/company-edit.js
+      - name: Render synthetic dashboard and editor
+        run: python scripts/ci/render_company_overview.py
+      - name: Install pinned browser test dependency
+        run: |
+          npm install --prefix /tmp/company-browser playwright@1.56.1
+          /tmp/company-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Check desktop/mobile UI and upload error recovery
+        env:
+          NODE_PATH: /tmp/company-browser/node_modules
+        run: |
+          python -m http.server 8765 --directory /tmp/company-preview >/tmp/company-http.log 2>&1 &
+          node scripts/ci/test_company_browser.cjs
+      - name: Save synthetic screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: company-overview-preview
+          path: /tmp/company-preview/*.png
+          retention-days: 7

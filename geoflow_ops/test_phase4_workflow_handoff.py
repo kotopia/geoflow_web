@@ -85,7 +85,9 @@ class DepartmentSettingsContractTests(SimpleTestCase):
         self.assertIn("FROM hr.departments", myinfo_source)
         self.assertIn("INSERT INTO hr.departments", myinfo_source)
         self.assertIn("UPDATE hr.departments", myinfo_source)
-        self.assertIn("myinfo_department_save", myinfo_template)
+        self.assertIn('_company_organization.html', myinfo_template)
+        organization_template = (ROOT / "templates/geoflow_ops/myinfo/_company_organization.html").read_text(encoding="utf-8")
+        self.assertIn("myinfo_department_save", organization_template)
         self.assertNotIn("settings_department_save", settings_template)
         self.assertIn("settings_department_save", urls)
 

@@ -16,7 +16,7 @@
       canvas.replaceWith(note);
       return;
     }
-    new Chart(canvas, {type, data: {labels: rows.map(row => row.year), datasets: [{label, data: values, borderColor: '#3b7ddd', backgroundColor: type === 'bar' ? '#3b7ddd' : 'rgba(59,125,221,.1)', borderWidth: 2, spanGaps: false, fill: false}]}, options: {responsive: true, maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {y: {beginAtZero: true, ticks: {precision: 0}}}}});
+    new Chart(canvas, {type, data: {labels: rows.map(row => row.year), datasets: [{label, data: values, borderColor: '#3b7ddd', backgroundColor: type === 'bar' ? '#3b7ddd' : 'rgba(59,125,221,.1)', borderWidth: 2, spanGaps: false, fill: false}]}, options: {responsive: true, maintainAspectRatio: false, legend: {display: false}, scales: {yAxes: [{ticks: {beginAtZero: true, precision: 0}}]}}});
   }
   chart('company-revenue-chart', rows.map(row => row.revenue ? Number(row.revenue.amount) : null), '매출액(원)', 'bar');
   chart('company-headcount-chart', rows.map(row => row.headcount), '연말 사원수(명)', 'line');
