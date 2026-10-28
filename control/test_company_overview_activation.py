@@ -30,6 +30,6 @@ class CompanyActivationTests(TestCase):
 
     def test_multiple_tenants_rejected_before_secret_resolution(self):
         with patch('control.management.commands.activate_company_overview.GroupDBConfig') as configs,patch('control.management.commands.activate_company_overview.resolve_tenant_db_password') as secret:
-            configs.objects.using.return_value.filter.return_value=[Mock(),Mock()]
+            configs.objects.using.return_value.filter.return_value.exclude.return_value=[Mock(),Mock()]
             with self.assertRaises(CommandError): tenant_connection()
             secret.assert_not_called()

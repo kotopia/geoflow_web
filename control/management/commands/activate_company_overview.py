@@ -34,7 +34,7 @@ def forward_plan(executor):
 
 def tenant_connection():
     central = getattr(settings, 'CENTRAL_DB_ALIAS', 'default')
-    configs = list(GroupDBConfig.objects.using(central).filter(group__status='active'))
+    configs = list(GroupDBConfig.objects.using(central).filter(group__status='active').exclude(db_alias=central))
     if len(configs) != 1:
         raise CommandError(f'company_requires_single_active_tenant_found_{len(configs)}')
     config = configs[0]
