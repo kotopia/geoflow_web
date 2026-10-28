@@ -141,7 +141,7 @@ class EmptyMergePostgresTests(TestCase):
                 executor.loader.check_consistent_history(connection)
             with self.assertRaises(CommandError):
                 reconcile_empty_merge(executor,connection,approved=False)
-            self.assertEqual([(m.app_label,m.name) for m, backwards in forward_plan(executor)], [TARGET])
+            self.assertEqual([(m.app_label,m.name) for m, backwards in forward_plan(executor, allow_empty_merge=True)], [EMPTY_MERGE,TARGET])
             before=set(recorder.applied_migrations())
             with self.assertRaises(RuntimeError):
                 with transaction.atomic(using='company_test'):
@@ -150,6 +150,7 @@ class EmptyMergePostgresTests(TestCase):
                     raise RuntimeError('simulate subsequent migration failure')
             self.assertEqual(set(recorder.applied_migrations()),before)
             reconcile_empty_merge(executor,connection,approved=True)
+            self.assertEqual([(m.app_label,m.name) for m, backwards in forward_plan(MigrationExecutor(connection))], [TARGET])
             reconcile_empty_merge(MigrationExecutor(connection),connection,approved=True)
             self.assertEqual(set(recorder.applied_migrations())-before,{EMPTY_MERGE})
             self.assertEqual(recorder.migration_qs.filter(app=EMPTY_MERGE[0],name=EMPTY_MERGE[1]).count(),1)

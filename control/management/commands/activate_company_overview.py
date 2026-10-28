@@ -79,14 +79,15 @@ def reconcile_empty_merge(executor, connection, *, approved):
     executor.loader.check_consistent_history(connection)
 
 
-def forward_plan(executor):
+def forward_plan(executor, *, allow_empty_merge=False):
     applied = executor.recorder.applied_migrations()
     if DEPENDENCY not in applied:
         raise CommandError('company_dependency_0048_not_applied')
     if TARGET in applied:
         return []
     plan = executor.migration_plan([TARGET])
-    if len(plan) != 1 or any((m.app_label, m.name) != TARGET or backwards for m, backwards in plan):
+    expected = [EMPTY_MERGE, TARGET] if allow_empty_merge else [TARGET]
+    if [(m.app_label, m.name) for m, _ in plan] != expected or any(backwards for _, backwards in plan):
         raise CommandError('company_unexpected_migration_plan')
     return plan
 
@@ -173,7 +174,7 @@ class Command(BaseCommand):
                     raise CommandError('company_empty_merge_history_requires_explicit_approval')
             self.stdout.write(f'company_empty_merge_history_pending={int(repair_needed)}')
             with activation_stage('migration_plan'):
-                plan = forward_plan(executor)
+                plan = forward_plan(executor, allow_empty_merge=repair_needed)
             self.stdout.write(f'company_eligible_tenants=1 company_pending_migrations={len(plan)}')
             if options['verify']:
                 verify_schema(connection)
