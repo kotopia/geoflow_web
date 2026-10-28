@@ -507,3 +507,5 @@ VWORLD_API_KEY = os.getenv("VWORLD_API_KEY", "").strip()
 
 # Enable only after reviewed tenant company schema activation.
 GEOFLOW_COMPANY_OVERVIEW_ENABLED = os.getenv("GEOFLOW_COMPANY_OVERVIEW_ENABLED", "0") == "1"
+
+GEOFLOW_COMPANY_OVERVIEW_TENANTS = tuple(value.strip() for value in os.getenv("GEOFLOW_COMPANY_OVERVIEW_TENANTS", "").split(",") if value.strip())

@@ -1,9 +1,11 @@
-"""Exact, additive company migration for a runtime with one active tenant.
+"""Exact, additive company migration for a runtime with exactly one eligible tenant.
 
 Read-only by default. Does not provision tenants, change grants, or discover
 credentials outside the canonical GroupDBConfig -> Secrets Manager path.
 """
 import hashlib
+import json
+import os
 from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -35,27 +37,42 @@ def forward_plan(executor):
 def tenant_connection():
     central = getattr(settings, 'CENTRAL_DB_ALIAS', 'default')
     configs = list(GroupDBConfig.objects.using(central).filter(group__status='active').exclude(db_alias=central))
-    if len(configs) != 1:
-        raise CommandError(f'company_requires_single_active_tenant_found_{len(configs)}')
-    config = configs[0]
-    alias = str(config.db_alias).strip()
-    if not alias or alias == central:
-        raise CommandError('company_central_alias_rejected')
-    base = connections[central].settings_dict
-    if (str(config.db_host), str(config.db_port), str(config.db_name)) == (str(base.get('HOST')), str(base.get('PORT')), str(base.get('NAME'))):
-        raise CommandError('company_central_database_rejected')
-    db = dict(base)
-    db.update(ENGINE='django.contrib.gis.db.backends.postgis', NAME=config.db_name,
-              HOST=config.db_host, PORT=config.db_port, USER=config.db_user,
-              PASSWORD=resolve_tenant_db_password(config.db_password),
-              OPTIONS=dict(base.get('OPTIONS', {})), CONN_MAX_AGE=0,
-              CONN_HEALTH_CHECKS=False, ATOMIC_REQUESTS=False, AUTOCOMMIT=True)
-    if alias in connections.settings:
-        connections[alias].close()
-        del connections[alias]
-    connections.settings[alias] = db
-    settings.DATABASES[alias] = db
-    return connections[alias]
+    eligible = []
+    for config in configs:
+        alias = str(config.db_alias).strip()
+        if not alias or alias == central:
+            raise CommandError('company_central_alias_rejected')
+        base = connections[central].settings_dict
+        if (str(config.db_host), str(config.db_port), str(config.db_name)) == (str(base.get('HOST')), str(base.get('PORT')), str(base.get('NAME'))):
+            raise CommandError('company_central_database_rejected')
+        db = dict(base)
+        db.update(ENGINE='django.contrib.gis.db.backends.postgis', NAME=config.db_name,
+                  HOST=config.db_host, PORT=config.db_port, USER=config.db_user,
+                  PASSWORD=resolve_tenant_db_password(config.db_password),
+                  OPTIONS=dict(base.get('OPTIONS', {})), CONN_MAX_AGE=0,
+                  CONN_HEALTH_CHECKS=False, ATOMIC_REQUESTS=False, AUTOCOMMIT=True)
+        if alias in connections.settings:
+            connections[alias].close()
+            del connections[alias]
+        connections.settings[alias] = db
+        settings.DATABASES[alias] = db
+        connection = connections[alias]
+        with connection.cursor() as cur:
+            cur.execute("SELECT to_regclass('ops.my_org_units'), to_regclass('django_migrations')")
+            company_table, history = cur.fetchone()
+            if not company_table or not history:
+                continue
+            cur.execute('SELECT 1 FROM django_migrations WHERE app=%s AND name=%s', DEPENDENCY)
+            if cur.fetchone():
+                eligible.append(connection)
+    return choose_eligible(eligible)
+
+
+def choose_eligible(eligible):
+    if len(eligible) != 1:
+        raise CommandError(f'company_requires_one_eligible_tenant_found_{len(eligible)}')
+    return eligible[0]
+
 
 
 def verify_schema(connection):
@@ -76,6 +93,7 @@ class Command(BaseCommand):
         parser.add_argument('--apply', action='store_true')
         parser.add_argument('--backup-dir')
         parser.add_argument('--verify', action='store_true')
+        parser.add_argument('--activation-config')
 
     def handle(self, *args, **options):
         source = (Path(__file__).resolve().parents[3] / 'geoflow_ops/migrations/0049_company_overview.py').read_bytes()
@@ -89,10 +107,11 @@ class Command(BaseCommand):
             executor = MigrationExecutor(connection)
             executor.loader.check_consistent_history(connection)
             plan = forward_plan(executor)
-            self.stdout.write(f'company_active_tenants=1 company_pending_migrations={len(plan)}')
+            self.stdout.write(f'company_eligible_tenants=1 company_pending_migrations={len(plan)}')
             if options['verify']:
                 verify_schema(connection)
-                self.stdout.write(f'company_schema_verified=yes company_feature_enabled={int(settings.GEOFLOW_COMPANY_OVERVIEW_ENABLED)}')
+                from geoflow_ops.services.company_overview import enabled
+                self.stdout.write(f'company_schema_verified=yes company_feature_enabled={int(enabled(connection.alias))}')
                 return
             if not options['apply']:
                 return
@@ -113,6 +132,13 @@ class Command(BaseCommand):
                 plan = forward_plan(executor)
                 executor.migrate([TARGET], plan=plan)
                 verify_schema(connection)
+            if options.get('activation_config'):
+                config_path = Path(options['activation_config'])
+                if config_path.parent.stat().st_mode & 0o077:
+                    raise CommandError('company_private_config_directory_required')
+                fd = os.open(config_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                with os.fdopen(fd, 'w') as stream:
+                    json.dump({'tenant_alias':alias}, stream)
             self.stdout.write('company_schema_activated=yes')
         except CommandError:
             raise

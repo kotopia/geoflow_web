@@ -315,22 +315,27 @@ jobs:
             "$python" "$repo/manage.py" activate_company_overview
             company_backup="/var/backups/geoflow/company-overview/$candidate_sha/$(date -u +%Y%m%dT%H%M%SZ)"
             sudo -n install -d -m 0700 -o "$(id -un)" "$company_backup"
-            "$python" "$repo/manage.py" activate_company_overview --apply --backup-dir "$company_backup"
-            if systemctl show "$service" -p Environment --value | grep -q GEOFLOW_COMPANY_OVERVIEW_ENABLED; then
+            "$python" "$repo/manage.py" activate_company_overview --apply --backup-dir "$company_backup" --activation-config "$company_backup/activation.json"
+            if systemctl show "$service" -p Environment --value | grep -q GEOFLOW_COMPANY_OVERVIEW_; then
               fail company_systemd_feature_override_requires_review
             fi
             company_env_mode="$(stat -c %a "$repo/.env")"
             company_env_backup="$company_backup/runtime.env.before"
             cp -p "$repo/.env" "$company_env_backup"
             chmod 600 "$company_env_backup"
-            "$python" - "$repo/.env" <<'PYENV'
-          import os, re, stat, sys, tempfile
+            "$python" - "$repo/.env" "$company_backup/activation.json" <<'PYENV'
+          import json, os, re, stat, sys, tempfile
           from pathlib import Path
           path = Path(sys.argv[1])
           original = path.read_text()
-          line = 'GEOFLOW_COMPANY_OVERVIEW_ENABLED=1'
-          pattern = r'(?m)^(?:export\s+)?GEOFLOW_COMPANY_OVERVIEW_ENABLED\s*=.*$'
-          updated = re.sub(pattern, line, original) if re.search(pattern, original) else original.rstrip('\n') + '\n' + line + '\n'
+          alias = json.loads(Path(sys.argv[2]).read_text())['tenant_alias']
+          if not re.fullmatch(r'[A-Za-z0-9_-]+', alias):
+              raise RuntimeError('company_invalid_alias_for_environment')
+          updated = original
+          for key, value in [('GEOFLOW_COMPANY_OVERVIEW_ENABLED', '1'), ('GEOFLOW_COMPANY_OVERVIEW_TENANTS', alias)]:
+              line = key + '=' + value
+              pattern = r'(?m)^(?:export\s+)?' + key + r'\s*=.*$'
+              updated = re.sub(pattern, line, updated) if re.search(pattern, updated) else updated.rstrip('\n') + '\n' + line + '\n'
           fd, temporary = tempfile.mkstemp(dir=path.parent, prefix='.company-env-')
           try:
               os.fchown(fd, path.stat().st_uid, path.stat().st_gid)

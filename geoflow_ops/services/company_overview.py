@@ -11,8 +11,10 @@ FORMS_KINDS = ('registration', 'revenue', 'headcount', 'credit', 'event')
 EVIDENCE_PURPOSE = {'registration':'business_registration', 'headcount':'business_registration', 'credit':'company_financial', 'revenue':'company_financial'}
 
 
-def enabled():
-    return getattr(settings, 'GEOFLOW_COMPANY_OVERVIEW_ENABLED', False)
+def enabled(alias=None):
+    from control.middleware import current_db_alias
+    alias = alias or current_db_alias()
+    return bool(getattr(settings, 'GEOFLOW_COMPANY_OVERVIEW_ENABLED', False) and alias in getattr(settings, 'GEOFLOW_COMPANY_OVERVIEW_TENANTS', ()))
 
 
 def current_headcount(alias, company_id):

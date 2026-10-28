@@ -24,7 +24,7 @@ RECORDS = {'registration':(CompanyRegistration,RegistrationForm,'업등록·신�
 
 def access(request, pk=None, *, write=False):
     alias = require_tenant_context(request)
-    if not enabled():
+    if not enabled(alias):
         raise Http404
     if not gf_has_perm(request, 'directory.edit' if write else 'directory.view'):
         raise PermissionDenied

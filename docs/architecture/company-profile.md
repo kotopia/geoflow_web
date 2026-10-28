@@ -102,8 +102,8 @@ AdminKit Pro의 기존 `base_tenant.html`, `control/css/light.css`, `control/js/
 4. 기존 tenant migration context/router를 사용해 해당 tenant에 0049를 적용한다.
    중앙 DB, 전체 tenant 일괄 migrate, provisioning executor를 사용하지 않는다.
 5. 검토된 코드를 배포하고 대상 런타임의 `GEOFLOW_COMPANY_OVERVIEW_ENABLED=1`을 설정한다.
-   플래그는 런타임 단위이므로 그 런타임이 서비스하는 모든 tenant가 준비되었는지 확인한다.
-   미준비 tenant가 있으면 활성화하지 않는다. protected production Environment 승인을 우회하지 않는다.
+   `GEOFLOW_COMPANY_OVERVIEW_TENANTS`에 검증된 단일 tenant alias를 지정한다.
+   목록에 없는 tenant는 기존 화면을 유지한다. protected production Environment 승인을 우회하지 않는다.
 6. 실계정에서 회사 전환, 편집 저장, HR 인원, 재무 권한 없는 계정, 증빙, 최신순 타임라인을 확인한다.
 
 이 migration은 기존 기업/HR/파일을 백필하거나 삭제하지 않는다. 롤백은 먼저 플래그를 끄고
@@ -113,14 +113,16 @@ AdminKit Pro의 기존 `base_tenant.html`, `control/css/light.css`, `control/js/
 ### 승인된 배포 실행 경로
 
 2026-10-28 사용자가 DB 추가·병합·배포·활성화·재시작을 승인했다.
-`activate_company_overview`는 기본 읽기 전용으로 현재 활성 tenant가 정확히 하나인지,
+`activate_company_overview`는 기본 읽기 전용으로 활성 tenant들을 읽기 전용으로 조회해 기업 테이블과 0048이 준비된 대상이 정확히 하나인지,
 0048 선행 이력, 검토된 0049 파일 해시, 정확히 0049 하나만 적용되는 계획을 확인한다.
-둘 이상의 활성 tenant가 있으면 임의 선택하거나 일괄 migrate하지 않고 중단한다.
+둘 이상의 적격 tenant가 있으면 임의 선택하거나 일괄 migrate하지 않고 중단한다. 미준비 tenant는 조회만 하고 변경하지 않는다.
 `--apply --backup-dir`은 비공개 pg_dump 검증 후 tenant migration context에서 0049만
 원자적으로 적용한다. advisory lock/lock timeout을 사용하고 재실행 시 역적용하지 않는다.
 `--verify`는 6개 테이블의 모델 컬럼, HR 집계 컬럼, 적용 기록과 기능 플래그를 읽기 검증한다.
 
 기존 protected `Phase 4 workboard production deploy`는 이 명령의 최초 도입 시에만
 활성화한다. 이후 배포에서 새 tenant를 자동 변경하지 않는다. 스키마 적용 뒤 `.env`의
-기업정보 플래그 한 항목만 켜고 서비스를 재시작한다. 배포 실패 시 비공개 보관한 기존
+기업정보 플래그와 검증된 tenant 허용목록만 설정하고 서비스를 재시작한다. 배포 실패 시 비공개 보관한 기존
 환경파일과 코드로 복귀하며 추가된 테이블과 신규 자료는 보존한다. 기존 S3 파일은 변경하지 않는다.
+
+운영 기록에서 활성 tenant 3개 중 선행 GIS/운영 구성이 준비된 대상이 1개임을 확인했다. 실행 시 이 조건을 다시 읽기 검증하고, 그 대상에만 0049와 화면 활성화를 적용한다. 다른 tenant는 기존 화면을 유지한다.
