@@ -132,3 +132,11 @@ AdminKit Pro의 기존 `base_tenant.html`, `control/css/light.css`, `control/js/
 실패 원문에는 연결정보가 포함될 수 있으므로 출력하지 않는다. 후속 진단은 tenant 목록,
 자격증명 해석, DB 준비 상태, migration loader/이력/계획의 고정 단계와 허용된 오류 분류만
 출력한다. 이력 불일치 및 대상 제한은 그대로 유지하며 점검 실패를 무시하지 않는다.
+
+두 번째 운영 시도는 `migration_history / inconsistent_history`로 중단되어 기존 코드로
+복구됐다. 정확한 누락 dependency는 아직 확인되지 않았다. 보호된
+`Company migration history read-only audit`는 현재 서비스 코드를 교체하지 않고
+기존 런타임의 migration graph와 단일 적격 tenant의 적용 기록을 비교한다. 중앙 조회와
+tenant 조회는 DB 읽기 전용 transaction으로 수행하며 저장소에 정의된 migration 이름만
+출력한다. 배포, 재시작, DDL, 이력 보정, fake migrate는 수행하지 않는다. 결과 검토 전에는
+불일치 검사를 제거하거나 미승인 선행 migration을 실행하지 않는다.
