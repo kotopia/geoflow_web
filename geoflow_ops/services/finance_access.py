@@ -12,7 +12,7 @@ from geoflow_ops.process_workflow import default_stage_for_event, normalize_stag
 
 
 FINANCE_EVENT_STAGES = frozenset({"settlement", "billing"})
-FINANCE_ATTACHMENT_PURPOSES = frozenset({"finance_invoice", "finance_evidence"})
+FINANCE_ATTACHMENT_PURPOSES = frozenset({"finance_invoice", "finance_evidence", "company_financial"})
 
 
 def can_view_finance(request) -> bool:

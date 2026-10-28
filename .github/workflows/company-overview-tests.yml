@@ -1,0 +1,41 @@
+name: Company overview tests
+on:
+  pull_request:
+    branches: [release/stabilized-deploy]
+    paths:
+      - 'geoflow_ops/**'
+      - 'geoflow_project/settings.py'
+      - 'scripts/ci/test_company_overview.py'
+      - '.github/workflows/company-overview-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  company-overview-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: company-ci-only
+          POSTGRES_DB: company_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d company_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
+        with:
+          python-version: '3.10'
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y gdal-bin libgdal-dev
+      - run: pip install -r requirements.txt
+      - name: Tenant facts, permissions, timeline, migration and rollback
+        run: python scripts/ci/test_company_overview.py --postgres
+      - name: JavaScript syntax
+        run: |
+          node --check geoflow_ops/static/geoflow_ops/js/company-overview.js
+          node --check geoflow_ops/static/geoflow_ops/js/company-edit.js

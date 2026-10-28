@@ -83,6 +83,10 @@ def _load_company_documents(alias: str, org_unit_id, purpose: str):
 
 @login_required
 def orgunit_list(request):
+    from .services.company_overview import enabled
+    if enabled():
+        from .views_company import home
+        return home(request)
     alias = _alias(request)
     qs = MyOrgUnit.objects.using(alias).all().order_by("name")
     return render(request, "geoflow_ops/myinfo/orgunit_list.html", {"items": qs})
@@ -90,6 +94,10 @@ def orgunit_list(request):
 
 @login_required
 def orgunit_detail(request, pk):
+    from .services.company_overview import enabled
+    if enabled():
+        from .views_company import overview
+        return overview(request, pk)
     alias = _alias(request)
     obj = get_object_or_404(MyOrgUnit.objects.using(alias), pk=pk)
     return render(
@@ -128,6 +136,10 @@ def orgunit_create(request):
 
 @login_required
 def orgunit_update(request, pk):
+    from .services.company_overview import enabled
+    if enabled():
+        from .views_company import edit
+        return edit(request, pk)
     alias = _alias(request)
     obj = get_object_or_404(MyOrgUnit.objects.using(alias), pk=pk)
 

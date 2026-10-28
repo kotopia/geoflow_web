@@ -150,6 +150,7 @@ class ProjectNoteForm(forms.ModelForm):
 class MyOrgUnitForm(forms.ModelForm):
     class Meta:
         model = MyOrgUnit
+        labels = {"name":"기업명", "type":"기존 구분", "biz_no":"사업자번호", "rep_name":"대표자", "phone":"전화", "email":"이메일", "address":"주소", "label":"별칭", "description":"비고"}
         fields = [
             "name", "type", "biz_no", "rep_name", "phone", "email",
             "address", "label", "description",

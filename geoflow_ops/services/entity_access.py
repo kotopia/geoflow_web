@@ -131,6 +131,8 @@ def get_event_for_access(request, alias: str, event_id: UUID, *, write: bool):
     event = ProcessEvent.objects.using(alias).filter(pk=event_id).first()
     if not event:
         return None
+    if write and isinstance(getattr(event, "payload", None), dict) and event.payload.get("company_source_id"):
+        return None  # Source facts own automatic company events.
     allowed = (
         authorize_scope_write(request, alias, event.scope_type, event.scope_id)
         if write
@@ -153,6 +155,8 @@ def authorize_event_write(request, alias: str, event_id: UUID) -> bool:
 def authorize_attachment_read(request, alias: str, attachment) -> bool:
     # Finance evidence is physically stored under a contract/orgunit. That
     # storage owner must never grant Finance access through generic file routes.
+    if getattr(attachment, "purpose", None) == "company_financial":
+        return can_view_finance(request) and authorize_scope_read(request, alias, attachment.entity_type, attachment.entity_id)
     if is_finance_attachment(attachment):
         return can_view_finance(request) and scope_exists(
             alias, attachment.entity_type, attachment.entity_id
@@ -189,6 +193,8 @@ def authorize_attachment_write(
     *,
     attachment=None,
 ) -> bool:
+    if attachment is not None and getattr(attachment, "purpose", None) == "company_financial":
+        return can_edit_finance(request) and authorize_scope_write(request, alias, entity_type, entity_id)
     if attachment is not None and is_finance_attachment(attachment):
         return can_edit_finance(request) and scope_exists(alias, entity_type, entity_id)
     if entity_type == "event":
