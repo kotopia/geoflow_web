@@ -551,6 +551,9 @@ class GeoFlowConnectorPlugin:
         client_id = str(context.get("client_id") or "")
         package_path = str(context.get("package_path") or "")
         try:
+            if getattr(self, '_direction_pending', None):
+                from ..services.direction import validate_pending
+                validate_pending(self, layer)
             changes = self._capture_layer_changes(layer_id)
         except Exception as exc:
             self._neutralize_failed_commit(layer_id, layer, replay)
@@ -669,6 +672,13 @@ class GeoFlowConnectorPlugin:
         def event(name, value):
             if callable(log):
                 log(f"[ONLINE_SAVE] {name}={value}")
+        try:
+            if getattr(self, '_direction_pending', None):
+                from ..services.direction import validate_pending
+                for layer in unique: validate_pending(self, layer)
+        except ValueError as exc:
+            return {'ok': False, 'server_result': 'stale_direction', 'error': str(exc),
+                    'provider_commit_called': False, 'provider_commit_result': False}
         changes = []
         for layer in unique:
             changes.extend(self._capture_layer_changes(layer.id()))
