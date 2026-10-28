@@ -140,3 +140,17 @@ AdminKit Pro의 기존 `base_tenant.html`, `control/css/light.css`, `control/js/
 tenant 조회는 DB 읽기 전용 transaction으로 수행하며 저장소에 정의된 migration 이름만
 출력한다. 배포, 재시작, DDL, 이력 보정, fake migrate는 수행하지 않는다. 결과 검토 전에는
 불일치 검사를 제거하거나 미승인 선행 migration을 실행하지 않는다.
+
+읽기 전용 조사 `40683277894`는 적격 tenant 한 곳에서 정확히 한 이력 누락을 확인했다:
+`0041_gis_feature_photo_edited_representation`의 선행 `0040_merge_bid_photo_branches`.
+0040은 `operations=[]`이며 0038·0039의 병합만 선언한다. 다른 기존 webgisapp 이력은
+모두 기록되어 있다. 이 조사 자체는 운영 자료를 변경하지 않았다.
+
+추가 승인 대상은 **0040 적용 이력 한 건 기록**이다. `--repair-empty-merge-history`는
+0040 파일의 검토된 해시, 빈 operations, 정확한 두 선행 이력, 정확히 하나인 누락 edge,
+0048 기록을 검사한다. 원문 예외나 tenant 식별자는 출력하지 않는다. 비공개 pg_dump 검증
+후 단일 transaction/advisory lock 안에서 해당 이력만 기록하고 Django의 전체 이력 검사를
+다시 실행한다. 그 뒤 기존 0049만 적용한다. 다른 누락·파일 변경·미적용 선행이 있으면
+중단한다. 오류 시 0040 기록과 0049 DDL은 함께 rollback된다. 이미 기록된 경우 재기록하지 않는다.
+이는 아직 운영에서 실행되지 않은 수정이며, 보호된 배포 실행 전 사용자에게 이 추가 DB 변경을
+명시하여 승인을 받아야 한다. 신규 0049 테이블 적용·기능 활성화·재시작은 기존 승인 범위다.

@@ -312,10 +312,11 @@ jobs:
           company_activated=no
           if git -C "$repo" cat-file -e "$candidate_sha:$company_command" 2>/dev/null && \
              ! git -C "$repo" cat-file -e "$previous_sha:$company_command" 2>/dev/null; then
-            "$python" "$repo/manage.py" activate_company_overview
+            # This run requires explicit approval for the audited empty 0040 history row.
+            "$python" "$repo/manage.py" activate_company_overview --repair-empty-merge-history
             company_backup="/var/backups/geoflow/company-overview/$candidate_sha/$(date -u +%Y%m%dT%H%M%SZ)"
             sudo -n install -d -m 0700 -o "$(id -un)" "$company_backup"
-            "$python" "$repo/manage.py" activate_company_overview --apply --backup-dir "$company_backup" --activation-config "$company_backup/activation.json"
+            "$python" "$repo/manage.py" activate_company_overview --apply --repair-empty-merge-history --backup-dir "$company_backup" --activation-config "$company_backup/activation.json"
             if systemctl show "$service" -p Environment --value | grep -q GEOFLOW_COMPANY_OVERVIEW_; then
               fail company_systemd_feature_override_requires_review
             fi
