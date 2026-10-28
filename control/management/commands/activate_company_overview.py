@@ -3,6 +3,7 @@
 Read-only by default. Does not provision tenants, change grants, or discover
 credentials outside the canonical GroupDBConfig -> Secrets Manager path.
 """
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -22,6 +23,28 @@ REVIEWED_BLOB = '9caebb15259fecbeae22d130571f90a9080f8c0b'
 TABLES = ('company_profile', 'company_registration', 'company_revenue', 'company_headcount', 'company_credit', 'company_evidence')
 
 
+@contextmanager
+def activation_stage(stage):
+    """Expose only fixed stages/categories, never exception messages or DB identifiers."""
+    try:
+        yield
+    except CommandError:
+        raise
+    except Exception as error:
+        from django.db import DatabaseError
+        from django.db.migrations.exceptions import InconsistentMigrationHistory
+        from control.services.tenant_db_secret_resolver import TenantDBCredentialError
+        category = 'unexpected'
+        for kind, name in ((TenantDBCredentialError, 'credential_resolution'),
+                           (InconsistentMigrationHistory, 'inconsistent_history'),
+                           (DatabaseError, 'database'), (AttributeError, 'attribute'),
+                           (KeyError, 'configuration_key')):
+            if isinstance(error, kind):
+                category = name
+                break
+        raise CommandError(f'company_activation_stage={stage} category={category}') from None
+
+
 def forward_plan(executor):
     applied = executor.recorder.applied_migrations()
     if DEPENDENCY not in applied:
@@ -36,7 +59,8 @@ def forward_plan(executor):
 
 def tenant_connection():
     central = getattr(settings, 'CENTRAL_DB_ALIAS', 'default')
-    configs = list(GroupDBConfig.objects.using(central).filter(group__status='active').exclude(db_alias=central))
+    with activation_stage('tenant_catalog'):
+        configs = list(GroupDBConfig.objects.using(central).filter(group__status='active').exclude(db_alias=central))
     eligible = []
     for config in configs:
         alias = str(config.db_alias).strip()
@@ -45,10 +69,12 @@ def tenant_connection():
         base = connections[central].settings_dict
         if (str(config.db_host), str(config.db_port), str(config.db_name)) == (str(base.get('HOST')), str(base.get('PORT')), str(base.get('NAME'))):
             raise CommandError('company_central_database_rejected')
+        with activation_stage('tenant_credentials'):
+            password = resolve_tenant_db_password(config.db_password)
         db = dict(base)
         db.update(ENGINE='django.contrib.gis.db.backends.postgis', NAME=config.db_name,
                   HOST=config.db_host, PORT=config.db_port, USER=config.db_user,
-                  PASSWORD=resolve_tenant_db_password(config.db_password),
+                  PASSWORD=password,
                   OPTIONS=dict(base.get('OPTIONS', {})), CONN_MAX_AGE=0,
                   CONN_HEALTH_CHECKS=False, ATOMIC_REQUESTS=False, AUTOCOMMIT=True)
         if alias in connections.settings:
@@ -57,7 +83,7 @@ def tenant_connection():
         connections.settings[alias] = db
         settings.DATABASES[alias] = db
         connection = connections[alias]
-        with connection.cursor() as cur:
+        with activation_stage('tenant_readiness'), connection.cursor() as cur:
             cur.execute("SELECT to_regclass('ops.my_org_units'), to_regclass('django_migrations')")
             company_table, history = cur.fetchone()
             if not company_table or not history:
@@ -104,9 +130,12 @@ class Command(BaseCommand):
             connection = tenant_connection()
             if connection.vendor != 'postgresql':
                 raise CommandError('company_postgresql_required')
-            executor = MigrationExecutor(connection)
-            executor.loader.check_consistent_history(connection)
-            plan = forward_plan(executor)
+            with activation_stage('migration_loader'):
+                executor = MigrationExecutor(connection)
+            with activation_stage('migration_history'):
+                executor.loader.check_consistent_history(connection)
+            with activation_stage('migration_plan'):
+                plan = forward_plan(executor)
             self.stdout.write(f'company_eligible_tenants=1 company_pending_migrations={len(plan)}')
             if options['verify']:
                 verify_schema(connection)
