@@ -18,6 +18,7 @@ from .workers import project_workers
 def _catalog_response(alias: str, plan: dict, request=None, project_id=None) -> JsonResponse:
     payload = project_reference_catalog(
         using=alias,
+        plan=plan,
         standard_names=allowed_standard_names(plan),
     )
     # The Final Layer Plan already resolves this project's selected catalog IDs.

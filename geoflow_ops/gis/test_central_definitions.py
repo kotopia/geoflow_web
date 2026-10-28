@@ -50,7 +50,7 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(result['items'],result['fields'])
 
     def test_saved_json_v3_roundtrip(self):
-        cur=MagicMock(); cur.fetchone.side_effect=[('gis.project_definition',),('g','{"f":["m"]}','{}','{}',None)]
+        cur=MagicMock(); cur.fetchone.side_effect=[('gis.project_definition',),('g','{"f":["m"]}','{}','{}',None),(None,)]
         config=project_config(cur,'project')
         self.assertEqual(config['additions'],{'f':['m']})
         self.assertEqual(config['overrides'],{})
@@ -242,6 +242,97 @@ class CentralPostgresTests(unittest.TestCase):
     def save(self,action,**data): return defs.mutate(self.cur,{'action':action,**data})
     def field(self,label='추락방지시설',**kw): return self.save('field',label=label,kind='text',**kw)
     def code(self,field,code): return self.save('code',field=field,code=code,label=code)
+
+    def _rollout_prerequisites(self):
+        self.cur.execute('CREATE TABLE IF NOT EXISTS django_migrations(app text,name text,applied timestamptz)')
+        self.cur.execute("INSERT INTO django_migrations VALUES ('control','0008_saved_filters',now()),('webgisapp','0047_remove_survey_targets',now())")
+
+    def test_rollout_creates_only_relations_preserves_rows_and_reruns(self):
+        from control.management.commands import deploy_gis_reference_groups as rollout
+        self._rollout_prerequisites()
+        self.field('보존 대상'); self.cur.execute('DROP TABLE gis.definition_code_group')
+        before=rollout.baseline(self.cur,True)
+        rollout.apply_store(self.cur,True,before)
+        after=rollout.baseline(self.cur,True)
+        self.assertEqual(before['preserved'],after['preserved'])
+        self.assertEqual(after['relations'],[])
+        self.assertTrue(after['state']['applied'])
+        rollout.apply_store(self.cur,True,after)
+        self.cur.execute('CREATE SCHEMA prj; CREATE TABLE prj.projects(id uuid PRIMARY KEY); CREATE TABLE gis.project_definition(project_id uuid PRIMARY KEY)')
+        before=rollout.baseline(self.cur,False)
+        rollout.apply_store(self.cur,False,before)
+        after=rollout.baseline(self.cur,False)
+        self.assertEqual(before['preserved'],after['preserved'])
+        self.assertTrue(after['state']['table'])
+        rollout.apply_store(self.cur,False,after)
+        self.cur.execute("SELECT count(*) FROM django_migrations WHERE name IN ('0009_gis_reference_code_groups','0048_gis_project_reference_groups')")
+        self.assertEqual(self.cur.fetchone()[0],2)
+
+    def test_rollout_never_recreates_a_lost_previously_applied_relation_as_common(self):
+        from django.core.management.base import CommandError
+        from control.management.commands import deploy_gis_reference_groups as rollout
+        self._rollout_prerequisites()
+        self.cur.execute("INSERT INTO django_migrations VALUES ('control','0009_gis_reference_code_groups',now())")
+        self.cur.execute('DROP TABLE gis.definition_code_group')
+        with self.assertRaisesRegex(CommandError,'restore_required'):
+            rollout.check_state(self.cur,True)
+
+    def test_rollout_stops_on_preexisting_data_drift_before_ddl(self):
+        from django.core.management.base import CommandError
+        from control.management.commands import deploy_gis_reference_groups as rollout
+        self._rollout_prerequisites(); self.cur.execute('DROP TABLE gis.definition_code_group')
+        before=rollout.baseline(self.cur,True)
+        self.field('동시 변경')
+        with self.assertRaisesRegex(CommandError,'baseline_changed'):
+            rollout.apply_store(self.cur,True,before)
+        self.assertFalse(rollout.exists(self.cur,'gis.definition_code_group'))
+        self.assertFalse(rollout.recorded(self.cur,'control','0009_gis_reference_code_groups'))
+
+    def test_code_group_roundtrip_revision_and_protected_delete(self):
+        group=self.save('group',label='적용그룹'); field=self.field('관종'); code=self.code(field,'SPECIAL')
+        before=defs.snapshot(self.cur)['definition_revision']
+        self.save('code',id=code,field=field,code='SPECIAL',label='전용',reference_groups=[group])
+        data=defs.snapshot(self.cur)
+        self.assertEqual(data['code_groups'][0]['group_id'],group)
+        self.assertNotEqual(before,data['definition_revision'])
+        with self.assertRaisesRegex(defs.DefinitionError,'참조값 1개'):
+            self.save('delete_group',id=group)
+        # An explicit unchecked selection is the only promotion to common.
+        self.save('code',id=code,field=field,code='SPECIAL',label='공통',reference_groups=[])
+        self.assertEqual(defs.snapshot(self.cur)['code_groups'],[])
+        self.save('delete_group',id=group)
+        self.cur.execute('SELECT code FROM gis.definition_code WHERE id=%s',[code])
+        self.assertEqual(self.cur.fetchone()[0],'SPECIAL')
+
+    def test_invalid_group_rejected_without_changing_existing_code_links(self):
+        group=self.save('group',label='적용'); field=self.field(); code=self.code(field,'A')
+        self.save('code',id=code,field=field,code='A',label='A',reference_groups=[group])
+        with self.assertRaises(defs.DefinitionError):
+            self.save('code',id=code,field=field,code='A',label='A',reference_groups=[str(uuid4())])
+        self.cur.execute('SELECT group_id::text FROM gis.definition_code_group WHERE code_id=%s',[code])
+        self.assertEqual(self.cur.fetchall(),[(group,)])
+
+    def test_reference_group_migrations_preserve_existing_codes_and_reverse(self):
+        import importlib
+        from types import SimpleNamespace
+        central=importlib.import_module('control.migrations.0009_gis_reference_code_groups')
+        tenant=importlib.import_module('geoflow_ops.migrations.0048_gis_project_reference_groups')
+        field=self.field();code=self.code(field,'PE')
+        self.cur.execute('DROP TABLE gis.definition_code_group')
+        central.forward(None,SimpleNamespace(connection=self.db))
+        self.cur.execute('SELECT count(*) FROM gis.definition_code_group')
+        self.assertEqual(self.cur.fetchone()[0],0)
+        self.cur.execute('CREATE SCHEMA prj; CREATE TABLE prj.projects(id uuid PRIMARY KEY)')
+        self.cur.execute(tenant.SQL)
+        project,l2,group=map(str,[uuid4(),uuid4(),uuid4()])
+        self.cur.execute('INSERT INTO prj.projects VALUES (%s)',[project])
+        self.cur.execute('INSERT INTO gis.project_reference_group VALUES (%s,%s,%s)',[project,l2,group])
+        self.cur.execute('SELECT count(*) FROM gis.project_reference_group WHERE project_id=%s',[str(uuid4())])
+        self.assertEqual(self.cur.fetchone()[0],0)
+        self.cur.execute(tenant.Migration.operations[0].reverse_sql)
+        central.reverse(None,SimpleNamespace(execute=self.cur.execute))
+        self.cur.execute('SELECT code FROM gis.definition_code WHERE id=%s',[code])
+        self.assertEqual(self.cur.fetchone()[0],'PE')
 
     def test_group_layer_field_and_rule(self):
         group=self.save('group',label='아산시'); material=self.field('재질'); joint=self.field('접합')

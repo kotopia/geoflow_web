@@ -70,6 +70,12 @@ def guard_definition_deletion(cur, data):
     for group_id in configs:
         try:
             with tenant_cursor(group_id) as tc:
+                if action == 'delete_group':
+                    tc.execute("SELECT to_regclass('gis.project_reference_group')")
+                    if tc.fetchone()[0]:
+                        tc.execute('SELECT 1 FROM gis.project_reference_group WHERE group_id=%s LIMIT 1', [uid])
+                        if tc.fetchone():
+                            raise DefinitionError('프로젝트 GIS 업무범위 적용그룹으로 사용 중입니다.')
                 tc.execute("SELECT to_regclass('gis.project_definition')")
                 if tc.fetchone()[0]:
                     if action=='delete_group':
