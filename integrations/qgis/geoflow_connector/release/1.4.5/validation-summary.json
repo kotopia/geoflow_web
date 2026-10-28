@@ -11,11 +11,17 @@
   "unverified": [
     "Operational QML and saved angle semantics",
     "Operational GUI gesture/session checks",
-    "Central database integration and actual network saves",
+    "Operational central database and actual network saves",
     "Server authorization suite (missing local channels dependency)",
     "QGIS 3.x"
   ],
   "deployment_performed": false,
   "installed_plugin_replaced": false,
-  "migration_required": false
+  "migration_required": false,
+  "package_repository_tests_passed": 19,
+  "historical_archives_byte_exact": [
+    "1.4.3",
+    "1.4.4"
+  ],
+  "isolated_central_postgres_direction_roundtrip": "passed in CI run 40661808590"
 }
