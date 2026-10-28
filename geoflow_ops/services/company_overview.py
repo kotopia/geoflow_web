@@ -43,6 +43,8 @@ def validate_parent(alias, company_id, parent_id, node_kind):
     from geoflow_ops.models import MyOrgUnit
     if node_kind == 'branch' and not parent_id:
         raise ValidationError('지점은 소속 기업을 선택하세요.')
+    if node_kind == 'branch' and CompanyProfile.objects.using(alias).filter(parent_id=company_id).exists():
+        raise ValidationError('하위 기업이 있는 기업은 지점으로 변경할 수 없습니다.')
     visited = {company_id}
     current = parent_id
     while current:

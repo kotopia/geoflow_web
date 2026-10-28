@@ -72,6 +72,12 @@ class CompanyRulesTests(TestCase):
     def test_branch_requires_parent(self):
         with self.assertRaises(ValidationError): service.validate_parent('company_test',uuid4(),None,'branch')
 
+    def test_company_with_children_cannot_become_branch(self):
+        with patch.object(CompanyProfile,'objects') as profiles:
+            profiles.using.return_value.filter.return_value.exists.return_value=True
+            with self.assertRaises(ValidationError):
+                service.validate_parent('company_test',uuid4(),uuid4(),'branch')
+
     def test_missing_series_is_null_and_finance_not_queried(self):
         with patch.object(CompanyRevenue,'objects') as revenue, patch.object(CompanyHeadcount,'objects') as head:
             head.using.return_value.filter.return_value.values_list.return_value=[]
