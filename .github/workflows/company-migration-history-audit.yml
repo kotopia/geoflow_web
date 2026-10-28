@@ -1,0 +1,78 @@
+name: Company migration history read-only audit
+
+on:
+  pull_request:
+    branches: [release/stabilized-deploy]
+    paths:
+      - .github/workflows/company-migration-history-audit.yml
+      - scripts/ops/audit_company_migration_history.py
+      - scripts/ci/test_company_history_audit.py
+  push:
+    branches:
+      - release/stabilized-deploy
+    paths:
+      - .github/workflows/company-migration-history-audit.yml
+      - scripts/ops/audit_company_migration_history.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-history-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python scripts/ci/test_company_history_audit.py
+
+  audit-company-history:
+    needs: validate-history-audit
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate exact release and SSH inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Read migration dependency gaps without deployment or DB changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/geoflow_deploy_key" -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 "$SSH_USER@$SSH_HOST" \
+            'workdir="$(systemctl show geoflow-stabilized.service -p WorkingDirectory --value)"; test -n "$workdir" && test -x "$workdir/.venv/bin/python" && exec "$workdir/.venv/bin/python" -' \
+            < scripts/ops/audit_company_migration_history.py
