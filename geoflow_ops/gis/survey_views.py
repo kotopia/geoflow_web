@@ -107,7 +107,9 @@ def project_survey_sources_api(request, project_id):
     alias, project, _plan = _context(request, project_id, write=request.method == "POST")
     if request.method == "GET":
         return _response(lambda: {"ok": True, "project_id": str(project.id), "sources": list_survey_sources(
-            alias, project_id=str(project.id), include_inactive=request.GET.get("include_inactive") == "1")})
+            alias, project_id=str(project.id), include_inactive=request.GET.get("include_inactive") == "1",
+            include_deleted=request.GET.get("include_deleted") == "1"),
+            "source_inventory_version": 1})
     payload = _body(request)
     if payload.get("action") == "presign":
         if not _SAFE_ALIAS.fullmatch(alias):
@@ -146,10 +148,12 @@ def project_survey_source_api(request, project_id, source_id):
             ),
         })
     mode = str(request.GET.get("mode") or "source_and_points")
-    if mode not in {"source_and_points", "source_only"}:
+    if mode == "source_only":
+        return JsonResponse({"ok": False, "error": "survey_delete_contract_required",
+                             "message": "Source-only preservation is not supported; upgrade the Connector."}, status=409)
+    if mode != "source_and_points" or request.GET.get("deletion_policy") != "source_and_points_soft_delete_v1":
         return JsonResponse({"ok": False, "error": "survey_rejected", "message": "unsupported delete mode"}, status=400)
-    # source_only is retained as a compatibility alias for deployed Connector
-    # builds. Both modes now use the safe Source + Point soft-delete policy.
+    # Explicit acknowledgement prevents old preservation UIs from deleting points.
     return _response(
         lambda: delete_survey_source(
             alias,
@@ -171,13 +175,20 @@ def project_survey_points_api(request, project_id):
     if source_id:
         where.append("s.source_id=%s")
         params.append(source_id)
+    if request.GET.get("source_state") == "retained":
+        where.append("(src.id IS NULL OR src.deleted_at IS NOT NULL)")
     with connections[alias].cursor() as cursor:
         cursor.execute(f"""
             SELECT s.id::text,s.source_id::text,s.source_row_id,s.raw_x,s.raw_y,s.raw_z,
                    s.raw_crs,s.raw_code,s.raw_geoid_model,s.x,s.y,s.z,
                    ST_X(s.geom),ST_Y(s.geom),s.worker_id::text,s.survey_date,s.name,s.code,
-                   s.solution_info,s.pdop,s.antenna_height,s.raw_data,s.updated_at,s.survey_no,s.type
-              FROM gis.survey s WHERE {' AND '.join(where)} ORDER BY s.source_row_id,s.id LIMIT 5000
+                   s.solution_info,s.pdop,s.antenna_height,s.raw_data,s.updated_at,s.survey_no,s.type,
+                   src.original_file_name,src.deleted_at,
+                   CASE WHEN s.raw_x IS NOT NULL AND s.x=s.raw_x AND s.y=s.raw_y
+                        AND raw_srs.srtext ~ '^PROJ(CS|CRS)\\[' THEN s.raw_crs ELSE src.target_crs END
+              FROM gis.survey s LEFT JOIN gis.survey_source src ON src.id=s.source_id AND src.project_id=s.project_id
+              LEFT JOIN spatial_ref_sys raw_srs ON ('EPSG:' || raw_srs.srid)=s.raw_crs
+              WHERE {' AND '.join(where)} ORDER BY s.source_row_id,s.id LIMIT 5001
         """, params)
         rows = cursor.fetchall()
     points = [{"id": r[0], "source_id": r[1], "source_row_id": r[2],
@@ -188,8 +199,11 @@ def project_survey_points_api(request, project_id):
                "name": r[16], "code": r[17], "solution_info": r[18], "pdop": r[19],
                "antenna_height": r[20], "raw_data": r[21] or {},
                "updated_at": r[22].isoformat() if r[22] else None,
-               "survey_no": r[23], "type": r[24]} for r in rows]
-    return JsonResponse({"ok": True, "project_id": str(project.id), "points": points},
+               "survey_no": r[23], "type": r[24], "original_file_name": r[25],
+               "source_state": "deleted" if r[26] else ("active" if r[25] is not None else "unknown"),
+               "current_crs": r[27], "geometry_crs": "EPSG:4326"} for r in rows[:5000]]
+    return JsonResponse({"ok": True, "project_id": str(project.id), "points": points,
+                         "source_inventory_version": 1, "truncated": len(rows) > 5000},
                         json_dumps_params={"ensure_ascii": False})
 
 

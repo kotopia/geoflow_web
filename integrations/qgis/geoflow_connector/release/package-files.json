@@ -36,8 +36,8 @@
   },
   {
     "path": "api/survey.py",
-    "size": 10041,
-    "sha256": "897b158093ce345757307a2f74cd9613377fb43267c2aec6e64da18915afe32d"
+    "size": 10414,
+    "sha256": "6664871ee26209e87c6f86cbdb4c5cb1300e8aa11f20b142f791f2534018869a"
   },
   {
     "path": "app/__init__.py",
@@ -101,8 +101,8 @@
   },
   {
     "path": "CHANGELOG.md",
-    "size": 998,
-    "sha256": "ba40c08311eb63e074b3a77d7839227621cc2f9deee6ea30a00785c1203773e0"
+    "size": 1490,
+    "sha256": "c62fd592d52b0287f58c95f49d3f2471c60f486d5ea3326daff1d9affbbcd9af"
   },
   {
     "path": "forms/__init__.py",
@@ -216,8 +216,8 @@
   },
   {
     "path": "metadata.txt",
-    "size": 966,
-    "sha256": "835dfe3cf2d7f51739651a220e13a6749f3d44f35c9e72a05b61e25c78b2dd7d"
+    "size": 910,
+    "sha256": "8cde348a0c026f460d7bc8b667ae7cac5d4886eb754c5bb40540a9845d1a17f7"
   },
   {
     "path": "photo_selection.py",
@@ -27686,8 +27686,8 @@
   },
   {
     "path": "services/survey_spatial.py",
-    "size": 2199,
-    "sha256": "ea1986f7791a0b7d71a1393e857ef6c4240f398e9b65d5e49c459d506ff79877"
+    "size": 2360,
+    "sha256": "435eddd809451ea4ae8ca2691d4e7062bd35a91ae6771e7915705488455f6545"
   },
   {
     "path": "survey/__init__.py",
@@ -27706,8 +27706,8 @@
   },
   {
     "path": "survey/controller.py",
-    "size": 11726,
-    "sha256": "6a94aa131097f0169ba00ef298cbf5f03bb4a44f816896bb351372f435f4a894"
+    "size": 11768,
+    "sha256": "ccb3ff5ef04c74f20eee2f468b8835f292c0b4bcef1c072b3b50ae979bd7ecfb"
   },
   {
     "path": "survey/creation.py",
@@ -27990,9 +27990,14 @@
     "sha256": "e56c657754b5f825af435384ad0d9927d2b9c386da7d89ddefa3e124d471307e"
   },
   {
+    "path": "ui/survey_inspection.py",
+    "size": 13957,
+    "sha256": "c2d8559633efd72ee2137ad54b6a8bc4053ed07db996af84bc2388e65e4cf56c"
+  },
+  {
     "path": "ui/survey_panel.py",
-    "size": 117883,
-    "sha256": "223f93bd62ae7ece7bb68143874d48599211e040ce4d1069a6aba294a59764f6"
+    "size": 113828,
+    "sha256": "7f46466643590a777c49cae0d7846f9a8b3539453110c78eb67d43f8febdce11"
   },
   {
     "path": "ui/tabler_icons.py",

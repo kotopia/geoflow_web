@@ -156,7 +156,7 @@ class StableRepositoryTests(unittest.TestCase):
         publisher.publish('stable',self.index,self.package,self.confirm)
         history='qgis-plugins/stable/history/plugins-'+publisher.digest(self.xml)+'.xml'
         values=metadata(self.source);values['version']='1.2.4'
-        self.source.joinpath('metadata.txt').write_text(self.source.joinpath('metadata.txt').read_text().replace('version=1.2.3','version=1.2.4'))
+        self.source.joinpath('metadata.txt').write_text(self.source.joinpath('metadata.txt').read_text(encoding='utf-8').replace('version=1.2.3','version=1.2.4'),encoding='utf-8')
         newer=self.root/'geoflow_connector-1.2.4.zip';sha=build_zip(self.source,newer)
         self.index.write_bytes(build_xml(values,publisher.SITE+'packages/'+newer.name,newer.name,sha))
         publisher.publish('stable',self.index,newer,self.confirm)
@@ -174,9 +174,19 @@ class StableRepositoryTests(unittest.TestCase):
         self.assertGreater(tuple(map(int,'1.4.3'.split('.'))),tuple(map(int,'1.4.2'.split('.'))))
 
     def test_approved_143_archive_is_byte_exact_on_this_platform(self):
-        source=ROOT/'integrations/qgis/geoflow_connector'
-        manifest=source/'release/geoflow_connector-release.json'
-        inventory=source/'release/package-files.json'
+        current=ROOT/'integrations/qgis/geoflow_connector'
+        historical=current/'release/1.4.3'
+        manifest=historical/'geoflow_connector-release.json'
+        inventory=historical/'package-files.json'
+        # Preserve every approved 1.4.3 byte. Changed runtime files are archived;
+        # unchanged files must still satisfy the original inventory and ZIP hash.
+        source=self.root/'approved-143'
+        for item in json.loads(inventory.read_text(encoding='utf-8')):
+            old=historical/'runtime'/item['path']
+            original=old if old.exists() else current/item['path']
+            target=source/item['path']
+            target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(original.read_bytes())
         output=self.root/'geoflow_connector-1.4.3.zip'
         sha=build_zip(source,output,release_manifest=manifest,inventory=inventory)
         self.assertEqual(sha,'8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5')
@@ -184,6 +194,16 @@ class StableRepositoryTests(unittest.TestCase):
         with zipfile.ZipFile(output) as z:
             self.assertEqual(sum(not i.is_dir() for i in z.infolist()),5600)
             self.assertEqual(z.testzip(),None)
+
+    def test_current_release_archive_matches_its_new_inventory(self):
+        source=ROOT/'integrations/qgis/geoflow_connector'
+        manifest=source/'release/geoflow_connector-release.json'
+        release=json.loads(manifest.read_text(encoding='utf-8'))
+        output=self.root/release['zip_filename']
+        sha=build_zip(source,output,release_manifest=manifest,inventory=source/'release/package-files.json')
+        self.assertEqual(sha,release['sha256'])
+        self.assertEqual(output.stat().st_size,release['size_bytes'])
+        self.assertGreater(tuple(map(int,release['version'].split('.'))),(1,4,3))
 
     def test_release_inventory_rejects_changed_file_bytes(self):
         source=ROOT/'integrations/qgis/geoflow_connector'

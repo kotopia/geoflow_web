@@ -1,12 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <plugins>
-  <pyqgis_plugin name="GeoFlow Connector" version="1.4.3" experimental="false">
+  <pyqgis_plugin name="GeoFlow Connector" version="1.4.4" experimental="false">
     <name>GeoFlow Connector</name>
-    <version>1.4.3</version>
+    <version>1.4.4</version>
     <qgis_minimum_version>3.28</qgis_minimum_version>
     <qgis_maximum_version>4.99</qgis_maximum_version>
     <description>GeoFlow project login, persistent local Snapshot reuse, cache lifecycle management, field-level Changeset synchronization, revision Delta updates, and realtime multi-user Delta hints.</description>
-    <about>GeoFlow connects project snapshots, dynamic forms, Survey imports and field Changeset synchronization. Version 1.4.3 uses spatial Survey and depth searches, active-layer-only selection, a shared 2.0m default search radius, and timed inline depth calculation feedback. Existing project radius overrides are preserved.</about>
+    <about>GeoFlow connects project snapshots, dynamic forms, Survey imports and field Changeset synchronization. Version 1.4.4 adds read-only Survey location and duplicate comparison, server-derived retained inventories, and explicit Source deletion contract validation.</about>
     <author_name>GeoFlow</author_name>
     <homepage>https://geoflow.co.kr</homepage>
     <repository>https://github.com/kotopia/geoflow_web</repository>
@@ -14,10 +14,10 @@
     <tags>geoflow,gis,qgis,qfield,postgis,geopackage,snapshot,cache,lifecycle,pin,changeset,delta,sync,websocket,realtime,session</tags>
     <downloads>0</downloads>
     <file_name>geoflow_connector.zip</file_name>
-    <download_url>https://geoflow.co.kr/gis/qgis/plugins/releases/geoflow_connector-1.4.3.zip</download_url>
+    <download_url>https://geoflow.co.kr/gis/qgis/plugins/releases/geoflow_connector-1.4.4.zip</download_url>
     <experimental>false</experimental>
     <deprecated>false</deprecated>
     <trusted>false</trusted>
-    <sha256_sum>8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5</sha256_sum>
+    <sha256_sum>ae80feb7070215b601eb352ffd5637f8b8378af04f4cf1ad3eaa194021713957</sha256_sum>
   </pyqgis_plugin>
 </plugins>

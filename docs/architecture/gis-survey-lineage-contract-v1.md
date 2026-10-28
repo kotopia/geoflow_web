@@ -29,9 +29,13 @@ validation is relaxed by the target retirement.
 | GET/DELETE | /gis/projects/{project_id}/api/survey-points/{survey_id}/ | Precheck / soft delete |
 | POST | /gis/projects/{project_id}/api/survey-points/bulk-delete/ | action precheck or delete |
 
-DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/ accepts the
-existing mode=source_only alias and source_and_points; both retain the approved
-Source + Point soft-delete policy. No compatibility route is retained for the
+DELETE /gis/projects/{project_id}/api/survey-sources/{source_id}/ requires
+`mode=source_and_points&deletion_policy=source_and_points_soft_delete_v1`.
+The approved Source + Point soft-delete policy is unchanged. The former
+mode=source_only alias now returns 409 without mutation: old Connector builds
+incorrectly promised preservation. Precheck and successful DELETE advertise
+`deletion_policy=source_and_points_soft_delete_v1`; clients must stop before
+DELETE if that explicit contract is absent. No compatibility route is retained for the
 removed target matching or reapply APIs, including their device routes.
 
 ## Private original upload
@@ -70,6 +74,42 @@ per project/date; project row lock and UNIQUE(project_id,survey_no) prevent
 collisions. Source revisions preserve logical point UUID/number. Deleted numbers
 are not reused. Missing date stays NULL. Import response includes final values.
 Point reads return at most 5,000 rows ordered by source_row_id,id.
+
+## Current inventory and inspection (1.4.4 candidate, not deployed)
+
+Source lists accept `include_deleted=1` (with `include_inactive=1`) and return
+`source_inventory_version=1`, `deleted_at`, `delete_reason`, active `point_count`
+and `deleted_point_count`. These reuse existing Source/Survey audit columns;
+no schema/backfill or persistent target relation is added. The default still
+excludes deleted sources. Archived storage keys are never copied into UI diagnostics.
+
+Point lists accept `source_state=retained` for active observations whose source
+is deleted or unavailable, independently of PC settings. Responses include
+`original_file_name`, `source_state` (active/deleted/unknown), `geometry_crs`,
+and `current_crs` where the existing import contract establishes it. Project
+scope applies to the source join. A 5,001-row probe returns at most 5,000 and
+explicit `truncated`; the Connector warns that counts/extents are incomplete.
+Old servers without that marker are incomplete at exactly 5,000. Failed or
+malformed reads are errors, never zero counts or permission to clear history.
+
+The Connector separates original files, nonempty retained observations and
+Source deletion history. Historical QSettings IDs are diagnostic evidence only;
+they cannot hide active sources or manufacture retained observations. On older
+servers, a missing source is labelled deleted/unknown, not proven deleted.
+Current x/y/z never fall back to raw_x/y/z. Details distinguish survey_no from
+source_row_id, expose UUID copy, raw/current CRS and location availability.
+Raw CRS does not automatically establish final-coordinate CRS. Canonical
+EPSG:4326 geometry-derived longitude/latitude remains suitable for navigation.
+
+Canvas navigation transforms into canvas CRS, uses a minimum extent and timed
+rubber bands. It does not select a managed feature, switch layers, change
+creation checks, load a form, save, or persist geometry. Duplicate inspection
+uses unchanged spatial radius/target-code criteria and resolves GIS peers by
+layer ID + object UUID, never table position/FID. It adds no Survey↔GIS relation.
+
+The separate L2 omission is fixed in the reference response by resolving central
+active catalog labels from the existing project Final Layer Plan capabilities.
+It does not infer business scope from Survey sources or modify project scope.
 
 ## Deletion
 

@@ -40,7 +40,7 @@ class SurveyContractTests(unittest.TestCase):
         self.client.get_json.assert_called_with(self.root + "survey-sources/" + SOURCE + "/")
         self.api.delete_source(SOURCE)
         self.client.delete_json_detailed.assert_called_with(
-            self.root + "survey-sources/" + SOURCE + "/?mode=source_only"
+            self.root + "survey-sources/" + SOURCE + "/?mode=source_and_points&deletion_policy=source_and_points_soft_delete_v1"
         )
         self.api.points(source_id=None)
         self.client.get_json.assert_called_with(self.root + "survey-points/")
