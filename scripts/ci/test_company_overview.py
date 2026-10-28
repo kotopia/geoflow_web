@@ -16,7 +16,7 @@ settings.configure(SECRET_KEY='isolated-company-tests-only',INSTALLED_APPS=['dja
 import django
 django.setup()
 from geoflow_ops import test_company_overview
-names = ['geoflow_ops.test_company_overview.CompanyRulesTests','geoflow_ops.test_company_overview.CompanyBoundaryTests','geoflow_ops.test_company_overview.CompanyTemplateTests','geoflow_ops.test_event_timeline_order']
+names = ['control.test_company_overview_activation','geoflow_ops.test_company_overview.CompanyRulesTests','geoflow_ops.test_company_overview.CompanyBoundaryTests','geoflow_ops.test_company_overview.CompanyTemplateTests','geoflow_ops.test_event_timeline_order']
 if POSTGRES:
     names.append('geoflow_ops.test_company_overview.CompanyDatabaseTests')
 result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromNames(names))

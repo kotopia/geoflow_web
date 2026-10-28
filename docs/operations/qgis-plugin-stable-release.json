@@ -1,11 +1,11 @@
 {
-  "version": "1.4.4",
-  "zip_filename": "geoflow_connector-1.4.4.zip",
-  "size_bytes": 5226447,
-  "sha256": "ae80feb7070215b601eb352ffd5637f8b8378af04f4cf1ad3eaa194021713957",
-  "source_commit": "83555b85d0c3c3c36ce0786ad4b0fc6432ba4094",
-  "runtime_commit": "83555b85d0c3c3c36ce0786ad4b0fc6432ba4094",
+  "version": "1.4.5",
+  "zip_filename": "geoflow_connector-1.4.5.zip",
+  "size_bytes": 5282939,
+  "sha256": "7657324a0ef173a6c29e55c20e6acdab0289a2be62b0f2a19afd42d2b746c305",
+  "source_commit": "92f182774961f98b6349c2c03a4651bd45df80ff",
+  "runtime_commit": "92f182774961f98b6349c2c03a4651bd45df80ff",
   "archive_profile": "windows-fixed-2026",
-  "manifest": "integrations/qgis/geoflow_connector/release/geoflow_connector-release.json",
-  "inventory": "integrations/qgis/geoflow_connector/release/package-files.json"
+  "manifest": "integrations/qgis/geoflow_connector/release/1.4.5/geoflow_connector-release.json",
+  "inventory": "integrations/qgis/geoflow_connector/release/1.4.5/package-files.json"
 }

@@ -1,0 +1,2 @@
+[{"layer": "wtl_valv_ps", "category": "\uc81c\uc218\ubcc0", "before_0_equals_90": true, "after_0_equals_90": false}, {"layer": "wtl_etc_ps", "category": "\uc9c0\uc218\uc804", "before_0_equals_90": true, "after_0_equals_90": false}]
+

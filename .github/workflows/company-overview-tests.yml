@@ -4,6 +4,9 @@ on:
     branches: [release/stabilized-deploy]
     paths:
       - 'geoflow_ops/**'
+      - 'control/management/commands/activate_company_overview.py'
+      - 'control/test_company_overview_activation.py'
+      - '.github/workflows/phase4-workboard-production-deploy.yml'
       - 'geoflow_project/settings.py'
       - 'scripts/ci/test_company_overview.py'
       - '.github/workflows/company-overview-tests.yml'

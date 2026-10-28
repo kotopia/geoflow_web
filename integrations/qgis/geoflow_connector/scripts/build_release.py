@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -29,12 +30,18 @@ def included(path):
 
 
 def build(repository_builder):
-    OUT.mkdir(exist_ok=True)
+    global OUT
     config = configparser.ConfigParser(interpolation=None)
     config.read(ROOT / 'metadata.txt', encoding='utf-8')
     meta = config['general']
     version = meta['version']
-    reference = ET.parse(OUT / 'test-repository-reference.xml').getroot()
+    previous_version = json.loads((ROOT / 'release' / 'geoflow_connector-release.json').read_text(encoding='utf-8'))['version']
+    assert tuple(map(int, version.split('.'))) > tuple(map(int, previous_version.split('.')))
+    OUT = ROOT / 'release' / version
+    OUT.mkdir(parents=True, exist_ok=True)
+    if (OUT / f'{PACKAGE}-{version}.zip').exists():
+        raise FileExistsError('Refusing to overwrite a release ZIP')
+    reference = ET.parse(ROOT / 'release' / 'test-repository-reference.xml').getroot()
     previous = reference.find('pyqgis_plugin')
     assert tuple(map(int, version.split('.'))) > tuple(map(int, previous.attrib['version'].split('.')))
     assert meta['name'] == previous.attrib['name']
@@ -96,14 +103,14 @@ def build(repository_builder):
     missing = [key for key in ('email', 'repository', 'tracker') if not meta.get(key, '').strip()]
     manifest = {
         'plugin_name': meta['name'], 'package_name': PACKAGE, 'version': version,
-        'previous_version': previous.attrib['version'], 'zip_filename': filename,
+        'previous_version': previous_version, 'zip_filename': filename,
         'size_bytes': target.stat().st_size, 'sha256': digest,
         'qgis_minimum_version': meta['qgisMinimumVersion'], 'qgis_maximum_version': meta['qgisMaximumVersion'],
         'experimental': False, 'deprecated': False, 'zip_root': PACKAGE + '/',
         'download_url': f'https://geoflow.co.kr/gis/qgis/plugins/releases/{filename}',
         'download_url_status': 'proposed_only_not_published',
         'metadata': dict(meta), 'missing_publisher_metadata': missing,
-        'publication_ready': False, 'git_commit': None,
+        'publication_ready': False, 'git_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
         'publication_note': 'Work must review metadata, validation reports and destination before publishing.',
     }
     (OUT / 'geoflow_connector-release.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')

@@ -1,0 +1,36 @@
+test_conversions_and_validation (__main__.MathTests.test_conversions_and_validation) ... ok
+
+test_endpoints_and_duplicates (__main__.MathTests.test_endpoints_and_duplicates) ... ok
+
+test_nearest_local_segment_and_ties (__main__.MathTests.test_nearest_local_segment_and_ties) ... ok
+
+test_straight_junction_multipart_and_zero (__main__.MathTests.test_straight_junction_multipart_and_zero) ... ok
+
+test_actual_dynamic_form_draft_and_undo (__main__.RuntimeTests.test_actual_dynamic_form_draft_and_undo) ... ok
+
+test_apply_undo_and_stale (__main__.RuntimeTests.test_apply_undo_and_stale) ... ok
+
+test_area_in_different_canvas_crs_and_escape (__main__.RuntimeTests.test_area_in_different_canvas_crs_and_escape) ... ok
+
+test_batch_failure_preserves_values_and_stale_target (__main__.RuntimeTests.test_batch_failure_preserves_values_and_stale_target) ... ok
+
+test_delayed_popup_does_not_trigger_short_click (__main__.RuntimeTests.test_delayed_popup_does_not_trigger_short_click) ... ok
+
+test_mixed_crs (__main__.RuntimeTests.test_mixed_crs) ... ok
+
+test_noop_does_not_start_editing (__main__.RuntimeTests.test_noop_does_not_start_editing) ... ok
+
+test_preview_sync_cancel_and_apply (__main__.RuntimeTests.test_preview_sync_cancel_and_apply) ... ok
+
+test_selection_modifiers_and_area (__main__.RuntimeTests.test_selection_modifiers_and_area) ... ok
+
+
+
+----------------------------------------------------------------------
+
+Ran 13 tests in 1.448s
+
+
+
+OK
+
