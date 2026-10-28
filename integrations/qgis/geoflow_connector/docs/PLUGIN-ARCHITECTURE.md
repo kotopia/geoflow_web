@@ -105,6 +105,39 @@ Central default Form Layout -> Tenant override -> Project override (optional)
 The current `LocalFormLayoutStore` remains a user-local presentation preference
 and is not treated as a tenant or project-authoritative override.
 
+### Bundled common form layouts
+
+`resources/forms/common_form.json` is the version-controlled default layout
+resource. It preserves the eight saved WTL layouts promoted from this developer
+profile on 2026-10-21, without redesign or normalization during export. The JSON
+contains the existing version/layer/tabs/groups/rows/field/weight serialization,
+in UTF-8 without BOM. Field labels, widget types, visibility, required/readonly
+rules and style still come from the central definition and existing renderer;
+they are not replaced by this presentation resource.
+
+Resolution is per standard layer name: valid user QSettings override at
+`GeoFlowConnector/formLayouts/<UPPERCASE_LAYER>` first, then that layer's bundled
+layout, then the existing central-generated layout for unbundled layers or an
+unreadable resource. The local profile stores these JSON strings in QGIS4.ini.
+Invalid overrides remain untouched while rendering the default. There is no
+project-specific local storage in this resolver; project/tenant definitions
+remain server-resolved and unchanged. Existing field-ID filtering and newly
+introduced field handling are preserved; the bundled layouts refer to the
+current shared central field IDs, not inferred field-name replacements.
+
+`DynamicFormHost` loads through this store and passes the result to `DynamicForm`
+and `LayoutRenderer`. Save writes only the existing QSettings key. Reset previews
+the bundled default and, when accepted, removes only that layer's local override.
+Neither reading defaults nor installing/updating the plugin copies resources to
+the profile. Runtime never writes the resource. No new UI, version bump, ZIP or
+release artifact is created for this change.
+
+Validation: `test_local_form_layout.py` covers the resource and generated fallback;
+`tests/qgis_common_form_runtime.py` runs in two isolated QGIS 4.2.2 processes,
+checks all eight developer overrides read-only, new-profile rendering, local
+save/restart/reset, cancelled reset preview, and unchanged resource bytes.
+
+
 ### Current depth/nearby contract
 
 `WTL_PIPE_PS.pip_dep` is the calculated pipe-depth value. `dep_dist` is not

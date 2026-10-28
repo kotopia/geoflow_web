@@ -4,9 +4,26 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from copy import deepcopy
+import json
+from pathlib import Path
 
 
 LAYOUT_VERSION = 1
+BUNDLED_COMMON_FORM = Path(__file__).resolve().parents[2] / "resources/forms/common_form.json"
+
+
+def bundled_default_layout(layer, fields):
+    """Read the shipped layout without copying it into the user's settings."""
+    try:
+        document = json.loads(BUNDLED_COMMON_FORM.read_text(encoding="utf-8"))
+        layouts = document.get("layouts", {}) if isinstance(document, dict) else {}
+        value = layouts.get(str(layer or "").upper()) if isinstance(layouts, dict) else None
+        normalized = normalize_layout(value, layer, fields)
+        if normalized is not None:
+            return normalized
+    except (OSError, UnicodeError, ValueError):
+        pass
+    return default_layout(layer, fields)
 
 
 def row_field_id(value):
