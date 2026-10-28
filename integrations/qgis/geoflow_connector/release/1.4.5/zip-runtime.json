@@ -1,0 +1,26 @@
+[
+  {
+    "phase": 1,
+    "runtime": "4.2.2-Belém do Pará",
+    "version": "1.4.5",
+    "modules_imported": 101,
+    "class_factory": true,
+    "init_gui": true,
+    "login_ui": true,
+    "dynamic_form_host": true,
+    "project_save_or_reload": true,
+    "ok": true
+  },
+  {
+    "phase": 2,
+    "runtime": "4.2.2-Belém do Pará",
+    "version": "1.4.5",
+    "modules_imported": 101,
+    "class_factory": true,
+    "init_gui": true,
+    "login_ui": true,
+    "dynamic_form_host": true,
+    "project_save_or_reload": true,
+    "ok": true
+  }
+]

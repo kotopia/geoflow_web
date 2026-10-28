@@ -195,20 +195,41 @@ class StableRepositoryTests(unittest.TestCase):
             self.assertEqual(sum(not i.is_dir() for i in z.infolist()),5600)
             self.assertEqual(z.testzip(),None)
 
+    def test_approved_144_archive_remains_byte_exact(self):
+        current=ROOT/'integrations/qgis/geoflow_connector'
+        historical=current/'release/1.4.4'
+        source=self.root/'approved-144'
+        inventory=historical/'package-files.json'
+        for item in json.loads(inventory.read_text(encoding='utf-8')):
+            archived=historical/'runtime'/item['path']
+            original=archived if archived.exists() else current/item['path']
+            target=source/item['path'];target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(original.read_bytes())
+        output=self.root/'geoflow_connector-1.4.4.zip'
+        digest=build_zip(source,output,release_manifest=historical/'geoflow_connector-release.json',inventory=inventory)
+        self.assertEqual(digest,'ae80feb7070215b601eb352ffd5637f8b8378af04f4cf1ad3eaa194021713957')
+        self.assertEqual(output.stat().st_size,5226447)
+
     def test_current_release_archive_matches_its_new_inventory(self):
         source=ROOT/'integrations/qgis/geoflow_connector'
-        manifest=source/'release/geoflow_connector-release.json'
+        from scripts.qgis.build_plugin_repository import metadata
+        release_dir=source/'release'/metadata(source)['version']
+        if not release_dir.exists(): release_dir=source/'release'
+        manifest=release_dir/'geoflow_connector-release.json'
         release=json.loads(manifest.read_text(encoding='utf-8'))
         output=self.root/release['zip_filename']
-        sha=build_zip(source,output,release_manifest=manifest,inventory=source/'release/package-files.json')
+        sha=build_zip(source,output,release_manifest=manifest,inventory=release_dir/'package-files.json')
         self.assertEqual(sha,release['sha256'])
         self.assertEqual(output.stat().st_size,release['size_bytes'])
         self.assertGreater(tuple(map(int,release['version'].split('.'))),(1,4,3))
 
     def test_release_inventory_rejects_changed_file_bytes(self):
         source=ROOT/'integrations/qgis/geoflow_connector'
-        manifest=source/'release/geoflow_connector-release.json'
-        records=json.loads((source/'release/package-files.json').read_text())
+        from scripts.qgis.build_plugin_repository import metadata
+        release_dir=source/'release'/metadata(source)['version']
+        if not release_dir.exists(): release_dir=source/'release'
+        manifest=release_dir/'geoflow_connector-release.json'
+        records=json.loads((release_dir/'package-files.json').read_text(encoding='utf-8'))
         records[0]['sha256']='0'*64
         invalid=self.root/'inventory.json';invalid.write_text(json.dumps(records))
         with self.assertRaisesRegex(ValueError,'file bytes differ'):

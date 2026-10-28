@@ -18,7 +18,7 @@ def check():
         expected = Path(CONFIG['plugin_root']).resolve()
         assert not Path(qgis.utils.__file__).resolve().is_relative_to(expected)
         qgis.utils.updateAvailablePlugins()
-        assert qgis.utils.pluginMetadata('geoflow_connector', 'version') == '1.4.3'
+        assert qgis.utils.pluginMetadata('geoflow_connector', 'version') == CONFIG['version']
         assert qgis.utils.loadPlugin('geoflow_connector')
         assert qgis.utils.startPlugin('geoflow_connector')
         package = importlib.import_module('geoflow_connector')
@@ -33,7 +33,7 @@ def check():
         plugin._ensure_ui()
         plugin._ensure_work()
         assert plugin.dialog is not None and plugin.work is not None
-        result.update(version='1.4.3', plugin_root=str(expected), modules_imported=len(modules),
+        result.update(version=CONFIG['version'], plugin_root=str(expected), modules_imported=len(modules),
                       class_factory=True, init_gui=True, login_ui=True, dynamic_form_host=True)
         project = QgsProject.instance()
         if CONFIG['phase'] == 1:

@@ -107,7 +107,7 @@ def _layout_json(data):
 
 def mutate(cur, data):
     action = data.get('action','')
-    actions = {'group','field','standard_field','layer','code','scope','group_layer','group_field',
+    actions = {'direction', 'group','field','standard_field','layer','code','scope','group_layer','group_field',
                'field_layer','rule','delete_group','delete_field','delete_code','delete_scope',
                'delete_group_layer','delete_group_field','delete_field_layer','delete_rule'}
     if action not in actions:
@@ -125,7 +125,24 @@ def mutate(cur, data):
             raise DefinitionError('유효한 GIS 적용그룹을 선택하세요.')
     else:
         selected = None
-    if action == 'group':
+    if action == 'direction':
+        from integrations.qgis.geoflow_connector.services.direction_math import validate_config
+        field = one(cur, "SELECT f.source_layer_id,f.kind,f.physical_name FROM gis.definition_field f JOIN gis.definition_layer l ON l.id=f.source_layer_id WHERE f.id=%s AND f.active AND upper(l.geometry_kind) IN ('POINT','MULTIPOINT')", [uid])
+        if not field[0] or field[1] not in ('decimal', 'integer') or not field[2]:
+            raise DefinitionError('방향각은 기존 숫자형 물리 필드에만 설정할 수 있습니다.')
+        raw = data.get('direction')
+        if raw is None:
+            cur.execute("UPDATE gis.definition_field SET layout=COALESCE(layout,'{}'::jsonb)-'direction',updated_at=now() WHERE id=%s", [uid])
+            return uid
+        try:
+            config = validate_config(json_object(raw, '방향 계산'))
+        except (ValueError, TypeError) as exc:
+            raise DefinitionError(str(exc)) from exc
+        cur.execute("SELECT id::text FROM gis.definition_layer WHERE active AND upper(geometry_kind) IN ('LINE','LINESTRING','MULTILINESTRING') AND id=ANY(%s::uuid[])", [config['reference_layer_ids']])
+        if {row[0] for row in cur.fetchall()} != set(config['reference_layer_ids']):
+            raise DefinitionError('활성 중앙 기준선 레이어를 선택하세요.')
+        cur.execute("UPDATE gis.definition_field SET layout=jsonb_set(COALESCE(layout,'{}'::jsonb),'{direction}',%s::jsonb),updated_at=now() WHERE id=%s", [json.dumps(config), uid])
+    elif action == 'group':
         cur.execute('''INSERT INTO gis.definition_group(id,name) VALUES (%s,%s)
             ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name''', [uid,text(data.get('label'))])
     elif action == 'layer':

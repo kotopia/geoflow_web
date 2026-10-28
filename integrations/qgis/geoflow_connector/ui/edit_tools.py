@@ -7,7 +7,7 @@ from pathlib import Path
 
 from qgis.PyQt.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer
 from qgis.PyQt.QtGui import QAction, QIcon
-from qgis.PyQt.QtWidgets import QMessageBox, QMenu, QToolBar, QVBoxLayout, QWidget
+from qgis.PyQt.QtWidgets import QMessageBox, QMenu, QPushButton, QToolBar, QVBoxLayout, QWidget
 from qgis.PyQt.uic import loadUi
 from qgis.PyQt import sip
 from qgis.core import (
@@ -42,6 +42,11 @@ class EditToolsController(QObject):
         self.host = self.palette  # Compatibility for runtime diagnostics.
         self.registry = NearbyStrategyRegistry()
         self.depth = DepthService(plugin)
+        from ..services.direction import DirectionService
+        self.direction = DirectionService(plugin)
+        self._rotation_dialog = None
+        self._direction_buttons = {}
+        self._direction_connections = []
         self.registry.register("WTL_PIPE_PS", self.depth.strategy)
         self._form_pages = {}
         self._depth_field_actions = {}
@@ -61,6 +66,21 @@ class EditToolsController(QObject):
         self._save_action = None
         self._save_action_hosts = []
         self._log("edit_tools_panel_created")
+        self.depth_batch_button = QPushButton('심도 일괄계산', self.panel)
+        self.panel.layout().addWidget(self.depth_batch_button)
+        self.depth_batch_button.clicked.connect(self._run_depth)
+        self.direction_batch_button = QPushButton('방향각 일괄계산', self.panel)
+        self.panel.layout().addWidget(self.direction_batch_button)
+        for button, title, icon in (
+            (self.depth_batch_button, '심도 일괄계산', '/mActionFieldCalculator.svg'),
+            (self.direction_batch_button, '방향각 일괄계산', '/mActionRotatePointSymbols.svg')):
+            button.setText('')
+            button.setAccessibleName(title)
+            button.setToolTip(title)
+            button.setIcon(QgsApplication.getThemeIcon(icon))
+            button.setFixedSize(32, 32)
+            button.setIconSize(QSize(22, 22))
+        self.direction_batch_button.clicked.connect(self.calculate_direction)
         self._wire()
         plugin.dock.visibilityChanged.connect(self._main_dock_visibility_changed)
         plugin.dock.installEventFilter(self)
@@ -584,7 +604,56 @@ class EditToolsController(QObject):
         )
         for button in self._depth_field_actions[layer.id()]:
             button.setVisible(visible)
+        from qgis.PyQt.QtWidgets import QToolButton
+        from .form_actions import configure_field_action_button
+        try:
+            field, config = self.direction.settings(layer)
+        except (ValueError, TypeError):
+            pass
+        else:
+            self.direction.bind_renderer(layer)
+            buttons = []
+            for label, callback in (('방향 조정', self.rotate_direction), ('방향각 계산', self.calculate_direction)):
+                button = QToolButton(page.form)
+                configure_field_action_button(button, icon=':/geoflow/tabler/rotate.svg', tooltip=label)
+                button.clicked.connect(lambda checked=False, cb=callback: cb())
+                if page.form.add_field_action(field['id'], button): buttons.append(button)
+            self._direction_buttons[layer.id()] = buttons
+            def sync_angle(fid, index, value):
+                if (page.feature_id == fid and not page.binding.loading and not page.binding.saving
+                        and index == layer.fields().indexFromName(field['storage']['key'])):
+                    self.direction.sync_form(page, layer)
+            layer.attributeValueChanged.connect(sync_angle)
+            self._direction_connections.append((layer, sync_angle))
+            page.destroyed.connect(lambda: self._disconnect_direction(layer, sync_angle))
         self.refresh()
+
+    @staticmethod
+    def _disconnect_direction(layer, slot):
+        try: layer.attributeValueChanged.disconnect(slot)
+        except (RuntimeError, TypeError): pass
+
+    def rotate_direction(self):
+        from .direction import RotationDialog
+        layer, page = self._active_layer(), self._current_page()
+        if page is None or page.feature_id is None or layer.selectedFeatureCount() != 1:
+            return
+        try:
+            if self._rotation_dialog is not None: self._rotation_dialog.reject()
+            self._rotation_dialog = RotationDialog(self, layer, page)
+            self._rotation_dialog.show()
+        except Exception as exc: self._set_message(str(exc), page)
+
+    def calculate_direction(self):
+        from .direction import DirectionResults
+        layer, page = self._active_layer(), self._current_page()
+        if layer is None: return
+        features = list(layer.selectedFeatures())
+        if not features and page is not None and page.feature_id is not None:
+            features = [layer.getFeature(page.feature_id)]
+        if not features: return
+        dialog = DirectionResults(self, layer, features, page)
+        dialog.exec()
 
     def _apply_previous(self, page=None):
         page = page or self._current_page()
@@ -853,6 +922,17 @@ class EditToolsController(QObject):
             editable and depth_support["supported"]
             and (selected > 0 or (page is not None and page.feature_id is not None))
         )
+        self.depth_batch_button.setEnabled(bool(
+            editable and depth_support['supported'] and selected >= 2))
+        try:
+            self.direction.settings(layer)
+            direction_ready = bool(ready and state.get('can_write') and not layer.readOnly())
+        except (ValueError, TypeError, AttributeError):
+            direction_ready = False
+        self.direction_batch_button.setEnabled(direction_ready and selected >= 2)
+        for layer_id, buttons in self._direction_buttons.items():
+            for button in buttons:
+                button.setEnabled(direction_ready and selected == 1 and layer_id == layer.id())
         stale_page_ids = []
         for page_layer_id, candidate_page in self._form_pages.items():
             candidate_layer = self._layer_by_id(page_layer_id)
@@ -905,6 +985,11 @@ class EditToolsController(QObject):
             )
 
     def close(self):
+        for layer, slot in self._direction_connections:
+            self._disconnect_direction(layer, slot)
+        self._direction_connections.clear()
+        if self._rotation_dialog is not None:
+            self._rotation_dialog.reject()
         self._closed = True
         self.set_mode(False)
         for signal, slot in self._layer_signal_connections:

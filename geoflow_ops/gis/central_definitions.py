@@ -140,6 +140,7 @@ def resolve(data, config, layers, *, include_unavailable=False):
             'description':field.get('description',''),'storage':storage,
             'layer_available':layer_id in available,'inherited':link['inherited'],
         }
+        entry['direction'] = (field.get('layout') or {}).get('direction')
         result_fields.append(entry)
     result_fields.sort(key=lambda value:(value['layer_standard_name'],value['display_order'],value['label'],value['id']))
 

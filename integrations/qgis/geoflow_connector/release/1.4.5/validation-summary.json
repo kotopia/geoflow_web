@@ -1,0 +1,27 @@
+{
+  "version": "1.4.5",
+  "base_commit": "30c0d974",
+  "runtime_source_commit": "92f18277",
+  "qgis_runtime": "4.2.2",
+  "qgis_regression_programs_passed": 18,
+  "qgis_direction_test_cases_passed": 13,
+  "central_definition_test_cases_passed": 16,
+  "zip_load_restart_phases_passed": 2,
+  "zip_modules_imported": 101,
+  "unverified": [
+    "Operational QML and saved angle semantics",
+    "Operational GUI gesture/session checks",
+    "Operational central database and actual network saves",
+    "Server authorization suite (missing local channels dependency)",
+    "QGIS 3.x"
+  ],
+  "deployment_performed": false,
+  "installed_plugin_replaced": false,
+  "migration_required": false,
+  "package_repository_tests_passed": 19,
+  "historical_archives_byte_exact": [
+    "1.4.3",
+    "1.4.4"
+  ],
+  "isolated_central_postgres_direction_roundtrip": "passed in CI run 40661808590"
+}

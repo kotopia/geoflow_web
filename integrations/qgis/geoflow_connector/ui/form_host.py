@@ -3,13 +3,13 @@
 import json
 import os
 
-from qgis.PyQt.QtCore import QDate, Qt, QTimer
+from qgis.PyQt.QtCore import QDate, Qt, QTimer, QSettings
 from qgis.PyQt.QtWidgets import (
     QDialog, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
-    QToolBar, QVBoxLayout, QWidget,
+    QToolBar, QToolButton, QMenu, QVBoxLayout, QWidget,
 )
 from qgis.PyQt.uic import loadUiType
-from qgis.core import QgsMessageLog, Qgis
+from qgis.core import QgsMessageLog, Qgis, QgsProject
 
 from .connector_adapter import ConnectorAdapter
 from .form_actions import FormActionToolbar
@@ -67,7 +67,8 @@ class Main(QWidget, FORM_CLASS):
         toolbar = QToolBar(self)
         self.presentation_toolbar = toolbar
         self.open_button = QPushButton("Connector 열기")
-        self.select_button = QPushButton("객체 선택")
+        self.select_button = QToolButton(self)
+        self.select_button.setText("객체 선택")
         self.add_button = QPushButton("추가")
         self.save_button = QPushButton("현재 객체 저장")
         self.zoom_button = QPushButton("범위 이동")
@@ -101,6 +102,16 @@ class Main(QWidget, FORM_CLASS):
             plugin.mapCanvas, layer_provider=self.adapter.layers_by_id,
             active_layer=plugin.iface.activeLayer,
             notify=lambda text: plugin.iface.messageBar().pushMessage('GeoFlow', text, duration=3))
+        self.select_tool.mode = str(QSettings().value('GeoFlowConnector/selectionMode', 'single'))
+        if self.select_tool.mode not in ('single', 'area'):
+            self.select_tool.mode = 'single'
+        self.configure_selection_button(self.select_button)
+        presentation = getattr(plugin, 'presentation', None)
+        rail = getattr(presentation, 'buttons', {}).get('select')
+        if rail is not None:
+            self.configure_selection_button(rail)
+        plugin.iface.currentLayerChanged.connect(self.select_tool.cancel_drag)
+        QgsProject.instance().cleared.connect(self.select_tool.cancel_drag)
         self.select_tool.geomIdentified.connect(self.on_feature_selected)
         self.select_tool.noFeatureIdentified.connect(self._empty_map_clicked)
         plugin.mapCanvas.mapToolSet.connect(self._sync_select_tool_state)
@@ -112,6 +123,35 @@ class Main(QWidget, FORM_CLASS):
             self._photo_policy_service.changed.connect(self._photo_policy_changed)
         self._retained_window = None
         self.refresh_connection()
+        self._sync_select_tool_state()
+
+    def configure_selection_button(self, button):
+        menu = QMenu(button)
+        for mode, label in (('single', '단일 선택'), ('area', '영역 선택')):
+            menu.addAction(label, lambda checked=False, m=mode: self.set_selection_mode(m))
+        button.setMenu(menu)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
+        self._selection_button_hint(button)
+
+    def _selection_button_hint(self, button):
+        from qgis.core import QgsApplication
+        area = self.select_tool.mode == 'area'
+        button.setIcon(QgsApplication.getThemeIcon('/mActionSelectRectangle.svg' if area else '/mActionIdentify.svg'))
+        button.setToolTip(('영역 선택' if area else '단일 선택') + ' · 길게 눌러 모드 변경 · Shift 추가 / Ctrl 해제')
+
+    def set_selection_mode(self, mode):
+        self.select_tool.cancel_drag()
+        self.select_tool.mode = mode
+        QSettings().setValue('GeoFlowConnector/selectionMode', mode)
+        buttons = [self.select_button]
+        presentation = getattr(self.plugin, 'presentation', None)
+        rail = getattr(presentation, 'buttons', {}).get('select')
+        if rail is not None:
+            buttons.append(rail)
+        for button in buttons:
+            self._selection_button_hint(button)
+        if self.adapter.selected_layer_id() in self.adapter.layers_by_id():
+            self.plugin.mapCanvas.setMapTool(self.select_tool)
         self._sync_select_tool_state()
 
     @property
@@ -683,6 +723,9 @@ class Main(QWidget, FORM_CLASS):
         if layer is not None and feature_id is not None:
             self.on_feature_selected(layer, layer.getFeature(feature_id))
         elif layer is not None:
+            # A multi-selection is a calculation context, not a request to discard the form.
+            if layer.selectedFeatureCount() > 1:
+                return
             self._clear_selected_feature(layer_id)
 
     def _clear_selected_feature(self, layer_id):
@@ -859,6 +902,9 @@ class Main(QWidget, FORM_CLASS):
             pass
         self.select_tool.geomIdentified.disconnect(self.on_feature_selected)
         self.select_tool.noFeatureIdentified.disconnect(self._empty_map_clicked)
+        self.plugin.iface.currentLayerChanged.disconnect(self.select_tool.cancel_drag)
+        QgsProject.instance().cleared.disconnect(self.select_tool.cancel_drag)
+        self.select_tool.dispose()
         self.select_tool.deleteLater()
         if self._retained_window is not None:
             self._retained_window.close()

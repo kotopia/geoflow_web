@@ -192,7 +192,7 @@ def dashboard(request):
                         elif audit_ready and action=='layer':
                             legacy_target='LAYER'
                             legacy_before=gis_schema_manager.layer_state(cur,requested_id) if requested_id else None
-                        elif audit_ready and action in ('field','standard_field','delete_field'):
+                        elif audit_ready and action in ('field','standard_field','delete_field','direction'):
                             legacy_target='FIELD'
                             legacy_before=gis_schema_manager.field_state(cur,requested_id) if requested_id else None
                         uid=definitions.mutate(cur,request.POST)

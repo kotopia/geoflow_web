@@ -1,0 +1,2 @@
+qgis form lifecycle smoke: OK
+
