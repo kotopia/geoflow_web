@@ -12,6 +12,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.exceptions import InconsistentMigrationHistory
+from scripts.ops.audit_company_migration_history import missing_dependencies
 from control.models import GroupDBConfig
 from control.services.tenant_db_secret_resolver import resolve_tenant_db_password
 from control.tenant_migration_context import allow_tenant_provisioning_migrations
@@ -20,6 +22,10 @@ from control.management.commands.activate_saved_filters import backup_central
 TARGET = ('webgisapp', '0049_company_overview')
 DEPENDENCY = ('webgisapp', '0048_gis_project_reference_groups')
 REVIEWED_BLOB = '9caebb15259fecbeae22d130571f90a9080f8c0b'
+EMPTY_MERGE = ('webgisapp', '0040_merge_bid_photo_branches')
+EMPTY_MERGE_BLOB = '8cf3cc9760b6dec32252c690f689fc2d9024adae'
+MERGE_PARENTS = {('webgisapp', '0038_bid_central_preferences'), ('webgisapp', '0039_gis_feature_photo')}
+MERGE_CHILD = ('webgisapp', '0041_gis_feature_photo_edited_representation')
 TABLES = ('company_profile', 'company_registration', 'company_revenue', 'company_headcount', 'company_credit', 'company_evidence')
 
 
@@ -45,14 +51,43 @@ def activation_stage(stage):
         raise CommandError(f'company_activation_stage={stage} category={category}') from None
 
 
-def forward_plan(executor):
+def history_repair_needed(executor, connection):
+    """Accept only the audited empty-merge gap for an explicitly approved repair."""
+    try:
+        executor.loader.check_consistent_history(connection)
+        return False
+    except InconsistentMigrationHistory:
+        applied = executor.recorder.applied_migrations()
+        gaps = missing_dependencies(executor.loader.graph, applied, executor.loader.replacements)
+        source = (Path(__file__).resolve().parents[3] / 'geoflow_ops/migrations/0040_merge_bid_photo_branches.py').read_bytes()
+        blob = hashlib.sha1(b'blob ' + str(len(source)).encode() + b'\0' + source).hexdigest()
+        merge = executor.loader.disk_migrations.get(EMPTY_MERGE)
+        if (gaps != [(MERGE_CHILD, EMPTY_MERGE)] or blob != EMPTY_MERGE_BLOB
+                or merge is None or merge.operations or set(merge.dependencies) != MERGE_PARENTS
+                or not MERGE_PARENTS.issubset(applied) or DEPENDENCY not in applied):
+            raise CommandError('company_history_gap_outside_reviewed_empty_merge') from None
+        return True
+
+
+def reconcile_empty_merge(executor, connection, *, approved):
+    # Caller holds the same atomic transaction/advisory lock as migration 0049.
+    if history_repair_needed(executor, connection):
+        if not approved:
+            raise CommandError('company_empty_merge_history_requires_explicit_approval')
+        executor.recorder.record_applied(*EMPTY_MERGE)
+    # Do not skip or relax Django consistency checks after the exact repair.
+    executor.loader.check_consistent_history(connection)
+
+
+def forward_plan(executor, *, allow_empty_merge=False):
     applied = executor.recorder.applied_migrations()
     if DEPENDENCY not in applied:
         raise CommandError('company_dependency_0048_not_applied')
     if TARGET in applied:
         return []
     plan = executor.migration_plan([TARGET])
-    if len(plan) != 1 or any((m.app_label, m.name) != TARGET or backwards for m, backwards in plan):
+    expected = [EMPTY_MERGE, TARGET] if allow_empty_merge else [TARGET]
+    if [(m.app_label, m.name) for m, _ in plan] != expected or any(backwards for _, backwards in plan):
         raise CommandError('company_unexpected_migration_plan')
     return plan
 
@@ -117,6 +152,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true')
+        parser.add_argument('--repair-empty-merge-history', action='store_true')
         parser.add_argument('--backup-dir')
         parser.add_argument('--verify', action='store_true')
         parser.add_argument('--activation-config')
@@ -133,9 +169,12 @@ class Command(BaseCommand):
             with activation_stage('migration_loader'):
                 executor = MigrationExecutor(connection)
             with activation_stage('migration_history'):
-                executor.loader.check_consistent_history(connection)
+                repair_needed = history_repair_needed(executor, connection)
+                if repair_needed and not options['repair_empty_merge_history']:
+                    raise CommandError('company_empty_merge_history_requires_explicit_approval')
+            self.stdout.write(f'company_empty_merge_history_pending={int(repair_needed)}')
             with activation_stage('migration_plan'):
-                plan = forward_plan(executor)
+                plan = forward_plan(executor, allow_empty_merge=repair_needed)
             self.stdout.write(f'company_eligible_tenants=1 company_pending_migrations={len(plan)}')
             if options['verify']:
                 verify_schema(connection)
@@ -144,7 +183,7 @@ class Command(BaseCommand):
                 return
             if not options['apply']:
                 return
-            if plan:
+            if plan or repair_needed:
                 if not options.get('backup_dir'):
                     raise CommandError('company_private_backup_directory_required')
                 # Reuse the reviewed private pg_dump/restore validation machinery.
@@ -157,7 +196,8 @@ class Command(BaseCommand):
                 cur.execute("SET LOCAL statement_timeout='120s'")
                 cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', ['geoflow-company-0049'])
                 executor = MigrationExecutor(connection)
-                executor.loader.check_consistent_history(connection)
+                reconcile_empty_merge(executor, connection, approved=options['repair_empty_merge_history'])
+                executor = MigrationExecutor(connection)
                 plan = forward_plan(executor)
                 executor.migrate([TARGET], plan=plan)
                 verify_schema(connection)
