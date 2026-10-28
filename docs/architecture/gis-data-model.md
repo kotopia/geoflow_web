@@ -346,3 +346,7 @@ Tenant `gis.project_definition` 한 테이블에 중앙 UUID만 저장하며 Def
 임의의 TM 구역을 기본값으로 두지 않는다. 번호는 프로젝트·측량일 기준으로 잠금과
 고유 제약을 적용하고 Source revision 시 유지한다. 상세 규칙·운영 조사·검증 상태는
 [Survey lineage contract](gis-survey-lineage-contract-v1.md)를 따른다.
+
+참조코드의 프로젝트 GIS 업무범위별 적용은
+[GIS 참조코드 적용그룹](gis-reference-code-groups.md)을 따른다.
+중앙 코드/그룹과 Tenant L2별 연결을 사용하며 Form 상속 그룹 선택과 분리한다.

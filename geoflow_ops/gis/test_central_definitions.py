@@ -50,7 +50,7 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(result['items'],result['fields'])
 
     def test_saved_json_v3_roundtrip(self):
-        cur=MagicMock(); cur.fetchone.side_effect=[('gis.project_definition',),('g','{"f":["m"]}','{}','{}',None)]
+        cur=MagicMock(); cur.fetchone.side_effect=[('gis.project_definition',),('g','{"f":["m"]}','{}','{}',None),(None,)]
         config=project_config(cur,'project')
         self.assertEqual(config['additions'],{'f':['m']})
         self.assertEqual(config['overrides'],{})
@@ -242,6 +242,52 @@ class CentralPostgresTests(unittest.TestCase):
     def save(self,action,**data): return defs.mutate(self.cur,{'action':action,**data})
     def field(self,label='추락방지시설',**kw): return self.save('field',label=label,kind='text',**kw)
     def code(self,field,code): return self.save('code',field=field,code=code,label=code)
+
+    def test_code_group_roundtrip_revision_and_protected_delete(self):
+        group=self.save('group',label='적용그룹'); field=self.field('관종'); code=self.code(field,'SPECIAL')
+        before=defs.snapshot(self.cur)['definition_revision']
+        self.save('code',id=code,field=field,code='SPECIAL',label='전용',reference_groups=[group])
+        data=defs.snapshot(self.cur)
+        self.assertEqual(data['code_groups'][0]['group_id'],group)
+        self.assertNotEqual(before,data['definition_revision'])
+        with self.assertRaisesRegex(defs.DefinitionError,'참조값 1개'):
+            self.save('delete_group',id=group)
+        # An explicit unchecked selection is the only promotion to common.
+        self.save('code',id=code,field=field,code='SPECIAL',label='공통',reference_groups=[])
+        self.assertEqual(defs.snapshot(self.cur)['code_groups'],[])
+        self.save('delete_group',id=group)
+        self.cur.execute('SELECT code FROM gis.definition_code WHERE id=%s',[code])
+        self.assertEqual(self.cur.fetchone()[0],'SPECIAL')
+
+    def test_invalid_group_rejected_without_changing_existing_code_links(self):
+        group=self.save('group',label='적용'); field=self.field(); code=self.code(field,'A')
+        self.save('code',id=code,field=field,code='A',label='A',reference_groups=[group])
+        with self.assertRaises(defs.DefinitionError):
+            self.save('code',id=code,field=field,code='A',label='A',reference_groups=[str(uuid4())])
+        self.cur.execute('SELECT group_id::text FROM gis.definition_code_group WHERE code_id=%s',[code])
+        self.assertEqual(self.cur.fetchall(),[(group,)])
+
+    def test_reference_group_migrations_preserve_existing_codes_and_reverse(self):
+        import importlib
+        from types import SimpleNamespace
+        central=importlib.import_module('control.migrations.0009_gis_reference_code_groups')
+        tenant=importlib.import_module('geoflow_ops.migrations.0048_gis_project_reference_groups')
+        field=self.field();code=self.code(field,'PE')
+        self.cur.execute('DROP TABLE gis.definition_code_group')
+        central.forward(None,SimpleNamespace(connection=self.db))
+        self.cur.execute('SELECT count(*) FROM gis.definition_code_group')
+        self.assertEqual(self.cur.fetchone()[0],0)
+        self.cur.execute('CREATE SCHEMA prj; CREATE TABLE prj.projects(id uuid PRIMARY KEY)')
+        self.cur.execute(tenant.SQL)
+        project,l2,group=map(str,[uuid4(),uuid4(),uuid4()])
+        self.cur.execute('INSERT INTO prj.projects VALUES (%s)',[project])
+        self.cur.execute('INSERT INTO gis.project_reference_group VALUES (%s,%s,%s)',[project,l2,group])
+        self.cur.execute('SELECT count(*) FROM gis.project_reference_group WHERE project_id=%s',[str(uuid4())])
+        self.assertEqual(self.cur.fetchone()[0],0)
+        self.cur.execute(tenant.Migration.operations[0].reverse_sql)
+        central.reverse(None,SimpleNamespace(execute=self.cur.execute))
+        self.cur.execute('SELECT code FROM gis.definition_code WHERE id=%s',[code])
+        self.assertEqual(self.cur.fetchone()[0],'PE')
 
     def test_group_layer_field_and_rule(self):
         group=self.save('group',label='아산시'); material=self.field('재질'); joint=self.field('접합')

@@ -8,6 +8,7 @@ from django.db import connections
 
 from control.services import gis_definitions as central
 from .form_definitions import DefinitionError
+from .reference_groups import codes_for_field, layer_group_ids
 
 
 def central_snapshot():
@@ -36,6 +37,13 @@ def project_config(cur, project_id):
     if any(not isinstance(value,list) or any(not isinstance(item,str) for item in value)
            for value in config['additions'].values()):
         raise DefinitionError('프로젝트 추가 항목의 레이어 목록이 올바르지 않습니다.')
+    config['reference_groups'] = {}
+    cur.execute("SELECT to_regclass('gis.project_reference_group')")
+    config['reference_groups_ready'] = bool(cur.fetchone()[0])
+    if config['reference_groups_ready']:
+        cur.execute('SELECT catalog_l2_id::text,group_id::text FROM gis.project_reference_group WHERE project_id=%s ORDER BY catalog_l2_id,group_id', [str(project_id)])
+        for l2, group in cur.fetchall():
+            config['reference_groups'].setdefault(l2, []).append(group)
     return config
 
 
@@ -136,13 +144,14 @@ def resolve(data, config, layers, *, include_unavailable=False):
     result_fields.sort(key=lambda value:(value['layer_standard_name'],value['display_order'],value['label'],value['id']))
 
     included={field['id'] for field in result_fields}
-    code_map={field_id:[] for field_id in included}
-    for code in data['codes']:
-        if code['field_id'] in included:
-            code_map[code['field_id']].append({'id':code['id'],'value':code['code'],'label':code['label'],
-                                               'order':code['sort_order'],'enabled':code['enabled']})
     for field in result_fields:
-        field['reference_codes']=code_map.get(field['id'],[])
+        groups_for_layer = layer_group_ids(data, config, field['layer_id'])
+        field['reference_codes'] = [
+            {'id': code['id'], 'value': code['code'], 'label': code['label'],
+             'order': code['sort_order'], 'enabled': code['enabled']}
+            for code in codes_for_field(data, field['id'], groups_for_layer)]
+        # An empty filtered domain is not an unrestricted text field.
+        field['reference_constrained'] = any(code['field_id'] == field['id'] for code in data['codes'])
     rules=[]
     for rule in data['rules']:
         if rule['source_field'] in included and rule['target_field'] in included:
@@ -150,7 +159,9 @@ def resolve(data, config, layers, *, include_unavailable=False):
                 'source_code_id':rule['source_code'],'target_field_id':rule['target_field'],
                 'allowed_code_ids':rule['allowed']})
     payload={'version':'gis-final-form-v3','group':groups.get(group_id),'fields':result_fields,
-             'rules':rules,'components':[]}
+             'rules':rules,'components':[],
+             'reference_scope_groups':config.get('reference_groups',{}),
+             'reference_scope_layers':config.get('reference_scope_layers',{})}
     payload['revision']=_revision(payload)
     # Existing web template reads items; this is the same resolved collection,
     # not a second definition store.
@@ -158,21 +169,36 @@ def resolve(data, config, layers, *, include_unavailable=False):
     return payload
 
 
-def reference_payload(data, layer_ids):
+def reference_payload(data, layer_ids, *, definition=None):
     ids=set(layer_ids)
-    fields=[field for field in data['fields']
-            if field.get('active',True) and field.get('source_layer_id') in ids and field.get('physical_name')]
+    if definition is None:
+        fields=[field for field in data['fields']
+                if field.get('active',True) and field.get('source_layer_id') in ids and field.get('physical_name')]
+    else:
+        fields=[{'id': field['id'], 'source_layer_id': field['layer_id'],
+                 'physical_name': field['storage'].get('key') or field.get('field_name') or field['id'],
+                 'standard_name': field.get('field_identifier'), 'label': field['label'],
+                 'storage_kind':field['storage']['kind']}
+                for field in definition.get('fields', []) if field['layer_id'] in ids]
     bindings=[]; groups=[]
     layers={layer['id']:layer for layer in data['layers']}
     for field in fields:
+        final = next((row for row in (definition or {}).get('fields', [])
+                      if row['id'] == field['id'] and row['layer_id'] == field['source_layer_id']), None)
+        allowed = {row['id'] for row in final['reference_codes']} if final is not None else None
+        candidates = (codes_for_field(data, field['id']) if definition is None else
+                      [row for row in data['codes'] if row['field_id'] == field['id']
+                       and allowed is not None and row['id'] in allowed])
         values=[{'id':code['id'],'code':code['code'],'label':code['label'],
-                 'sort_order':code['sort_order'],'enabled':code['enabled']}
-                for code in data['codes'] if code['field_id']==field['id']]
-        if not values: continue
-        key='central:'+field['id']; layer=layers[field['source_layer_id']]
+                 'sort_order':code['sort_order'],'enabled':code['enabled']} for code in candidates]
+        if not values and not any(code['field_id']==field['id'] for code in data['codes']): continue
+        key='central:'+field['id']
+        if sum(row['id']==field['id'] for row in fields)>1:
+            key+=':'+field['source_layer_id']
+        layer=layers[field['source_layer_id']]
         bindings.append({'layer_id':field['source_layer_id'],'standard_name':layer['standard_name'],
             'field_id':field['id'],'field_standard_name':field.get('standard_name') or field['physical_name'].upper(),
-            'field_name':field['physical_name'],'field_label':field['label'],'code_group_key':key})
+            'field_name':field['physical_name'],'storage_kind':field.get('storage_kind','column'),'field_label':field['label'],'code_group_key':key})
         groups.append({'code_group_key':key,'field_id':field['id'],'name':field['label'],'values':values})
     field_ids={field['id'] for field in fields}
     rules=[{'id':rule['id'],'source_field_id':rule['source_field'],'source_code_id':rule['source_code'],
@@ -180,7 +206,9 @@ def reference_payload(data, layer_ids):
            for rule in data['rules'] if rule['source_field'] in field_ids and rule['target_field'] in field_ids]
     return {'ok':True,'version':'gis-reference-v2','reference_store':'central.gis.definition_code',
             'runtime_source':'central.gis','bindings':bindings,'groups':groups,
-            'binding_count':len(bindings),'group_count':len(groups),'rules':rules}
+            'binding_count':len(bindings),'group_count':len(groups),'rules':rules,
+            'revision':_revision({'bindings':bindings,'groups':groups,'rules':rules,
+                                  'form_revision':(definition or {}).get('revision')})}
 
 
 def validate_attributes(plan,standard_name,attrs):
@@ -203,7 +231,7 @@ def validate_attributes(plan,standard_name,attrs):
         if field.get('required') and field.get('visible') and value in (None,''):
             raise DefinitionError(field['label']+' 필드는 필수입니다.')
         codes=[code for code in field.get('reference_codes',[]) if code.get('enabled')]
-        if codes and value not in (None,'') and str(value) not in {str(code['value']) for code in codes}:
+        if field.get('reference_constrained', bool(codes)) and value not in (None,'') and str(value) not in {str(code['value']) for code in codes}:
             raise DefinitionError(field['label']+' 코드값이 중앙 정의와 일치하지 않습니다.')
     by_id={field['id']:field for field in fields}
     for rule in definition.get('rules',[]):

@@ -81,6 +81,8 @@ def project_layer_plan(alias: str, project_id) -> dict[str, Any]:
         layers.append({'id':layer['id'],'standard_name':layer['standard_name'],
             'physical_name':layer['physical_name'],'label':layer['label'],'domain':layer['domain_code'],
             'geometry_kind':layer['geometry_kind'],'required':False,'sort_order':layer['sort_order']})
+    from .reference_groups import scope_layers
+    config['reference_scope_layers'] = scope_layers(data, scopes)
     definition=central_definitions.resolve(data,config,layers)
     return {'ready':True,'gis_enabled':bool(layers),'project_id':str(project_id),'profile':None,
             'definition':{'version':definition['version'],'revision':definition['revision'],

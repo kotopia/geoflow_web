@@ -23,6 +23,7 @@ def project_reference_catalog(
     *,
     using: str,
     standard_names: Iterable[str] | None = None,
+    plan: dict | None = None,
 ) -> dict[str, Any]:
     """Resolve active GIS field/reference bindings from the GIS-owned catalog.
 
@@ -42,4 +43,7 @@ def project_reference_catalog(
     wanted=set(names)
     layer_ids=[layer['id'] for layer in data['layers']
                if not wanted or layer['standard_name'].upper() in wanted]
-    return reference_payload(data,layer_ids)
+    if plan is not None:
+        allowed = {row['id'] for row in plan.get('layers', [])}
+        layer_ids = [value for value in layer_ids if value in allowed]
+    return reference_payload(data,layer_ids,definition=(plan or {}).get('form_definition'))

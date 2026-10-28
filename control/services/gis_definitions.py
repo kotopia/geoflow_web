@@ -114,6 +114,17 @@ def mutate(cur, data):
         raise DefinitionError('지원하지 않는 요청입니다.')
     cur.execute("SELECT pg_advisory_xact_lock(hashtext('geoflow.central.gis.definitions'))")
     uid = identifier(data['id']) if data.get('id') else str(uuid4())
+    if action == 'code' and ('reference_groups' in data or 'reference_groups_present' in data):
+        from geoflow_ops.gis.reference_groups import selected_group_ids
+        selected = selected_group_ids(data)
+        cur.execute("SELECT to_regclass('gis.definition_code_group')")
+        if not cur.fetchone()[0]:
+            raise DefinitionError('참조값 적용그룹 migration 적용 전입니다.')
+        cur.execute('SELECT id::text FROM gis.definition_group WHERE id=ANY(%s::uuid[]) FOR KEY SHARE', [selected])
+        if {row[0] for row in cur.fetchall()} != set(selected):
+            raise DefinitionError('유효한 GIS 적용그룹을 선택하세요.')
+    else:
+        selected = None
     if action == 'group':
         cur.execute('''INSERT INTO gis.definition_group(id,name) VALUES (%s,%s)
             ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name''', [uid,text(data.get('label'))])
@@ -172,6 +183,10 @@ def mutate(cur, data):
           VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET label=EXCLUDED.label,
           sort_order=EXCLUDED.sort_order,enabled=EXCLUDED.enabled''',
           [uid,field,code,text(data.get('label')),number(data.get('sort_order')),boolean(data.get('enabled'),True)])
+        if selected is not None:
+            cur.execute('DELETE FROM gis.definition_code_group WHERE code_id=%s', [uid])
+            for group in selected:
+                cur.execute('INSERT INTO gis.definition_code_group(code_id,group_id) VALUES (%s,%s)', [uid,group])
     elif action == 'field_layer':
         field=identifier(data.get('field')); layer=identifier(data.get('layer'))
         source=one(cur,'SELECT source_layer_id::text FROM gis.definition_field WHERE id=%s',[field])[0]
@@ -224,6 +239,12 @@ def mutate(cur, data):
         one(cur,'SELECT 1 FROM gis.definition_field WHERE id=%s AND source_layer_id IS NULL',[uid],'기존 표준 필드는 삭제할 수 없습니다.')
         cur.execute('UPDATE gis.definition_field SET active=false,updated_at=now() WHERE id=%s',[uid])
     elif action == 'delete_group':
+        cur.execute("SELECT to_regclass('gis.definition_code_group')")
+        if cur.fetchone()[0]:
+            cur.execute('SELECT count(*) FROM gis.definition_code_group WHERE group_id=%s', [uid])
+            count = cur.fetchone()[0]
+            if count:
+                raise DefinitionError(f'이 그룹에 연결된 참조값 {count}개가 있어 삭제할 수 없습니다. 적용그룹을 먼저 명시적으로 수정하세요.')
         cur.execute('SELECT count(*) FROM gis.definition_group_layer WHERE group_id=%s',[uid])
         layer_count=int(cur.fetchone()[0])
         if layer_count:
@@ -280,9 +301,12 @@ def snapshot(cur):
         LEFT JOIN gis.definition_code c ON c.id=v.code_id GROUP BY r.id ORDER BY r.id'''),
       'kinds':KINDS,'widgets':WIDGETS,
     }
+    cur.execute("SELECT to_regclass('gis.definition_code_group')")
+    data['reference_groups_ready'] = bool(cur.fetchone()[0])
+    data['code_groups'] = rows(cur, 'SELECT code_id::text,group_id::text,sort_order FROM gis.definition_code_group ORDER BY code_id,sort_order,group_id') if data['reference_groups_ready'] else []
     revision_source={key:data[key] for key in (
         'groups','layer_groups','layers','layer_catalogs','fields','field_layers','codes',
-        'scopes','group_layers','group_fields','rules'
+        'scopes','group_layers','group_fields','rules','code_groups'
     )}
     data['definition_revision']=hashlib.sha256(
         json.dumps(revision_source,sort_keys=True,ensure_ascii=False,default=str,

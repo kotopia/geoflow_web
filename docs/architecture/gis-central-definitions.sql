@@ -70,6 +70,13 @@ CREATE TABLE gis.definition_code (
  enabled boolean NOT NULL DEFAULT true,
  UNIQUE(field_id,code), UNIQUE(id,field_id)
 );
+CREATE TABLE gis.definition_code_group (
+ code_id uuid NOT NULL REFERENCES gis.definition_code(id) ON DELETE CASCADE,
+ group_id uuid NOT NULL REFERENCES gis.definition_group(id) ON DELETE RESTRICT,
+ sort_order integer NOT NULL DEFAULT 0,
+ PRIMARY KEY(code_id,group_id)
+);
+CREATE INDEX definition_code_group_group_idx ON gis.definition_code_group(group_id);
 CREATE TABLE gis.definition_group_scope (
  group_id uuid NOT NULL REFERENCES gis.definition_group(id),
  catalog_level smallint NOT NULL CHECK(catalog_level BETWEEN 2 AND 4),
