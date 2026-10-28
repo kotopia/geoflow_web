@@ -18,6 +18,7 @@ from .services.s3_service import extract_extension, generate_presigned_get_url
 logger = logging.getLogger(__name__)
 
 UPLOAD_LIMITS = {
+    ("orgunit", "company_financial"): ("GEOFLOW_UPLOAD_ORGUNIT_DOC_MAX_BYTES", 25 * 1024 * 1024),
     ("employee", "photo"): ("GEOFLOW_UPLOAD_EMPLOYEE_PHOTO_MAX_BYTES", 15 * 1024 * 1024),
     ("employee", "photo_thumb"): ("GEOFLOW_UPLOAD_EMPLOYEE_THUMB_MAX_BYTES", 2 * 1024 * 1024),
     ("employee", "doc"): ("GEOFLOW_UPLOAD_EMPLOYEE_DOC_MAX_BYTES", 25 * 1024 * 1024),
@@ -113,7 +114,7 @@ def _guard_upload_payload(request):
             return _json_error("Upload exceeds the configured size limit", status=413)
     is_active_document = (
         (entity_type in {"partner", "event"} and purpose == "doc")
-        or (entity_type == "orgunit" and purpose in {"business_registration", "certification_evaluation"})
+        or (entity_type == "orgunit" and purpose in {"business_registration", "certification_evaluation", "company_financial"})
     )
     if is_active_document:
         filename = data.get("filename") or data.get("original_name") or ""

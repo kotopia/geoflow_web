@@ -360,3 +360,7 @@ class ProcessEventAttachment(models.Model):
         ]
     
 
+
+# Company facts are tenant-owned; legacy MyOrgUnit remains the company identity.
+from .company_models import (CompanyProfile, CompanyRegistration, CompanyRevenue,
+                             CompanyHeadcount, CompanyCredit, CompanyEvidence)

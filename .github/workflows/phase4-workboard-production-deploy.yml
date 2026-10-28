@@ -8,6 +8,7 @@ on:
       - .github/workflows/phase4-workboard-production-deploy.yml
       - scripts/ops/prepare_private_pg_client.sh
       - control/management/commands/activate_saved_filters.py
+      - control/management/commands/activate_company_overview.py
       - geoflow_ops/views_dashboard.py
       - geoflow_ops/services/dashboard.py
       - geoflow_ops/views_calendar.py
@@ -211,6 +212,10 @@ jobs:
             set +e
             if [ "$rollback_needed" -eq 1 ]; then
               echo 'phase4_workboard_deploy_rollback_started=yes'
+              if [ -n "${company_env_backup:-}" ] && [ -f "$company_env_backup" ]; then
+                cp -p "$company_env_backup" "$repo/.env"
+                chmod "$company_env_mode" "$repo/.env"
+              fi
               if [ -n "$previous_branch" ]; then
                 git -C "$repo" checkout -B "$previous_branch" "$previous_sha" >/dev/null 2>&1
               else
@@ -301,6 +306,52 @@ jobs:
           sudo -n install -d -m 0700 -o "$(id -un)" "$saved_filter_backup"
           "$python" "$repo/manage.py" activate_saved_filters
           "$python" "$repo/manage.py" activate_saved_filters --apply --backup-dir "$saved_filter_backup"
+          # User-approved 2026-10-28 company rollout. Only the first introduction
+          # of the command activates 0049; later deploys never migrate new tenants.
+          company_command='control/management/commands/activate_company_overview.py'
+          company_activated=no
+          if git -C "$repo" cat-file -e "$candidate_sha:$company_command" 2>/dev/null && \
+             ! git -C "$repo" cat-file -e "$previous_sha:$company_command" 2>/dev/null; then
+            "$python" "$repo/manage.py" activate_company_overview
+            company_backup="/var/backups/geoflow/company-overview/$candidate_sha/$(date -u +%Y%m%dT%H%M%SZ)"
+            sudo -n install -d -m 0700 -o "$(id -un)" "$company_backup"
+            "$python" "$repo/manage.py" activate_company_overview --apply --backup-dir "$company_backup" --activation-config "$company_backup/activation.json"
+            if systemctl show "$service" -p Environment --value | grep -q GEOFLOW_COMPANY_OVERVIEW_; then
+              fail company_systemd_feature_override_requires_review
+            fi
+            company_env_mode="$(stat -c %a "$repo/.env")"
+            company_env_backup="$company_backup/runtime.env.before"
+            cp -p "$repo/.env" "$company_env_backup"
+            chmod 600 "$company_env_backup"
+            "$python" - "$repo/.env" "$company_backup/activation.json" <<'PYENV'
+          import json, os, re, stat, sys, tempfile
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          original = path.read_text()
+          alias = json.loads(Path(sys.argv[2]).read_text())['tenant_alias']
+          if not re.fullmatch(r'[A-Za-z0-9_-]+', alias):
+              raise RuntimeError('company_invalid_alias_for_environment')
+          updated = original
+          for key, value in [('GEOFLOW_COMPANY_OVERVIEW_ENABLED', '1'), ('GEOFLOW_COMPANY_OVERVIEW_TENANTS', alias)]:
+              line = key + '=' + value
+              pattern = r'(?m)^(?:export\s+)?' + key + r'\s*=.*$'
+              updated = re.sub(pattern, line, updated) if re.search(pattern, updated) else updated.rstrip('\n') + '\n' + line + '\n'
+          fd, temporary = tempfile.mkstemp(dir=path.parent, prefix='.company-env-')
+          try:
+              os.fchown(fd, path.stat().st_uid, path.stat().st_gid)
+              os.fchmod(fd, stat.S_IMODE(path.stat().st_mode))
+              with os.fdopen(fd, 'w') as stream:
+                  stream.write(updated)
+                  stream.flush()
+                  os.fsync(stream.fileno())
+              os.replace(temporary, path)
+          finally:
+              if os.path.exists(temporary): os.unlink(temporary)
+          PYENV
+            "$python" "$repo/manage.py" activate_company_overview --verify
+            "$python" "$repo/manage.py" shell -c 'from django.conf import settings; assert settings.GEOFLOW_COMPANY_OVERVIEW_ENABLED; print("company_feature_activation_verified=yes")'
+            company_activated=yes
+          fi
           "$python" "$repo/manage.py" collectstatic --noinput
 
           sudo -n systemctl restart "$service"
@@ -323,6 +374,10 @@ jobs:
           echo "phase4_workboard_deploy_public_login_status=$public_login"
           [ "$public_login" = '200' ] || fail 'public_login_not_200_after_deploy'
 
+          if [ "$company_activated" = yes ]; then
+            "$python" "$repo/manage.py" activate_company_overview --verify
+            echo 'company_overview_production_activation_complete=yes'
+          fi
           rollback_needed=0
           trap - EXIT
           echo "phase4_workboard_deploy_deployed_sha=$(git -C "$repo" rev-parse HEAD)"

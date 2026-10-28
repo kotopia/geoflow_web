@@ -1,0 +1,42 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load static humanize %}
+{% block title %}{{ obj.name }} 편집 | GeoFlow{% endblock %}
+{% block content %}
+<div id="company-editor" data-company="{{ obj.id }}">
+<div class="d-flex justify-content-between align-items-center mb-3"><div><h1 class="h3 mb-1">{{ obj.name }} · 편집</h1><div class="text-muted small">저장한 정보는 기업 대표페이지에 반영됩니다.</div></div><a class="btn btn-outline-secondary" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}">대표페이지</a></div>
+{% for message in messages %}<div class="alert alert-info">{{ message }}</div>{% endfor %}
+<div class="card"><div class="card-header"><nav class="nav nav-pills gap-1" aria-label="기업정보 편집 항목">
+<a class="nav-link {% if kind == 'basic' %}active{% endif %}" href="?section=basic">기본정보</a>
+<a class="nav-link {% if kind == 'registration' %}active{% endif %}" href="?section=registration">업등록·신고·인증</a>
+{% if finance_edit %}<a class="nav-link {% if kind == 'revenue' %}active{% endif %}" href="?section=revenue">매출액</a><a class="nav-link {% if kind == 'credit' %}active{% endif %}" href="?section=credit">신용평가</a>{% endif %}
+<a class="nav-link {% if kind == 'headcount' %}active{% endif %}" href="?section=headcount">연말 사원수</a>
+<a class="nav-link {% if kind == 'event' %}active{% endif %}" href="?section=event">이벤트</a>
+<a class="nav-link {% if kind == 'organization' %}active{% endif %}" href="?section=organization">조직·인사 기준</a>
+<a class="nav-link {% if kind == 'documents' %}active{% endif %}" href="?section=documents">기존 문서</a>
+</nav></div><div class="card-body">
+{% if kind == 'organization' %}{% include "geoflow_ops/myinfo/_company_organization.html" %}
+{% elif kind == 'documents' %}
+<div class="alert alert-light border">기존 첨부를 보존한 문서함입니다. 파일명에서 등록일이나 등급을 추정하지 않습니다. 업등록 편집에서 기존 사업·등록 문서를 증빙으로 연결할 수 있습니다.</div>
+<div class="tab-content"><div class="nav nav-tabs mb-3"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#legacy-business" id="legacy-business-tab" type="button">사업·등록 문서</button><button class="nav-link" data-bs-toggle="tab" data-bs-target="#legacy-credit" id="legacy-credit-tab" type="button">인증·평가 문서</button></div>
+{% include "geoflow_ops/myinfo/_company_document_tab.html" with pane_id="legacy-business" heading="사업·등록 문서" purpose="business_registration" documents=business_documents %}
+{% include "geoflow_ops/myinfo/_company_document_tab.html" with pane_id="legacy-credit" heading="인증·평가 문서" purpose="certification_evaluation" documents=certification_documents %}</div>
+{% else %}
+{% if kind == 'headcount' %}<div class="alert alert-light border">현재 사원수는 HR에서 자동 집계합니다. 이곳에는 근거가 확인된 과거 연말 인원만 입력하세요. 회사 이동 이력이 없는 기간은 현재 HR 소속으로 역산하지 않습니다.</div>{% endif %}
+{% if kind == 'revenue' %}<div class="alert alert-light border">매출액은 원 단위로 입력합니다. 미등록 연도는 공란으로 표시되며, 대표 카드에는 가장 최근 확정 매출을 표시합니다. 재무 연동 전까지 수동으로 관리합니다.</div>{% endif %}
+{% if kind == 'credit' %}<div class="alert alert-light border">평가기관·평가종류별 이력을 보존합니다. 대표 등급을 직접 지정하며 만료 여부를 함께 표시합니다. 평가서 파일은 재무 권한으로 보호됩니다.</div>{% endif %}
+<h2 class="h5">{% if record %}자료 편집{% else %}{{ heading|default:"기업정보" }} 입력{% endif %}</h2>
+<form method="post" id="company-fact-form" data-purpose="{{ purpose }}">
+{% csrf_token %}{{ form.non_field_errors }}
+<div class="row g-3">{% for field in form %}<div class="col-md-6"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+{% if kind == 'basic' %}{{ profile_form.non_field_errors }}{% for field in profile_form %}<div class="col-md-6"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+<div class="col-md-6"><label class="form-label" for="parent">상위 기업 (자회사/지점인 경우)</label><select id="parent" name="parent" class="form-select"><option value="">독립 기업</option>{% for company in companies %}<option value="{{ company.id }}" {% if company.id|stringformat:'s' == parent_id %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>{% endif %}
+</div>
+{% if purpose %}<div class="border-top mt-4 pt-3"><h3 class="h6">증빙파일 <span class="text-muted">선택 사항</span></h3><div id="evidence-list">{% for attachment in attachments %}<div class="d-flex align-items-center gap-2 mb-2"><input id="ev-{{ attachment.id }}" type="checkbox" name="evidence" value="{{ attachment.id }}" class="form-check-input" {% if attachment.id|stringformat:'s' in selected_attachments %}checked{% endif %}><label for="ev-{{ attachment.id }}" class="flex-grow-1">{{ attachment.original_name }}</label><button class="btn btn-outline-secondary btn-sm btn-preview-att" type="button" data-att-id="{{ attachment.id }}">보기</button><button class="btn btn-outline-secondary btn-sm btn-download-att" type="button" data-att-id="{{ attachment.id }}">다운로드</button></div>{% empty %}<p class="small text-muted">연결 가능한 기존 증빙이 없습니다.</p>{% endfor %}</div><label for="evidence-files" class="form-label mt-2">새 증빙 첨부</label><input class="form-control" type="file" id="evidence-files" multiple><div class="form-text">여러 파일 선택 가능 · 파일당 25MB. 체크를 해제하면 자료와의 연결만 해제됩니다.</div></div>{% endif %}
+<div class="mt-4 d-flex gap-2"><button class="btn btn-primary" type="submit">저장</button><a class="btn btn-outline-secondary" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}">취소</a></div><div id="company-save-status" class="small text-danger mt-2" role="status" aria-live="polite"></div>
+</form>
+{% if records %}<h3 class="h5 mt-5">등록 이력</h3><div class="table-responsive"><table class="table"><thead><tr><th>자료</th><th>기준일/연도</th><th>관리</th></tr></thead><tbody>{% for item in records %}<tr><td>{% if kind == 'registration' %}{{ item.name }} · {{ item.get_status_display }}{% elif kind == 'credit' %}{{ item.agency }} · {{ item.rating_type }} · {{ item.grade }}{% if item.representative %} <span class="badge bg-primary">대표</span>{% endif %}{% elif kind == 'revenue' %}{{ item.amount|intcomma }} 원 · {% if item.confirmed %}확정{% else %}잠정{% endif %}{% else %}{{ item.count }} 명 · {{ item.source }}{% endif %}</td><td>{% if kind == 'registration' %}{{ item.occurred_on|date:'Y.m.d' }}{% elif kind == 'credit' %}{{ item.evaluated_on|date:'Y.m.d' }}{% else %}{{ item.year }}{% endif %}</td><td><a href="?section={{ kind }}&amp;record={{ item.id }}">편집</a>{% if kind == 'registration' %} · <a href="?section=registration&amp;record={{ item.id }}&amp;renew=1">갱신·취소 이력 추가</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+{% if events %}<h3 class="h5 mt-5">직접 입력한 이벤트</h3>{% for event in events %}<div class="border-top py-2">{{ event.occurred_at|date:'Y.m.d' }} · {{ event.title }} <a href="?section=event&amp;record={{ event.id }}">편집</a></div>{% endfor %}{% endif %}
+{% endif %}
+</div></div></div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'geoflow_ops/js/upload-utils.js' %}"></script><script src="{% static 'geoflow_ops/js/company-edit.js' %}"></script>{% endblock %}

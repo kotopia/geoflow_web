@@ -34,6 +34,7 @@ DIRECT_UPLOAD_PURPOSES = {
     ("employee", "doc"),
     ("partner", "doc"),
     ("event", "doc"),
+    ("orgunit", "company_financial"),
     ("orgunit", "business_registration"),
     ("orgunit", "certification_evaluation"),
 }
@@ -222,6 +223,10 @@ def presign_put(request):
     error = _validate_upload_combination(entity_type, purpose, filename, mime_type, size_bytes)
     if error:
         return _json_error(error)
+    if purpose == "company_financial":
+        from .services.finance_access import can_edit_finance
+        if not can_edit_finance(request):
+            return _json_error("Forbidden", status=403)
     if not authorize_attachment_write(request, alias, entity_type, entity_id):
         return _json_error("Forbidden", status=403)
     error = _validate_parent(alias, entity_type, entity_id, purpose, parent_id)
@@ -288,6 +293,10 @@ def commit(request):
     error = _validate_upload_combination(entity_type, purpose, original_name, mime_type, declared_size)
     if error:
         return _json_error(error)
+    if purpose == "company_financial":
+        from .services.finance_access import can_edit_finance
+        if not can_edit_finance(request):
+            return _json_error("Forbidden", status=403)
     if not authorize_attachment_write(request, alias, entity_type, entity_id):
         return _json_error("Forbidden", status=403)
     error = _validate_parent(alias, entity_type, entity_id, purpose, parent_id)

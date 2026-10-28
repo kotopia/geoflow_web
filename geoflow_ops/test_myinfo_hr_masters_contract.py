@@ -36,6 +36,10 @@ class MyInfoHRMastersContractTests(SimpleTestCase):
 
     def test_myinfo_owns_department_grade_and_position_management(self):
         template = self._read("geoflow_ops/templates/geoflow_ops/myinfo/orgunit_detail.html")
+        self.assertIn("_company_organization.html", template)
+        editor = self._read("geoflow_ops/templates/geoflow_ops/myinfo/company_edit.html")
+        self.assertIn("_company_organization.html", editor)
+        template = self._read("geoflow_ops/templates/geoflow_ops/myinfo/_company_organization.html")
         self.assertIn("myinfo_department_save", template)
         self.assertIn("myinfo_job_grade_save", template)
         self.assertIn("myinfo_job_position_save", template)
