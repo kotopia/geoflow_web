@@ -1,0 +1,16 @@
+PASS wtl_etc_ps: qml/load/renderer/labeling/properties
+
+PASS wtl_fire_ps: qml/load/renderer/labeling/properties
+
+PASS wtl_flow_ps: qml/load/renderer/labeling/properties
+
+PASS wtl_pipe_lm: qml/load/renderer/labeling/properties
+
+PASS wtl_pipe_ps: qml/load/renderer/labeling/properties
+
+PASS wtl_valv_ps: qml/load/renderer/labeling/properties
+
+PASS survey: qml/load/renderer/labeling/properties
+
+PASS user-style preservation, project reopen, and unmapped-layer skip
+
