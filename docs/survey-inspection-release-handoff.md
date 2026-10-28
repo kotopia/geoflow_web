@@ -82,6 +82,25 @@ Candidate 1.4.4 SHA-256:
 `8576b07bedd7649d45be3bdcebd2ae8cba84d0327d2eef29ed5676ffd883aac5`.
 Neither package publication nor production deployment was performed.
 
+The follow-up production promotion pins the above 1.4.4 size/hash and source
+commit in `docs/operations/qgis-plugin-stable-release.json`. The protected GIS
+deployment runs `smoke_qgis_project_runtime --survey-inspection` under read-only
+database settings before publishing: it exercises scoped L2 catalog serialization,
+Source inventory including deleted rows, and every active Source's deletion
+precheck contract/count. This does not invoke DELETE or claim an authenticated
+external HTTP session. Deployment path validation explicitly admits this handoff
+and the changed GIS reference view; unrelated paths remain rejected.
+
+Stable promotion keeps the old 1.4.3 package and archives its index for rollback,
+then verifies the new public XML/ZIP and unchanged test index. Public stable URL:
+`https://geoflow.co.kr/gis/qgis/plugins/plugins.xml`; package URL:
+`https://geoflow.co.kr/gis/qgis/plugins/packages/geoflow_connector-1.4.4.zip`.
+Changing the stable index back to the recorded previous index restores the old
+download. Server rollback also restores the old Source deletion semantics, so
+prefer keeping the reviewed server contract while reverting only the plugin.
+Local Windows QGIS installation and a second physical PC are not available in
+the Work deployment environment and remain separate user-machine checks.
+
 Deploy the reviewed server contract and then publish/install the new immutable
 Connector version through the existing release workflow. New client + old server
 blocks Source deletion; new server + old client rejects legacy deletion. Do not

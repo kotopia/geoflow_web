@@ -283,6 +283,7 @@ jobs:
             case "$changed_path" in
               docs/operations/qgis-plugin-stable-release.json|scripts/ops/publish_qgis_plugin_repository.py)
                 stable_plugin_required=yes; continue ;;
+              docs/survey-inspection-release-handoff.md|geoflow_ops/gis/reference_views.py) continue ;;
               docs/development/qgis-connector-mvp.md|.github/workflows/release-preflight.yml|scripts/qgis/build_plugin_repository.py|scripts/qgis/test_build_plugin_repository.py|geoflow_ops/gis/qgis_plugin_repository_views.py|scripts/qgis/test_stable_repository.py) continue ;;
             esac
             # QGIS plugin packages are independently tested and published by
@@ -503,7 +504,7 @@ jobs:
             inspect_gis_definition_rows --compare "$backup_dir/definition-row-counts-before.json" "${survey_inventory_args[@]}"
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
-            smoke_qgis_project_runtime
+            smoke_qgis_project_runtime --survey-inspection
 
           if [ "$survey_lineage_required" = yes ]; then
             "$python" "$repo/manage.py" smoke_gis_survey_source_upload --apply

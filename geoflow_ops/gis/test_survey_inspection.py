@@ -7,6 +7,31 @@ from . import survey_views, reference_views
 
 
 class SurveyInspectionContractTests(SimpleTestCase):
+    def test_deployment_smoke_rejects_ambiguous_delete_contract_and_count(self):
+        from django.core.management.base import CommandError
+        from django.http import JsonResponse
+        from control.management.commands import smoke_qgis_project_runtime as smoke
+        plan = {'capabilities': [{'catalog_level': 2, 'catalog_item_id': 'l2'}]}
+        source = {'id': 'source', 'point_count': 53, 'deleted_at': None}
+        cases = [({'point_count': 53}, 'delete_contract'),
+                 ({'deletion_policy': 'source_and_points_soft_delete_v1', 'point_count': 52}, 'source_count')]
+        for precheck, reason in cases:
+            with patch.object(smoke, '_catalog_response', return_value=JsonResponse({'business_types': [{'code': 'l2'}]})), \
+                 patch.object(smoke, 'list_survey_sources', return_value=[source]), \
+                 patch.object(smoke, 'survey_source_delete_precheck', return_value=precheck):
+                with self.assertRaisesRegex(CommandError, reason):
+                    smoke.verify_survey_inspection('tenant', 'project', plan)
+
+    def test_deployment_smoke_rejects_catalog_outside_project_scope(self):
+        from django.core.management.base import CommandError
+        from django.http import JsonResponse
+        from control.management.commands import smoke_qgis_project_runtime as smoke
+        with patch.object(smoke, '_catalog_response', return_value=JsonResponse({'business_types': [{'code': 'other'}]})), \
+             patch.object(smoke, 'list_survey_sources') as inventory:
+            with self.assertRaisesRegex(CommandError, 'l2_scope'):
+                smoke.verify_survey_inspection('tenant', 'project', {'capabilities': []})
+            inventory.assert_not_called()
+
     def test_legacy_and_unknown_delete_requests_never_execute(self):
         for query in ('?mode=source_only', '?mode=source_and_points', '?mode=unknown'):
             request = RequestFactory().delete('/'+query)
