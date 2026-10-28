@@ -395,6 +395,31 @@ class CentralPostgresTests(unittest.TestCase):
             [(project, scope, None, None)],
         )
 
+    def test_direction_existing_field_roundtrip_preserves_layout_and_schema(self):
+        field_id = str(uuid4())
+        self.cur.execute("UPDATE gis.definition_layer SET geometry_kind='POINT' WHERE id=%s", [self.manhole])
+        self.cur.execute("UPDATE gis.definition_layer SET geometry_kind='LINE' WHERE id=%s", [self.pipe])
+        self.cur.execute("""INSERT INTO gis.definition_field(
+            id,source_layer_id,physical_name,standard_name,label,kind,widget_type,layout)
+            VALUES (%s,%s,'ang_dir','ANG_DIR','Direction','decimal','decimal',
+                    '{"section":"existing"}'::jsonb)""", [field_id,self.manhole])
+        config = dict(reference_layer_ids=[self.pipe],method='connected',distance=1,unit='m',
+                      offset=0,allow_reverse=True,ambiguity='review',zero_axis='north',
+                      positive_direction='clockwise',symbol_offset=90,axis_tolerance=1,tie_tolerance=0.01)
+        self.save('direction',id=field_id,direction=json.dumps(config))
+        snapshot=defs.snapshot(self.cur)
+        stored=next(f for f in snapshot['fields'] if f['id']==field_id)
+        self.assertEqual(stored['layout'],{'section':'existing','direction':config})
+        self.assertEqual(len(snapshot['fields']),1)
+        final=resolve(snapshot,{'group_id':None,'additions':{},'private_items':{},'overrides':{}},
+                      [next(l for l in snapshot['layers'] if l['id']==self.manhole)])
+        self.assertEqual(final['fields'][0]['direction'],config)
+        with self.assertRaises(defs.DefinitionError):
+            self.save('direction',id=field_id,direction={**config,'reference_layer_ids':[self.manhole]})
+        self.save('direction',id=field_id,direction=None)
+        self.cur.execute('SELECT layout FROM gis.definition_field WHERE id=%s',[field_id])
+        self.assertEqual(self.cur.fetchone()[0],{'section':'existing'})
+
     def test_standard_field_edit_persists_and_updates_final_definition(self):
         field_id=str(uuid4())
         self.cur.execute('''INSERT INTO gis.definition_field(
