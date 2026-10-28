@@ -243,6 +243,51 @@ class CentralPostgresTests(unittest.TestCase):
     def field(self,label='추락방지시설',**kw): return self.save('field',label=label,kind='text',**kw)
     def code(self,field,code): return self.save('code',field=field,code=code,label=code)
 
+    def _rollout_prerequisites(self):
+        self.cur.execute('CREATE TABLE IF NOT EXISTS django_migrations(app text,name text,applied timestamptz)')
+        self.cur.execute("INSERT INTO django_migrations VALUES ('control','0008_saved_filters',now()),('webgisapp','0047_remove_survey_targets',now())")
+
+    def test_rollout_creates_only_relations_preserves_rows_and_reruns(self):
+        from control.management.commands import deploy_gis_reference_groups as rollout
+        self._rollout_prerequisites()
+        self.field('보존 대상'); self.cur.execute('DROP TABLE gis.definition_code_group')
+        before=rollout.baseline(self.cur,True)
+        rollout.apply_store(self.cur,True,before)
+        after=rollout.baseline(self.cur,True)
+        self.assertEqual(before['preserved'],after['preserved'])
+        self.assertEqual(after['relations'],[])
+        self.assertTrue(after['state']['applied'])
+        rollout.apply_store(self.cur,True,after)
+        self.cur.execute('CREATE SCHEMA prj; CREATE TABLE prj.projects(id uuid PRIMARY KEY); CREATE TABLE gis.project_definition(project_id uuid PRIMARY KEY)')
+        before=rollout.baseline(self.cur,False)
+        rollout.apply_store(self.cur,False,before)
+        after=rollout.baseline(self.cur,False)
+        self.assertEqual(before['preserved'],after['preserved'])
+        self.assertTrue(after['state']['table'])
+        rollout.apply_store(self.cur,False,after)
+        self.cur.execute("SELECT count(*) FROM django_migrations WHERE name IN ('0009_gis_reference_code_groups','0048_gis_project_reference_groups')")
+        self.assertEqual(self.cur.fetchone()[0],2)
+
+    def test_rollout_never_recreates_a_lost_previously_applied_relation_as_common(self):
+        from django.core.management.base import CommandError
+        from control.management.commands import deploy_gis_reference_groups as rollout
+        self._rollout_prerequisites()
+        self.cur.execute("INSERT INTO django_migrations VALUES ('control','0009_gis_reference_code_groups',now())")
+        self.cur.execute('DROP TABLE gis.definition_code_group')
+        with self.assertRaisesRegex(CommandError,'restore_required'):
+            rollout.check_state(self.cur,True)
+
+    def test_rollout_stops_on_preexisting_data_drift_before_ddl(self):
+        from django.core.management.base import CommandError
+        from control.management.commands import deploy_gis_reference_groups as rollout
+        self._rollout_prerequisites(); self.cur.execute('DROP TABLE gis.definition_code_group')
+        before=rollout.baseline(self.cur,True)
+        self.field('동시 변경')
+        with self.assertRaisesRegex(CommandError,'baseline_changed'):
+            rollout.apply_store(self.cur,True,before)
+        self.assertFalse(rollout.exists(self.cur,'gis.definition_code_group'))
+        self.assertFalse(rollout.recorded(self.cur,'control','0009_gis_reference_code_groups'))
+
     def test_code_group_roundtrip_revision_and_protected_delete(self):
         group=self.save('group',label='적용그룹'); field=self.field('관종'); code=self.code(field,'SPECIAL')
         before=defs.snapshot(self.cur)['definition_revision']

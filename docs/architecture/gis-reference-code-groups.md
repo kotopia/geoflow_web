@@ -1,6 +1,6 @@
 # GIS 참조코드 적용그룹
 
-상태: 코드·migration·회귀검증 준비. 운영 DB 적용 및 배포 전.
+상태: 코드·migration·회귀검증 완료. 사용자 진행 지시에 따라 보호된 운영 배포 준비 중.
 
 ## 의미와 소유권
 
@@ -60,15 +60,30 @@ revision을 담는다. 다음 재조회/materialization에서 반영되며 오�
 - 중앙: control.0009_gis_reference_code_groups.
 - Tenant: webgisapp.0048_gis_project_reference_groups (각 승인된 tenant migration context).
 
-운영에는 아직 적용하지 않는다. 중앙 GIS foundation이 이미 있는 DB에서는 0009가
+중앙 GIS foundation이 이미 있는 DB에서는 0009가
 관계를 생성한다. GIS를 도입하지 않은 신규 중앙 DB에서는 0009가 no-op이고,
 후속 GIS foundation bootstrap의 갱신된 canonical SQL이 관계를 생성한다.
 Tenant 0048은 기존 0047과 prj.projects 이후 실행한다. 기존 시설물 물리 schema,
 Survey, 사진 정책, 일반 프로젝트 업무 로직에는 DDL/data backfill이 없다.
 
-배포 전 중앙·tenant 관계를 모두 적용하고 권한·프로젝트별 코드 집합·revision·
-manifest/reference-catalog를 검증한다. 기존 배포 workflow는 이 PR에서 변경하지
-않으며 PR을 병합하거나 운영 배포하지 않는다.
+후속 진행 지시에 따라 기존 보호된 GIS deployment workflow에 전용
+`deploy_gis_reference_groups` 명령을 연결한다. `--check`는 실제 테이블 모양·선행
+migration·기록을 읽기 전용 확인한다. 서비스 정지 후 `--apply --backup-dir ...`로
+control.0009와 webgisapp.0048의 SQL만 실행하고 해당 migration 기록만 추가한다.
+다른 미적용 migration을 실행하거나 기록을 위조하지 않는다. control.0008 또는
+webgisapp.0047 선행 기록이 없으면 첫 변경 전에 중단한다.
+
+모든 대상의 중앙/tenant baseline·관계 데이터 백업을 먼저 보관하고, 각 DB에서 GIS
+테이블 잠금 아래 기존 전체 GIS 행/geometry fingerprint와 관계 데이터를 전후 비교한다.
+신규 관계·그룹·코드의 자동 배정은 없다. 새 테이블 외에는 GIS 데이터를 변경하지 않는다.
+GIS foundation이 없는 tenant는 건너뛰고 명시적으로 보고한다. DB별 원자적 적용이며
+여러 DB 사이의 원자성은 없다. 부분 성공 시 적용된 관계를 유지하고 재실행한다.
+
+서비스 재시작 후 `--verify`를 읽기 전용으로 실행해 실제 프로젝트별 Final Form과
+Reference Catalog의 활성 코드 UUID 집합이 동일한지 검증한다. 실제 QGIS/QField
+GUI 검증을 대체하지 않는다. 사용자 승인이 필요한 GitHub production 환경을 우회하지
+않는다. 기존 운영 definition 재조정 명령은 기존 v3 중앙 상태에서 bootstrap/reseed를
+하지 않으며, 기존 표준 fingerprint 검사와 로그인 HTTP 200 확인도 계속 수행한다.
 
 역 migration은 신규 관계 테이블만 제거하고 코드·그룹·프로젝트를 보존한다.
 관계 데이터가 있으면 별도 백업이 필요하고 rollback 시 적용 제한이 사라지므로,
