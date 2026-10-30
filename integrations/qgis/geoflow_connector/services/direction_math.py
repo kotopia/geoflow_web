@@ -14,6 +14,20 @@ def normalize(angle):
     return angle % 360.0
 
 
+def validate_rotation(raw):
+    """Manual rotation needs only explicit storage/symbol rules, never reference lines."""
+    if not isinstance(raw, dict): raise ValueError('방향각 기능의 회전 규칙이 없습니다.')
+    required = ('zero_axis','positive_direction','symbol_offset','allow_reverse')
+    if any(k not in raw for k in required): raise ValueError('각도 원점·증가 방향·심볼 보정·반전 규칙을 확인하세요.')
+    if raw['zero_axis'] not in ('north','east') or raw['positive_direction'] not in ('clockwise','counterclockwise'):
+        raise ValueError('각도 원점 또는 증가 방향이 잘못되었습니다.')
+    if type(raw['allow_reverse']) is not bool: raise ValueError('반전 허용은 boolean이어야 합니다.')
+    value = raw['symbol_offset']
+    if isinstance(value,bool) or not math.isfinite(float(value)): raise ValueError('유효한 심볼 보정각이 필요합니다.')
+    return dict(zero_axis=raw['zero_axis'],positive_direction=raw['positive_direction'],
+                symbol_offset=float(value),allow_reverse=raw['allow_reverse'],offset=0)
+
+
 def validate_config(raw):
     if not isinstance(raw, dict):
         raise ValueError("Direction settings must be an object")

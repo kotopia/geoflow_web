@@ -52,6 +52,13 @@ def check():
             assert any(layer.name() == 'release-reload-check' and layer.isValid()
                        for layer in project.mapLayers().values())
         result['project_save_or_reload'] = True
+        if CONFIG.get('flow_script'):
+            import runpy
+            runpy.run_path(CONFIG['flow_script'],run_name='release_flow_check')
+            result['ui_flow_script'] = 'passed'
+            for name, imported in list(__import__('sys').modules.items()):
+                if name.startswith('geoflow_connector') and getattr(imported,'__file__',None):
+                    assert Path(imported.__file__).resolve().is_relative_to(expected), name
         assert qgis.utils.unloadPlugin('geoflow_connector')
         result['ok'] = True
     except Exception:

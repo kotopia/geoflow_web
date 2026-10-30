@@ -7,6 +7,7 @@ from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QDoubleSpinB
 from qgis.core import (QgsGeometry, QgsPointXY, QgsCoordinateTransform, QgsProject,
     QgsVectorLayer, QgsFeature, QgsWkbTypes, QgsRectangle, QgsRuleBasedRenderer)
 from qgis.gui import QgsMapTool, QgsRubberBand, QgsVertexMarker
+from .result_highlight import ResultHighlight
 from ..services.direction_math import normalize, bearing, to_storage, to_bearing
 
 
@@ -59,16 +60,17 @@ class RotationDialog(QDialog):
         super().__init__(controller.plugin.iface.mainWindow())
         self.controller, self.layer, self.page = controller, layer, page
         self.service = controller.direction
-        self.field, self.config = self.service.settings(layer)
+        self.field, self.config = self.service.settings(layer, manual=True)
         self.fid = page.feature_id
-        self.result = self.service.inspect(layer, layer.getFeature(self.fid))
+        self.result = self.service.manual_result(layer, layer.getFeature(self.fid))
         if not self.result.get('fingerprint'):
             raise ValueError(self.result.get('reason', '기하 오류'))
         self.closed = False
         self.setWindowTitle('방향 조정 · 적용 후 기존 저장 사용')
         layout = QVBoxLayout(self)
         self.spin = QDoubleSpinBox(self)
-        self.spin.setDecimals(3); self.spin.setRange(0,359.999); self.spin.setWrapping(True)
+        decimals = 0 if self.field.get('semantic_data_type') == 'integer' else 3
+        self.spin.setDecimals(decimals); self.spin.setRange(0,360-10**(-decimals)); self.spin.setWrapping(True)
         self.spin.setKeyboardTracking(True); self.spin.setSuffix('°')
         self.dial = QDial(self); self.dial.setRange(0,35999); self.dial.setWrapping(True)
         layout.addWidget(self.spin); layout.addWidget(self.dial)
@@ -116,7 +118,7 @@ class RotationDialog(QDialog):
         self.set_value(value)
 
     def set_value(self, value):
-        value = normalize(value)
+        value = normalize(round(normalize(value),self.spin.decimals()))
         with QSignalBlocker(self.spin), QSignalBlocker(self.dial):
             self.spin.setValue(value); self.dial.setValue(round(value*100)%36000)
         index = self.overlay.fields().indexFromName(self.field['storage']['key'])
@@ -174,7 +176,9 @@ class DirectionResults(QDialog):
         super().__init__(controller.plugin.iface.mainWindow())
         self.controller,self.layer,self.page = controller,layer,page
         self.rows = []
-        self.bands = []
+        self.changed_rows = []
+        self.highlight = ResultHighlight(controller.plugin.mapCanvas)
+        self.bands = self.highlight.bands
         self.setWindowTitle('방향각 계산 결과 · 행 선택으로 위치 확인')
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0,6,self)
@@ -204,6 +208,10 @@ class DirectionResults(QDialog):
         self.note = QLabel('계산 가능한 항목만 선택 적용합니다. 모호한 단일 후보는 하나만 선택하세요.')
         layout.addWidget(self.note)
         button = QPushButton('선택 적용',self); button.clicked.connect(self.apply); layout.addWidget(button)
+        changed = QPushButton('변경 객체 전체 보기',self)
+        changed.clicked.connect(lambda:self.highlight.show(self.layer,self.changed_rows,zoom=True))
+        layout.addWidget(changed)
+        clear = QPushButton('강조 해제',self); clear.clicked.connect(self.highlight.clear); layout.addWidget(clear)
         close = QPushButton('닫기',self); close.clicked.connect(self.reject); layout.addWidget(close)
         self.finished.connect(self.cleanup)
         self.resize(850,400)
@@ -217,19 +225,15 @@ class DirectionResults(QDialog):
         transform = QgsCoordinateTransform(self.layer.crs(),canvas.mapSettings().destinationCrs(),QgsProject.instance())
         geometry.transform(transform)
         candidates = [result['chosen']] if result.get('chosen') else result['candidates']
-        bounds = geometry.boundingBox()
+        geometries = [self.highlight.add(self.layer.getFeature(result['fid']).geometry(),self.layer.crs(),
+                                        'review' if result['status'] in ('ok','ambiguous') else 'failed')]
         for candidate in candidates:
-            points = [transform.transform(QgsPointXY(*xy)) for xy in candidate['map_line']]
-            line = QgsGeometry.fromPolylineXY(points)
-            band = QgsRubberBand(canvas,QgsWkbTypes.GeometryType.LineGeometry)
-            band.setColor(QColor('#ff8800')); band.setWidth(4); band.setToGeometry(line,None)
-            self.bands.append(band); bounds.combineExtentWith(line.boundingBox())
-        bounds.grow(max(canvas.mapUnitsPerPixel()*80,bounds.width()*0.2))
-        canvas.setExtent(bounds); canvas.refresh()
+            line = QgsGeometry.fromPolylineXY([QgsPointXY(*xy) for xy in candidate['map_line']])
+            geometries.append(self.highlight.add(line,self.layer.crs(),'review'))
+        self.highlight.zoom([g for g in geometries if g is not None])
 
     def cleanup(self,*args):
-        for band in self.bands: self.controller.plugin.mapCanvas.scene().removeItem(band)
-        self.bands=[]
+        self.highlight.clear()
 
     def apply(self):
         selected = [row for i,row in enumerate(self.rows) if self.table.item(i,0).checkState()==Qt.CheckState.Checked]
@@ -238,5 +242,10 @@ class DirectionResults(QDialog):
             self.note.setText('객체마다 후보 하나만 선택하세요.'); return
         try:
             self.controller.direction.apply(self.layer,selected,self.page)
-            self.accept()
+            self.changed_rows = [dict(r,status='changed') for r in selected
+                                 if str(r.get('old')) != str(r.get('angle')) and r.get('old') != r.get('angle')]
+            self.highlight.show(self.layer,self.changed_rows,zoom=True)
+            self.note.setText('편집 버퍼에 적용했습니다. 기존 저장 기능으로 저장하세요.')
+            for i in range(self.table.rowCount()):
+                self.table.item(i,0).setCheckState(Qt.CheckState.Unchecked)
         except Exception as exc: self.note.setText(str(exc))

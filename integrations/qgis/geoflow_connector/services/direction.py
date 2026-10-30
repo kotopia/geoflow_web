@@ -9,7 +9,7 @@ except ImportError:
 from qgis.core import (QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     QgsGeometry, QgsPointXY, QgsFeatureRequest, QgsRectangle, QgsWkbTypes,
     QgsProperty, QgsRenderContext)
-from .direction_math import calculate, validate_config, normalize
+from .direction_math import calculate, validate_config, validate_rotation, normalize
 
 
 class FormAngleCommand(QUndoCommand):
@@ -45,21 +45,35 @@ class DirectionService:
         self.plugin = plugin
         self.project = QgsProject.instance()
 
-    def settings(self, layer):
+    def targets(self, layer):
+        if layer is None: return []
         layer_id = str(layer.customProperty('geoflow/definition_layer_id', ''))
         definition = getattr(getattr(self.plugin, '_definition_service', None), 'definition', {}) or {}
-        fields = [f for f in definition.get('fields', [])
-                  if str(f.get('layer_id', '')) == layer_id and f.get('direction')]
+        return [f for f in definition.get('fields', []) if str(f.get('layer_id','')) == layer_id
+                and (f.get('direction') is not None or 'direction' in (f.get('capabilities') or []))]
+
+    def settings(self, layer, *, manual=False):
+        fields = self.targets(layer)
         if len(fields) != 1:
-            raise ValueError('방향 계산 중앙 설정이 없거나 여러 개입니다.')
+            raise ValueError('중앙 UUID에 연결된 방향각 기능 정의가 없거나 여러 개입니다.')
         field = fields[0]
         storage = field.get('storage') or {}
-        key = storage.get('key')
-        index = layer.fields().indexFromName(key or '')
+        index = layer.fields().indexFromName(storage.get('key') or '')
         if (storage.get('kind') != 'column' or index < 0 or not layer.fields()[index].isNumeric()
                 or field.get('readonly') or QgsWkbTypes.geometryType(layer.wkbType()) != QgsWkbTypes.GeometryType.PointGeometry):
-            raise ValueError('방향 계산 대상 기하 또는 필드 오류')
-        return field, validate_config(field['direction'])
+            raise ValueError('방향각 대상 필드·점 기하·읽기 전용 설정을 확인하세요.')
+        return field, (validate_rotation if manual else validate_config)(field.get('direction'))
+
+    def manual_result(self, layer, feature):
+        field, config = self.settings(layer, manual=True)
+        geom = feature.geometry()
+        if not feature.isValid() or geom.isEmpty() or geom.isMultipart():
+            raise ValueError('유효한 단일 점 객체가 필요합니다.')
+        key = field['storage']['key']
+        identity = str(feature['id']) if 'id' in feature.fields().names() else str(feature.id())
+        payload = (layer.id(),layer.crs().toWkt(),bytes(geom.asWkb()).hex(),field['id'],key,identity,config)
+        return dict(manual=True,fid=feature.id(),field_id=field['id'],key=key,old=feature[key],
+                    identity=identity,fingerprint=hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest())
 
     def _references(self, config):
         # These layers were materialized from this project's Final Layer Plan.
@@ -116,13 +130,13 @@ class DirectionService:
             return dict(base, status='error', reason=str(exc))
 
     def verify(self, layer, result):
-        fresh = self.inspect(layer, layer.getFeature(result['fid']))
+        fresh = (self.manual_result if result.get('manual') else self.inspect)(layer, layer.getFeature(result['fid']))
         if not result.get('fingerprint') or fresh.get('fingerprint') != result['fingerprint']:
             raise ValueError('대상 또는 기준선/설정이 변경되었습니다. 방향각을 다시 계산하세요.')
         return fresh
 
     def bind_renderer(self, layer):
-        field, config = self.settings(layer)
+        field, config = self.settings(layer, manual=True)
         key = field['storage']['key'].replace('"', '""')
         sign = 1 if config['positive_direction'] == 'clockwise' else -1
         zero = 90 if config['zero_axis'] == 'east' else 0
@@ -189,7 +203,7 @@ class DirectionService:
         self.plugin._direction_pending = pending
 
     def sync_form(self, page, layer):
-        field, _ = self.settings(layer)
+        field, _ = self.settings(layer, manual=True)
         feature = layer.getFeature(page.feature_id)
         if feature.isValid():
             values = page.form.values()

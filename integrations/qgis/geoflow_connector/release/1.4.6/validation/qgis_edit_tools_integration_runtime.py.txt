@@ -1,0 +1,2 @@
+EDIT_TOOLS_RUNTIME={"button": [3, 332, 38, 34], "button_parent": "rail", "button_size_hint": [28, 27], "button_text_width": 0, "button_visible_to_dock": true, "geometry_icon_keys": {"line": 549755813888, "point": 167503724544, "polygon": 554050781184}, "navigation_width": 46, "palette": [988, 27, 46, 293], "panel": [4, 4, 38, 285], "tool_button_size": [32, 32], "tool_icon_size": [22, 22]}
+qgis edit tools classFactory integration: OK

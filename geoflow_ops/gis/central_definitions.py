@@ -11,6 +11,14 @@ from .form_definitions import DefinitionError
 from .reference_groups import codes_for_field, layer_group_ids
 
 
+# Explicit central field identity registration verified against the production
+# definitions. This declares UI capability only, never angle or symbol rules.
+DIRECTION_FIELD_LAYERS = {
+    '63b76009-fc28-4a7c-b2cf-1fba61e04d2f': '5f9610bf-b555-4e4c-94b9-2c9097aa6030',
+    '502ef46b-9287-4da9-81c2-c085f3ae2090': 'c42fc2ed-f09b-42d2-bd82-ff27f208677f',
+}
+
+
 def central_snapshot():
     with connections['default'].cursor() as cur:
         if not central.ready(cur):
@@ -142,6 +150,8 @@ def resolve(data, config, layers, *, include_unavailable=False):
         }
         # Raw DB cursors may return jsonb as JSON text rather than a dict.
         entry['direction'] = central.json_object(field.get('layout'), 'Field layout').get('direction')
+        entry['capabilities'] = ['direction'] if (DIRECTION_FIELD_LAYERS.get(field_id) == layer_id
+            or entry['direction'] is not None) else []
         result_fields.append(entry)
     result_fields.sort(key=lambda value:(value['layer_standard_name'],value['display_order'],value['label'],value['id']))
 
