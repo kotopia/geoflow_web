@@ -35,7 +35,7 @@ def build(repository_builder):
     config.read(ROOT / 'metadata.txt', encoding='utf-8')
     meta = config['general']
     version = meta['version']
-    previous_version = json.loads((ROOT / 'release' / 'geoflow_connector-release.json').read_text(encoding='utf-8'))['version']
+    previous_version = json.loads((ROOT.parents[2] / 'docs/operations/qgis-plugin-stable-release.json').read_text(encoding='utf-8'))['version']
     assert tuple(map(int, version.split('.'))) > tuple(map(int, previous_version.split('.')))
     OUT = ROOT / 'release' / version
     OUT.mkdir(parents=True, exist_ok=True)

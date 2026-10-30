@@ -12,7 +12,7 @@ CONFIG = configparser.ConfigParser(); CONFIG.read(ROOT / 'metadata.txt', encodin
 OUT = ROOT / 'release' / CONFIG['general']['version']
 OUT.mkdir(parents=True, exist_ok=True)
 PROGRAMS = [
-    'qgis_direction_runtime.py', 'qgis_direction_style_audit.py',
+    'qgis_definition_refresh_runtime.py', 'qgis_calculation_flow_runtime.py', 'qgis_direction_runtime.py', 'qgis_direction_style_audit.py',
     'qgis_project_materialize_runtime.py', 'qgis_native_layer_tree_runtime.py',
     'qgis_layer_workspace_state_runtime.py', 'qgis_form_lifecycle_smoke.py',
     'qgis_online_commit_runtime.py', 'qgis_delete_action_runtime.py',
@@ -32,7 +32,7 @@ def run(name):
     output = result.stdout.decode('utf-8', errors='replace') + result.stderr.decode('utf-8', errors='replace')
     log = OUT / 'validation' / (name + '.txt')
     log.parent.mkdir(exist_ok=True)
-    log.write_text(output, encoding='utf-8')
+    log.write_bytes(output.replace('\r\n', '\n').encode('utf-8'))
     return {'test':name, 'exit_code':result.returncode, 'log':log.relative_to(ROOT).as_posix()}
 
 

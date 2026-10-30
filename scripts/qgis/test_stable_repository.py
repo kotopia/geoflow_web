@@ -210,6 +210,21 @@ class StableRepositoryTests(unittest.TestCase):
         self.assertEqual(digest,'ae80feb7070215b601eb352ffd5637f8b8378af04f4cf1ad3eaa194021713957')
         self.assertEqual(output.stat().st_size,5226447)
 
+    def test_145_archive_remains_byte_exact(self):
+        source=self.root/'historical145'/'geoflow_connector'
+        current=ROOT/'integrations/qgis/geoflow_connector'
+        historical=current/'release/1.4.5'
+        inventory=historical/'package-files.json'
+        for item in json.loads(inventory.read_text(encoding='utf-8')):
+            archived=historical/'runtime'/item['path']
+            original=archived if archived.exists() else current/item['path']
+            target=source/item['path'];target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(original.read_bytes())
+        output=self.root/'geoflow_connector-1.4.5.zip'
+        digest=build_zip(source,output,release_manifest=historical/'geoflow_connector-release.json',inventory=inventory)
+        self.assertEqual(digest,'7657324a0ef173a6c29e55c20e6acdab0289a2be62b0f2a19afd42d2b746c305')
+        self.assertEqual(output.stat().st_size,5282939)
+
     def test_current_release_archive_matches_its_new_inventory(self):
         source=ROOT/'integrations/qgis/geoflow_connector'
         from scripts.qgis.build_plugin_repository import metadata

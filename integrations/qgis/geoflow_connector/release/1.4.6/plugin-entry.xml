@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<plugins>
+  <pyqgis_plugin name="GeoFlow Connector" version="1.4.6" experimental="false">
+    <name>GeoFlow Connector</name>
+    <version>1.4.6</version>
+    <qgis_minimum_version>3.28</qgis_minimum_version>
+    <qgis_maximum_version>4.99</qgis_maximum_version>
+    <description>GeoFlow project login, persistent local Snapshot reuse, cache lifecycle management, field-level Changeset synchronization, revision Delta updates, and realtime multi-user Delta hints.</description>
+    <about>GeoFlow project snapshots and dynamic forms with rectangle selection, existing depth batch calculation, and centrally configured direction calculation and rotation preview.</about>
+    <author_name>GeoFlow</author_name>
+    <homepage>https://geoflow.co.kr</homepage>
+    <repository>https://github.com/kotopia/geoflow_web</repository>
+    <tracker>https://github.com/kotopia/geoflow_web/issues</tracker>
+    <tags>geoflow,gis,qgis,qfield,postgis,geopackage,snapshot,cache,lifecycle,pin,changeset,delta,sync,websocket,realtime,session</tags>
+    <downloads>0</downloads>
+    <file_name>geoflow_connector.zip</file_name>
+    <download_url>https://geoflow.co.kr/gis/qgis/plugins/releases/geoflow_connector-1.4.6.zip</download_url>
+    <experimental>false</experimental>
+    <deprecated>false</deprecated>
+    <trusted>false</trusted>
+    <sha256_sum>cf46e24cf0d47b8d8ab44960d48126d3df76476dacb21da3212d6306ec29c168</sha256_sum>
+  </pyqgis_plugin>
+</plugins>

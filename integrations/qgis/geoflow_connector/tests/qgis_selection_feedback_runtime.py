@@ -32,7 +32,7 @@ class RuntimeTests(unittest.TestCase):
         self.depth = self.layer('WTL_PIPE_PS')
         self.valve = self.layer('WTL_VALV_PS')
         self.logs = []
-        self.plugin = SimpleNamespace(active_context={'project_id': PROJECT},
+        self.plugin = SimpleNamespace(integration_state=lambda:{'ready':True,'can_write':True}, active_context={'project_id': PROJECT},
                                       _managed_layers=lambda: self.layers, log=self.logs.append)
         self.settings = GeoFlowSettingsService(self.plugin, QSettings(
             str(Path(self.temp.name)/'settings.ini'), QSettings.Format.IniFormat))
@@ -82,17 +82,17 @@ class RuntimeTests(unittest.TestCase):
         xy = canvas.getCoordinateTransform().transform(127,36)
         event = QgsMapMouseEvent(canvas,QEvent.Type.MouseButtonRelease,QPoint(round(xy.x()),round(xy.y())),Qt.MouseButton.LeftButton)
         for layer in (self.survey,self.valve,self.depth,self.survey):
-            active[0] = layer; tool.canvasReleaseEvent(event)
+            active[0] = layer; tool.canvasPressEvent(event); tool.canvasReleaseEvent(event)
             self.assertEqual(seen[-1],layer.id())
         for invalid in (None, QgsVectorLayer('Point?crs=EPSG:4326','external','memory')):
-            active[0] = invalid; tool.canvasReleaseEvent(event)
+            active[0] = invalid; tool.canvasPressEvent(event); tool.canvasReleaseEvent(event)
         self.assertEqual(len(seen),4); self.assertEqual(missing,[]); self.assertEqual(len(notices),2)
         # Active layer is deliberately absent from the visible-layer list.
         canvas.setLayers([self.depth,self.valve]); active[0]=self.survey
-        tool.canvasReleaseEvent(event); self.assertEqual(seen[-1],self.survey.id())
+        tool.canvasPressEvent(event); tool.canvasReleaseEvent(event); self.assertEqual(seen[-1],self.survey.id())
         self.assertEqual(len(seen),5)
         self.survey.dataProvider().truncate()
-        tool.canvasReleaseEvent(event)
+        tool.canvasPressEvent(event); tool.canvasReleaseEvent(event)
         self.assertEqual(len(seen),5); self.assertEqual(len(missing),1)
         canvas.close()
 

@@ -1,0 +1,1 @@
+qgis delete action runtime: {"qgis_version": "4.2.2-Belém do Pará", "success_server_then_provider": true, "conflict_provider_commit_not_called": true, "failure_preserved_delete_buffer": true, "failure_preserved_form_context": true, "lifecycle_logs_complete": true, "native_qgis_delete_discovered_on_save": true}

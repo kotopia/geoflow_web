@@ -8,7 +8,7 @@ from qgis.PyQt.QtWidgets import (QApplication, QAbstractItemView, QDialog,
     QHBoxLayout, QVBoxLayout, QPushButton, QPlainTextEdit, QListWidget, QLabel)
 from qgis.core import (QgsCoordinateReferenceSystem, QgsCoordinateTransform,
     QgsGeometry, QgsPointXY, QgsProject, QgsRectangle, QgsUnitTypes)
-from qgis.gui import QgsRubberBand
+from .result_highlight import ResultHighlight
 
 from ..services.survey_spatial import nearby_targets, overlap_distance_m, value
 from ..services.settings import GeoFlowSettingsService
@@ -66,7 +66,8 @@ def detail(row, sources):
 class SurveyInspection:
     def __init__(self, panel):
         self.panel = panel
-        self.bands = []
+        self.highlight = ResultHighlight(panel.plugin.iface.mapCanvas())
+        self.bands = self.highlight.bands
         self.timer = QTimer(panel)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.clear)
@@ -105,10 +106,7 @@ class SurveyInspection:
 
     def clear(self, *_):
         self.timer.stop()
-        for band in self.bands:
-            band.hide()
-            self.panel.plugin.iface.mapCanvas().scene().removeItem(band)
-        self.bands.clear()
+        self.highlight.clear()
 
     def show(self, rows, entire=False, extra=()):
         canvas = self.panel.plugin.iface.mapCanvas()
@@ -144,12 +142,7 @@ class SurveyInspection:
         width, height = max(extent.width()*1.2, minimum), max(extent.height()*1.2, minimum)
         self.clear()
         for geom in converted:
-            band = QgsRubberBand(canvas, geom.type())
-            band.setColor(QColor('#e5482b'))
-            band.setWidth(4)
-            band.setIconSize(14)
-            band.setToGeometry(geom)
-            self.bands.append(band)
+            self.highlight.add(geom,destination,'review')
         canvas.setExtent(QgsRectangle(centre.x()-width/2, centre.y()-height/2, centre.x()+width/2, centre.y()+height/2))
         canvas.refresh()
         self.timer.start(5000)

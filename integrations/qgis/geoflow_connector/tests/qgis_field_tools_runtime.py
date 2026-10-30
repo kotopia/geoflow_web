@@ -163,6 +163,7 @@ for target_id in ("target-ok", "target-no-z", "target-no-link"):
     row.setGeometry(QgsGeometry.fromPointXY(origin_wgs))
     assert targets.dataProvider().addFeature(row)
 depth_plugin = SimpleNamespace(
+    integration_state=lambda: {"ready":True,"can_write":True},
     _managed_layers=lambda: [survey_depth, targets],
     active_context={"project_id": "depth-project"},
     active_client=SimpleNamespace(base_url="https://example.test"),

@@ -1,0 +1,1 @@
+USER_FLOW: selection-independent depth buttons, real spatial calculation, per-row results, highlights, manual rules, refreshed actions, undo, permissions OK

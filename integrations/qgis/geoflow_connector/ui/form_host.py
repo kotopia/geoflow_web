@@ -3,10 +3,10 @@
 import json
 import os
 
-from qgis.PyQt.QtCore import QDate, Qt, QTimer, QSettings
+from qgis.PyQt.QtCore import QDate, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QDialog, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
-    QToolBar, QToolButton, QMenu, QVBoxLayout, QWidget,
+    QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 from qgis.PyQt.uic import loadUiType
 from qgis.core import QgsMessageLog, Qgis, QgsProject
@@ -102,9 +102,6 @@ class Main(QWidget, FORM_CLASS):
             plugin.mapCanvas, layer_provider=self.adapter.layers_by_id,
             active_layer=plugin.iface.activeLayer,
             notify=lambda text: plugin.iface.messageBar().pushMessage('GeoFlow', text, duration=3))
-        self.select_tool.mode = str(QSettings().value('GeoFlowConnector/selectionMode', 'single'))
-        if self.select_tool.mode not in ('single', 'area'):
-            self.select_tool.mode = 'single'
         self.configure_selection_button(self.select_button)
         presentation = getattr(plugin, 'presentation', None)
         rail = getattr(presentation, 'buttons', {}).get('select')
@@ -126,33 +123,10 @@ class Main(QWidget, FORM_CLASS):
         self._sync_select_tool_state()
 
     def configure_selection_button(self, button):
-        menu = QMenu(button)
-        for mode, label in (('single', '단일 선택'), ('area', '영역 선택')):
-            menu.addAction(label, lambda checked=False, m=mode: self.set_selection_mode(m))
-        button.setMenu(menu)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
-        self._selection_button_hint(button)
-
-    def _selection_button_hint(self, button):
         from qgis.core import QgsApplication
-        area = self.select_tool.mode == 'area'
-        button.setIcon(QgsApplication.getThemeIcon('/mActionSelectRectangle.svg' if area else '/mActionIdentify.svg'))
-        button.setToolTip(('영역 선택' if area else '단일 선택') + ' · 길게 눌러 모드 변경 · Shift 추가 / Ctrl 해제')
-
-    def set_selection_mode(self, mode):
-        self.select_tool.cancel_drag()
-        self.select_tool.mode = mode
-        QSettings().setValue('GeoFlowConnector/selectionMode', mode)
-        buttons = [self.select_button]
-        presentation = getattr(self.plugin, 'presentation', None)
-        rail = getattr(presentation, 'buttons', {}).get('select')
-        if rail is not None:
-            buttons.append(rail)
-        for button in buttons:
-            self._selection_button_hint(button)
-        if self.adapter.selected_layer_id() in self.adapter.layers_by_id():
-            self.plugin.mapCanvas.setMapTool(self.select_tool)
-        self._sync_select_tool_state()
+        button.setMenu(None)
+        button.setIcon(QgsApplication.getThemeIcon('/mActionSelectRectangle.svg'))
+        button.setToolTip('클릭: 단일 선택 · 드래그: 영역 선택 · Shift 추가 / Ctrl 해제 · Esc 취소')
 
     @property
     def formHeader(self):
@@ -186,6 +160,20 @@ class Main(QWidget, FORM_CLASS):
                            "error": getattr(service, "error", "")},
             "reference": getattr(references, "diagnostic", lambda: {"state": "missing"})(),
         }
+        from ..services.direction import DirectionService
+        directions = DirectionService(self.plugin)
+        payload['direction_actions'] = []
+        for layer in self.plugin._managed_layers():
+            for field in directions.targets(layer):
+                item = {'layer':layer.name(),'field_uuid':field['id'],
+                        'semantic_data_type':field.get('semantic_data_type')}
+                for mode in ('automatic','manual'):
+                    try:
+                        directions.settings(layer,manual=mode=='manual')
+                        item[mode] = 'configured'
+                    except (ValueError,TypeError,AttributeError) as exc:
+                        item[mode] = str(exc)
+                payload['direction_actions'].append(item)
         dialog = QDialog(self)
         dialog.setWindowTitle("GeoFlow 중앙 정의 · 현재 실행 상태")
         layout = QVBoxLayout(dialog)
