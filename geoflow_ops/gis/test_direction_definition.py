@@ -5,7 +5,7 @@ from uuid import uuid4
 from unittest.mock import Mock
 from control.services.gis_definitions import mutate
 from geoflow_ops.gis.form_definitions import DefinitionError
-from geoflow_ops.gis.central_definitions import resolve
+from geoflow_ops.gis.central_definitions import resolve, DIRECTION_FIELD_LAYERS
 from integrations.qgis.geoflow_connector.services.direction_math import validate_config
 
 
@@ -39,5 +39,19 @@ class DirectionDefinitionTests(unittest.TestCase):
         data=dict(fields=[field],layers=[layer],groups=[],group_fields=[],codes=[],rules=[])
         result=resolve(data,{'group_id':None,'additions':{},'private_items':{},'overrides':{self.field:{'layout':{}}}},[layer])
         self.assertEqual(result['fields'][0]['direction'],self.cfg)
+
+    def test_capability_uses_exact_field_and_layer_identity(self):
+        for field_id, layer_id in DIRECTION_FIELD_LAYERS.items():
+            field=dict(id=field_id,source_layer_id=layer_id,physical_name='ang_dir',
+                       standard_name='ANG_DIR',label='Angle',kind='text',widget_type='text',
+                       sort_order=0,visible=True,required=False,readonly=False,layout={})
+            layer=dict(id=layer_id,standard_name='ANY',physical_name='any',label='Any',sort_order=0,active=True)
+            data=dict(fields=[field],layers=[layer],groups=[],group_fields=[],codes=[],rules=[])
+            selection={'group_id':None,'additions':{},'private_items':{},'overrides':{}}
+            result=resolve(data,selection,[layer])['fields'][0]
+            self.assertEqual(result['capabilities'],['direction'])
+            self.assertIsNone(result['direction'])
+            field['id']=str(uuid4())
+            self.assertEqual(resolve(data,selection,[layer])['fields'][0]['capabilities'],[])
 
 if __name__=='__main__':unittest.main()

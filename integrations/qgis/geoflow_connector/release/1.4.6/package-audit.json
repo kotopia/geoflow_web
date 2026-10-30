@@ -1,0 +1,15 @@
+{
+  "files": 5606,
+  "findings": [],
+  "excluded_categories": [
+    "tests",
+    "test_artifacts",
+    "docs",
+    "scripts",
+    "release",
+    "bytecode",
+    "local settings/logs"
+  ],
+  "cache_note": "cache/*.py is required runtime code, not user cache data.",
+  "method": "allowlist + AST parsing + known credential/private-key/token/user-path patterns; authentication parameter names are not secrets"
+}

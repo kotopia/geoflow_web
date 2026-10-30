@@ -1,0 +1,14 @@
+{
+  "phase": 1,
+  "runtime": "4.2.2-Bel챕m do Par찼",
+  "version": "1.4.6",
+  "plugin_root": "isolated-profile/profiles/release/python/plugins/geoflow_connector",
+  "modules_imported": 103,
+  "class_factory": true,
+  "init_gui": true,
+  "login_ui": true,
+  "dynamic_form_host": true,
+  "project_save_or_reload": true,
+  "ui_flow_script": "passed",
+  "ok": true
+}

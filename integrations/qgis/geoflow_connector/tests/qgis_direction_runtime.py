@@ -107,7 +107,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.layer.selectedFeatureCount(),2)
         tool.select_ids(self.layer,[other.id()],Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(self.layer.selectedFeatureIds(),[self.feature.id()])
-        tool.mode='area';self.canvas.setMapTool(tool)
+        self.canvas.setMapTool(tool)
         transform=self.canvas.getCoordinateTransform()
         a=transform.transform(QgsPointXY(-1,-1));b=transform.transform(QgsPointXY(3,3))
         press=QgsMapMouseEvent(self.canvas,QEvent.Type.MouseButtonPress,QPoint(round(a.x()),round(a.y())),Qt.MouseButton.LeftButton,Qt.MouseButton.LeftButton)
@@ -152,7 +152,7 @@ class RuntimeTests(unittest.TestCase):
         self.canvas.setDestinationCrs(QgsCoordinateReferenceSystem('EPSG:4326'))
         self.canvas.setExtent(QgsRectangle(-0.0001,-0.0001,0.0001,0.0001));APP.processEvents()
         tool=IdentifyGeometry(self.canvas,layer_provider=lambda:{self.layer.id():self.layer},active_layer=lambda:self.layer)
-        tool.mode='area';self.canvas.setMapTool(tool)
+        self.canvas.setMapTool(tool)
         def event(kind,point,buttons):
             return QgsMapMouseEvent(self.canvas,kind,point,Qt.MouseButton.LeftButton,buttons)
         tool.canvasPressEvent(event(QEvent.Type.MouseButtonPress,QPoint(50,50),Qt.MouseButton.LeftButton))
@@ -162,15 +162,25 @@ class RuntimeTests(unittest.TestCase):
         QTest.keyClick(self.canvas,Qt.Key.Key_Escape)
         self.assertIsNone(tool._start)
         self.canvas.unsetMapTool(tool);tool.dispose()
-    def test_delayed_popup_does_not_trigger_short_click(self):
-        button=QToolButton();menu=QMenu(button);menu.addAction('single');menu.addAction('area')
-        button.setMenu(menu);button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
-        clicks=[];shown=[];button.clicked.connect(lambda:clicks.append(True));menu.aboutToShow.connect(lambda:shown.append(True))
-        menu.aboutToShow.connect(lambda:QTimer.singleShot(20,menu.close))
-        button.show();APP.processEvents()
-        QTest.mouseClick(button,Qt.MouseButton.LeftButton);self.assertEqual(len(clicks),1)
-        QTest.mousePress(button,Qt.MouseButton.LeftButton);QTest.qWait(1000);QTest.mouseRelease(button,Qt.MouseButton.LeftButton)
-        self.assertTrue(shown);self.assertEqual(len(clicks),1);button.close()
+    def test_selection_button_has_no_mode_menu(self):
+        from geoflow_connector.ui.form_host import Main
+        button=QToolButton()
+        Main.configure_selection_button(None,button)
+        self.assertIsNone(button.menu())
+        self.assertIn('Esc',button.toolTip())
+        self.assertFalse(hasattr(IdentifyGeometry(self.canvas),'mode'))
+        button.close()
+
+    def test_manual_rotation_without_auto_reference_settings(self):
+        self.field['direction'] = {key:self.cfg[key] for key in
+            ('zero_axis','positive_direction','symbol_offset','allow_reverse')}
+        result=self.service.manual_result(self.layer,self.feature)
+        with self.assertRaises(ValueError):self.service.settings(self.layer)
+        self.service.apply(self.layer,[dict(result,angle=42)],track=False)
+        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],42)
+        self.layer.undoStack().undo()
+        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],0)
+
 
     def test_preview_sync_cancel_and_apply(self):
         values={self.field['id']:0,'other':'draft'}

@@ -55,13 +55,14 @@ class DefinitionService(QObject):
             return
         self.clear()
         self.scope, self.client, self.url = scope, client, url
+        self._manifest = manifest
         if not project_id or not url or not revision:
             self.state, self.error = "error", "중앙 Final Form Definition 주소 또는 revision이 없습니다."
             self.changed.emit()
             return
         self.refresh()
 
-    def refresh(self):
+    def refresh(self, *, revalidate_revision=False):
         if self.client is None or not self.url:
             return
         base = urlsplit(self.client.base_url)
@@ -84,8 +85,12 @@ class DefinitionService(QObject):
             self._task = None
             if error is None:
                 try:
+                    if revalidate_revision:
+                        expected_revision, payload = payload
+                    else:
+                        expected_revision = scope[3]
                     payload = normalize_definition(payload)
-                    if payload["revision"] != scope[3]:
+                    if payload["revision"] != expected_revision:
                         raise ValueError("definition_revision_mismatch")
                 except Exception as exc:
                     error = exc
@@ -98,11 +103,29 @@ class DefinitionService(QObject):
                     if callback:
                         callback()
                 return
+            if revalidate_revision:
+                self._manifest.setdefault('transport', {})['form_definition_revision'] = expected_revision
+                self._manifest.setdefault('definition', {})['revision'] = expected_revision
+            self.scope = (*scope[:3], expected_revision)
             self.definition = payload
             self.state, self.error = "ready", ""
             self.changed.emit()
 
+        def load():
+            revision = scope[3]
+            if revalidate_revision:
+                manifest = session.get_json('/gis/projects/' + scope[2] + '/api/qgis-manifest/')
+                if str((manifest.get('project') or {}).get('id')) != scope[2]:
+                    raise ValueError('definition_project_mismatch')
+                transport = manifest.get('transport') or {}
+                if transport.get('form_definition_url') != url:
+                    raise ValueError('definition_url_changed_reopen_project')
+                revision = transport.get('form_definition_revision') or (manifest.get('definition') or {}).get('revision')
+                if not revision: raise ValueError('definition_revision_missing')
+            payload = session.get_json(url)
+            return (revision, payload) if revalidate_revision else payload
+
         try:
-            self._task = self._submit(lambda: session.get_json(url), complete)
+            self._task = self._submit(load, complete)
         except Exception as error:
             complete(error)

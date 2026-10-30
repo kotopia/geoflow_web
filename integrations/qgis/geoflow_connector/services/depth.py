@@ -261,9 +261,6 @@ class DepthService:
             reasons.append("unsupported_layer")
         if not depth_field:
             reasons.append("missing_pip_dep")
-        if (vector and standard == self.strategy.standard_name
-                and depth_field and survey is None):
-            reasons.append("survey_layer_unavailable")
         return {
             "supported": not reasons,
             "standard": standard,
@@ -469,6 +466,10 @@ class DepthService:
         return matches[0] if len(matches) == 1 else None
 
     def apply_to_form(self, page, feature, *, overwrite):
+        state = self.plugin.integration_state()
+        layer = next((l for l in self.plugin._managed_layers() if l.id() == page.layer_id),None)
+        if not state.get('can_write') or layer is None or layer.readOnly():
+            return {'ok':False,'reason':'편집 권한이 없습니다.'}
         field_id = self.form_field_id(page)
         if not field_id:
             return {"ok": False, "reason": "invalid_result"}
@@ -490,38 +491,67 @@ class DepthService:
             )
         return result
 
-    def apply_to_features(self, layer, features, *, overwrite):
-        summary = {"success": 0, "failed": 0, "skipped": 0, "review": 0,
-                   "failures": [], "results": []}
-        field_index = layer.fields().indexFromName(self.strategy.depth_field)
-        if field_index < 0:
-            return {**summary, "failed": len(features),
-                    "failures": ["심도 물리 필드 없음"]}
-        if not layer.isEditable() and not layer.startEditing():
-            return {**summary, "failed": len(features),
-                    "failures": ["레이어 편집 시작 실패"]}
-        for feature in features:
-            if not overwrite and _clean(feature[field_index]) is not None:
-                summary["skipped"] += 1
-                continue
-            result = self.calculate_feature(feature)
-            summary["results"].append(result)
-            if result.get("ok") and layer.changeAttributeValue(
-                    feature.id(), field_index, result["depth"]):
-                summary["success"] += 1
-                summary["review"] += int(bool(result.get("requires_review")))
-                self._log(
-                    "depth_apply_result", target="edit_buffer",
-                    feature_id=str(_clean(feature["id"]) or ""),
-                    field=self.strategy.depth_field, value=result["depth"],
-                    applied=True,
-                )
-            else:
-                summary["failed"] += 1
-                reason = result.get("reason") or "invalid_result"
-                summary["failures"].append(FAILURE_REASONS.get(reason, reason))
-                self._log(
-                    "depth_calculate_failed", stage="apply", reason=reason,
-                    feature_id=str(_clean(feature["id"]) or ""),
-                )
+    def apply_to_features(self, layer, features, *, overwrite, page=None):
+        """Calculate existing rules, stage changed values only, and report every row."""
+        features = list(features)
+        summary = dict(total=len(features), success=0, changed=0, unchanged=0,
+                       failed=0, skipped=0, review=0, failures=[], results=[])
+        state = self.plugin.integration_state()
+        writable = (state.get('ready') and state.get('can_write') and not layer.readOnly()
+                    and any(item is layer for item in self.plugin._managed_layers())
+                    and self.target_supported(layer))
+        index = layer.fields().indexFromName(self.strategy.depth_field)
+        command = False
+        form_id = self.form_field_id(page) if page is not None else None
+        try:
+            for feature in features:
+                old = _clean(feature[index]) if index >= 0 else None
+                is_form = page is not None and page.layer_id == layer.id() and page.feature_id == feature.id() and form_id
+                if is_form: old = _clean(page.form.values().get(form_id))
+                row = dict(fid=feature.id(), identity=self._identity(feature), old=old,
+                           depth=None, ok=False, status='failed', reason='')
+                if not writable:
+                    row['reason'] = '프로젝트 범위 또는 편집 권한이 없습니다.'
+                elif not overwrite and old is not None:
+                    row.update(status='skipped', skipped=True)
+                else:
+                    try:
+                        row.update(self.calculate_feature(feature))
+                        if row.get('ok'):
+                            summary['success'] += 1
+                            summary['review'] += int(bool(row.get('requires_review')))
+                            if old == row['depth']:
+                                row['status'] = 'unchanged'
+                            else:
+                                if not layer.isEditable() and not layer.startEditing():
+                                    raise ValueError('레이어 편집을 시작할 수 없습니다.')
+                                if not command:
+                                    layer.undoStack().beginMacro('GeoFlow 심도 일괄계산')
+                                    command = True
+                                layer.beginEditCommand('GeoFlow 심도값')
+                                if not layer.changeAttributeValue(feature.id(), index, row['depth']):
+                                    layer.destroyEditCommand()
+                                    raise ValueError('심도값 적용 실패')
+                                layer.endEditCommand()
+                                if is_form:
+                                    from .direction import FormAngleCommand
+                                    cmd = FormAngleCommand(page,form_id,row['depth'])
+                                    retained = getattr(layer,'_geoflow_form_commands',[])
+                                    retained.append(cmd); layer._geoflow_form_commands = retained
+                                    layer.undoStack().push(cmd)
+                                row['status'] = 'changed'
+                    except Exception as exc:
+                        row.update(status='failed', reason=str(exc))
+                summary[row['status']] += 1
+                if row['status'] == 'failed':
+                    row['reason'] = FAILURE_REASONS.get(row.get('reason'), row.get('reason') or '계산 실패')
+                    summary['failures'].append(row['reason'])
+                summary['results'].append(row)
+        finally:
+            if command:
+                layer.undoStack().endMacro()
         return summary
+
+    @staticmethod
+    def _identity(feature):
+        return str(feature['id']) if 'id' in feature.fields().names() else str(feature.id())

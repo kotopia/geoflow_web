@@ -268,7 +268,7 @@ class LayerWorkspaceMixin:
 
     def refresh_reference_catalog(self):
         self._reference_service.refresh()
-        self._definition_service.refresh()
+        self._definition_service.refresh(revalidate_revision=True)
         self._photo_policy_service.refresh()
 
     def _configure_layer_fields(
