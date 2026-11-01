@@ -133,7 +133,8 @@ class EmptyMergePostgresTests(TestCase):
         # Synthetic history only; never used outside the isolated localhost CI DB.
         with transaction.atomic(using='company_test'):
             executor=MigrationExecutor(connection)
-            for key in executor.loader.graph.node_map:
+            # Reproduce the pre-0049 snapshot; later migrations must remain unapplied.
+            for key in executor.loader.graph.forwards_plan(TARGET):
                 if key not in (EMPTY_MERGE,TARGET):
                     recorder.record_applied(*key)
             executor=MigrationExecutor(connection)
