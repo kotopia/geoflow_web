@@ -7,7 +7,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 class CompanyProfile(models.Model):
     company = models.OneToOneField('MyOrgUnit', primary_key=True, on_delete=models.CASCADE)
     parent = models.ForeignKey('MyOrgUnit', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
-    node_kind = models.CharField(max_length=20, choices=[('company', '법인/기업'), ('branch', '지점')], default='company')
+    node_kind = models.CharField(max_length=20, choices=[('company', '본점'), ('branch', '지점')], default='company')
     is_primary = models.BooleanField(default=False)
     industry = models.CharField('업종', max_length=200, blank=True)
     business = models.TextField('사업내용', blank=True)
@@ -35,13 +35,16 @@ class CompanyFact(models.Model):
 
 
 class CompanyRegistration(CompanyFact):
-    kind = models.CharField('구분', max_length=20, choices=[('registration','업등록'),('report','신고'),('certification','인증')])
+    kind = models.CharField('구분', max_length=20, choices=[('registration','업등록'),('report','신고'),('certification','인증·확인')])
     name = models.CharField('명칭', max_length=200)
     number = models.CharField('등록/신고번호', max_length=100, blank=True)
     occurred_on = models.DateField('등록·신고일')
     issuer = models.CharField('발급기관', max_length=200, blank=True)
     status = models.CharField('상태', max_length=20, choices=[('active','유효'),('pending','진행중'),('cancelled','취소')], default='active')
     expires_on = models.DateField('만료일', null=True, blank=True)
+    issued_on = models.DateField('발급일', null=True, blank=True)
+    valid_from = models.DateField('유효기간 시작일', null=True, blank=True)
+    items = models.JSONField('확인 대상 품목', default=list, blank=True)
     memo = models.TextField('비고', blank=True)
     previous = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT)
     event = models.OneToOneField('ProcessEvent', null=True, on_delete=models.PROTECT, editable=False)
@@ -78,10 +81,11 @@ class CompanyCredit(CompanyFact):
     expires_on = models.DateField('유효기간 종료일', null=True, blank=True)
     fiscal_on = models.DateField('재무 기준일', null=True, blank=True)
     representative = models.BooleanField('대표 신용등급으로 표시', default=False)
+    previous = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT)
     event = models.OneToOneField('ProcessEvent', null=True, on_delete=models.PROTECT, editable=False)
     class Meta(CompanyFact.Meta):
         db_table = '"ops"."company_credit"'
-        constraints = [models.UniqueConstraint(fields=['company'], condition=models.Q(representative=True), name='company_one_credit')]
+        constraints = [models.UniqueConstraint(fields=['company'], condition=models.Q(representative=True), name='company_one_credit'), models.UniqueConstraint(fields=['previous'], condition=models.Q(previous__isnull=False), name='company_credit_successor')]
 
 
 class CompanyEvidence(CompanyFact):

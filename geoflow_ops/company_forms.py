@@ -1,11 +1,15 @@
+from datetime import date
 from django import forms
 from django.utils import timezone
 from .company_models import CompanyProfile, CompanyRegistration, CompanyRevenue, CompanyHeadcount, CompanyCredit
 
 
 class FactForm(forms.ModelForm):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, alias=None, **kwargs):
         super().__init__(*args, **kwargs)
+        if alias:
+            from .services.company_references import apply_references
+            apply_references(self, alias)
         for field in self.fields.values():
             field.widget.attrs['class'] = 'form-check-input' if isinstance(field.widget, forms.CheckboxInput) else 'form-control'
             if isinstance(field, forms.DateField):
@@ -29,13 +33,44 @@ class ProfileForm(FactForm):
     class Meta:
         model = CompanyProfile
         fields = ['node_kind','is_primary','industry','business','founded_on','legal_form','enterprise_size','homepage','capital','corporate_no','fax']
-        labels = {'node_kind':'기업/지점 구분','is_primary':'기본 기업으로 지정'}
+        labels = {'node_kind':'사업장 구분','is_primary':'기본 기업으로 지정'}
 
 
 class RegistrationForm(FactForm):
     class Meta:
         model = CompanyRegistration
-        fields = ['kind','name','number','occurred_on','issuer','status','expires_on','memo']
+        fields = ['kind','name','number','occurred_on','issued_on','issuer','status','valid_from','expires_on','items','memo']
+        widgets = {'items': forms.HiddenInput()}
+        labels = {'occurred_on':'최초 등록·신고·발급일'}
+
+    def clean_items(self):
+        items = self.cleaned_data.get('items') or []
+        if not isinstance(items, list) or len(items) > 50:
+            raise forms.ValidationError('대상 품목은 최대 50개까지 입력할 수 있습니다.')
+        cleaned = []
+        for item in items:
+            if not isinstance(item, dict):
+                raise forms.ValidationError('품목 형식을 확인하세요.')
+            row = {key: str(item.get(key) or '').strip() for key in ('code','name','valid_from','expires_on')}
+            if not row['name'] or len(row['name']) > 200 or len(row['code']) > 100:
+                raise forms.ValidationError('각 품목의 명칭과 코드를 확인하세요.')
+            try:
+                start = date.fromisoformat(row['valid_from']) if row['valid_from'] else None
+                end = date.fromisoformat(row['expires_on']) if row['expires_on'] else None
+            except ValueError:
+                raise forms.ValidationError('품목 유효기간을 확인하세요.')
+            if start and end and end < start:
+                raise forms.ValidationError('품목 종료일은 시작일 이후여야 합니다.')
+            cleaned.append(row)
+        return cleaned
+
+    def clean(self):
+        data = super().clean()
+        if data.get('valid_from') and data.get('expires_on') and data['expires_on'] < data['valid_from']:
+            self.add_error('expires_on', '종료일은 시작일 이후여야 합니다.')
+        if data.get('issued_on') and data.get('occurred_on') and data['issued_on'] < data['occurred_on']:
+            self.add_error('issued_on', '발급일은 최초 등록·신고일 이후여야 합니다.')
+        return data
 
 
 class RevenueForm(FactForm):
