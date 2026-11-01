@@ -353,6 +353,13 @@ jobs:
             "$python" "$repo/manage.py" shell -c 'from django.conf import settings; assert settings.GEOFLOW_COMPANY_OVERVIEW_ENABLED; print("company_feature_activation_verified=yes")'
             company_activated=yes
           fi
+          # User-approved 2026-11-01: exact 0050, only the already-enabled company tenant.
+          # Fail before restart on any other migration plan; retain added schema on code rollback.
+          workspace_backup="/var/backups/geoflow/company-workspace/$candidate_sha/$(date -u +%Y%m%dT%H%M%SZ)"
+          "$python" "$repo/manage.py" activate_company_workspace
+          sudo -n install -d -m 0700 -o "$(id -un)" "$workspace_backup"
+          "$python" "$repo/manage.py" activate_company_workspace --apply --backup-dir "$workspace_backup"
+          "$python" "$repo/manage.py" activate_company_workspace --verify
           "$python" "$repo/manage.py" collectstatic --noinput
 
           sudo -n systemctl restart "$service"
@@ -379,6 +386,7 @@ jobs:
             "$python" "$repo/manage.py" activate_company_overview --verify
             echo 'company_overview_production_activation_complete=yes'
           fi
+          "$python" "$repo/manage.py" activate_company_workspace --verify
           rollback_needed=0
           trap - EXIT
           echo "phase4_workboard_deploy_deployed_sha=$(git -C "$repo" rev-parse HEAD)"

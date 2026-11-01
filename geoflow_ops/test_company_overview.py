@@ -236,6 +236,38 @@ class CompanyDatabaseTests(TestCase):
         self.company=MyOrgUnit.objects.using('company_test').create(name='Synthetic company')
         self.other=MyOrgUnit.objects.using('company_test').create(name='Other synthetic company')
 
+    def test_0050_rollout_is_exact_and_idempotent_on_real_database(self):
+        from io import StringIO
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from django.db.migrations.executor import MigrationExecutor
+        from django.db.migrations.recorder import MigrationRecorder
+        from control.management.commands import activate_company_workspace as rollout
+        connection = self.connection
+        # Disposable CI only: reproduce the existing 0049 schema and history.
+        with transaction.atomic(using='company_test'), TemporaryDirectory() as directory:
+            with connection.schema_editor() as editor:
+                self.workspace_migration.unapply(self.after, editor)
+            recorder = MigrationRecorder(connection)
+            executor = MigrationExecutor(connection)
+            for key in executor.loader.graph.forwards_plan(rollout.DEPENDENCY):
+                recorder.record_applied(*key)
+            before = set(recorder.applied_migrations())
+            backup = Path(directory) / 'synthetic.dump'
+            backup.write_bytes(b'synthetic archive; backup subprocess separately guarded')
+            with patch.object(rollout, 'tenant_connection', return_value=connection), \
+                 patch.object(rollout, 'backup_central', return_value=backup) as dump:
+                command = rollout.Command(stdout=StringIO())
+                command.handle(apply=False, verify=False, backup_dir=None)
+                self.assertEqual(set(recorder.applied_migrations()), before)
+                command.handle(apply=True, verify=False, backup_dir=directory)
+                self.assertEqual(set(recorder.applied_migrations()) - before, {rollout.TARGET})
+                command.handle(apply=True, verify=False, backup_dir=None)
+                command.handle(apply=False, verify=True, backup_dir=None)
+                dump.assert_called_once()
+                self.assertTrue(MyOrgUnit.objects.using('company_test').filter(pk=self.company.pk).exists())
+            transaction.set_rollback(True, using='company_test')
+
     def test_sync_is_idempotent_and_evidence_links_persist(self):
         row=CompanyRegistration.objects.using('company_test').create(company=self.company,kind='registration',name='측량업',occurred_on=date(2025,1,1))
         service.sync_source_event('company_test',row,'registration','ci')

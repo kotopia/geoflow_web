@@ -6,6 +6,8 @@ on:
       - 'geoflow_ops/**'
       - 'control/management/commands/activate_company_overview.py'
       - 'control/test_company_overview_activation.py'
+      - 'control/management/commands/activate_company_workspace.py'
+      - 'control/test_company_workspace_activation.py'
       - '.github/workflows/phase4-workboard-production-deploy.yml'
       - 'geoflow_project/settings.py'
       - 'scripts/ci/test_company_overview.py'
