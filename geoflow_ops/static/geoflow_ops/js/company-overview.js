@@ -3,6 +3,19 @@
   const switcher = document.getElementById('company-switch');
   if (switcher) switcher.addEventListener('change', () => { window.location.assign(switcher.value); });
   if (window.initAttachmentActions) window.initAttachmentActions({root: document});
+  const detail = document.getElementById('company-detail');
+  if (detail) {
+    document.body.style.overflow = 'hidden';
+    detail.querySelector('[data-detail-close]')?.focus();
+    detail.addEventListener('keydown', event => {
+      if (event.key === 'Escape') detail.querySelector('[data-detail-close]').click();
+      if (event.key !== 'Tab') return;
+      const items = [...detail.querySelectorAll('a,button,input,select')].filter(el => el.offsetParent !== null && !el.disabled);
+      const first=items[0], last=items[items.length-1];
+      if(event.shiftKey && document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus();}
+    });
+  }
   const el = document.getElementById('company-series');
   if (!el || !window.Chart) return;
   const rows = JSON.parse(el.textContent);
@@ -18,6 +31,6 @@
     }
     new Chart(canvas, {type, data: {labels: rows.map(row => row.year), datasets: [{label, data: values, borderColor: '#3b7ddd', backgroundColor: type === 'bar' ? '#3b7ddd' : 'rgba(59,125,221,.1)', borderWidth: 2, spanGaps: false, fill: false}]}, options: {animation: {duration: 0}, responsive: true, maintainAspectRatio: false, legend: {display: false}, scales: {yAxes: [{ticks: {beginAtZero: true, precision: 0}}]}}});
   }
-  chart('company-revenue-chart', rows.map(row => row.revenue ? Number(row.revenue.amount) : null), '매출액(원)', 'bar');
+  chart('company-revenue-chart', rows.map(row => row.revenue ? Number(row.revenue.amount) / 1000000 : null), '매출액(백만원)', 'bar');
   chart('company-headcount-chart', rows.map(row => row.headcount), '연말 사원수(명)', 'line');
 })();

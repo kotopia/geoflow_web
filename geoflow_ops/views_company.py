@@ -6,6 +6,9 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
+from .services.company_overview import company_documents, document_history
+from .services.company_references import reference_groups
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
@@ -69,15 +72,7 @@ def overview(request, pk):
         years = 5
     finance = can_view_finance(request)
     profile = CompanyProfile.objects.using(alias).filter(company_id=pk).select_related('parent').first()
-    registrations = list(CompanyRegistration.objects.using(alias).filter(company_id=pk).order_by('-occurred_on','-updated_at'))
-    counts = dict(CompanyEvidence.objects.using(alias).filter(company_id=pk, record_kind='registration', attachment__active=True, attachment__is_deleted=False, attachment__deleted_at__isnull=True).values_list('record_id','attachment_id'))
     today = timezone.localdate()
-    replaced_ids = {row.previous_id for row in registrations if row.previous_id}
-    for row in registrations:
-        row.superseded = row.pk in replaced_ids
-        row.expired = bool(row.expires_on and row.expires_on < today)
-        row.has_evidence = row.pk in counts
-        row.evidence = record_evidence(alias, pk, 'registration', row.pk)
     credit = CompanyCredit.objects.using(alias).filter(company_id=pk, representative=True).first()
     latest_revenue = CompanyRevenue.objects.using(alias).filter(company_id=pk, confirmed=True).order_by('-year').first() if finance else None
     events = ProcessEvent.objects.using(alias).filter(scope_type='orgunit',scope_id=pk).exclude(status='void').order_by(*EVENT_TIMELINE_ORDER)
@@ -88,16 +83,75 @@ def overview(request, pk):
     except (TypeError,ValueError):
         page = 1
     page = min(page, max(1,(len(events)+9)//10))
-    return render(request, 'geoflow_ops/myinfo/company_overview.html', {
+    context = {
         'obj':obj, 'profile':profile, 'companies':MyOrgUnit.objects.using(alias).order_by('name','id'),
         'can_edit':gf_has_perm(request,'directory.edit'), 'finance':finance, 'finance_edit':can_edit_finance(request),
         'headcount':current_headcount(alias,pk), 'revenue':latest_revenue, 'credit':credit,
+        'revenue_summary':format(latest_revenue.amount / 100000000, '.2f') if latest_revenue else None,
         'credit_expired':bool(credit and credit.expires_on and credit.expires_on < today),
-        'registrations':registrations, 'active_registrations':sum(r.status=='active' and not r.expired and not r.superseded for r in registrations),
         'series':annual_series(alias,pk,years,finance=finance), 'years':years,
         'events':events[(page-1)*10:page*10], 'previous_page':page-1 if page>1 else None, 'next_page':page+1 if len(events)>page*10 else None,
         'today':today,
-    })
+    }
+    return workspace(request, alias, obj, context)
+
+
+def workspace(request, alias, obj, context):
+    section = request.GET.get('section','overview')
+    if section not in {'overview','basic','documents','performance','organization','references'}:
+        raise Http404
+    context['section'] = section
+    docs = company_documents(alias,obj.pk,finance=context['finance'])
+    context.update(documents=docs,current_documents=[d for d in docs if not d['previous']],
+                   due_count=sum(d['due'] for d in docs),document_count=sum(d['active'] for d in docs))
+    from .services.employee_access import employee_access_policy
+    context['can_manage_settings'] = employee_access_policy(request,alias).can_manage_settings
+    if section == 'documents':
+        group = request.GET.get('group','all')
+        if group not in {'all','registration','certification','credit'}:
+            group = 'all'
+        search = request.GET.get('q','').strip()[:200]
+        history = request.GET.get('history') == '1'
+        context.update(document_group=group,search=search,show_history=history,
+            filtered_documents=[d for d in docs if (history or not d['previous']) and
+                (group=='all' or d['group']==group) and
+                (not search or search.casefold() in (d['name']+' '+d['issuer']).casefold())])
+    record_id = request.GET.get('record')
+    if record_id:
+        kind = request.GET.get('kind','registration')
+        if kind not in RECORDS:
+            raise Http404
+        if kind in {'credit','revenue'} and not context['finance']:
+            raise PermissionDenied
+        try:
+            record_id = UUID(record_id)
+        except ValueError:
+            raise Http404
+        record = get_object_or_404(RECORDS[kind][0].objects.using(alias),company_id=obj.pk,pk=record_id)
+        detail_form = RECORDS[kind][1](instance=record)
+        fields = []
+        for field in detail_form:
+            if field.name == 'items':
+                continue
+            value = getattr(record, 'get_'+field.name+'_display',lambda: getattr(record,field.name))()
+            if isinstance(value,bool): value = '예' if value else '아니오'
+            fields.append((field.label, value))
+        selected = next((d for d in docs if d['kind']==kind and d['id']==record.pk),None)
+        context.update(detail_record=record,detail_kind=kind,detail_fields=fields,
+            detail_evidence=record_evidence(alias,obj.pk,kind,record.pk),
+            detail_title=selected['name'] if selected else RECORDS[kind][2],
+            detail_history=document_history(docs,selected) if selected else [],
+            detail_can_renew=bool(selected and not selected['previous']),
+            detail_can_edit=context['can_edit'] and (kind not in {'credit','revenue'} or context['finance_edit']))
+    if section == 'performance':
+        context['revenues'] = CompanyRevenue.objects.using(alias).filter(company_id=obj.pk).order_by('-year') if context['finance'] else []
+        context['headcounts'] = CompanyHeadcount.objects.using(alias).filter(company_id=obj.pk).order_by('-year')
+    if section == 'organization':
+        from .views_myinfo import _load_departments, _load_master
+        context.update(departments=_load_departments(alias,obj.pk),job_grades=_load_master(alias,'position_grade'),job_positions=_load_master(alias,'position_title'))
+    if section == 'references':
+        context['reference_groups'] = reference_groups(alias)
+    return render(request,'geoflow_ops/myinfo/company_overview.html',context)
 
 
 def _forms_context(alias, obj, kind, form, record, request):
@@ -105,12 +159,13 @@ def _forms_context(alias, obj, kind, form, record, request):
     context = {'obj':obj,'kind':kind,'form':form,'record':record,'finance_edit':can_edit_finance(request), 'finance':can_view_finance(request)}
     if kind in RECORDS:
         context['heading'] = RECORDS[kind][2]
-        context['records'] = RECORDS[kind][0].objects.using(alias).filter(company_id=obj.pk).order_by('-updated_at')
         context['purpose'] = EVIDENCE_PURPOSE[kind]
-        context['attachments'] = evidence_candidates(alias,obj.pk,kind)
+        candidates = list(evidence_candidates(alias,obj.pk,kind))
         context['selected_attachments'] = [str(v) for v in CompanyEvidence.objects.using(alias).filter(company_id=obj.pk,record_kind=kind,record_id=record.pk).values_list('attachment_id',flat=True)] if record else []
         if request.method == 'POST':
             context['selected_attachments'] = request.POST.getlist('evidence')
+        context['attachments'] = [a for a in candidates if str(a.pk) in context['selected_attachments']]
+        context['available_attachments'] = [a for a in candidates if str(a.pk) not in context['selected_attachments']]
     if kind == 'organization':
         context.update(departments=_load_departments(alias,obj.pk), job_grades=_load_master(alias,'position_grade'), job_positions=_load_master(alias,'position_title'))
     if kind == 'documents':
@@ -128,13 +183,18 @@ def edit(request, pk):
         raise Http404
     if kind in {'revenue','credit'} and not can_edit_finance(request):
         raise PermissionDenied
+    if request.method == 'GET' and kind in RECORDS and not request.GET.get('record') and request.GET.get('new') != '1':
+        section = 'performance' if kind in {'revenue','headcount'} else 'documents'
+        return redirect(reverse('tenant:myinfo_orgunit_detail',args=[pk])+'?section='+section)
     data = request.POST if request.method == 'POST' else None
     record = None
     original_status = None
     if kind == 'basic':
         profile = CompanyProfile.objects.using(alias).filter(company_id=pk).first() or CompanyProfile(company_id=pk)
         form = MyOrgUnitForm(data,instance=obj)
-        extra = ProfileForm(data,instance=profile)
+        from django.forms import HiddenInput
+        form.fields['type'].widget = HiddenInput()
+        extra = ProfileForm(data,instance=profile,alias=alias)
     elif kind in RECORDS:
         model, form_class, _ = RECORDS[kind]
         record_id = request.GET.get('record')
@@ -144,11 +204,14 @@ def edit(request, pk):
             except ValueError:
                 raise Http404
             record = get_object_or_404(model.objects.using(alias),company_id=pk,pk=record_id)
-        if request.GET.get('renew') == '1' and kind == 'registration' and record:
+        if request.GET.get('renew') == '1' and kind in {'registration','credit'} and record:
             previous = record
-            record = model(company_id=pk, previous_id=previous.pk, name=previous.name,kind=previous.kind,issuer=previous.issuer)
+            if kind == 'registration':
+                record = model(company_id=pk, previous_id=previous.pk, name=previous.name,kind=previous.kind,issuer=previous.issuer,occurred_on=previous.occurred_on,items=previous.items)
+            else:
+                record = model(company_id=pk, previous_id=previous.pk, agency=previous.agency,rating_type=previous.rating_type,representative=previous.representative)
         original_status = record.status if kind == 'registration' and record and not record._state.adding else None
-        form = form_class(data,instance=record or model(company_id=pk))
+        form = form_class(data,instance=record or model(company_id=pk),alias=alias)
     elif kind == 'event':
         record_id = request.GET.get('record')
         if record_id:
@@ -202,15 +265,20 @@ def edit(request, pk):
                             other = RECORDS[kind][0].objects.using(alias).filter(company_id=pk,year=fact.year).exclude(pk=fact.pk)
                             if other.exists():
                                 raise ValidationError('해당 연도의 자료가 있습니다. 기존 항목을 수정하세요.')
+                        if kind in {'registration','credit'} and fact.previous_id and fact._state.adding:
+                            if RECORDS[kind][0].objects.using(alias).filter(previous_id=fact.previous_id).exists():
+                                raise ValidationError('이미 갱신된 이력입니다. 가장 최근 이력에서 갱신하세요.')
+                            previous = RECORDS[kind][0].objects.using(alias).get(pk=fact.previous_id,company_id=pk)
+                            if kind == 'credit' and fact.evaluated_on < previous.evaluated_on:
+                                raise ValidationError('갱신 평가일은 이전 평가일 이후여야 합니다.')
+                            if kind == 'registration' and (not fact.issued_on or fact.issued_on < (previous.issued_on or previous.occurred_on)):
+                                raise ValidationError('갱신 발급일은 이전 발급일 이후로 입력하세요.')
                         if kind == 'registration':
                             if original_status and original_status != fact.status and 'cancelled' in {original_status, fact.status}:
                                 raise ValidationError('취소·재등록은 갱신·취소 이력 추가에서 발생일과 함께 새 이력으로 등록하세요.')
                             if fact.previous_id and fact._state.adding:
-                                if CompanyRegistration.objects.using(alias).filter(previous_id=fact.previous_id).exists():
-                                    raise ValidationError('이미 갱신된 이력입니다. 가장 최근 이력에서 갱신하세요.')
-                                previous = CompanyRegistration.objects.using(alias).get(pk=fact.previous_id, company_id=pk)
-                                if fact.occurred_on < previous.occurred_on:
-                                    raise ValidationError('갱신·취소일은 이전 등록일 이후여야 합니다.')
+                                if fact.occurred_on != previous.occurred_on:
+                                    raise ValidationError('최초 등록일은 유지하고 갱신 발급일을 별도로 입력하세요.')
                         ids = validate_evidence(alias,pk,kind,request.POST.getlist('evidence'))
                         if kind == 'credit' and fact.representative:
                             CompanyCredit.objects.using(alias).filter(company_id=pk,representative=True).exclude(pk=fact.pk).update(representative=False)
@@ -218,10 +286,18 @@ def edit(request, pk):
                         sync_source_event(alias,fact,kind,str(request.user.pk))
                         replace_evidence(alias,fact,kind,ids)
                 messages.success(request,'기업정보를 저장했습니다.')
-                return redirect('tenant:myinfo_orgunit_detail',pk=pk)
+                destination = reverse('tenant:myinfo_orgunit_detail',args=[pk])
+                if kind in RECORDS:
+                    section = 'performance' if kind in {'revenue','headcount'} else 'documents'
+                    destination += f'?section={section}&kind={kind}&record={fact.pk}'
+                elif kind == 'basic':
+                    destination += '?section=basic'
+                return redirect(destination)
             except ValidationError as exc:
                 form.add_error(None,exc)
     context = _forms_context(alias,obj,kind,form,record,request)
+    context['is_renewal'] = request.GET.get('renew') == '1'
+    context['return_section'] = 'performance' if kind in {'revenue','headcount'} else 'documents' if kind in {'registration','credit'} else 'basic'
     if kind == 'basic':
         context.update(profile_form=extra, parent_id=str(profile.parent_id or ''), companies=MyOrgUnit.objects.using(alias).exclude(pk=pk).order_by('name'))
         if data is not None:

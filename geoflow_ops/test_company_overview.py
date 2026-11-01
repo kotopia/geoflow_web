@@ -14,12 +14,13 @@ from django.test import RequestFactory, override_settings
 from django.urls import path, include
 from .models import MyOrgUnit, ProcessEvent, Attachment
 from .company_models import CompanyProfile, CompanyRegistration, CompanyRevenue, CompanyHeadcount, CompanyCredit, CompanyEvidence
-from .company_forms import RevenueForm, CreditForm, HeadcountForm, ProfileForm
+from .company_forms import RegistrationForm, RevenueForm, CreditForm, HeadcountForm, ProfileForm
 from .services import company_overview as service
 from . import views_company
 
 # Only local test routes; render real AdminKit base/components without live menus.
 urlpatterns = [path('',include(([
+    path('settings/',lambda r: HttpResponse(),name='settings_page'),
     path('companies/',views_company.home,name='myinfo_orgunit_list'),
     path('companies/new/',lambda r: HttpResponse(),name='myinfo_orgunit_create'),
     path('companies/<uuid:pk>/',views_company.overview,name='myinfo_orgunit_detail'),
@@ -95,6 +96,30 @@ class CompanyRulesTests(TestCase):
         with self.assertRaises(ValidationError): service.validate_evidence('company_test',uuid4(),'registration',['bad'])
 
 
+
+    def test_item_dates_and_html_are_validated_as_data(self):
+        import json
+        data={'kind':'certification','name':'확인서','occurred_on':'2025-01-01','status':'active',
+              'items':json.dumps([{'name':'<script>품목</script>','code':'01','valid_from':'2025-01-01','expires_on':'2026-01-01'}])}
+        form=RegistrationForm(data)
+        self.assertTrue(form.is_valid(),form.errors)
+        self.assertEqual(form.cleaned_data['items'][0]['name'],'<script>품목</script>')
+        data['items']=json.dumps([{'name':'품목','valid_from':'2026-01-01','expires_on':'2025-01-01'}])
+        self.assertFalse(RegistrationForm(data).is_valid())
+        data['items']='{"name":"bad"}'
+        self.assertFalse(RegistrationForm(data).is_valid())
+
+    def test_references_keep_existing_values_without_accepting_arbitrary_new_choices(self):
+        from .services.company_references import apply_references
+        obj=CompanyProfile(legal_form='기존 기업형태')
+        groups=[{'field':'legal_form','label':'기업형태','options':[{'name':'법인사업자','active':True}]}]
+        with patch('geoflow_ops.services.company_references.reference_groups',return_value=groups):
+            form=ProfileForm({'node_kind':'company','legal_form':'기존 기업형태'},instance=obj,alias='company_test')
+            self.assertTrue(form.is_valid(),form.errors)
+            other=ProfileForm({'node_kind':'company','legal_form':'임의 값'},alias='company_test')
+            self.assertFalse(other.is_valid())
+
+
 class CompanyBoundaryTests(TestCase):
     def test_feature_disabled_does_not_access_database(self):
         with override_settings(GEOFLOW_COMPANY_OVERVIEW_ENABLED=False), patch.object(views_company,'require_tenant_context',return_value='company_test'), patch.object(MyOrgUnit,'objects') as orgs:
@@ -140,6 +165,23 @@ class CompanyBoundaryTests(TestCase):
                 head.assert_not_called();sign.assert_not_called()
 
 
+
+    def test_record_entry_defaults_to_list_without_creating_a_form(self):
+        obj=MyOrgUnit(id=uuid4(),name='회사')
+        with patch.object(views_company,'access',return_value=('company_test',obj)),patch.object(views_company,'can_edit_finance',return_value=True):
+            for kind,section in [('registration','documents'),('credit','documents'),('headcount','performance'),('revenue','performance')]:
+                response=views_company.edit(request(url='/companies/?section='+kind),obj.pk)
+                self.assertEqual(response.status_code,302)
+                self.assertIn('section='+section,response.url)
+
+    def test_financial_detail_denied_before_record_fetch(self):
+        obj=MyOrgUnit(id=uuid4(),name='회사')
+        with patch.object(views_company,'company_documents',return_value=[]),patch('geoflow_ops.services.employee_access.employee_access_policy',return_value=SimpleNamespace(can_manage_settings=False)),patch.object(CompanyCredit,'objects') as model:
+            with self.assertRaises(PermissionDenied):
+                views_company.workspace(request(url='/companies/?section=documents&kind=credit&record='+str(uuid4())), 'company_test',obj,{'finance':False})
+            model.using.assert_not_called()
+
+
 class CompanyTemplateTests(TestCase):
     def test_real_templates_escape_content_and_do_not_render_edit_on_overview(self):
         obj=MyOrgUnit(id=uuid4(),name='<script>alert(1)</script>')
@@ -173,10 +215,16 @@ class CompanyDatabaseTests(TestCase):
         cls.migration=import_module('geoflow_ops.migrations.0049_company_overview').Migration('0049_company_overview','webgisapp')
         with cls.connection.schema_editor() as editor:
             cls.after=cls.migration.apply(cls.before,editor)
+        with cls.connection.cursor() as cur:
+            cur.execute('''CREATE TABLE ops.settings_nodes (id uuid PRIMARY KEY, parent_id uuid, code text, name text, node_type text, ord integer, active boolean, system_key text UNIQUE, locked boolean, field_ref text UNIQUE)''')
+        cls.workspace_migration=import_module('geoflow_ops.migrations.0050_company_workspace_details').Migration('0050_company_workspace_details','webgisapp')
+        with cls.connection.schema_editor() as editor:
+            cls.workspace_after=cls.workspace_migration.apply(cls.after,editor)
 
     @classmethod
     def tearDownClass(cls):
         with cls.connection.schema_editor() as editor:
+            cls.workspace_migration.unapply(cls.after,editor)
             cls.migration.unapply(cls.before,editor)
         with cls.connection.cursor() as cur:
             cur.execute("SELECT to_regclass('ops.company_profile'),to_regclass('ops.my_org_units')")
@@ -238,8 +286,51 @@ class CompanyDatabaseTests(TestCase):
         data={'kind':'registration','name':'Permit','occurred_on':'2025-01-01','status':'active'}
         self.assertEqual(save(data,'/companies/?section=registration').status_code,302)
         first=CompanyRegistration.objects.using('company_test').get(company=self.company)
-        data['occurred_on']='2026-01-01'
+        data['issued_on']='2026-01-01'
         self.assertEqual(save(data,f'/companies/?section=registration&record={first.pk}&renew=1').status_code,302)
         self.assertEqual(CompanyRegistration.objects.using('company_test').filter(company=self.company).count(),2)
         self.assertEqual(ProcessEvent.objects.using('company_test').filter(scope_id=self.company.pk).count(),2)
         self.assertEqual(ProcessEvent.objects.using('company_test').get(pk=first.event_id).occurred_at,date(2025,1,1))
+
+
+    def test_unified_documents_keep_explicit_history_and_company_scope(self):
+        first=CompanyRegistration.objects.using('company_test').create(company=self.company,kind='certification',name='확인서',occurred_on=date(2024,1,1))
+        second=CompanyRegistration.objects.using('company_test').create(company=self.company,kind='certification',name='확인서',occurred_on=date(2024,1,1),issued_on=date(2025,1,1),previous=first)
+        CompanyRegistration.objects.using('company_test').create(company=self.other,kind='registration',name='다른 회사 비공개',occurred_on=date(2025,1,1))
+        credit=CompanyCredit.objects.using('company_test').create(company=self.company,agency='기관',rating_type='평가',grade='A',evaluated_on=date(2025,1,1))
+        rows=service.company_documents('company_test',self.company.pk,finance=False)
+        self.assertEqual(len(rows),2)
+        self.assertEqual(rows[0]['id'],second.pk)
+        self.assertFalse(rows[0]['previous'])
+        self.assertTrue(rows[1]['previous'])
+        self.assertEqual(len(service.document_history(rows,rows[1])),2)
+        self.assertEqual(len(service.company_documents('company_test',self.company.pk,finance=True)),3)
+
+    def test_credit_renewal_preserves_original_and_rejects_second_successor(self):
+        first=CompanyCredit.objects.using('company_test').create(company=self.company,agency='기관',rating_type='평가',grade='A',evaluated_on=date(2025,1,1),representative=True)
+        data={'agency':'기관','rating_type':'평가','grade':'BB','evaluated_on':'2026-01-01','representative':'on'}
+        url=f'/companies/?section=credit&record={first.pk}&renew=1'
+        with patch.object(views_company,'access',return_value=('company_test',self.company)),patch.object(views_company,'can_edit_finance',return_value=True),patch.object(views_company,'can_view_finance',return_value=True),patch.object(views_company.messages,'success'):
+            self.assertEqual(views_company.edit(request('post',data,url=url),self.company.pk).status_code,302)
+            self.assertEqual(views_company.edit(request('post',data,url=url),self.company.pk).status_code,200)
+        first.refresh_from_db(using='company_test')
+        self.assertEqual(first.grade,'A')
+        self.assertFalse(first.representative)
+        self.assertEqual(CompanyCredit.objects.using('company_test').filter(previous=first).count(),1)
+
+    def test_new_record_hides_unrelated_evidence_and_retains_failed_post_selection(self):
+        att=Attachment.objects.using('company_test').create(entity_type='orgunit',entity_id=self.company.pk,purpose='business_registration',original_name='existing.pdf',object_key='synthetic/test.pdf',size_bytes=1,mime_type='application/pdf')
+        obj=CompanyRegistration(company=self.company)
+        with patch.object(views_company,'can_edit_finance',return_value=False),patch.object(views_company,'can_view_finance',return_value=False):
+            context=views_company._forms_context('company_test',self.company,'registration',RegistrationForm(instance=obj),None,request())
+            self.assertEqual(context['attachments'],[])
+            self.assertEqual([a.pk for a in context['available_attachments']],[att.pk])
+            context=views_company._forms_context('company_test',self.company,'registration',RegistrationForm(instance=obj),None,request('post',{'evidence':[str(att.pk)]}))
+            self.assertEqual([a.pk for a in context['attachments']],[att.pk])
+
+    def test_detail_rejects_other_company_record(self):
+        from django.http import Http404
+        row=CompanyHeadcount.objects.using('company_test').create(company=self.other,year=2024,count=10,source='다른 회사')
+        with patch.object(views_company,'company_documents',return_value=[]),patch('geoflow_ops.services.employee_access.employee_access_policy',return_value=SimpleNamespace(can_manage_settings=False)):
+            with self.assertRaises(Http404):
+                views_company.workspace(request(url=f'/companies/?section=performance&kind=headcount&record={row.pk}'),'company_test',self.company,{'finance':False})

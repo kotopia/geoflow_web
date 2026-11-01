@@ -66,7 +66,7 @@ def sync_source_event(alias, record, kind, actor):
     if kind not in {'registration','credit'}:
         return
     title = f'{record.name} · {record.get_status_display()}' if kind == 'registration' else f'{record.agency} 신용평가 · {record.grade}'
-    occurred = record.occurred_on if kind == 'registration' else record.evaluated_on
+    occurred = (record.issued_on or record.occurred_on) if kind == 'registration' else record.evaluated_on
     event = ProcessEvent.objects.using(alias).filter(pk=record.event_id).first() if record.event_id else None
     if event is None:
         event = ProcessEvent(scope_type='orgunit', scope_id=record.company_id, stage='company', event_type='company_'+kind, created_by=actor)
@@ -107,3 +107,54 @@ def replace_evidence(alias, record, kind, ids):
 
 def record_evidence(alias, company_id, kind, record_id):
     return CompanyEvidence.objects.using(alias).filter(company_id=company_id, record_kind=kind, record_id=record_id, attachment__active=True, attachment__is_deleted=False, attachment__deleted_at__isnull=True).select_related('attachment')
+
+
+def company_documents(alias, company_id, *, finance, today=None):
+    """Unified presentation over canonical typed records, without copying their ownership."""
+    from collections import defaultdict
+    today = today or timezone.localdate()
+    registrations = list(CompanyRegistration.objects.using(alias).filter(company_id=company_id).order_by('-occurred_on','-id'))
+    credits = list(CompanyCredit.objects.using(alias).filter(company_id=company_id).order_by('-evaluated_on','-id')) if finance else []
+    evidence = defaultdict(list)
+    kinds = ['registration','credit'] if finance else ['registration']
+    links = CompanyEvidence.objects.using(alias).filter(company_id=company_id,record_kind__in=kinds,
+        attachment__active=True,attachment__is_deleted=False,attachment__deleted_at__isnull=True).select_related('attachment')
+    for link in links:
+        evidence[(link.record_kind,link.record_id)].append(link)
+    rows = []
+    for kind, records in [('registration',registrations),('credit',credits)]:
+        replaced = {r.previous_id for r in records if r.previous_id}
+        for record in records:
+            expired = bool(record.expires_on and record.expires_on < today)
+            cancelled = kind == 'registration' and record.status == 'cancelled'
+            pending = kind == 'registration' and record.status == 'pending'
+            previous = record.pk in replaced
+            due = bool(record.expires_on and 0 <= (record.expires_on-today).days <= 30 and not previous and not cancelled and not pending)
+            status = '이전 이력' if previous else '취소' if cancelled else '진행중' if pending else '만료' if expired else '만료 임박' if due else '유효'
+            rows.append({'record':record,'id':record.pk,'kind':kind,
+                'name':record.name if kind=='registration' else record.rating_type + ' · ' + record.grade,
+                'category':record.get_kind_display() if kind=='registration' else '신용평가',
+                'group':'credit' if kind=='credit' else 'certification' if record.kind=='certification' else 'registration',
+                'issuer':record.issuer if kind=='registration' else record.agency,
+                'date':(record.issued_on or record.occurred_on) if kind=='registration' else record.evaluated_on,
+                'expires_on':record.expires_on,'status':status,'previous':previous,'due':due,
+                'active':not(previous or cancelled or pending or expired),
+                'tone':'secondary' if previous or expired or cancelled else 'warning' if due or pending else 'success',
+                'evidence':evidence[(kind,record.pk)]})
+    return sorted(rows,key=lambda r:(r['date'],str(r['id'])),reverse=True)
+
+
+def document_history(rows, selected):
+    """Only explicit predecessor links belong to a renewal chain; names are not identifiers."""
+    by_id = {r['id']:r for r in rows if r['kind']==selected['kind']}
+    included = {selected['id']}
+    changed = True
+    while changed:
+        changed = False
+        for key,row in by_id.items():
+            previous = row['record'].previous_id
+            if key in included or previous in included:
+                for value in (key,previous):
+                    if value in by_id and value not in included:
+                        included.add(value); changed = True
+    return [row for row in rows if row['kind']==selected['kind'] and row['id'] in included]

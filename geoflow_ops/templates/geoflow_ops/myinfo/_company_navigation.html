@@ -1,0 +1,8 @@
+<nav class="company-tabs" aria-label="기업정보 페이지">
+<a class="{% if section == 'overview' or not section %}active{% endif %}" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}">기업 현황</a>
+<a class="{% if section == 'basic' %}active{% endif %}" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}?section=basic">기본정보</a>
+<a class="{% if section == 'documents' %}active{% endif %}" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}?section=documents">증명·평가</a>
+<a class="{% if section == 'performance' %}active{% endif %}" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}?section=performance">매출·사원수</a>
+<a class="{% if section == 'organization' %}active{% endif %}" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}?section=organization">조직</a>
+<a class="{% if section == 'references' %}active{% endif %}" href="{% url 'tenant:myinfo_orgunit_detail' obj.id %}?section=references">기준값 관리</a>
+</nav>
