@@ -27,8 +27,12 @@ class _Cursor:
 
     def execute(self, sql, params=None):
         normalized = " ".join(sql.split())
-        self.executed.append((normalized, params or []))
-        self.current = next(self.results)
+        if "information_schema.columns" not in normalized:
+            self.executed.append((normalized, params or []))
+        if "information_schema.columns" in normalized:
+            self.current = None
+        else:
+            self.current = next(self.results)
 
     def fetchone(self):
         return self.current

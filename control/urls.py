@@ -16,7 +16,7 @@ from .views_users_admin import (
     users_delete_admin,
     dashboard,
 )
-from .views_user_assignment import users_assign_group_admin
+from .views_user_assignment import users_assign_group_admin, users_register_employee_admin
 from .views_signup_admin import (
     signup_reviews_admin,
     signup_review_detail_admin,
@@ -76,6 +76,7 @@ urlpatterns = [
     path("mgmt/users/", users_list_admin, name="users_list_admin"),
     path("mgmt/users/<uuid:user_id>/", users_detail_admin, name="users_detail_admin"),
     path("mgmt/users/<uuid:user_id>/assign/", users_assign_group_admin, name="users_assign_group_admin"),
+    path("mgmt/users/<uuid:user_id>/register-employee/", users_register_employee_admin, name="users_register_employee_admin"),
     path("mgmt/users/<uuid:user_id>/delete/", users_delete_admin, name="users_delete_admin"),
 
     # group

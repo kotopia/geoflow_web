@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+from inspect import unwrap
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
@@ -6,7 +8,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 from django.urls import reverse
 
-from control import views_groups_admin, views_users_admin
+from control import views_groups_admin, views_users_admin, views_user_assignment
 from control.services import central_repo
 
 
@@ -116,6 +118,8 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
                 return (None, [("group-key", "Group", "group-code")])
             if "FROM roles r" in sql:
                 return (None, [("role-key", "role-code")])
+            if "to_regclass" in sql:
+                return ((False,), [])
             raise AssertionError(f"Unexpected central admin query: {sql}")
 
         cursor = _QueryCursor(handler)
@@ -173,64 +177,43 @@ class CentralAdminPredeployFixTests(SimpleTestCase):
 
     def test_assignment_upsert_requires_active_account_and_active_group(self):
         def handler(sql, params):
+            if "information_schema.columns" in sql:
+                return (None, [])
+            if "FOR UPDATE OF u, g, r" in sql:
+                for guard in ("u.is_active=TRUE", "u.email_verified=TRUE", "u.password_hash IS NOT NULL", "pbkdf2_sha256$%", "COALESCE(g.status"):
+                    self.assertIn(guard, sql)
+                return ((str(UUID(int=1)), "group-key", "role-key"), [])
+            if "UPDATE user_group_map" in sql:
+                return (None, [])
             if "INSERT INTO user_group_map" in sql:
-                self.assertIn("u.is_active=TRUE", sql)
-                self.assertIn("u.email_verified=TRUE", sql)
-                self.assertIn("u.password_hash IS NOT NULL", sql)
-                self.assertIn("pbkdf2_sha256$%", sql)
-                self.assertIn("COALESCE(g.status", sql)
                 self.assertIn("RETURNING id", sql)
                 return (("membership-key",), [])
             raise AssertionError(f"Unexpected assignment query: {sql}")
 
         cursor = _QueryCursor(handler)
-        request = self.factory.post(
-            "/control/mgmt/users/assign/",
-            {"group_id": "group-key", "role_id": "role-key"},
-        )
-        user_key = UUID(int=1)
-
-        with patch.object(
-            views_users_admin,
-            "connections",
-            {"default": _Connection(cursor)},
-        ), patch.object(views_users_admin.messages, "success"):
-            response = views_users_admin.users_assign_group_admin.__wrapped__(
-                request,
-                user_key,
-            )
-
+        request = self.factory.post("/control/mgmt/users/assign/", {"group_id": "group-key", "role_id": "role-key"})
+        with patch.object(views_user_assignment, "connections", {"default": _Connection(cursor)}), patch.object(
+            views_user_assignment.transaction, "atomic", return_value=nullcontext(),
+        ), patch.object(views_user_assignment.messages, "success") as success:
+            response = unwrap(views_user_assignment.users_assign_group_admin)(request, UUID(int=1))
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(len(cursor.executed), 1)
-        self.assertIn("ON CONFLICT (user_id, group_id)", cursor.executed[0][0])
-        self.assertEqual(
-            cursor.executed[0][1],
-            ["group-key", "role-key", str(user_key)],
-        )
+        success.assert_called_once()
+        self.assertFalse(any("ON CONFLICT" in sql for sql, _ in cursor.executed))
+        self.assertEqual(cursor.executed[1][1], ["group-key", "role-key", str(UUID(int=1))])
 
     def test_assignment_rejects_inactive_or_invalid_target_without_success(self):
         cursor = _QueryCursor(lambda sql, params: (None, []))
-        request = self.factory.post(
-            "/control/mgmt/users/assign/",
-            {"group_id": "group-key", "role_id": "role-key"},
-        )
-
-        with patch.object(
-            views_users_admin,
-            "connections",
-            {"default": _Connection(cursor)},
-        ), patch.object(views_users_admin.messages, "error") as error, patch.object(
-            views_users_admin.messages,
-            "success",
+        request = self.factory.post("/control/mgmt/users/assign/", {"group_id": "group-key", "role_id": "role-key"})
+        with patch.object(views_user_assignment, "connections", {"default": _Connection(cursor)}), patch.object(
+            views_user_assignment.transaction, "atomic", return_value=nullcontext(),
+        ), patch.object(views_user_assignment.messages, "error") as error, patch.object(
+            views_user_assignment.messages, "success",
         ) as success:
-            response = views_users_admin.users_assign_group_admin.__wrapped__(
-                request,
-                UUID(int=2),
-            )
-
+            response = unwrap(views_user_assignment.users_assign_group_admin)(request, UUID(int=2))
         self.assertEqual(response.status_code, 302)
         error.assert_called_once()
         success.assert_not_called()
+        self.assertFalse(any("INSERT INTO" in sql or "UPDATE user_group_map" in sql for sql, _ in cursor.executed))
 
     def test_group_list_uses_distinct_metadata_aliases_and_deleted_flag(self):
         def handler(sql, params):
