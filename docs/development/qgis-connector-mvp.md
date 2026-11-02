@@ -189,3 +189,10 @@ After this sync contract is proven end-to-end:
 4. Reuse the same project package/profile for QField offline packaging and synchronization.
 
 Do not add QField-specific schema or duplicate layer-selection rules.
+
+
+### Plugin-only stable publication
+
+`.github/workflows/qgis-plugin-stable-repository-publish.yml` is the protected, manual path for a plugin-only release. It verifies the current release HEAD and pinned manifest/inventory, rebuilds the exact approved bytes, and invokes the existing publisher under the same server-side file lock. It archives stable indexes, preserves prior ZIPs, and verifies stable/public HTTP plus the unchanged test index. It does not update the service checkout, restart services, run migrations, modify tenant data, or broaden IAM. Approve only this exact current-head publication run for a plugin-only request; the combined GIS deployment is a separate operation.
+
+Plugin-only release pushes are classified before the combined GIS deploy can enter its production job. Plugin runtime/manifest/documentation changes skip server deployment; mixed or unknown server paths retain the existing protected deployment, and explicit manual server dispatch is unchanged. Classification errors block deployment.

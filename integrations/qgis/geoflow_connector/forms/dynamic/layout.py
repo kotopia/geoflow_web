@@ -72,7 +72,7 @@ class LayoutRenderer:
         for tab_spec in effective["tabs"]:
             content = QWidget(tabs)
             tab_layout = QVBoxLayout(content)
-            tab_layout.setContentsMargins(4, 4, 4, 4)
+            tab_layout.setContentsMargins(4, 16, 4, 4)
             tab_layout.setSpacing(16)
             for group_spec in tab_spec["groups"]:
                 box = QGroupBox(group_spec["title"], content)

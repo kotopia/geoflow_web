@@ -67,3 +67,9 @@ def canonical_boolean_code(field, value):
     if isinstance(value, bool):
         return codes[1] if value else codes[0]
     return str(value)
+
+
+def is_work_status(field):
+    """Use the existing central status storage contract, not the display label."""
+    return (_text(field.get('widget_type') or field.get('semantic_data_type')) == 'boolean'
+            and ('status' in _physical_names(field) or field.get('role') == 'work_status'))

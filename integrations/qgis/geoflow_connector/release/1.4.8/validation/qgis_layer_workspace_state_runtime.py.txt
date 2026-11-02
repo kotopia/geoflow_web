@@ -1,0 +1,1 @@
+qgis layer workspace state runtime: {"qgis_version": "4.2.2-Belém do Pará", "count_initial": 3, "count_pending_delete": 2, "count_rollback": 3, "count_multi_delete_commit": 0, "legend": ["제수변 실시간"], "visibility_bidirectional": true, "feature_selection_unchanged": true}

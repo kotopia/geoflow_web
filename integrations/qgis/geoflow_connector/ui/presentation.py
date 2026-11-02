@@ -42,17 +42,6 @@ class PanelPresentation(QObject):
             self.buttons[key] = b
         button('projects', engine.show_projects)
         button('select', lambda: self.invoke('set_select_map_tool'))
-        self.buttons['select'].setCheckable(True)
-        self.buttons['select'].setStyleSheet(
-            'QToolButton:checked { background-color: #dbeafe; '
-            'border: 1px solid #3b7ddd; border-radius: 4px; }'
-        )
-        button('save', lambda: self.invoke('save_current'))
-        button('zoom', lambda: engine.zoom_workspace_layer())
-        # Persistent queue management is retired in online-only mode.
-        self.buttons['sync'] = root.GeoFlowRail_sync
-        root.GeoFlowRail_sync.hide()
-        button('drafts', lambda: self.invoke('show_retained'))
         button('logout', engine.logout_requested)
         button('hide', engine.dock.hide)
         menu = QMenu(root.moreActionsButton)
@@ -132,7 +121,6 @@ class PanelPresentation(QObject):
         work.status.hide()
         if getattr(work, 'presentation_toolbar', None) is not None:
             work.presentation_toolbar.hide()
-        self.buttons['drafts'].hide()
         work.verticalLayout.setContentsMargins(0, 0, 0, 0)
         work.verticalLayout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         work.setMinimumWidth(0)
@@ -165,9 +153,8 @@ class PanelPresentation(QObject):
         self.update_profile()
         working = self.work is not None and e.stack.currentWidget() is self.work
         self.content.setVisible(not working or self.mode != PanelMode.ICONS)
-        for key in ('select', 'save', 'zoom', 'drafts'):
+        for key in ('select',):
             self.buttons[key].setEnabled(e.integration_state()['ready'])
-        self.buttons['sync'].setEnabled(bool(e.active_context))
         self.edge.setVisible(working)
         self.edge.setChecked(self.mode != PanelMode.ICONS)
         self.edge.setToolTip('레이어 펼치기' if self.mode == PanelMode.ICONS else '한 단계 접기')

@@ -1,0 +1,6 @@
+Legacy UUID matching, explicit capability precedence, no field-name guessing/default angle rules: OK
+Designer-owned widgets, resource icons and refresh preservation: OK
+PASS: actual main form, settings layer selection/layout save, reference refresh, preserved selection, corner batch save without a single feature
+USER_FLOW: selection-independent depth buttons, real spatial calculation, per-row results, highlights, manual rules, refreshed actions, undo, permissions OK
+C:\PROGRA~1\QGIS42~1.2\apps\Python312\Lib\tempfile.py:940: ResourceWarning: Implicitly cleaning up <TemporaryDirectory 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpddupmgze'>
+  _warnings.warn(warn_message, ResourceWarning)

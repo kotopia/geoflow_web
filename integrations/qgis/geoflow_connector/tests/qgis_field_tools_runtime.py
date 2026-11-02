@@ -163,6 +163,7 @@ for target_id in ("target-ok", "target-no-z", "target-no-link"):
     row.setGeometry(QgsGeometry.fromPointXY(origin_wgs))
     assert targets.dataProvider().addFeature(row)
 depth_plugin = SimpleNamespace(
+    integration_state=lambda: {"ready":True,"can_write":True},
     _managed_layers=lambda: [survey_depth, targets],
     active_context={"project_id": "depth-project"},
     active_client=SimpleNamespace(base_url="https://example.test"),
@@ -259,7 +260,7 @@ iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, plugin.dock)
 more_button = QToolButton()
 more_button.setMenu(QMenu(more_button))
 plugin.presentation = SimpleNamespace(
-    root=SimpleNamespace(moreActionsButton=more_button)
+    root=SimpleNamespace(moreActionsButton=more_button, GeoFlowRail_depth=QToolButton(), GeoFlowRail_direction=QToolButton())
 )
 toggle = QPushButton(); toggle.setCheckable(True)
 controller = EditToolsController(plugin, toggle)
@@ -349,20 +350,20 @@ inline_depth_button = controller._depth_field_actions[form_target.id()][0]
 assert not depth_page.form_actions.saveButton.icon().isNull()
 assert not depth_page.form_actions.previousButton.icon().isNull()
 assert not depth_page.form_actions.nearbyButton.icon().isNull()
-assert not depth_page.form_actions.layoutButton.icon().isNull()
-assert not depth_page.form_actions.referenceRefreshButton.icon().isNull()
+assert not depth_page.form_actions.depthBatchButton.icon().isNull()
+assert not depth_page.form_actions.directionBatchButton.icon().isNull()
 assert not depth_page.form_actions.photoButton.icon().isNull()
 for action_button in (
     depth_page.form_actions.saveButton,
     depth_page.form_actions.previousButton,
     depth_page.form_actions.nearbyButton,
-    depth_page.form_actions.layoutButton,
-    depth_page.form_actions.referenceRefreshButton,
+    depth_page.form_actions.depthBatchButton,
+    depth_page.form_actions.directionBatchButton,
     depth_page.form_actions.photoButton,
 ):
     assert action_button.property("fieldAction") == "true"
-    assert action_button.minimumWidth() == inline_depth_button.minimumWidth()
-    assert action_button.maximumWidth() == inline_depth_button.maximumWidth()
+    assert action_button.minimumWidth() == (66 if action_button is depth_page.form_actions.saveButton else 28)
+    assert action_button.maximumWidth() == (66 if action_button is depth_page.form_actions.saveButton else 28)
 assert inline_depth_button in depth_form._field_actions["pip_dep"]
 assert not inline_depth_button.icon().isNull()
 assert inline_depth_button.property("fieldAction") == "true"

@@ -3,10 +3,10 @@
 import json
 import os
 
-from qgis.PyQt.QtCore import QDate, Qt, QTimer, QSettings
+from qgis.PyQt.QtCore import QDate, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QDialog, QLabel, QMessageBox, QPlainTextEdit, QPushButton, QTabWidget,
-    QToolBar, QToolButton, QMenu, QVBoxLayout, QWidget,
+    QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 from qgis.PyQt.uic import loadUiType
 from qgis.core import QgsMessageLog, Qgis, QgsProject
@@ -74,14 +74,13 @@ class Main(QWidget, FORM_CLASS):
         self.zoom_button = QPushButton("범위 이동")
         self.retained_button = QPushButton("보존 입력")
         self.reference_diagnostic_button = QPushButton("중앙 정의 진단")
-        self.layout_button = QPushButton("폼 배치 편집")
         self.select_button.setCheckable(True)
         self.select_button.setStyleSheet(
             "QPushButton:checked { background-color: #dbeafe; "
             "border: 1px solid #3b7ddd; border-radius: 4px; }"
         )
         for button in (self.select_button, self.add_button, self.save_button,
-                       self.zoom_button, self.retained_button, self.layout_button,
+                       self.zoom_button, self.retained_button,
                        self.reference_diagnostic_button):
             toolbar.addWidget(button)
         # Saving remains wired to the existing lifecycle, but its user-facing
@@ -95,16 +94,13 @@ class Main(QWidget, FORM_CLASS):
         self.zoom_button.clicked.connect(self.adapter.zoom_selected)
         self.retained_button.clicked.connect(self.show_retained)
         self.reference_diagnostic_button.clicked.connect(self.show_definition_diagnostics)
-        self.layout_button.clicked.connect(self.edit_form_layout)
         self.verticalLayout.insertWidget(1, toolbar)
         self.verticalLayout.setStretch(2, 1)
         self.select_tool = IdentifyGeometry(
             plugin.mapCanvas, layer_provider=self.adapter.layers_by_id,
-            active_layer=plugin.iface.activeLayer,
+            active_layer=(plugin._workspace_model.active_layer if getattr(plugin, '_workspace_model', None)
+                          else plugin.iface.activeLayer),
             notify=lambda text: plugin.iface.messageBar().pushMessage('GeoFlow', text, duration=3))
-        self.select_tool.mode = str(QSettings().value('GeoFlowConnector/selectionMode', 'single'))
-        if self.select_tool.mode not in ('single', 'area'):
-            self.select_tool.mode = 'single'
         self.configure_selection_button(self.select_button)
         presentation = getattr(plugin, 'presentation', None)
         rail = getattr(presentation, 'buttons', {}).get('select')
@@ -126,33 +122,7 @@ class Main(QWidget, FORM_CLASS):
         self._sync_select_tool_state()
 
     def configure_selection_button(self, button):
-        menu = QMenu(button)
-        for mode, label in (('single', '단일 선택'), ('area', '영역 선택')):
-            menu.addAction(label, lambda checked=False, m=mode: self.set_selection_mode(m))
-        button.setMenu(menu)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
-        self._selection_button_hint(button)
-
-    def _selection_button_hint(self, button):
-        from qgis.core import QgsApplication
-        area = self.select_tool.mode == 'area'
-        button.setIcon(QgsApplication.getThemeIcon('/mActionSelectRectangle.svg' if area else '/mActionIdentify.svg'))
-        button.setToolTip(('영역 선택' if area else '단일 선택') + ' · 길게 눌러 모드 변경 · Shift 추가 / Ctrl 해제')
-
-    def set_selection_mode(self, mode):
-        self.select_tool.cancel_drag()
-        self.select_tool.mode = mode
-        QSettings().setValue('GeoFlowConnector/selectionMode', mode)
-        buttons = [self.select_button]
-        presentation = getattr(self.plugin, 'presentation', None)
-        rail = getattr(presentation, 'buttons', {}).get('select')
-        if rail is not None:
-            buttons.append(rail)
-        for button in buttons:
-            self._selection_button_hint(button)
-        if self.adapter.selected_layer_id() in self.adapter.layers_by_id():
-            self.plugin.mapCanvas.setMapTool(self.select_tool)
-        self._sync_select_tool_state()
+        button.setMenu(None)  # Icon, tooltip and sizing are defined in main_dock.ui.
 
     @property
     def formHeader(self):
@@ -186,6 +156,20 @@ class Main(QWidget, FORM_CLASS):
                            "error": getattr(service, "error", "")},
             "reference": getattr(references, "diagnostic", lambda: {"state": "missing"})(),
         }
+        from ..services.direction import DirectionService
+        directions = DirectionService(self.plugin)
+        payload['direction_actions'] = []
+        for layer in self.plugin._managed_layers():
+            for field in directions.targets(layer):
+                item = {'layer':layer.name(),'field_uuid':field['id'],
+                        'semantic_data_type':field.get('semantic_data_type')}
+                for mode in ('automatic','manual'):
+                    try:
+                        directions.settings(layer,manual=mode=='manual')
+                        item[mode] = 'configured'
+                    except (ValueError,TypeError,AttributeError) as exc:
+                        item[mode] = str(exc)
+                payload['direction_actions'].append(item)
         dialog = QDialog(self)
         dialog.setWindowTitle("GeoFlow 중앙 정의 · 현재 실행 상태")
         layout = QVBoxLayout(dialog)
@@ -322,7 +306,6 @@ class Main(QWidget, FORM_CLASS):
         layer = self.adapter.layers_by_id().get(layer_id)
         self.select_button.setEnabled(layer is not None)
         self.zoom_button.setEnabled(layer is not None)
-        self.layout_button.setEnabled(layer is not None)
         service = self._definition_service()
         if layer is None:
             self.placeholder.setText("현재 프로젝트의 GeoFlow 레이어를 선택하세요.")
@@ -387,16 +370,13 @@ class Main(QWidget, FORM_CLASS):
             self.geoflow_settings, page.project_id
         )
         page.form.set_header_widget(page.form_actions)
+        page.tabs.setCornerWidget(page.form_actions.tabActions, Qt.Corner.TopRightCorner)
         self._apply_page_chrome(page)
         page.form.layoutChanged.connect(
             lambda p=page: self._apply_page_chrome(p)
         )
         page.form_actions.saveButton.clicked.connect(
             lambda _checked=False, p=page: self._save_page(p)
-        )
-        page.form_actions.layoutButton.clicked.connect(self.edit_form_layout)
-        page.form_actions.referenceRefreshButton.clicked.connect(
-            self.plugin.refresh_reference_catalog
         )
         tab_count_before = page.tabs.count()
         photo_tab = central_photo_tab_spec(fields)
@@ -486,8 +466,8 @@ class Main(QWidget, FORM_CLASS):
             header = page.form_actions
             tabs = page.tabs
             buttons = (
-                "saveButton", "previousButton", "nearbyButton", "layoutButton",
-                "referenceRefreshButton", "photoButton",
+                "saveButton", "previousButton", "nearbyButton", "depthBatchButton",
+                "directionBatchButton", "photoButton",
             )
             button_state = []
             for name in buttons:
@@ -569,7 +549,9 @@ class Main(QWidget, FORM_CLASS):
         if self.formStack.currentWidget() is page:
             self.save_button.setText("현재 객체 저장" + suffix)
         if hasattr(page, "form_actions"):
-            page.form_actions.saveButton.setToolTip("현재 객체 저장" + suffix)
+            page.form_actions.saveButton.setToolTip(
+                ("현재 객체 저장" if page.feature_id is not None else "현재 레이어 변경 저장") + suffix
+            )
         return page.dirty
 
     def _discard_page(self, page):
@@ -578,11 +560,35 @@ class Main(QWidget, FORM_CLASS):
         if ok and page.feature_id is not None:
             page.photos.refresh_policy()
         self._update_page_dirty(page)
+        if not ok: self._show_transition_failure(page,'취소')
         return ok
 
+    def _show_transition_failure(self, page, action):
+        message=page.note.text() or (action+'하지 못했습니다. 변경사항을 보존했습니다.')
+        page.note.show()
+        QgsMessageLog.logMessage('[NAV] '+action+'_failed reason='+message,'GeoFlow',Qgis.MessageLevel.Warning)
+        bar=getattr(self.plugin.iface,'messageBar',None)
+        if callable(bar): bar().pushWarning('GeoFlow '+action, message)
+
     def _save_page(self, page):
+        if page.feature_id is None:
+            layer = self.adapter.layers_by_id().get(page.layer_id)
+            state = self.plugin.integration_state()
+            if (layer is None or not state.get('ready') or not state.get('can_write')
+                    or layer.readOnly() or not layer.isModified()):
+                return False
+            result = self.plugin.commit_layer_online(layer, stop_editing=False)
+            if not result.get('ok'):
+                page.note.setText('일괄 변경을 저장하지 못했습니다. 편집 내용을 유지합니다.')
+                self._show_transition_failure(page, '저장')
+                return False
+            self._update_page_dirty(page)
+            controller = getattr(self.plugin, 'edit_tools', None)
+            if controller is not None: controller.refresh()
+            return True
         if not page.binding.save():
             self._update_page_dirty(page)
+            self._show_transition_failure(page,'저장')
             return False
         result = page.photos.commit_pending()
         self._update_page_dirty(page)
@@ -625,6 +631,14 @@ class Main(QWidget, FORM_CLASS):
         self._update_page_dirty(page)
 
     def _guard_object_transition(self, incoming_page, feature_id):
+        if getattr(self,'_transition_guard_active',False): return False
+        self._transition_guard_active=True
+        try:
+            return self._guard_object_transition_impl(incoming_page,feature_id)
+        finally:
+            self._transition_guard_active=False
+
+    def _guard_object_transition_impl(self, incoming_page, feature_id):
         page = self._dirty_page(incoming_page, feature_id)
         if page is None:
             return True
@@ -657,6 +671,14 @@ class Main(QWidget, FORM_CLASS):
         return False
 
     def guard_transition(self, label):
+        if getattr(self,'_transition_guard_active',False): return False
+        self._transition_guard_active=True
+        try:
+            return self._guard_transition_impl(label)
+        finally:
+            self._transition_guard_active=False
+
+    def _guard_transition_impl(self, label):
         dirty = []
         for page in self.pages.values():
             if page.binding.is_feature_deleted():
@@ -693,14 +715,23 @@ class Main(QWidget, FORM_CLASS):
     # ============================================================
     # 레이어별 로컬 속성폼 배치 편집
     # ============================================================
-    def edit_form_layout(self):
-        layer_id = self.adapter.selected_layer_id()
+    def edit_form_layout(self, layer_id=None, parent=None):
+        layer_id = layer_id or self.adapter.selected_layer_id()
         page = self.pages.get(layer_id)
         if page is None:
-            return
+            layer = self.adapter.layers_by_id().get(layer_id)
+            service = self._definition_service()
+            if layer is None or service is None or service.state != 'ready':
+                return False
+            standard = str(layer.customProperty('geoflow/standard_name', '')).upper()
+            fields = fields_with_worker_references(layer_fields(service.definition, standard),
+                getattr(getattr(self.plugin, '_reference_service', None), 'catalog', {}))
+            if not fields: return False
+            self._create_form(layer, standard, fields)
+            page = self.pages[layer_id]
         editor = FormLayoutEditor(
             page.standard, page.form.fields, page.form.form_layout,
-            self.plugin.iface.mainWindow(),
+            parent or self.plugin.iface.mainWindow(),
         )
         dialog_code = getattr(QDialog, "DialogCode", QDialog)
         if editor.exec() != dialog_code.Accepted:
@@ -715,6 +746,7 @@ class Main(QWidget, FORM_CLASS):
             )
             page.note.setText("이 PC의 레이어별 폼 배치를 저장했습니다.")
         page.form.set_form_layout(value)
+        return True
 
     def _object_selected(self, layer_id, feature_id):
         if self._closed or getattr(self.plugin, "_opening", False):

@@ -5,14 +5,15 @@ from __future__ import annotations
 
 import datetime as dt
 
-from qgis.PyQt.QtCore import QDate, QDateTime, QTime, Qt
+from qgis.PyQt.QtCore import QDate, QDateTime, QTime, Qt, QRectF
+from qgis.PyQt.QtGui import QColor, QPainter, QPen
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDoubleSpinBox,
     QFileDialog, QHBoxLayout, QLineEdit, QPushButton, QSizePolicy, QSpinBox,
     QTextEdit, QWidget,
 )
 
-from .boolean_codes import boolean_code_values, canonical_boolean_code
+from .boolean_codes import boolean_code_values, canonical_boolean_code, is_work_status
 
 
 def _repolish(widget):
@@ -174,6 +175,56 @@ class GeoFlowCheckBox(QCheckBox, _GeoFlowInputMixin):
         super().keyPressEvent(event)
 
 
+class WorkStatusSwitch(GeoFlowCheckBox):
+    """Accessible two-state switch which also displays an untouched NULL."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._null = True
+        self._loading_status = False
+        self.setFixedSize(36, 20)
+        self.setAccessibleName('작업상태')
+        self.toggled.connect(self._toggle_status)
+        self._update_status()
+
+    def _toggle_status(self, *_args):
+        if not self._loading_status: self._null = False
+        self._update_status()
+
+    def load_status(self, value, checked):
+        self._loading_status = True
+        try:
+            self._null = value is None
+            self.setChecked(checked)
+        finally:
+            self._loading_status = False
+        self._update_status()
+
+    def _update_status(self):
+        state = 'NULL · 저장 시 미완료' if self._null else '완료' if self.isChecked() else '미완료'
+        self.setToolTip(state)
+        self.setAccessibleDescription(state)
+        self.update()
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.scale(self.width() / 52.0, self.height() / 28.0)
+        if not self.isEnabled() or self._readonly: painter.setOpacity(0.5)
+        color = '#9aa3af' if self._null else '#3b7ddd' if self.isChecked() else '#ed8b00'
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawRoundedRect(QRectF(2, 2, 48, 24), 12, 12)
+        painter.setBrush(QColor('white'))
+        painter.drawEllipse(QRectF(28 if self.isChecked() else 4, 4, 20, 20))
+        if self.hasFocus():
+            painter.setPen(QPen(QColor('#183c73'), 1, Qt.PenStyle.DotLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(QRectF(1, 1, 50, 26), 13, 13)
+
+
 class GeoFlowDateEdit(QDateEdit, _GeoFlowInputMixin):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -284,7 +335,9 @@ class WidgetHandle:
             widget.setCurrentIndex(index if index >= 0 else 0)
         elif isinstance(widget, QCheckBox):
             codes = boolean_code_values(self.field)
-            widget.setChecked(value == codes[1] if codes is not None else bool(value))
+            checked = value == codes[1] if codes is not None else bool(value)
+            if isinstance(widget, WorkStatusSwitch): widget.load_status(value, checked)
+            else: widget.setChecked(checked)
         elif isinstance(widget, QSpinBox):
             widget.setValue(int(value or 0))
         elif isinstance(widget, QDoubleSpinBox):
@@ -305,6 +358,8 @@ class WidgetHandle:
             return widget.currentData()
         if isinstance(widget, QCheckBox):
             codes = boolean_code_values(self.field)
+            if isinstance(widget, WorkStatusSwitch) and not self._touched:
+                return self._loaded_value
             if codes is None:
                 return widget.isChecked()
             if not self._touched:
@@ -386,7 +441,7 @@ def create_widget(field: dict, parent=None) -> WidgetHandle:
         editor.setRange(-1e15, 1e15)
         handle = WidgetHandle(field, editor)
     elif kind == "boolean":
-        handle = WidgetHandle(field, GeoFlowCheckBox(parent))
+        handle = WidgetHandle(field, (WorkStatusSwitch if is_work_status(field) else GeoFlowCheckBox)(parent))
     elif kind == "date":
         editor = GeoFlowDateEdit(parent)
         editor.setMinimumDate(QDate(1900, 1, 1))

@@ -36,6 +36,34 @@ class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
         self.assertNotIn("apply_qgis_plugin_s3_access.py", workflow)
         self.assertNotIn("iam:", workflow.lower())
 
+    def test_stable_only_workflow_preserves_operational_boundaries(self):
+        workflow = (ROOT / '.github/workflows/qgis-plugin-stable-repository-publish.yml').read_text(encoding='utf-8')
+        for token in ("if: github.event_name == 'workflow_dispatch' && github.ref_name == 'release/stabilized-deploy'", 'environment: production',
+                      'PUBLISH_QGIS_PLUGIN:stable:geoflow-upload:qgis-plugins',
+                      '--release-manifest', '--inventory', '--verify-http',
+                      'stable_release_descriptor_mismatch', 'merge-base',
+                      'StrictHostKeyChecking=yes', 'flock -x 9'):
+            self.assertIn(token, workflow)
+        for forbidden in ('systemctl restart', 'migrate_all_tenants',
+                          'manage.py migrate', 'aws s3 sync', 'iam:', 'git reset --hard'):
+            self.assertNotIn(forbidden, workflow)
+
+    def test_plugin_only_push_never_starts_server_deployment(self):
+        from scripts.ci.gis_deploy_scope import requires_server_deploy
+        plugin = ['integrations/qgis/geoflow_connector/ui/form_host.py',
+                  'docs/operations/qgis-plugin-stable-release.json',
+                  '.github/workflows/gis-definition-code-deploy.yml']
+        self.assertFalse(requires_server_deploy(plugin))
+        self.assertFalse(requires_server_deploy([]))
+        for server_path in ('control/services/gis_definitions.py',
+                            'geoflow_project/settings.py', 'unknown/server.py',
+                            'scripts/ops/publish_qgis_plugin_repository.py'):
+            self.assertTrue(requires_server_deploy(plugin + [server_path]))
+        workflow = (ROOT / '.github/workflows/gis-definition-code-deploy.yml').read_text(encoding='utf-8')
+        self.assertIn('needs: classify-release', workflow)
+        self.assertIn("needs.classify-release.outputs.server_deploy == 'true'", workflow)
+        self.assertIn('environment: production', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

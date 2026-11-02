@@ -1,0 +1,1 @@
+PASS: preview compared pixel-for-pixel with native QGIS rule rendering, including matching/ELSE/nested/disabled

@@ -1,3 +1,9 @@
+import os, sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT.parent))
+ARTIFACTS = ROOT / 'test_artifacts'
+ARTIFACTS.mkdir(exist_ok=True)
 """QGIS 4.2.2 offscreen regression proof for Photo Policy-driven tabs."""
 import json
 import sys
@@ -84,6 +90,7 @@ def make_case(fields, photos):
     header = FormActionToolbar(form)
     header.set_layer_title("상수심도")
     form.set_header_widget(header)
+    form.tabs.setCornerWidget(header.tabActions, Qt.Corner.TopRightCorner)
     page = SimpleNamespace(
         form=form, tabs=form.tabs, note=QLabel(), standard="WTL_PIPE_PS",
         binding=SimpleNamespace(can_save=True, feature_id=feature.id()),
@@ -125,14 +132,14 @@ assert case_a.section.photoCountLabel.text() == "사진 1장"
 # Header geometry remains compact and the Photo Policy icon is available.
 buttons = [
     case_a.header.saveButton, case_a.header.previousButton, case_a.header.nearbyButton,
-    case_a.header.layoutButton, case_a.header.referenceRefreshButton,
+    case_a.header.depthBatchButton, case_a.header.directionBatchButton,
     case_a.header.photoButton,
 ]
 assert case_a.header.isVisible() and case_a.header.height() == 32
 assert all(button.isVisible() and not button.isHidden() for button in buttons)
-assert all(button.width() == 28 and button.height() == 28 for button in buttons)
+assert all(button.width() == (66 if button is case_a.header.saveButton else 28) and button.height() == 28 for button in buttons)
 assert case_a.header.photoButton.isEnabled()
-assert case_a.form.tabs.cornerWidget(Qt.Corner.TopRightCorner) is None
+assert case_a.form.tabs.cornerWidget(Qt.Corner.TopRightCorner) is case_a.header.tabActions
 
 with patch("geoflow_connector.ui.form_host.QgsMessageLog.logMessage") as photo_log:
     FormHost._log_photo_runtime(
@@ -223,7 +230,7 @@ assert case_e_index == 1
 assert case_e.form.tabs.tabText(case_e_index) == "사진"
 assert case_e.form.tabs.isTabVisible(case_e_index)
 
-artifact = Path(__file__).resolve().parents[1] / "test_artifacts" / "form_header_photo_qgis422.png"
+artifact = Path(__file__).resolve().parent / "test_artifacts" / "form_header_photo_qgis422.png"
 artifact.parent.mkdir(exist_ok=True)
 assert case_a.form.grab().save(str(artifact))
 

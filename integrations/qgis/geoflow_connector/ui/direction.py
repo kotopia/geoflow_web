@@ -1,57 +1,75 @@
 """Modeless single-feature preview and reviewed batch direction application."""
 import math
 from qgis.PyQt.QtCore import Qt, QSignalBlocker
-from qgis.PyQt.QtGui import QColor
-from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QDoubleSpinBox, QDial,
-    QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMessageBox)
+from qgis.PyQt.QtGui import QCursor, QIcon
+from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QDoubleSpinBox,
+    QPushButton, QLabel, QTableWidget, QTableWidgetItem, QCheckBox, QAbstractItemView)
 from qgis.core import (QgsGeometry, QgsPointXY, QgsCoordinateTransform, QgsProject,
-    QgsVectorLayer, QgsFeature, QgsWkbTypes, QgsRectangle, QgsRuleBasedRenderer)
-from qgis.gui import QgsMapTool, QgsRubberBand, QgsVertexMarker
-from ..services.direction_math import normalize, bearing, to_storage, to_bearing
+    QgsVectorLayer, QgsFeature, QgsRuleBasedRenderer)
+from qgis.gui import QgsMapTool
+from .result_highlight import ResultHighlight
+from ..services.direction_math import normalize
 
 
 class RotationTool(QgsMapTool):
-    def __init__(self, canvas, layer, feature, config, changed):
+    """Drag the enlarged symbol around its fixed screen center, without a dial."""
+    def __init__(self, canvas, layer, feature, config, changed, *, sense=1, hit_radius=40, cancelled=None):
         super().__init__(canvas)
         self.layer, self.config, self.changed = layer, config, changed
         self.center = QgsCoordinateTransform(layer.crs(), canvas.mapSettings().destinationCrs(),
                                              QgsProject.instance()).transform(feature.geometry().asPoint())
-        self.band = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.LineGeometry)
-        self.band.setColor(QColor('#1976d2'))
-        self.band.setWidth(3)
+        self.sense, self.hit_radius, self.cancelled = sense, hit_radius, cancelled
         self.dragging = False
-        self.handle = QgsVertexMarker(canvas)
-        self.handle.setIconType(QgsVertexMarker.ICON_CIRCLE)
-        self.handle.setIconSize(12)
-        self.handle.setColor(QColor('#1976d2'))
+        self.value = 0
+        self.rotation_cursor = QCursor(QIcon(':/geoflow/tabler/rotate.svg').pixmap(28, 28), 14, 14)
+        self.setCursor(self.rotation_cursor)
 
     def preview(self, value):
-        angle = math.radians(to_bearing(value, self.config))
-        length = self.canvas().mapUnitsPerPixel()*65
-        end = QgsPointXY(self.center.x()+length*math.sin(angle), self.center.y()+length*math.cos(angle))
-        self.band.setToGeometry(QgsGeometry.fromPolylineXY([self.center,end]), None)
-        self.handle.setCenter(end)
-        self.end = end
+        self.value = normalize(value)
+
+    def _pointer_angle(self, pos):
+        center = self.toCanvasCoordinates(self.center)
+        dx, dy = pos.x()-center.x(), pos.y()-center.y()
+        if math.hypot(dx, dy) < 4:
+            return None
+        return math.degrees(math.atan2(dy, dx))
 
     def canvasPressEvent(self, event):
-        end = self.toCanvasCoordinates(self.end)
-        self.dragging = (event.button() == Qt.MouseButton.LeftButton
-                         and (event.pos()-end).manhattanLength() <= 20)
-        if self.dragging:
-            self.canvasMoveEvent(event)
+        center = self.toCanvasCoordinates(self.center)
+        distance = math.hypot(event.pos().x()-center.x(), event.pos().y()-center.y())
+        if event.button() != Qt.MouseButton.LeftButton or distance > self.hit_radius:
+            return
+        self.dragging = True
+        self.last_pointer = self._pointer_angle(event.pos())
+        self.drag_value = self.value
+        self.setCursor(self.rotation_cursor)
 
     def canvasMoveEvent(self, event):
-        if self.dragging:
-            point = event.mapPoint()
-            if point != self.center:
-                self.changed(to_storage(bearing((self.center.x(),self.center.y()), (point.x(),point.y())), self.config))
+        if not self.dragging:
+            return
+        pointer = self._pointer_angle(event.pos())
+        if pointer is None:
+            return
+        if self.last_pointer is not None:
+            delta = (pointer-self.last_pointer+180) % 360-180
+            self.drag_value = normalize(self.drag_value+delta/self.sense)
+            self.changed(self.drag_value)
+        self.last_pointer = pointer
 
     def canvasReleaseEvent(self, event):
+        if self.dragging:
+            self.canvasMoveEvent(event)
         self.dragging = False
+        self.setCursor(self.rotation_cursor)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self.cancelled:
+            self.cancelled()
+        else:
+            super().keyPressEvent(event)
 
     def dispose(self):
-        self.canvas().scene().removeItem(self.band)
-        self.canvas().scene().removeItem(self.handle)
+        self.dragging = False
 
 
 class RotationDialog(QDialog):
@@ -59,20 +77,21 @@ class RotationDialog(QDialog):
         super().__init__(controller.plugin.iface.mainWindow())
         self.controller, self.layer, self.page = controller, layer, page
         self.service = controller.direction
-        self.field, self.config = self.service.settings(layer)
+        self.field, self.config = self.service.settings(layer, manual=True)
         self.fid = page.feature_id
-        self.result = self.service.inspect(layer, layer.getFeature(self.fid))
+        self.result = self.service.manual_result(layer, layer.getFeature(self.fid))
         if not self.result.get('fingerprint'):
             raise ValueError(self.result.get('reason', '기하 오류'))
         self.closed = False
         self.setWindowTitle('방향 조정 · 적용 후 기존 저장 사용')
         layout = QVBoxLayout(self)
         self.spin = QDoubleSpinBox(self)
-        self.spin.setDecimals(3); self.spin.setRange(0,359.999); self.spin.setWrapping(True)
+        decimals = self.service.storage_decimals(layer, self.field)
+        decimals = 8 if decimals is None else decimals
+        self.spin.setDecimals(decimals); self.spin.setRange(0,360-10**(-decimals)); self.spin.setWrapping(True)
         self.spin.setKeyboardTracking(True); self.spin.setSuffix('°')
-        self.dial = QDial(self); self.dial.setRange(0,35999); self.dial.setWrapping(True)
-        layout.addWidget(self.spin); layout.addWidget(self.dial)
-        self.note = QLabel('미리보기는 서버와 편집 버퍼를 변경하지 않습니다.',self)
+        layout.addWidget(self.spin)
+        self.note = QLabel('지도에서 3배 확대된 심볼을 드래그하세요. Esc: 취소',self)
         layout.addWidget(self.note)
         actions = QHBoxLayout(); layout.addLayout(actions)
         for label, callback in (('180° 반전', self.flip), ('적용', self.apply), ('취소',self.reject)):
@@ -81,16 +100,33 @@ class RotationDialog(QDialog):
         self.canvas = controller.plugin.mapCanvas
         self.previous_tool = self.canvas.mapTool()
         feature = layer.getFeature(self.fid)
-        self.tool = RotationTool(self.canvas, layer, feature, self.config, self.set_value)
         # An unregistered memory layer is visible only in this canvas during preview.
         self.overlay = QgsVectorLayer('Point?crs='+layer.crs().authid(), 'GeoFlow 방향 미리보기','memory')
         self.overlay.setCrs(layer.crs())
         self.overlay.dataProvider().addAttributes(list(layer.fields())); self.overlay.updateFields()
         self.preview_feature = QgsFeature(feature)
         self.overlay.dataProvider().addFeature(self.preview_feature)
-        self.overlay.setRenderer(layer.renderer().clone())
+        self.overlay.setRenderer(self.service.preview_renderer(layer, feature))
         self.overlay.setCustomProperty('geoflow/definition_layer_id',layer.customProperty('geoflow/definition_layer_id',''))
         self.service.bind_renderer(self.overlay)
+        from qgis.core import QgsProperty, QgsRenderContext, QgsExpressionContextUtils
+        context = QgsRenderContext.fromMapSettings(self.canvas.mapSettings())
+        context.expressionContext().appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(self.overlay))
+        context.expressionContext().setFeature(self.preview_feature)
+        hit_radius = 18
+        for symbol in self.overlay.renderer().symbols(context):
+            if not hasattr(symbol, 'setSize'):
+                continue
+            size = symbol.dataDefinedSize()
+            if size.isActive():
+                symbol.setDataDefinedSize(QgsProperty.fromExpression('3 * ('+size.asExpression()+')'))
+            else:
+                symbol.setSize(symbol.size()*3)
+            pixels = context.convertToPainterUnits(symbol.size(context),symbol.sizeUnit(),symbol.sizeMapUnitScale())
+            hit_radius = max(hit_radius, pixels/2+12)
+        self.tool = RotationTool(self.canvas, layer, feature, self.config, self.set_value,
+            sense=self.service.rotation_sense(self.overlay,self.preview_feature),
+            hit_radius=hit_radius, cancelled=self.reject)
         self.original_renderer = layer.renderer().clone()
         filtered = QgsRuleBasedRenderer.convertFromRenderer(layer.renderer())
         if filtered is None:
@@ -102,11 +138,13 @@ class RotationDialog(QDialog):
         layer.triggerRepaint()
         self.canvas.setLayers([self.overlay]+self.canvas.layers())
         self.canvas.setMapTool(self.tool)
+        self.canvas.setCenter(self.tool.center)
+        self.canvas.refresh()
         self.spin.valueChanged.connect(self.set_value)
-        self.dial.valueChanged.connect(lambda value:self.set_value(value/100))
-        self.connections = [(controller.plugin.iface.currentLayerChanged,self.reject),
+        self.connections = [(controller.plugin.iface.currentLayerChanged,self.active_layer_changed),
                             (layer.selectionChanged,self.selection_changed),
                             (self.canvas.mapToolSet,self.tool_changed),
+                            (self.canvas.destinationCrsChanged,self.reject),
                             (QgsProject.instance().cleared,self.reject)]
         for signal, slot in self.connections: signal.connect(slot)
         self.finished.connect(self.cleanup)
@@ -116,14 +154,19 @@ class RotationDialog(QDialog):
         self.set_value(value)
 
     def set_value(self, value):
-        value = normalize(value)
-        with QSignalBlocker(self.spin), QSignalBlocker(self.dial):
-            self.spin.setValue(value); self.dial.setValue(round(value*100)%36000)
+        value = self.service.storage_value(self.layer, self.field, value)
+        with QSignalBlocker(self.spin):
+            self.spin.setValue(value)
         index = self.overlay.fields().indexFromName(self.field['storage']['key'])
         self.overlay.dataProvider().changeAttributeValues({self.preview_feature.id():{index:value}})
         self.overlay.triggerRepaint(); self.tool.preview(value)
 
     def flip(self): self.set_value(self.spin.value()+180)
+
+    def active_layer_changed(self, layer):
+        # A transient legend reset is not a request to cancel rotation.
+        if layer is not None and layer is not self.layer:
+            self.reject()
 
     def selection_changed(self,*args):
         if self.layer.selectedFeatureIds() != [self.fid]: self.reject()
@@ -164,27 +207,38 @@ class RotationDialog(QDialog):
             self.canvas.unsetMapTool(self.tool)
             if self.previous_tool is not None: self.canvas.setMapTool(self.previous_tool)
         self.canvas.setLayers([x for x in self.canvas.layers() if x is not self.overlay])
-        self.tool.dispose(); self.tool.deleteLater(); self.canvas.refresh()
+        self.tool.dispose(); self.tool.deleteLater()
+        plugin = self.controller.plugin
+        from qgis.PyQt import sip
+        if (not sip.isdeleted(self.layer) and plugin.integration_state().get('ready')
+                and plugin.iface.activeLayer() is None
+                and QgsProject.instance().mapLayer(self.layer.id()) is self.layer
+                and any(item is self.layer for item in plugin._managed_layers())):
+            plugin.iface.setActiveLayer(self.layer)
+        self.canvas.refresh()
 
 
 class DirectionResults(QDialog):
     LABELS = {'ok':'계산 가능','no_reference':'기준선 없음','ambiguous':'후보 모호',
               'no_config':'설정 없음','error':'기하 또는 필드 오류'}
-    def __init__(self, controller, layer, features, page=None):
+    def __init__(self, controller, layer, features, page=None, *, results=None):
         super().__init__(controller.plugin.iface.mainWindow())
         self.controller,self.layer,self.page = controller,layer,page
         self.rows = []
-        self.bands = []
+        self.changed_rows = []
+        self.highlight = ResultHighlight(controller.plugin.mapCanvas)
+        self.bands = self.highlight.bands
         self.setWindowTitle('방향각 계산 결과 · 행 선택으로 위치 확인')
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0,6,self)
         self.table.setHorizontalHeaderLabels(['적용','객체','기존 각도','계산 각도','기준선','결과 사유'])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.table)
         single = len(features)==1
-        for feature in features:
-            result = controller.direction.inspect(layer,feature)
-            candidates = result['candidates'] if single and result['status']=='ambiguous' else [None]
+        results = results if results is not None else [controller.direction.inspect(layer, f) for f in features]
+        for feature, result in zip(features, results):
+            candidates = result['candidates'] if single and result['status']=='ambiguous' and not result.get('review_only') else [None]
             for candidate in candidates:
                 row = dict(result)
                 if candidate:
@@ -196,17 +250,36 @@ class DirectionResults(QDialog):
                 check.setFlags(Qt.ItemFlag.ItemIsEnabled | (Qt.ItemFlag.ItemIsUserCheckable if allowed else Qt.ItemFlag.NoItemFlags))
                 check.setCheckState(Qt.CheckState.Checked if result['status']=='ok' else Qt.CheckState.Unchecked)
                 self.table.setItem(index,0,check)
-                reference = candidate or (result['candidates'][0] if result['candidates'] else {})
+                reference = candidate or result.get('chosen') or (result['candidates'][0] if result['candidates'] else {})
                 for col,value in enumerate((result.get('identity',feature.id()),result.get('old',''),
-                    row.get('angle',''),reference.get('reference',''),result.get('reason',self.LABELS[result['status']])),1):
+                    row.get('angle',''),reference.get('reference_label',reference.get('reference','')),result.get('reason',self.LABELS[result['status']])),1):
                     self.table.setItem(index,col,QTableWidgetItem(str(value)))
         self.table.currentCellChanged.connect(self.locate)
-        self.note = QLabel('계산 가능한 항목만 선택 적용합니다. 모호한 단일 후보는 하나만 선택하세요.')
+        self.reviewOnly = QCheckBox('실패·검토 대상만 보기 (선택한 성공 항목은 적용 대상에 유지)', self)
+        self.reviewOnly.toggled.connect(self.filter_rows)
+        layout.addWidget(self.reviewOnly)
+        success = sum(r['status'] == 'ok' for r in results)
+        layout.addWidget(QLabel(f'선택 {len(features)}개 · 계산 성공 {success}개 · 실패·검토 {len(features)-success}개. 아직 저장하지 않았습니다.', self))
+        self.note = QLabel('EPSG:5186 · 최장 선분 우선 · 동일 길이는 객체 ID 순서. 적용 전 기준선을 확인하세요.')
         layout.addWidget(self.note)
         button = QPushButton('선택 적용',self); button.clicked.connect(self.apply); layout.addWidget(button)
+        changed = QPushButton('변경 객체 전체 보기',self)
+        changed.clicked.connect(lambda:self.highlight.show(self.layer,self.changed_rows,zoom=True))
+        layout.addWidget(changed)
+        clear = QPushButton('강조 해제',self); clear.clicked.connect(self.highlight.clear); layout.addWidget(clear)
         close = QPushButton('닫기',self); close.clicked.connect(self.reject); layout.addWidget(close)
         self.finished.connect(self.cleanup)
         self.resize(850,400)
+        if self.rows: self.table.setCurrentCell(0, 1)
+
+    def filter_rows(self, review_only):
+        visible = []
+        for index, row in enumerate(self.rows):
+            hidden = review_only and row['status'] == 'ok'
+            self.table.setRowHidden(index, hidden)
+            if not hidden: visible.append(index)
+        if visible: self.table.setCurrentCell(visible[0], 1)
+        else: self.highlight.clear()
 
     def locate(self,row,*args):
         self.cleanup()
@@ -217,19 +290,15 @@ class DirectionResults(QDialog):
         transform = QgsCoordinateTransform(self.layer.crs(),canvas.mapSettings().destinationCrs(),QgsProject.instance())
         geometry.transform(transform)
         candidates = [result['chosen']] if result.get('chosen') else result['candidates']
-        bounds = geometry.boundingBox()
+        geometries = [self.highlight.add(self.layer.getFeature(result['fid']).geometry(),self.layer.crs(),
+                                        'review' if result['status'] in ('ok','ambiguous') else 'failed')]
         for candidate in candidates:
-            points = [transform.transform(QgsPointXY(*xy)) for xy in candidate['map_line']]
-            line = QgsGeometry.fromPolylineXY(points)
-            band = QgsRubberBand(canvas,QgsWkbTypes.GeometryType.LineGeometry)
-            band.setColor(QColor('#ff8800')); band.setWidth(4); band.setToGeometry(line,None)
-            self.bands.append(band); bounds.combineExtentWith(line.boundingBox())
-        bounds.grow(max(canvas.mapUnitsPerPixel()*80,bounds.width()*0.2))
-        canvas.setExtent(bounds); canvas.refresh()
+            line = QgsGeometry.fromPolylineXY([QgsPointXY(*xy) for xy in candidate['map_line']])
+            geometries.append(self.highlight.add(line,self.layer.crs(),'review'))
+        self.highlight.zoom([g for g in geometries if g is not None])
 
     def cleanup(self,*args):
-        for band in self.bands: self.controller.plugin.mapCanvas.scene().removeItem(band)
-        self.bands=[]
+        self.highlight.clear()
 
     def apply(self):
         selected = [row for i,row in enumerate(self.rows) if self.table.item(i,0).checkState()==Qt.CheckState.Checked]
@@ -237,6 +306,10 @@ class DirectionResults(QDialog):
         if len({r['fid'] for r in selected}) != len(selected):
             self.note.setText('객체마다 후보 하나만 선택하세요.'); return
         try:
-            self.controller.direction.apply(self.layer,selected,self.page)
-            self.accept()
+            applied = self.controller.direction.apply(self.layer,selected,self.page)
+            self.changed_rows = [dict(r,status='changed') for r in applied]
+            self.highlight.show(self.layer,self.changed_rows,zoom=True)
+            self.note.setText('편집 버퍼에 적용했습니다. 기존 저장 기능으로 저장하세요.')
+            for i in range(self.table.rowCount()):
+                self.table.item(i,0).setCheckState(Qt.CheckState.Unchecked)
         except Exception as exc: self.note.setText(str(exc))

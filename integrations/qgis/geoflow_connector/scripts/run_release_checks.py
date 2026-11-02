@@ -11,17 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = configparser.ConfigParser(); CONFIG.read(ROOT / 'metadata.txt', encoding='utf-8')
 OUT = ROOT / 'release' / CONFIG['general']['version']
 OUT.mkdir(parents=True, exist_ok=True)
-PROGRAMS = [
-    'qgis_direction_runtime.py', 'qgis_direction_style_audit.py',
-    'qgis_project_materialize_runtime.py', 'qgis_native_layer_tree_runtime.py',
-    'qgis_layer_workspace_state_runtime.py', 'qgis_form_lifecycle_smoke.py',
-    'qgis_online_commit_runtime.py', 'qgis_delete_action_runtime.py',
-    'qgis_survey_popup_runtime.py', 'qgis_survey_creation_runtime.py',
-    'qgis_survey_spatial_runtime.py', 'qgis_selection_feedback_runtime.py',
-    'qgis_settings_nearby_runtime.py', 'qgis_field_tools_runtime.py',
-    'qgis_edit_tools_integration_runtime.py', 'qgis_photo_local_runtime.py',
-    'qgis_form_header_photo_runtime.py', 'qgis_default_style_runtime.py',
-]
+PROGRAMS = ['qgis_compact_host_runtime.py', 'qgis_compact_form_runtime.py', 'qgis_direction_workflow_runtime.py', 'qgis_direction_else_runtime.py', 'qgis_navigation_runtime.py', 'qgis_native_layer_tree_runtime.py', 'qgis_project_materialize_runtime.py', 'qgis_layer_workspace_state_runtime.py', 'qgis_form_lifecycle_smoke.py', 'qgis_online_commit_runtime.py', 'qgis_delete_action_runtime.py', 'qgis_survey_popup_runtime.py', 'qgis_survey_creation_runtime.py', 'qgis_survey_spatial_runtime.py', 'qgis_selection_feedback_runtime.py', 'qgis_settings_nearby_runtime.py', 'qgis_field_tools_runtime.py', 'qgis_edit_tools_integration_runtime.py', 'qgis_photo_local_runtime.py', 'qgis_form_header_photo_runtime.py', 'qgis_default_style_runtime.py']
 
 
 def run(name):
@@ -32,7 +22,7 @@ def run(name):
     output = result.stdout.decode('utf-8', errors='replace') + result.stderr.decode('utf-8', errors='replace')
     log = OUT / 'validation' / (name + '.txt')
     log.parent.mkdir(exist_ok=True)
-    log.write_text(output, encoding='utf-8')
+    log.write_bytes(output.replace('\r\n', '\n').encode('utf-8'))
     return {'test':name, 'exit_code':result.returncode, 'log':log.relative_to(ROOT).as_posix()}
 
 

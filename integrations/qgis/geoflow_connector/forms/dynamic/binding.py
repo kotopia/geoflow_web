@@ -8,10 +8,10 @@ from decimal import Decimal, InvalidOperation
 import json
 
 from qgis.PyQt.QtCore import QDate, QDateTime, Qt
-from qgis.core import QgsMessageLog, Qgis
+from qgis.core import QgsMessageLog, QgsFeatureRequest, Qgis
 
 from ..common.lifecycle import sole_new_feature
-from .boolean_codes import canonical_boolean_code
+from .boolean_codes import canonical_boolean_code, boolean_code_values, is_work_status
 from .system_defaults import new_feature_defaults
 
 
@@ -33,6 +33,8 @@ def canonical_value(field, value):
         field.get("widget_type") or field.get("semantic_data_type") or "text"
     ).lower()
     value = canonical_boolean_code(field, value)
+    if is_work_status(field) and value is None:
+        return None
     if kind in {"combo", "relation"} or field.get("reference_codes") or field.get("worker_reference"):
         return None if value in (None, "") else str(value)
     if kind == "integer":
@@ -95,6 +97,7 @@ class DynamicFormBinding:
         self.feature_id = None
         self.original = {}
         self.source_original = {}
+        self.provider_original = None
         self.loading = False
         self.saving = False
         self.dirty = set()
@@ -182,6 +185,31 @@ class DynamicFormBinding:
             return None
         return feature if feature.isValid() else None
 
+    def _provider_feature(self, feature_id):
+        if feature_id is None: return None
+        return next(self.layer.dataProvider().getFeatures(QgsFeatureRequest().setFilterFid(feature_id)), None)
+
+    def _source_matches(self, current):
+        if current is None: return False
+        provider = self._provider_feature(current.id())
+        if self.provider_original is not None:
+            if provider is None or self._feature_values(provider) != self.provider_original:
+                return False
+        elif provider is not None:
+            return False
+        values = self._feature_values(current)
+        buffer = self.layer.editBuffer()
+        staged = buffer.changedAttributeValues().get(current.id(), {}) if buffer is not None else {}
+        for field in self.form.fields:
+            fid=field['id']
+            if canonical_value(field, values.get(fid)) == canonical_value(field, self.source_original.get(fid)):
+                continue
+            storage=field['storage']
+            key=storage['key'] if storage['kind']=='column' else 'ext_data' if storage['kind']=='ext_data' else ''
+            if self.layer.fields().indexFromName(key) not in staged:
+                return False
+        return True
+
     def _resolve_saved_feature(self, saving_feature_id, creating, committed_features):
         """Resolve the provider FID assigned when a temporary new feature commits."""
         if creating:
@@ -206,6 +234,8 @@ class DynamicFormBinding:
         try:
             self._set_feature_id(feature.id())
             self.source_original = self._feature_values(feature)
+            provider = self._provider_feature(feature.id())
+            self.provider_original = self._feature_values(provider) if provider is not None else None
             self.form.load_values(self.source_original)
             self.original = self.form.values()
             self.system_default_fields.clear()
@@ -351,7 +381,16 @@ class DynamicFormBinding:
         return True
 
     def discard(self):
-        """Discard the current feature draft and its isolated QGIS edit buffer."""
+        """Suppress selection/form callbacks while restoring the current feature."""
+        previous_saving,previous_loading=self.saving,self.loading
+        self.saving,self.loading=True,True
+        try:
+            return self._discard_feature()
+        finally:
+            self.saving,self.loading=previous_saving,previous_loading
+
+    def _discard_feature(self):
+        """Restore only this feature; unrelated batch edits remain staged."""
         feature_id = self.feature_id
         if feature_id is None:
             return self.clear()
@@ -382,10 +421,24 @@ class DynamicFormBinding:
                 self._reset_empty()
                 return True
             else:
-                self.page.note.setText(
-                    "같은 레이어의 다른 미저장 편집을 보존하기 위해 현재 도형 취소를 중단했습니다."
-                )
-                return False
+                provider = self._provider_feature(feature_id)
+                if schema_changed or provider is None:
+                    self.page.note.setText('필드 구조 변경 또는 원본 객체 부재로 현재 객체만 취소할 수 없습니다.')
+                    return False
+                changes = dict(buffer.changedAttributeValues().get(feature_id, {}))
+                geometry_changed = feature_id in buffer.changedGeometries()
+                self.layer.beginEditCommand('GeoFlow 현재 객체 변경 취소')
+                ok = True
+                for index in changes:
+                    if not self.layer.changeAttributeValue(feature_id,index,provider[index]):
+                        ok = False; break
+                if ok and geometry_changed:
+                    ok = self.layer.changeGeometry(feature_id,provider.geometry())
+                if not ok:
+                    self.layer.destroyEditCommand()
+                    self.page.note.setText('현재 객체의 편집 취소에 실패했습니다. 다른 객체의 편집은 유지했습니다.')
+                    return False
+                self.layer.endEditCommand()
 
         feature = self._feature_for_id(feature_id)
         if feature is None:
@@ -406,19 +459,26 @@ class DynamicFormBinding:
         if not self.can_save or self.feature_id is None:
             self.page.note.setText("현재 권한으로 저장할 수 없습니다.")
             return False
-        errors = self.form.validation_errors()
+        values = self.form.save_values()
+        status_defaults = set()
+        for field in self.form.fields:
+            if is_work_status(field) and not field.get('readonly') and values.get(field['id']) is None:
+                codes = boolean_code_values(field)
+                values[field['id']] = codes[0] if codes is not None else False
+                status_defaults.add(field['id'])
+        errors = self.form.validation_errors(values)
         if errors:
             self.page.note.setText("\n".join(errors))
             return False
         saving_feature_id = self.feature_id
         current = self._feature_for_id(saving_feature_id)
-        if current is None or self._feature_values(current) != self.source_original:
+        if not self._source_matches(current):
             self.page.note.setText("객체가 변경되었습니다. 입력을 보존한 뒤 최신 객체를 다시 조회하세요.")
             return False
         self.has_actual_changes()
-        values = self.form.save_values()
         creating = self.layer.isModified() and sole_new_feature(self.layer, self.feature_id)
         changed = set(self.dirty)
+        changed.update(status_defaults)
         if creating:
             changed.update(self.system_default_fields)
         if not changed and not creating and not self.layer.isModified():

@@ -1,0 +1,16 @@
+[general]
+name=GeoFlow Connector
+qgisMinimumVersion=3.28
+qgisMaximumVersion=4.99
+description=GeoFlow project login, persistent local Snapshot reuse, cache lifecycle management, field-level Changeset synchronization, revision Delta updates, and realtime multi-user Delta hints.
+version=1.4.5
+author=GeoFlow
+email=iroom0@naver.com
+about=GeoFlow project snapshots and dynamic forms with rectangle selection, existing depth batch calculation, and centrally configured direction calculation and rotation preview.
+category=Database
+experimental=False
+deprecated=False
+tracker=https://github.com/kotopia/geoflow_web/issues
+repository=https://github.com/kotopia/geoflow_web
+homepage=https://geoflow.co.kr
+tags=geoflow,gis,qgis,qfield,postgis,geopackage,snapshot,cache,lifecycle,pin,changeset,delta,sync,websocket,realtime,session

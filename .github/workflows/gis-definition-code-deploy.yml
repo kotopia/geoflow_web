@@ -117,8 +117,26 @@ permissions:
   contents: read
 
 jobs:
-  deploy-current-release:
+  classify-release:
     if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    outputs:
+      server_deploy: ${{ steps.scope.outputs.server_deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - id: scope
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python3 scripts/ci/gis_deploy_scope.py --event "$GITHUB_EVENT_NAME" \
+            --before "$BEFORE_SHA" --after "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  deploy-current-release:
+    needs: classify-release
+    if: github.ref_name == 'release/stabilized-deploy' && needs.classify-release.outputs.server_deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: production

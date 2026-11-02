@@ -1,0 +1,2 @@
+PASS: Designer save/reopen, exact/tolerance no geometry change, explicit field UUIDs, reducer reversal/subtype/equal/missing/stale guards, single review lock, multi-rule/FID preview and cancel
+PASS: single success/no-change no popup, failure popup and auto-location; batch review filter, explicit apply, failed value/selection preserved
