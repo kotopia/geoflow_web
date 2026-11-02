@@ -6,6 +6,13 @@ on:
       - release/stabilized-deploy
     paths:
       - control/views_user_assignment.py
+      - control/views_users_admin.py
+      - geoflow_ops/views_employee_profile.py
+      - control/services/tenant_employee_registration.py
+      - control/services/join_membership_approval_service.py
+      - control/migrations/0010_tenant_employee_registrations.py
+      - control/test_tenant_employee_registration.py
+      - scripts/ci/exercise_employee_registration_postgres.py
       - control/test_user_assignment_schema_compat.py
       - control/test_role_assignment_sql_safety.py
       - control/test_role_assignment_postgres_contract.py
@@ -90,3 +97,20 @@ jobs:
 
       - name: Exercise first insert and idempotent role update through Django handler
         run: python scripts/ci/exercise_role_assignment_postgres.py
+
+      - name: Test registration permissions, profile conflicts, and failure messages
+        run: |
+          python manage.py test \
+            control.test_tenant_employee_registration \
+            control.test_user_assignment_schema_compat \
+            control.test_role_assignment_sql_safety \
+            control.test_central_admin_predeploy_fixes \
+            control.test_central_route_authorization_contract \
+            control.test_users_admin_signup_boundary \
+            control.test_join_membership_approval_service \
+            control.test_gf_authz_tenant_scope \
+            geoflow_ops.test_employee_role_request_boundary \
+            geoflow_ops.test_employee_security_boundaries
+
+      - name: Exercise separate central and tenant transactions and role requests
+        run: python scripts/ci/exercise_employee_registration_postgres.py

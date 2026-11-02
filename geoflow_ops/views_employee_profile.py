@@ -638,19 +638,6 @@ def employees_create(request):
         name = str(request.POST.get("name") or "").strip()
         if not email or not name:
             return HttpResponseBadRequest("이메일과 이름은 필수입니다.")
-        with connections[alias].cursor() as cur:
-            cur.execute(
-                "SELECT is_deleted FROM hr.employee_profile WHERE lower(email)=lower(%s) LIMIT 1",
-                [email],
-            )
-            existing = cur.fetchone()
-            if existing:
-                message = (
-                    "삭제된 직원에 같은 이메일이 있습니다. 삭제된 직원 보기에서 복구한 뒤 수정하세요."
-                    if bool(existing[0])
-                    else "이미 등록된 이메일입니다."
-                )
-                return HttpResponseBadRequest(message)
 
         fields = {
             "phone": _optional(request, "phone"),
@@ -670,6 +657,21 @@ def employees_create(request):
         }
         with transaction.atomic(using=alias):
             with connections[alias].cursor() as cur:
+                # Keep duplicate lookup and insert under the same lock used by
+                # central registration; a pre-transaction lookup can race.
+                cur.execute("LOCK TABLE hr.employee_profile IN SHARE ROW EXCLUSIVE MODE")
+                cur.execute(
+                    "SELECT is_deleted FROM hr.employee_profile WHERE lower(email)=lower(%s) LIMIT 1",
+                    [email],
+                )
+                existing = cur.fetchone()
+                if existing:
+                    message = (
+                        "삭제된 직원에 같은 이메일이 있습니다. 삭제된 직원 보기에서 복구한 뒤 수정하세요."
+                        if bool(existing[0])
+                        else "이미 등록된 이메일입니다."
+                    )
+                    return HttpResponseBadRequest(message)
                 cur.execute(
                     """
                     INSERT INTO hr.employee_profile

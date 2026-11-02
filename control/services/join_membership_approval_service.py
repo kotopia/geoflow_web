@@ -155,7 +155,7 @@ def approve_join_membership(
         (approval.role_id, "role_id"),
         (approval.actor_user_id, "actor_user_id"),
     ):
-        if not str(value).strip():
+        if value is None or not str(value).strip():
             raise ValueError(f"{label} is required")
 
     repository = repository or SqlJoinMembershipApprovalRepository()

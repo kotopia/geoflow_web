@@ -86,7 +86,7 @@ class UsersAdminSignupBoundaryTests(SimpleTestCase):
             self.assertNotIn(forbidden, source)
 
     def test_manual_assignment_cannot_bypass_account_activation(self):
-        source = (CONTROL_DIR / "views_users_admin.py").read_text(encoding="utf-8")
+        source = (CONTROL_DIR / "views_user_assignment.py").read_text(encoding="utf-8")
         self.assertIn("u.is_active=TRUE", source)
         self.assertIn("u.email_verified=TRUE", source)
         self.assertIn("u.password_hash IS NOT NULL", source)

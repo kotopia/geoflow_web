@@ -15,6 +15,8 @@ from django.views.decorators.debug import sensitive_post_parameters, sensitive_v
 from django.views.decorators.http import require_http_methods
 
 from .decorators import require_central_admin
+from .views_user_assignment import users_assign_group_admin  # Legacy import compatibility
+from .services.tenant_role_request_service import _normalize_role_code, TenantRoleRequestRejected
 from .services.central_account_erasure_service import (
     AccountErasureError,
     erase_central_account_personal_data,
@@ -281,6 +283,30 @@ def users_detail_admin(request, user_id):
         """
         )
         roles = cur.fetchall()
+        cur.execute("SELECT to_regclass('public.tenant_employee_registrations') IS NOT NULL")
+        registration_ready = bool(cur.fetchone()[0])
+        registration_history = []
+        if registration_ready:
+            cur.execute(
+                """SELECT g.name, r.code, tr.status, tr.created_at
+                     FROM tenant_employee_registrations tr
+                     JOIN groups g ON g.id=tr.group_id
+                     JOIN roles r ON r.id=tr.role_id
+                    WHERE tr.user_id=%s ORDER BY tr.created_at DESC LIMIT 10""",
+                [str(user_id)],
+            )
+            registration_history = [
+                {"group_name": row[0], "role_code": row[1], "status": row[2], "created_at": row[3]}
+                for row in cur.fetchall()
+            ]
+
+    employee_roles = []
+    for role_id, role_code in roles:
+        try:
+            _normalize_role_code(role_code)
+        except (ValueError, TenantRoleRequestRejected):
+            continue
+        employee_roles.append({"id": role_id, "code": role_code})
 
     membership_rows = [
         {
@@ -325,6 +351,9 @@ def users_detail_admin(request, user_id):
             "updated_at": u[6],
         },
         "memberships": membership_rows,
+        "employee_roles": employee_roles,
+        "registration_ready": registration_ready,
+        "registration_history": registration_history,
         "requests": request_rows,
         "joins": request_rows,
         "groups": [
@@ -377,62 +406,6 @@ def users_delete_admin(request, user_id):
     else:
         messages.success(request, "사용자 계정 개인정보가 삭제되었습니다.")
     return redirect("control:users_list_admin")
-
-
-@require_central_admin
-@csrf_protect
-def users_assign_group_admin(request, user_id):
-    if request.method != "POST":
-        return redirect("control:users_detail_admin", user_id=user_id)
-    group_id = request.POST.get("group_id")
-    role_id = request.POST.get("role_id")
-    if not group_id or not role_id:
-        messages.error(request, "그룹과 역할을 선택하세요.")
-        return redirect("control:users_detail_admin", user_id=user_id)
-
-    with connections["default"].cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO user_group_map(
-                id, user_id, group_id, role_id, status, created_at, updated_at
-            )
-            SELECT gen_random_uuid(), u.id, g.id, r.id, 'active', now(), now()
-              FROM users u
-              JOIN groups g
-                ON g.id=%s
-               AND lower(COALESCE(g.status, ''))='active'
-              JOIN roles r ON r.id=%s
-             WHERE u.id=%s
-               AND u.is_active=TRUE
-               AND u.email_verified=TRUE
-               AND u.password_hash IS NOT NULL
-               AND length(trim(u.password_hash)) > 0
-               AND (
-                   u.password_hash LIKE 'pbkdf2_sha256$%%'
-                   OR u.password_hash LIKE 'bcrypt_sha256$%%'
-                   OR u.password_hash LIKE '$2a$%%'
-                   OR u.password_hash LIKE '$2b$%%'
-                   OR u.password_hash LIKE '$2y$%%'
-               )
-            ON CONFLICT (user_id, group_id)
-            DO UPDATE SET role_id=EXCLUDED.role_id,
-                          status='active',
-                          updated_at=now()
-            RETURNING id
-            """,
-            [group_id, role_id, str(user_id)],
-        )
-        assigned = cur.fetchone() is not None
-
-    if not assigned:
-        messages.error(
-            request,
-            "활성화된 사용자와 유효한 그룹/역할만 지정할 수 있습니다.",
-        )
-        return redirect("control:users_detail_admin", user_id=user_id)
-
-    messages.success(request, "그룹/역할이 지정되었습니다.")
-    return redirect("control:users_detail_admin", user_id=user_id)
 
 
 @login_required

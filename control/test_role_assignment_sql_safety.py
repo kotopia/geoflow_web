@@ -4,8 +4,7 @@ import unittest
 
 class RoleAssignmentSQLSafetyTests(unittest.TestCase):
     def _source(self) -> str:
-        # Audit the handler actually wired by control/urls.py. A legacy duplicate
-        # remains in views_users_admin.py for compatibility but is not the route target.
+        # Audit the handler wired by control/urls.py and reused by employee registration.
         return Path(__file__).with_name("views_user_assignment.py").read_text(encoding="utf-8")
 
     def _template(self) -> str:

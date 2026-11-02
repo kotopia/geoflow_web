@@ -112,7 +112,7 @@ class CentralRouteAuthorizationContractTests(unittest.TestCase):
                 "users_detail_admin",
                 "users_delete_admin",
             ),
-            "views_user_assignment.py": ("users_assign_group_admin",),
+            "views_user_assignment.py": ("users_assign_group_admin", "users_register_employee_admin"),
             "views_groups_admin.py": (
                 "group_list_admin",
                 "group_create_admin",
