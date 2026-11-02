@@ -84,3 +84,10 @@ def review_save(request, notice_id):
 @require_POST
 def sync_now(request):
     return views.sync_now(request, _require_manage(request))
+
+
+@never_cache
+@login_required
+@require_POST
+def personal_save(request):
+    return views.personal_save(request, _require_view(request))

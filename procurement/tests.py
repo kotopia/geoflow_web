@@ -530,7 +530,9 @@ class TenantIsolationTests(TestCase):
                     cur.execute(importlib.import_module("geoflow_ops.migrations.0037_central_bid_reviews").SQL)
                     cur.execute(importlib.import_module("geoflow_ops.migrations.0038_bid_central_preferences").SQL)
                 else:
-                    cur.execute("ATTACH DATABASE ':memory:' AS bid")
+                    cur.execute("PRAGMA database_list")
+                    if "bid" not in {row[1] for row in cur.fetchall()}:
+                        cur.execute("ATTACH DATABASE ':memory:' AS bid")
                     cur.execute("CREATE TABLE bid.central_reviews (central_notice_id text PRIMARY KEY, status text, memo text)")
                     cur.execute("CREATE TABLE bid.central_preferences (id integer PRIMARY KEY,rule_ids text)")
 
@@ -637,7 +639,10 @@ class TenantIsolationTests(TestCase):
     def test_web_list_and_refresh_do_not_call_api(self):
         from geoflow_ops.bids.views import notice_list, sync_now
         request = RequestFactory().get('/bids/', {'region': 'nationwide', 'q': 'GIS', 'page': '3'})
-        with patch('geoflow_ops.bids.views.repository.load_filters', return_value={}), \
+        request.session = {}
+        with patch('geoflow_ops.bids.views.personal.user_id', return_value='00000000-0000-0000-0000-000000000001'), \
+             patch('geoflow_ops.bids.views.personal.rows', return_value={}), \
+             patch('geoflow_ops.bids.views.repository.load_filters', return_value={}), \
              patch('geoflow_ops.bids.views.render', side_effect=lambda req, template, ctx: ctx), \
              patch('geoflow_ops.bids.views.sync_service_notices') as legacy, \
              patch('procurement.client.urlopen') as api:

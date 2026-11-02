@@ -8,8 +8,11 @@ from django.db import IntegrityError
 from django.http import HttpResponseBadRequest
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_date
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 
-from . import repository
+from . import repository, personal
 from .client import G2BError
 from .sync import sync_service_notices
 from procurement.service import enabled as central_enabled
@@ -34,6 +37,22 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         page = 1
     region = str(request.GET.get("region") or "all") if central_enabled(alias) and not history else "all"
     extra = {"region": region} if central_enabled(alias) and not history else ({"reviewed_only": True} if history else {})
+    personal_view = request.GET.get('view', 'all')
+    if personal_view not in {'all', 'saved', 'hidden'}:
+        personal_view = 'all'
+    origin = 'central' if central_enabled(alias) and not history else 'legacy'
+    state = personal.rows(alias, personal.user_id(request), origin)
+    include_closed = history or request.GET.get('closed') == '1'
+    sort = 'new' if request.GET.get('sort') == 'new' else 'deadline'
+    try:
+        date_from = parse_date(request.GET.get('from', ''))
+        date_to = parse_date(request.GET.get('to', ''))
+    except ValueError:
+        return HttpResponseBadRequest('조회 날짜를 확인하세요.')
+    if date_from and date_to and date_from > date_to:
+        return HttpResponseBadRequest('시작일은 종료일보다 늦을 수 없습니다.')
+    extra.update(personal_state=state, personal_view=personal_view, include_closed=include_closed,
+                 date_from=date_from, date_to=date_to, sort=sort)
     region_tabs = []
     if central_enabled(alias) and not history:
         filters = repository.load_filters(alias)
@@ -43,7 +62,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
             params = request.GET.copy()
             params.pop("page", None)
             params["region"] = value
-            region_tabs.append(dict(label=label, active=region == value, query=params.urlencode()))
+            region_tabs.append(dict(value=value, label=label, active=region == value, query=params.urlencode()))
     total_count = repo.count_notices(
         alias, query=query, review_status=review_status, include_all=include_all, **extra
     )
@@ -57,6 +76,8 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         limit=per_page,
         offset=(page - 1) * per_page, **extra,
     )
+    for notice in notices:
+        notice['saved'] = state.get(str(notice['id']), {}).get('saved', False)
     query_params = request.GET.copy()
     query_params["per_page"] = str(per_page)
     query_params.pop("page", None)
@@ -70,7 +91,10 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         next_params["page"] = str(page + 1)
         next_query = next_params.urlencode()
     return render(request, "geoflow_ops/bids/notice_list.html", {
-        "notices": notices,
+        "notices": notices, "personal_view": personal_view, "include_closed": include_closed,
+        "sort": sort, "date_from": date_from, "date_to": date_to,
+        "return_to": request.get_full_path(),
+        "undo_ids": request.session.pop('bid_hidden_undo:' + alias, []),
         "region_tabs": region_tabs,
         "region": region,
         "query": query,
@@ -102,16 +126,26 @@ def settings_page(request, alias: str):
     selected = set(preferences.selected_ids(alias)) if central else set()
     rules = [dict(id=str(r.pk), name=r.name, kind=r.get_kind_display(), active=r.active,
                   selected=str(r.pk) in selected) for r in preferences.choices(alias)] if central else []
+    configured = repository.list_settings(alias)
     return render(request, "geoflow_ops/bids/settings.html", {
         "central_mode": central, "central_rules": rules,
-        "settings": repository.list_settings(alias),
+        "settings": configured,
+        "setting_groups": [dict(kind=kind, label=label, rows=configured.get(kind, []))
+                           for kind, label in [('region', '참가가능지역'), ('agency', '발주·수요기관'),
+                                               ('include', '결과 내 포함 키워드'), ('exclude', '제외 키워드')]
+                           + ([] if central else [('industry', '업종·면허')])],
         "latest_sync": repo.latest_sync(alias),
     })
 
 
 def filter_value_save(request, alias: str):
     try:
-        if central_enabled(alias) and request.POST.get("action") == "central_rules":
+        if request.POST.get("action") == "selection":
+            kind = request.POST.get('kind')
+            if kind == 'industry' and central_enabled(alias):
+                raise ValueError('업종은 중앙 수집조건에서 선택하세요.')
+            repository.save_selection(alias, kind, request.POST.getlist('selected_ids'))
+        elif central_enabled(alias) and request.POST.get("action") == "central_rules":
             preferences.save(alias, request.POST.getlist("rule_ids"))
         elif central_enabled(alias) and request.POST.get("kind") == "industry":
             raise ValueError("업종은 중앙 수집조건에서 선택하세요.")
@@ -127,7 +161,10 @@ def filter_value_save(request, alias: str):
 
 def keyword_save(request, alias: str):
     try:
-        repository.save_keyword(alias, request.POST)
+        if central_enabled(alias) and request.POST.get('rule_type') == 'collection':
+            preferences.add_keyword(alias, request.POST.get('keyword'))
+        else:
+            repository.save_keyword(alias, request.POST)
         if not central_enabled(alias):
             repository.reevaluate_all(alias)
     except (ValueError, IntegrityError) as exc:
@@ -174,3 +211,19 @@ def sync_now(request, alias: str):
             f"공고 {result['fetched']}건 조회, 신규 {result['inserted']}건, 변경 {result['updated']}건을 반영했습니다.",
         )
     return redirect("tenant:bid_notice_list")
+
+
+def personal_save(request, alias):
+    origin = 'central' if central_enabled(alias) else 'legacy'
+    try:
+        ids = personal.save(alias, personal.user_id(request), origin,
+                            request.POST.getlist('notice_ids'), request.POST.get('action'))
+    except ValueError as exc:
+        return HttpResponseBadRequest(str(exc))
+    if request.POST.get('action') == 'hide':
+        request.session['bid_hidden_undo:' + alias] = ids
+    target = request.POST.get('next', '')
+    path = reverse('tenant:bid_notice_list')
+    if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}, require_https=request.is_secure()) or target.split('?')[0] != path:
+        target = path
+    return redirect(target)
