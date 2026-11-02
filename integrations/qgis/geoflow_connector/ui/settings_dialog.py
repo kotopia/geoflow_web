@@ -22,6 +22,28 @@ class GeoFlowSettingsDialog(QDialog):
         self.cancelButton.clicked.connect(self.reject)
         self.saveButton.clicked.connect(self.save)
         self.reload()
+        from .direction_settings import DirectionSettingsEditor
+        self.direction_editor = DirectionSettingsEditor(self, plugin, self.service)
+        work = getattr(plugin, 'work', None)
+        for layer in plugin._managed_layers():
+            self.layoutLayerCombo.addItem(layer.name(), layer.id())
+        if work is not None:
+            index = self.layoutLayerCombo.findData(work.adapter.selected_layer_id())
+            if index >= 0: self.layoutLayerCombo.setCurrentIndex(index)
+        self.editLayoutButton.setEnabled(work is not None and self.layoutLayerCombo.count() > 0)
+        self.editLayoutButton.clicked.connect(self.edit_layout)
+        refresh_codes = getattr(plugin, 'refresh_reference_catalog', None)
+        self.referenceRefreshButton.setEnabled(callable(refresh_codes))
+        if callable(refresh_codes): self.referenceRefreshButton.clicked.connect(refresh_codes)
+
+    def edit_layout(self):
+        work = getattr(self.plugin, 'work', None)
+        if work is not None:
+            result = work.edit_form_layout(self.layoutLayerCombo.currentData(), parent=self)
+            if result is False:
+                QMessageBox.warning(self, '폼 배치', '선택 레이어의 중앙 폼 정의를 불러올 수 없습니다.')
+            elif result:
+                self.layoutNotice.setText('선택 레이어의 폼 배치를 저장했습니다. 현재 폼에도 반영되었습니다.')
 
     def reload(self):
         self.project_id = self.service.project_id()
@@ -48,6 +70,7 @@ class GeoFlowSettingsDialog(QDialog):
 
     def save(self):
         try:
+            direction_document = self.direction_editor.document()
             self.service.save_nearby(
                 default_radius_m=self.defaultRadiusSpin.value(),
                 depth_radius_m=self.depthRadiusSpin.value(),
@@ -61,10 +84,16 @@ class GeoFlowSettingsDialog(QDialog):
                 show_field_action_buttons=self.showFieldActionsCheck.isChecked(),
                 project_id=self.project_id,
             )
+            self.direction_editor.preferences.save(direction_document)
         except SettingsValidationError as exc:
+            self.direction_editor.focus_error(exc)
             QMessageBox.warning(self, "GeoFlow 환경설정", str(exc))
             return
         apply_form_preferences(self.plugin, self.service)
+        controller = getattr(self.plugin, 'edit_tools', None)
+        if controller is not None:
+            if controller._rotation_dialog is not None: controller._rotation_dialog.reject()
+            controller.refresh()
         self.accept()
 
 

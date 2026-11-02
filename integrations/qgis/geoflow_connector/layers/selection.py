@@ -112,9 +112,37 @@ class LayerWorkspaceState(QObject):
     def _active_changed(self, layer):
         if self._closed:
             return
+        if layer is None and self.selected_id in self.layers():
+            # Legend/renderer refresh can transiently clear QGIS' active layer.
+            # Keep the project-owned context and restore after the signal stack.
+            lid, scope = self.selected_id, self._scope
+            def restore():
+                if self._closed or self._scope != scope or self.selected_id != lid:
+                    return
+                state = self.plugin.integration_state()
+                if (state.get('epoch'), state.get('project_id'), state.get('ready')) != scope:
+                    return
+                target = self.layers().get(lid)
+                if (state.get('ready') and target is not None
+                        and QgsProject.instance().mapLayer(lid) is target
+                        and self.plugin.iface.activeLayer() is None):
+                    self.plugin.iface.setActiveLayer(target)
+            QTimer.singleShot(0, restore)
+            return
         lid = layer.id() if layer is not None else ''
         if not self.select_layer(lid, activate=False):
             self._set_selected('', activate=False, reveal=False)
+
+    def active_layer(self):
+        """Use a valid current-project context only when QGIS has no active layer."""
+        active = self.plugin.iface.activeLayer()
+        if active is not None:
+            return active
+        state = self.plugin.integration_state()
+        if (not state.get('ready') or
+                (state.get('epoch'), state.get('project_id'), state.get('ready')) != self._scope):
+            return None
+        return self.layers().get(self.selected_id)
 
     def _objects_changed(self, lid):
         layer = self.layers().get(lid)

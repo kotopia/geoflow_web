@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>363</width>
-    <height>381</height>
+    <height>571</height>
    </rect>
   </property>
   <layout class="QHBoxLayout" name="dock_layout">
@@ -82,15 +82,43 @@
       </item>
       <item>
        <widget class="QToolButton" name="GeoFlowRail_info">
-        <property name="minimumSize"><size><width>38</width><height>34</height></size></property>
-        <property name="maximumSize"><size><width>38</width><height>34</height></size></property>
-        <property name="toolTip"><string>프로젝트 정보</string></property>
-        <property name="accessibleName"><string>프로젝트 정보</string></property>
-        <property name="text"><string/></property>
-        <property name="icon"><iconset resource="../../resources/tabler.qrc"><normaloff>:/geoflow/tabler/info-circle.svg</normaloff>:/geoflow/tabler/info-circle.svg</iconset></property>
-        <property name="iconSize"><size><width>20</width><height>20</height></size></property>
-        <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property>
-        <property name="autoRaise"><bool>true</bool></property>
+        <property name="minimumSize">
+         <size>
+          <width>38</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>38</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>프로젝트 정보</string>
+        </property>
+        <property name="accessibleName">
+         <string>프로젝트 정보</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+        <property name="icon">
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/info-circle.svg</normaloff>:/geoflow/tabler/info-circle.svg</iconset>
+        </property>
+        <property name="iconSize">
+         <size>
+          <width>20</width>
+          <height>20</height>
+         </size>
+        </property>
+        <property name="toolButtonStyle">
+         <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
+        </property>
        </widget>
       </item>
       <item>
@@ -132,6 +160,47 @@
        </widget>
       </item>
       <item>
+       <widget class="QToolButton" name="GeoFlowRail_survey">
+        <property name="minimumSize">
+         <size>
+          <width>38</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>38</width>
+          <height>34</height>
+         </size>
+        </property>
+        <property name="toolTip">
+         <string>Survey 목록 / CSV·XLSX Import</string>
+        </property>
+        <property name="accessibleName">
+         <string>GeoFlow Survey</string>
+        </property>
+        <property name="text">
+         <string>Survey</string>
+        </property>
+        <property name="icon">
+         <iconset resource="../../resources/tabler.qrc">
+          <normaloff>:/geoflow/tabler/map-pinned.svg</normaloff>:/geoflow/tabler/map-pinned.svg</iconset>
+        </property>
+        <property name="iconSize">
+         <size>
+          <width>22</width>
+          <height>22</height>
+         </size>
+        </property>
+        <property name="toolButtonStyle">
+         <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QToolButton" name="GeoFlowRail_select">
         <property name="minimumSize">
          <size>
@@ -146,10 +215,13 @@
          </size>
         </property>
         <property name="toolTip">
-         <string>객체 선택</string>
+         <string>클릭: 단일 선택 · 드래그: 영역 선택 · Shift 추가 / Ctrl 해제 · Esc 취소</string>
         </property>
         <property name="accessibleName">
          <string>객체 선택</string>
+        </property>
+        <property name="styleSheet">
+         <string>QToolButton:checked { background-color: #dbeafe; border: 1px solid #3b7ddd; border-radius: 4px; }</string>
         </property>
         <property name="text">
          <string>객</string>
@@ -164,81 +236,8 @@
           <height>22</height>
          </size>
         </property>
-        <property name="autoRaise">
+        <property name="checkable">
          <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QToolButton" name="GeoFlowRail_save">
-        <property name="minimumSize">
-         <size>
-          <width>38</width>
-          <height>34</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>38</width>
-          <height>34</height>
-         </size>
-        </property>
-        <property name="toolTip">
-         <string>현재 폼 로컬 저장</string>
-        </property>
-        <property name="accessibleName">
-         <string>현재 폼 로컬 저장</string>
-        </property>
-        <property name="text">
-         <string>현</string>
-        </property>
-        <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/save.svg</normaloff>:/geoflow/feather/save.svg</iconset>
-        </property>
-        <property name="iconSize">
-         <size>
-          <width>22</width>
-          <height>22</height>
-         </size>
-        </property>
-        <property name="autoRaise">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QToolButton" name="GeoFlowRail_zoom">
-        <property name="minimumSize">
-         <size>
-          <width>38</width>
-          <height>34</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>38</width>
-          <height>34</height>
-         </size>
-        </property>
-        <property name="toolTip">
-         <string>선택 레이어 범위 이동</string>
-        </property>
-        <property name="accessibleName">
-         <string>선택 레이어 범위 이동</string>
-        </property>
-        <property name="text">
-         <string>선</string>
-        </property>
-        <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/zoom-in.svg</normaloff>:/geoflow/feather/zoom-in.svg</iconset>
-        </property>
-        <property name="iconSize">
-         <size>
-          <width>22</width>
-          <height>22</height>
-         </size>
         </property>
         <property name="autoRaise">
          <bool>true</bool>
@@ -248,38 +247,45 @@
       <item>
        <widget class="QToolButton" name="editModeButton">
         <property name="minimumSize">
-         <size><width>38</width><height>34</height></size>
+         <size>
+          <width>38</width>
+          <height>34</height>
+         </size>
         </property>
         <property name="maximumSize">
-         <size><width>38</width><height>34</height></size>
+         <size>
+          <width>38</width>
+          <height>34</height>
+         </size>
         </property>
-        <property name="text"><string/></property>
+        <property name="toolTip">
+         <string>편집 도구</string>
+        </property>
+        <property name="accessibleName">
+         <string>편집 도구</string>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
         <property name="icon">
          <iconset resource="../../resources/tabler.qrc">
           <normaloff>:/geoflow/tabler/pencil.svg</normaloff>:/geoflow/tabler/pencil.svg</iconset>
         </property>
-        <property name="iconSize"><size><width>20</width><height>20</height></size></property>
-        <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property>
-        <property name="autoRaise"><bool>true</bool></property>
-        <property name="checkable"><bool>true</bool></property>
-        <property name="toolTip"><string>편집 도구</string></property>
-        <property name="accessibleName"><string>편집 도구</string></property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QToolButton" name="GeoFlowRail_sync">
-        <property name="minimumSize"><size><width>38</width><height>34</height></size></property>
-        <property name="maximumSize"><size><width>38</width><height>34</height></size></property>
-        <property name="text"><string/></property>
-        <property name="icon">
-         <iconset resource="../../resources/tabler.qrc">
-          <normaloff>:/geoflow/tabler/cloud-exclamation.svg</normaloff>:/geoflow/tabler/cloud-exclamation.svg</iconset>
+        <property name="iconSize">
+         <size>
+          <width>20</width>
+          <height>20</height>
+         </size>
         </property>
-        <property name="iconSize"><size><width>20</width><height>20</height></size></property>
-        <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum></property>
-        <property name="autoRaise"><bool>true</bool></property>
-        <property name="toolTip"><string>동기화 센터</string></property>
-        <property name="accessibleName"><string>동기화 센터</string></property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="toolButtonStyle">
+         <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
+        </property>
+        <property name="autoRaise">
+         <bool>true</bool>
+        </property>
        </widget>
       </item>
       <item>
@@ -311,7 +317,7 @@
         </property>
         <property name="icon">
          <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/menu.svg</normaloff>:/geoflow/feather/menu.svg</iconset>
+          <normaloff>:/geoflow/feather/settings.svg</normaloff>:/geoflow/feather/settings.svg</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -324,44 +330,6 @@
         </property>
         <property name="toolButtonStyle">
          <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
-        </property>
-        <property name="autoRaise">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QToolButton" name="GeoFlowRail_drafts">
-        <property name="minimumSize">
-         <size>
-          <width>38</width>
-          <height>34</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>38</width>
-          <height>34</height>
-         </size>
-        </property>
-        <property name="toolTip">
-         <string>보존 입력</string>
-        </property>
-        <property name="accessibleName">
-         <string>보존 입력</string>
-        </property>
-        <property name="text">
-         <string>보</string>
-        </property>
-        <property name="icon">
-         <iconset resource="../../resources/feather.qrc">
-          <normaloff>:/geoflow/feather/clipboard.svg</normaloff>:/geoflow/feather/clipboard.svg</iconset>
-        </property>
-        <property name="iconSize">
-         <size>
-          <width>22</width>
-          <height>22</height>
-         </size>
         </property>
         <property name="autoRaise">
          <bool>true</bool>

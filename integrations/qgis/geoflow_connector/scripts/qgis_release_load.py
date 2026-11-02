@@ -6,7 +6,8 @@ from pathlib import Path
 import pkgutil
 import traceback
 from qgis.PyQt.QtCore import QTimer
-from qgis.core import Qgis, QgsApplication, QgsProject, QgsVectorLayer, QgsVectorFileWriter
+from qgis.core import (Qgis, QgsApplication, QgsProject, QgsVectorLayer, QgsVectorFileWriter,
+                       QgsFeature, QgsGeometry, QgsMarkerSymbol)
 import qgis.utils
 
 CONFIG = json.loads(Path(os.environ['GEOFLOW_RELEASE_CHECK']).read_text(encoding='utf-8'))
@@ -37,7 +38,10 @@ def check():
                       class_factory=True, init_gui=True, login_ui=True, dynamic_form_host=True)
         project = QgsProject.instance()
         if CONFIG['phase'] == 1:
-            layer = QgsVectorLayer('Point?crs=EPSG:4326&field=id:string', 'release-reload-check', 'memory')
+            layer = QgsVectorLayer('Point?crs=EPSG:5186&field=id:string&field=ang_dir:double', 'release-reload-check', 'memory')
+            feature = QgsFeature(layer.fields()); feature['id'] = 'temporary-cad-test'; feature['ang_dir'] = 135.125
+            feature.setGeometry(QgsGeometry.fromWkt('POINT(200000 600000)'))
+            assert layer.dataProvider().addFeatures([feature])[0]
             options = QgsVectorFileWriter.SaveVectorOptions()
             options.driverName = 'GPKG'
             gpkg = str(Path(CONFIG['profile_root']) / 'reload.gpkg')
@@ -45,13 +49,33 @@ def check():
             assert outcome[0] == QgsVectorFileWriter.NoError, outcome
             persistent = QgsVectorLayer(gpkg, 'release-reload-check', 'ogr')
             assert persistent.isValid()
+            from types import SimpleNamespace
+            from geoflow_connector.services.direction import DirectionService
+            field = dict(id='temporary-angle',layer_id='temporary-layer',storage=dict(kind='column',key='ang_dir'),
+                         direction=dict(zero_axis='east',positive_direction='counterclockwise',symbol_offset=0,allow_reverse=True))
+            persistent.setCustomProperty('geoflow/definition_layer_id','temporary-layer')
+            persistent.renderer().setSymbol(QgsMarkerSymbol.createSimple({'name':'arrow','angle':'0'}))
+            fixture = SimpleNamespace(_managed_layers=lambda:[persistent],
+                                     _definition_service=SimpleNamespace(definition={'fields':[field]}))
+            DirectionService(fixture).bind_renderer(persistent)
             project.addMapLayer(persistent)
             assert project.write(CONFIG['project'])
         else:
             assert project.read(CONFIG['project'])
             assert any(layer.name() == 'release-reload-check' and layer.isValid()
                        for layer in project.mapLayers().values())
+            persistent = next(layer for layer in project.mapLayers().values() if layer.name()=='release-reload-check')
+            assert next(persistent.getFeatures())['ang_dir'] == 135.125
+            assert persistent.renderer().symbol().dataDefinedAngle().field() == 'ang_dir'
+            result['cad_value_and_renderer_after_process_restart'] = True
         result['project_save_or_reload'] = True
+        if CONFIG.get('flow_script'):
+            import runpy
+            runpy.run_path(CONFIG['flow_script'],run_name='release_flow_check')
+            result['ui_flow_script'] = 'passed'
+            for name, imported in list(__import__('sys').modules.items()):
+                if name.startswith('geoflow_connector') and getattr(imported,'__file__',None):
+                    assert Path(imported.__file__).resolve().is_relative_to(expected), name
         assert qgis.utils.unloadPlugin('geoflow_connector')
         result['ok'] = True
     except Exception:

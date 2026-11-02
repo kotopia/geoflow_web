@@ -15,6 +15,12 @@
     border: none;
 }
 
+/* Reserve the full height of the tab-corner photo/save controls. */
+#GeoFlowDynamicForm QTabBar::tab {
+    min-height: 28px;
+    padding: 3px 12px;
+}
+
 #GeoFlowDynamicForm QToolButton[fieldAction="true"] {
     padding: 0;
     color: #495057;

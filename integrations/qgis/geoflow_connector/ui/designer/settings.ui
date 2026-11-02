@@ -1,50 +1,519 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>GeoFlowSettingsDialog</class>
  <widget class="QDialog" name="GeoFlowSettingsDialog">
-  <property name="windowTitle"><string>GeoFlow 환경설정</string></property>
-  <property name="minimumSize"><size><width>500</width><height>390</height></size></property>
+  <property name="windowTitle">
+   <string>GeoFlow 환경설정</string>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>500</width>
+    <height>390</height>
+   </size>
+  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
-   <item><widget class="QLabel" name="projectLabel"><property name="text"><string>프로젝트 설정</string></property></widget></item>
-   <item><widget class="QTabWidget" name="settingsTabs">
-    <widget class="QWidget" name="nearbyTab"><attribute name="title"><string>주변값</string></attribute>
-     <layout class="QFormLayout" name="nearbyLayout">
-      <item row="0" column="0"><widget class="QLabel" name="defaultRadiusLabel"><property name="text"><string>기본 주변값 검색 반경</string></property></widget></item>
-      <item row="0" column="1"><widget class="QDoubleSpinBox" name="defaultRadiusSpin"><property name="decimals"><number>1</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10000.000000000000000</double></property><property name="suffix"><string> m</string></property></widget></item>
-      <item row="1" column="0"><widget class="QLabel" name="depthRadiusLabel"><property name="text"><string>심도 계산 검색 반경</string></property></widget></item>
-      <item row="1" column="1"><widget class="QDoubleSpinBox" name="depthRadiusSpin"><property name="decimals"><number>1</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10000.000000000000000</double></property><property name="suffix"><string> m</string></property></widget></item>
-      <item row="2" column="0"><widget class="QLabel" name="manholeRadiusLabel"><property name="text"><string>맨홀 속성 복사 검색 반경</string></property></widget></item>
-      <item row="2" column="1"><widget class="QDoubleSpinBox" name="manholeRadiusSpin"><property name="decimals"><number>1</number></property><property name="minimum"><double>0.100000000000000</double></property><property name="maximum"><double>10000.000000000000000</double></property><property name="suffix"><string> m</string></property></widget></item>
-      <item row="3" column="0" colspan="2"><widget class="QCheckBox" name="nearestFirstCheck"><property name="text"><string>가장 가까운 객체 우선</string></property></widget></item>
-     </layout>
+   <item>
+    <widget class="QLabel" name="projectLabel">
+     <property name="text">
+      <string>프로젝트 설정</string>
+     </property>
     </widget>
-    <widget class="QWidget" name="geometryTab"><attribute name="title"><string>도형</string></attribute>
-     <layout class="QFormLayout" name="geometryLayout">
-      <item row="0" column="0"><widget class="QLabel" name="upperArcLabel"><property name="text"><string>상단 호 크기</string></property></widget></item>
-      <item row="0" column="1"><widget class="QDoubleSpinBox" name="upperArcSpin"><property name="enabled"><bool>false</bool></property></widget></item>
-      <item row="1" column="0"><widget class="QLabel" name="lowerArcLabel"><property name="text"><string>하단 호 크기</string></property></widget></item>
-      <item row="1" column="1"><widget class="QDoubleSpinBox" name="lowerArcSpin"><property name="enabled"><bool>false</bool></property></widget></item>
-      <item row="2" column="0" colspan="2"><widget class="QLabel" name="geometryNotice"><property name="text"><string>현재 호 생성 기능의 단위·렌더링 계약이 없어 비활성화되어 있습니다.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-     </layout>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="settingsTabs">
+     <widget class="QWidget" name="nearbyTab">
+      <attribute name="title">
+       <string>주변값</string>
+      </attribute>
+      <layout class="QFormLayout" name="nearbyLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="defaultRadiusLabel">
+         <property name="text">
+          <string>기본 주변값 검색 반경</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QDoubleSpinBox" name="defaultRadiusSpin">
+         <property name="decimals">
+          <number>1</number>
+         </property>
+         <property name="minimum">
+          <double>0.100000000000000</double>
+         </property>
+         <property name="maximum">
+          <double>10000.000000000000000</double>
+         </property>
+         <property name="suffix">
+          <string> m</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="depthRadiusLabel">
+         <property name="text">
+          <string>심도 계산 검색 반경</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QDoubleSpinBox" name="depthRadiusSpin">
+         <property name="decimals">
+          <number>1</number>
+         </property>
+         <property name="minimum">
+          <double>0.100000000000000</double>
+         </property>
+         <property name="maximum">
+          <double>10000.000000000000000</double>
+         </property>
+         <property name="suffix">
+          <string> m</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="manholeRadiusLabel">
+         <property name="text">
+          <string>맨홀 속성 복사 검색 반경</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QDoubleSpinBox" name="manholeRadiusSpin">
+         <property name="decimals">
+          <number>1</number>
+         </property>
+         <property name="minimum">
+          <double>0.100000000000000</double>
+         </property>
+         <property name="maximum">
+          <double>10000.000000000000000</double>
+         </property>
+         <property name="suffix">
+          <string> m</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0" colspan="2">
+        <widget class="QCheckBox" name="nearestFirstCheck">
+         <property name="text">
+          <string>가장 가까운 객체 우선</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="geometryTab">
+      <attribute name="title">
+       <string>도형</string>
+      </attribute>
+      <layout class="QFormLayout" name="geometryLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="upperArcLabel">
+         <property name="text">
+          <string>상단 호 크기</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QDoubleSpinBox" name="upperArcSpin">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="lowerArcLabel">
+         <property name="text">
+          <string>하단 호 크기</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QDoubleSpinBox" name="lowerArcSpin">
+         <property name="enabled">
+          <bool>false</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0" colspan="2">
+        <widget class="QLabel" name="geometryNotice">
+         <property name="text">
+          <string>현재 호 생성 기능의 단위·렌더링 계약이 없어 비활성화되어 있습니다.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="formTab">
+      <attribute name="title">
+       <string>폼</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="formLayout">
+       <item>
+        <widget class="QCheckBox" name="showNearbyCheck">
+         <property name="text">
+          <string>주변값 버튼 표시</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="showPreviousCheck">
+         <property name="text">
+          <string>이전값 버튼 표시</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="showFieldActionsCheck">
+         <property name="text">
+          <string>필드 action 버튼 표시</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="layoutNotice">
+         <property name="text">
+          <string>레이어를 선택하여 이 PC의 폼 배치를 편집합니다. 배치와 코드 새로고침은 즉시 반영됩니다.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="layoutLayerCombo" />
+       </item>
+       <item>
+        <widget class="QPushButton" name="editLayoutButton">
+         <property name="text">
+          <string>선택 레이어 폼 배치 편집</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="referenceRefreshButton">
+         <property name="text">
+          <string>코드 새로고침</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="formSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="directionTab">
+      <attribute name="title">
+       <string>방향각</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="directionLayout">
+       <item>
+        <widget class="QScrollArea" name="directionScroll">
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="directionScrollContents">
+          <layout class="QVBoxLayout" name="directionScrollLayout">
+           <item>
+            <widget class="QLabel" name="directionHelp">
+             <property name="text">
+              <string>현재 서버·프로젝트의 로컬 설정입니다. 기준선의 가장 가까운 선분을 반경 내에서 검색합니다. 설정 저장은 기존 각도값이나 서버 정의를 바꾸지 않습니다.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="directionRulesGroup">
+             <property name="title">
+              <string>운영 저장 기준 · EPSG:5186 좌표축 · 동쪽 0° / 북쪽 90°</string>
+             </property>
+             <layout class="QFormLayout" name="directionRulesLayout">
+              <item row="0" column="0">
+               <widget class="QLabel" name="directionZeroComboLabel">
+                <property name="text">
+                 <string>0° 방향</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="directionZeroCombo" />
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="directionPositiveComboLabel">
+                <property name="text">
+                 <string>각도 증가 방향</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="directionPositiveCombo" />
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="directionFacilityGroup">
+             <property name="title">
+              <string>시설별 설정</string>
+             </property>
+             <layout class="QFormLayout" name="directionFacilityLayout">
+              <item row="0" column="0">
+               <widget class="QLabel" name="directionFacilityComboLabel">
+                <property name="text">
+                 <string>시설 레이어</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="directionFacilityCombo" />
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="directionUseCheckLabel">
+                <property name="text">
+                 <string>적용</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QCheckBox" name="directionUseCheck">
+                <property name="text">
+                 <string>이 시설에 로컬 설정 사용 (해제하면 중앙 설정 사용)</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="directionFieldComboLabel">
+                <property name="text">
+                 <string>기존 방향각 필드</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="directionFieldCombo" />
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="directionReferenceListLabel">
+                <property name="text">
+                 <string>기준선 레이어 (복수 선택)</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QListWidget" name="directionReferenceList">
+                <property name="maximumHeight">
+                 <number>110</number>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="directionRadiusSpinLabel">
+                <property name="text">
+                 <string>시설과 선 사이 허용 거리</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QDoubleSpinBox" name="directionRadiusSpin">
+                <property name="decimals">
+                 <number>3</number>
+                </property>
+                <property name="minimum">
+                 <double>0.001</double>
+                </property>
+                <property name="maximum">
+                 <double>10000</double>
+                </property>
+                <property name="value">
+                 <double>2</double>
+                </property>
+                <property name="suffix">
+                 <string> m</string>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="0">
+               <widget class="QLabel" name="directionOffsetSpinLabel">
+                <property name="text">
+                 <string>심볼 방향 보정</string>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="1">
+               <widget class="QDoubleSpinBox" name="directionOffsetSpin">
+                <property name="decimals">
+                 <number>3</number>
+                </property>
+                <property name="minimum">
+                 <double>-360</double>
+                </property>
+                <property name="maximum">
+                 <double>360</double>
+                </property>
+                <property name="suffix">
+                 <string> °</string>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="0">
+               <widget class="QLabel" name="directionOnLineCheckLabel">
+                <property name="text">
+                 <string>일치 조건</string>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="1">
+               <widget class="QCheckBox" name="directionOnLineCheck">
+                <property name="text">
+                 <string>선 위 일치만 계산 (위치 이동 없음)</string>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="0">
+               <widget class="QLabel" name="directionDiameterCheckLabel">
+                <property name="text">
+                 <string>속성 기준 방향</string>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="1">
+               <widget class="QCheckBox" name="directionDiameterCheck">
+                <property name="text">
+                 <string>관경이 작은 관로 쪽으로 계산</string>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="0">
+               <widget class="QLabel" name="directionFilterComboLabel">
+                <property name="text">
+                 <string>적용할 시설 구분 필드</string>
+                </property>
+               </widget>
+              </item>
+              <item row="8" column="1">
+               <widget class="QComboBox" name="directionFilterCombo" />
+              </item>
+              <item row="9" column="0">
+               <widget class="QLabel" name="directionFilterValueLabel">
+                <property name="text">
+                 <string>구분 코드값</string>
+                </property>
+               </widget>
+              </item>
+              <item row="9" column="1">
+               <widget class="QLineEdit" name="directionFilterValue" />
+              </item>
+              <item row="10" column="0">
+               <widget class="QLabel" name="directionDiameterTableLabel">
+                <property name="text">
+                 <string>기준선별 관경 필드 (같은 단위)</string>
+                </property>
+               </widget>
+              </item>
+              <item row="10" column="1">
+               <widget class="QTableWidget" name="directionDiameterTable">
+                <property name="maximumHeight">
+                 <number>125</number>
+                </property>
+                <column>
+                 <property name="text">
+                  <string>기준선</string>
+                 </property>
+                </column>
+                <column>
+                 <property name="text">
+                  <string>관경 숫자 필드</string>
+                 </property>
+                </column>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="directionStatus">
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="directionFooter">
+             <property name="text">
+              <string>가까운 후보 중 버텍스 간 거리가 긴 선분을 우선합니다. 길이가 같으면 객체 ID, 같은 객체이면 파트·선분 순서로 선택합니다. 기존 값은 자동 변환하지 않습니다. 직접 회전은 지도에서 확대된 심볼을 드래그하며 주변 기준선 없이 사용할 수 있습니다.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
-    <widget class="QWidget" name="formTab"><attribute name="title"><string>폼</string></attribute>
-     <layout class="QVBoxLayout" name="formLayout">
-      <item><widget class="QCheckBox" name="showNearbyCheck"><property name="text"><string>주변값 버튼 표시</string></property></widget></item>
-      <item><widget class="QCheckBox" name="showPreviousCheck"><property name="text"><string>이전값 버튼 표시</string></property></widget></item>
-      <item><widget class="QCheckBox" name="showFieldActionsCheck"><property name="text"><string>필드 action 버튼 표시</string></property></widget></item>
-      <item><widget class="QLabel" name="layoutNotice"><property name="text"><string>폼 배치 편집 기능은 이 설정과 독립적으로 유지됩니다.</string></property></widget></item>
-      <item><spacer name="formSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
-     </layout>
-    </widget>
-   </widget></item>
-   <item><layout class="QHBoxLayout" name="buttonLayout">
-    <item><widget class="QPushButton" name="defaultsButton"><property name="text"><string>기본값</string></property></widget></item>
-    <item><spacer name="buttonSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
-    <item><widget class="QPushButton" name="cancelButton"><property name="text"><string>취소</string></property></widget></item>
-    <item><widget class="QPushButton" name="saveButton"><property name="text"><string>저장</string></property><property name="default"><bool>true</bool></property></widget></item>
-   </layout></item>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="buttonLayout">
+     <item>
+      <widget class="QPushButton" name="defaultsButton">
+       <property name="text">
+        <string>기본값</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="buttonSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancelButton">
+       <property name="text">
+        <string>취소</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="saveButton">
+       <property name="text">
+        <string>저장</string>
+       </property>
+       <property name="default">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
   </layout>
  </widget>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>

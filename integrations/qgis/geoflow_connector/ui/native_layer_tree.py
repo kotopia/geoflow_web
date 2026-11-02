@@ -16,7 +16,7 @@ from qgis.core import QgsLayerTreeGroup, QgsLayerTreeLayer, QgsLayerTreeModel, Q
 from qgis.gui import QgsLayerTreeView
 
 
-_ICON_ROOT = Path(__file__).resolve().parents[1] / "resources" / "icons" / "feather"
+_ICON_ROOT = Path(__file__).resolve().parents[1] / "resources" / "icons" / "tabler"
 
 
 class GeoFlowLayerTreeModel(QgsLayerTreeModel):
@@ -30,7 +30,7 @@ class GeoFlowLayerTreeModel(QgsLayerTreeModel):
         return None
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if (self._direct_layer_node(index) is not None
+        if ((self._direct_layer_node(index) is not None or self.index2legendNode(index) is not None)
                 and role == Qt.ItemDataRole.CheckStateRole):
             return None
         return super().data(index, role)
@@ -45,7 +45,7 @@ class GeoFlowLayerTreeModel(QgsLayerTreeModel):
 class GeoFlowLayerTreeDelegate(QStyledItemDelegate):
     """Add the GeoFlow eye/count presentation without copying tree data."""
 
-    EYE_WIDTH = 22
+    EYE_WIDTH = 18
 
     def __init__(self, view):
         super().__init__(view)
@@ -73,7 +73,7 @@ class GeoFlowLayerTreeDelegate(QStyledItemDelegate):
         return opt
 
     def eye_rect(self, option):
-        size = min(16, max(12, option.rect.height() - 6))
+        size = 12
         return QRect(
             option.rect.left() + 2,
             option.rect.center().y() - size // 2,
@@ -83,14 +83,19 @@ class GeoFlowLayerTreeDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index):
         node = self.view.node_for_index(index)
-        if not isinstance(node, QgsLayerTreeLayer):
+        legend = self.view.legend_for_index(index)
+        checkable_legend = legend is not None and bool(legend.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+        if not isinstance(node, QgsLayerTreeLayer) and not checkable_legend:
             return super().paint(
                 painter, self._typed_option(option, index, node), index
             )
 
-        count = self.view.feature_count(node.layerId())
-        count_text = f"  {count}" if self.view.count_visible else ""
+        count = self.view.feature_count(node.layerId()) if isinstance(node, QgsLayerTreeLayer) else None
+        count_text = f"  {count}" if self.view.count_visible and count is not None else ""
         layer_option = self._typed_option(option, index, node)
+        layer_option.showDecorationSelected = True
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(option.rect, option.palette.brush(QPalette.ColorRole.Highlight))
         small = self._small_font(layer_option.font)
         count_width = (
             QFontMetrics(small).horizontalAdvance(count_text) + 7
@@ -104,7 +109,8 @@ class GeoFlowLayerTreeDelegate(QStyledItemDelegate):
         opt.rect = opt.rect.adjusted(self.EYE_WIDTH, 0, -count_width, 0)
         super().paint(painter, opt, index)
 
-        visible = bool(node.isVisible())
+        visible = bool(node.isVisible()) if isinstance(node, QgsLayerTreeLayer) else (
+            legend.data(Qt.ItemDataRole.CheckStateRole) != Qt.CheckState.Unchecked)
         icon = self.eye_on if visible else self.eye_off
         icon.paint(painter, self.eye_rect(option), Qt.AlignmentFlag.AlignCenter)
 
@@ -219,6 +225,34 @@ class GeoFlowNativeLayerTree(QgsLayerTreeView):
                 and self.native_model.node2index(node) != source):
             return None
         return node
+
+    def legend_for_index(self, view_index):
+        if self.native_model is None or not view_index.isValid(): return None
+        return self.native_model.index2legendNode(self.viewIndexToLayerTreeModelIndex(view_index))
+
+    def _toggle_visibility(self, index):
+        node = self.node_for_index(index)
+        legend = self.legend_for_index(index)
+        if isinstance(node, QgsLayerTreeLayer):
+            checked = not node.isVisible()
+            node.setItemVisibilityChecked(checked)
+            if checked: node.setItemVisibilityCheckedParentRecursive(True)
+        elif legend is not None and legend.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+            current = legend.data(Qt.ItemDataRole.CheckStateRole)
+            checked = Qt.CheckState.Checked if current == Qt.CheckState.Unchecked else Qt.CheckState.Unchecked
+            source = self.viewIndexToLayerTreeModelIndex(index)
+            self.native_model.setData(source, checked, Qt.ItemDataRole.CheckStateRole)
+        else:
+            return False
+        self.viewport().update()
+        self.plugin.iface.mapCanvas().refresh()
+        return True
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Space and self._toggle_visibility(self.currentIndex()):
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     @staticmethod
     def _node_key(node):
@@ -395,18 +429,13 @@ class GeoFlowNativeLayerTree(QgsLayerTreeView):
         position = event.position().toPoint() if hasattr(event, "position") else event.pos()
         index = self.indexAt(position)
         node = self.node_for_index(index)
-        if isinstance(node, QgsLayerTreeLayer):
+        if isinstance(node, QgsLayerTreeLayer) or self.legend_for_index(index) is not None:
             option = QStyleOptionViewItem()
             option.rect = self.visualRect(index)
             if self.itemDelegate().eye_rect(option).contains(position):
-                checked = not node.isVisible()
-                node.setItemVisibilityChecked(checked)
-                if checked:
-                    node.setItemVisibilityCheckedParentRecursive(True)
-                self.viewport().update()
-                self.plugin.iface.mapCanvas().refresh()
-                event.accept()
-                return
+                if self._toggle_visibility(index):
+                    event.accept()
+                    return
         super().mousePressEvent(event)
         if index.isValid():
             self._expansion_changed(index)

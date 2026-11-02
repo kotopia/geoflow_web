@@ -36,6 +36,18 @@ class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
         self.assertNotIn("apply_qgis_plugin_s3_access.py", workflow)
         self.assertNotIn("iam:", workflow.lower())
 
+    def test_stable_only_workflow_preserves_operational_boundaries(self):
+        workflow = (ROOT / '.github/workflows/qgis-plugin-stable-repository-publish.yml').read_text(encoding='utf-8')
+        for token in ('workflow_dispatch:', 'environment: production',
+                      'PUBLISH_QGIS_PLUGIN:stable:geoflow-upload:qgis-plugins',
+                      '--release-manifest', '--inventory', '--verify-http',
+                      'stable_release_descriptor_mismatch', 'merge-base',
+                      'StrictHostKeyChecking=yes', 'flock -x 9'):
+            self.assertIn(token, workflow)
+        for forbidden in ('  push:', 'systemctl restart', 'migrate_all_tenants',
+                          'manage.py migrate', 'aws s3 sync', 'iam:', 'git reset --hard'):
+            self.assertNotIn(forbidden, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

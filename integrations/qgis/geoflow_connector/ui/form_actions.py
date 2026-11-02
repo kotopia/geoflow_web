@@ -20,24 +20,16 @@ class FormActionToolbar(QWidget):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.saveButton.setIcon(QIcon(":/geoflow/feather/save.svg"))
-        self.previousButton.setIcon(QIcon(":/geoflow/tabler/history.svg"))
-        self.nearbyButton.setIcon(QIcon(":/geoflow/tabler/location-search.svg"))
-        self.layoutButton.setIcon(QIcon(":/geoflow/tabler/layout.svg"))
-        self.referenceRefreshButton.setIcon(QIcon(":/geoflow/tabler/refresh.svg"))
-        self.photoButton.setIcon(QIcon(":/geoflow/feather/camera.svg"))
-        for button in (
-            self.saveButton, self.previousButton, self.nearbyButton,
-            self.layoutButton, self.referenceRefreshButton, self.photoButton,
-        ):
-            configure_field_action_button(button)
-            button.setVisible(True)
-
+        self.tabActions = QWidget(self)
+        loadUi(str(Path(__file__).parent / 'designer' / 'form_tab_actions.ui'), self.tabActions)
+        self.saveButton = self.tabActions.saveButton
+        self.photoButton = self.tabActions.photoButton
     def set_layer_title(self, title):
-        self.layerTitleLabel.setText(str(title or ""))
+        # The layer tree already identifies the active layer.
+        self.setAccessibleName(str(title or '') + ' 작업 도구')
 
     def apply_preferences(self, settings_service, project_id=None):
-        """Apply only optional actions; save/layout/reference/photo stay intact."""
+        """Apply optional value-copy actions; calculation and tab actions stay visible."""
         self.nearbyButton.setVisible(
             settings_service.show_nearby_button(project_id)
         )

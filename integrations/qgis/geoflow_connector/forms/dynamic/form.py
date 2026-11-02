@@ -226,8 +226,8 @@ class DynamicForm(QWidget):
                 allowed_code_ids(self.definition, field["id"], values)
             )
 
-    def validation_errors(self):
-        values = self.save_values()
+    def validation_errors(self, values=None):
+        values = self.save_values() if values is None else values
         validation_fields = []
         for field in self.fields:
             if self._behavior_active.get(field["id"], True):

@@ -1,9 +1,7 @@
 """Expose a small dock entry that opens the modeless Survey work window."""
 from pathlib import Path
 
-from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QToolButton
 try:
     from qgis.PyQt.QtGui import QAction
 except ImportError:
@@ -42,15 +40,8 @@ class SurveyIntegrationMixin:
         super()._ensure_ui()
         if self._survey_button is None:
             root = self.presentation.root
-            self._survey_button = QToolButton(root.rail)
-            self._survey_button.setObjectName("GeoFlowRail_survey")
-            self._survey_button.setDefaultAction(self._survey_action)
-            self._survey_button.setText("Survey")
-            self._survey_button.setAccessibleName("GeoFlow Survey")
-            self._survey_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-            self._survey_button.setFixedSize(38, 34)
-            project_index = root.rail_layout.indexOf(root.GeoFlowRail_projects)
-            root.rail_layout.insertWidget(project_index + 1, self._survey_button)
+            self._survey_button = root.GeoFlowRail_survey
+            self._survey_button.clicked.connect(self._survey_action.trigger)
             root.moreActionsButton.menu().addAction(self._survey_action)
 
     def _show_survey(self):

@@ -1,3 +1,9 @@
+import os, sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT.parent))
+ARTIFACTS = ROOT / 'test_artifacts'
+ARTIFACTS.mkdir(exist_ok=True)
 """QGIS 4.2.2 runtime proof for the native GeoFlow layer tree."""
 import json
 import sys
@@ -145,6 +151,31 @@ legend = tree.native_model.layerLegendNodes(valve_node)
 labels = [str(item.data(Qt.ItemDataRole.DisplayRole)) for item in legend]
 assert labels[:2] == ["제수변", "공기변"], labels
 
+from qgis.PyQt.QtTest import QTest
+from qgis.PyQt.QtWidgets import QWidget,QVBoxLayout
+from qgis.PyQt.QtGui import QFontDatabase,QFont
+from geoflow_connector.ui.main_style import apply_main_style
+for font in ('malgun.ttf','segoeui.ttf'):QFontDatabase.addApplicationFont('C:/Windows/Fonts/'+font)
+APP.setFont(QFont('Malgun Gothic',9))
+host=QWidget();QVBoxLayout(host).addWidget(tree);apply_main_style(host)
+host.resize(340,480);host.show();tree.setExpanded(valve_view,True);APP.processEvents()
+legend_index=tree.model().index(0,0,valve_view);ln=tree.legend_for_index(legend_index)
+print('CHECK_TYPE',repr(ln.data(Qt.ItemDataRole.CheckStateRole)),flush=True)
+assert legend_index.data(Qt.ItemDataRole.CheckStateRole) is None
+opt=QStyleOptionViewItem();opt.rect=tree.visualRect(legend_index)
+pt=delegate.eye_rect(opt).center()
+before=ln.data(Qt.ItemDataRole.CheckStateRole)
+QTest.mouseClick(tree.viewport(),Qt.MouseButton.LeftButton,pos=pt);APP.processEvents()
+after=ln.data(Qt.ItemDataRole.CheckStateRole)
+assert before != after, (before,after)
+QTest.mouseClick(tree.viewport(),Qt.MouseButton.LeftButton,pos=pt);APP.processEvents()
+assert ln.data(Qt.ItemDataRole.CheckStateRole)==before
+assert delegate.eye_rect(opt).width()==12
+assert valve.selectedFeatureCount()==0
+# Select an entire layer row; record icon/count/background at the same time.
+tree.setCurrentLayer(valve);APP.processEvents()
+host.grab().save(str(ARTIFACTS / 'geoflow-compact-tree.png'))
+print('PASS: legend eye click off/on, native checkboxes hidden, 12px icons, feature selection untouched',flush=True)
 foreign_source = tree.native_model.node2index(outer.findLayer(foreign.id()))
 foreign_view = tree.layerTreeModelIndexToViewIndex(foreign_source)
 assert tree.isRowHidden(foreign_view.row(), foreign_view.parent())
