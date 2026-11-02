@@ -41,7 +41,7 @@ from geoflow_connector.ui.presentation import PanelMode
 
 APP = QApplication.instance() or QgsApplication([], False)
 if isinstance(APP, QgsApplication):
-    APP.initQgis()
+    getattr(__import__('qgis.utils',fromlist=['iface']),'iface',None) or QgsApplication.initQgis()
 
 
 class Iface(QObject):

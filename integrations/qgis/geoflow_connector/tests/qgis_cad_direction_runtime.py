@@ -13,7 +13,7 @@ from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtWidgets import QMainWindow
 from qgis.gui import QgsMapCanvas
 APP = QgsApplication.instance() or QgsApplication([], False)
-APP.initQgis()
+getattr(__import__('qgis.utils',fromlist=['iface']),'iface',None) or QgsApplication.initQgis()
 TMP = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
 QSettings.setDefaultFormat(QSettings.Format.IniFormat)
 QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope, TMP.name)
@@ -118,6 +118,14 @@ assert quantize_angle(to_storage(90.5,config),0)==0
 assert normalize(90-round(90.5))==0  # common float ties-to-even legacy case
 assert quantize_angle(to_storage(89.5,config),0)==1
 assert normalize(90-round(89.5))==0  # documented legacy/new tie difference
+integer_layer=QgsVectorLayer('Point?crs=EPSG:5186&field=angle:integer','Actual integer','memory')
+assert service.storage_value(integer_layer,field,359.5)==0
+assert service.storage_value(integer_layer,field,12.5)==13
+from qgis.PyQt.QtCore import QMetaType
+precision_layer=QgsVectorLayer('Point?crs=EPSG:5186','Actual precision','memory')
+precision_layer.dataProvider().addAttributes([QgsField('angle',QMetaType.Type.Double,'double',10,2)])
+precision_layer.updateFields()
+assert service.storage_value(precision_layer,field,12.345)==12.35
 field['scale']=0
 manual=service.manual_result(points,point)
 applied=service.apply(points,[dict(manual,angle=359.5)],track=False)

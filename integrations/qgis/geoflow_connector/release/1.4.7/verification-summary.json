@@ -1,0 +1,15 @@
+{
+  "qgis_regression_programs": 24,
+  "qgis_regression_failed": 0,
+  "package_unittests": 20,
+  "package_unittest_status": "OK",
+  "qgis_version": "4.2.2",
+  "isolated_zip_profile_phases": [
+    1,
+    2
+  ],
+  "runtime_imported_modules": 105,
+  "installed_runtime_files_byte_identical": 5608,
+  "operational_data_modified": false,
+  "production_published": false
+}
