@@ -1,0 +1,1 @@
+CAD_QGIS_OK: cardinals/diagonals/endpoints/reversal/multipart/duplicates/ambiguity/rounding/settings/symbols/handle/project-reload; operational data untouched

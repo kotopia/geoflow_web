@@ -12,6 +12,7 @@ CONFIG = configparser.ConfigParser(); CONFIG.read(ROOT / 'metadata.txt', encodin
 OUT = ROOT / 'release' / CONFIG['general']['version']
 OUT.mkdir(parents=True, exist_ok=True)
 PROGRAMS = [
+    'qgis_direction_settings_runtime.py', 'qgis_cad_direction_runtime.py', 'qgis_local_ui_runtime.py', 'qgis_navigation_runtime.py',
     'qgis_definition_refresh_runtime.py', 'qgis_calculation_flow_runtime.py', 'qgis_direction_runtime.py', 'qgis_direction_style_audit.py',
     'qgis_project_materialize_runtime.py', 'qgis_native_layer_tree_runtime.py',
     'qgis_layer_workspace_state_runtime.py', 'qgis_form_lifecycle_smoke.py',

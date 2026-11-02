@@ -5,13 +5,13 @@ import json
 import traceback
 from pathlib import Path
 
-from qgis.PyQt.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer
-from qgis.PyQt.QtGui import QAction, QIcon
-from qgis.PyQt.QtWidgets import QMessageBox, QMenu, QPushButton, QToolBar, QVBoxLayout, QWidget
+from qgis.PyQt.QtCore import QEvent, QObject, QPoint, Qt, QTimer
+from qgis.PyQt.QtGui import QAction
+from qgis.PyQt.QtWidgets import QMessageBox, QMenu, QToolBar, QVBoxLayout, QWidget
 from qgis.PyQt.uic import loadUi
 from qgis.PyQt import sip
 from qgis.core import (
-    QgsApplication, QgsMessageLog, QgsProject, QgsVectorLayer, QgsWkbTypes, Qgis,
+    QgsMessageLog, QgsProject, QgsVectorLayer, QgsWkbTypes, Qgis,
 )
 
 from ..services.depth import DepthService, FAILURE_REASONS
@@ -34,9 +34,6 @@ class EditToolsController(QObject):
         palette_layout.setContentsMargins(4, 4, 4, 4)
         palette_layout.addWidget(self.panel)
         self.palette.setFixedWidth(46)
-        for button in self.panel.findChildren(type(self.panel.addFeatureButton)):
-            button.setFixedSize(32, 32)
-            button.setIconSize(QSize(22, 22))
         apply_main_style(self.palette)
         self.palette.hide()
         self.host = self.palette  # Compatibility for runtime diagnostics.
@@ -66,30 +63,10 @@ class EditToolsController(QObject):
         self._save_action = None
         self._save_action_hosts = []
         self._log("edit_tools_panel_created")
-        rail = self.toggle_button.parentWidget()
-        self._calculation_toolbar = None
-        if rail is None or rail.layout() is None:
-            self._calculation_toolbar = QToolBar('GeoFlow 계산',main_window)
-            main_window.addToolBar(self._calculation_toolbar)
-        def place_calculation(button, index):
-            if self._calculation_toolbar is not None:
-                self._calculation_toolbar.addWidget(button)
-            else:
-                rail.layout().insertWidget(index,button)
-        self.depth_batch_button = QPushButton('심도 일괄계산', self.panel)
-        place_calculation(self.depth_batch_button,5)
+        root = plugin.presentation.root
+        self.depth_batch_button = root.GeoFlowRail_depth
+        self.direction_batch_button = root.GeoFlowRail_direction
         self.depth_batch_button.clicked.connect(self._run_depth)
-        self.direction_batch_button = QPushButton('방향각 일괄계산', self.panel)
-        place_calculation(self.direction_batch_button,6)
-        for button, title, icon in (
-            (self.depth_batch_button, '심도 일괄계산', '/mActionFieldCalculator.svg'),
-            (self.direction_batch_button, '방향각 일괄계산', '/mActionRotatePointSymbols.svg')):
-            button.setText('')
-            button.setAccessibleName(title)
-            button.setToolTip(title)
-            button.setIcon(QgsApplication.getThemeIcon(icon))
-            button.setFixedSize(32, 32)
-            button.setIconSize(QSize(22, 22))
         self.direction_batch_button.clicked.connect(self.direction_action)
         self._definition_events = getattr(plugin, '_definition_service', None)
         if self._definition_events is not None:
@@ -100,7 +77,7 @@ class EditToolsController(QObject):
         main_window.installEventFilter(self)
         self._bind_native_actions()
         self._install_online_save_proxy()
-        self._log("edit_tools_bound")
+        self._log("edit_tools_bound local_ui_revision=20261030-designer-2")
         self._active_layer_changed(self._active_layer())
         self.set_mode(False)
 
@@ -261,20 +238,9 @@ class EditToolsController(QObject):
             "undo": (self.panel.undoButton, ("actionUndo",)),
             "redo": (self.panel.redoButton, ("actionRedo",)),
         }
-        fallback_icons = {
-            "snapping": ":/geoflow/tabler/magnet.svg",
-            "undo": ":/geoflow/tabler/arrow-back-up.svg",
-            "redo": ":/geoflow/tabler/arrow-forward-up.svg",
-        }
         for key, (button, names) in bindings.items():
             action = self._iface_action(*names)
             self._native_actions[key] = action
-            icon = action.icon() if action is not None and hasattr(action, "icon") else QIcon()
-            if not isinstance(icon, QIcon):
-                icon = QIcon()
-            if icon.isNull() and key in fallback_icons:
-                icon = QIcon(fallback_icons[key])
-            button.setIcon(icon)
             changed = getattr(action, "changed", None)
             if changed is not None:
                 changed.connect(self.refresh)
@@ -348,30 +314,6 @@ class EditToolsController(QObject):
         finally:
             self.plugin._online_save_trigger = previous
         self.refresh()
-
-    def _sync_action_icons(self, layer):
-        for key, action in self._native_actions.items():
-            if action is not None and hasattr(action, "icon"):
-                icon = action.icon()
-                if isinstance(icon, QIcon) and not icon.isNull():
-                    getattr(self.panel, {
-                        "add": "addFeatureButton", "move": "moveButton",
-                        "vertex": "vertexButton", "split": "splitButton",
-                        "delete": "deleteButton", "snapping": "snappingButton",
-                        "undo": "undoButton", "redo": "redoButton",
-                    }[key]).setIcon(icon)
-        if not isinstance(layer, QgsVectorLayer):
-            return
-        geometry = QgsWkbTypes.geometryType(layer.wkbType())
-        theme_icon = {
-            QgsWkbTypes.GeometryType.PointGeometry: "/mActionCapturePoint.svg",
-            QgsWkbTypes.GeometryType.LineGeometry: "/mActionCaptureLine.svg",
-            QgsWkbTypes.GeometryType.PolygonGeometry: "/mActionCapturePolygon.svg",
-        }.get(geometry)
-        if theme_icon:
-            icon = QgsApplication.getThemeIcon(theme_icon)
-            if not icon.isNull():
-                self.panel.addFeatureButton.setIcon(icon)
 
     def _is_managed_edit_layer(self, layer):
         if not isinstance(layer, QgsVectorLayer):
@@ -662,6 +604,22 @@ class EditToolsController(QObject):
                 button.setProperty('directionReason',reason)
         page._direction_actions = attached
         self._direction_buttons[layer.id()] = [b for buttons in attached.values() for b in buttons]
+        if targets and not getattr(page, '_direction_save_connected', False):
+            def normalize_input(values):
+                for target in self.direction.targets(layer):
+                    key = target['id']
+                    value = values.get(key)
+                    # Unedited historical values must survive unrelated saves verbatim.
+                    if value is None or value == page.binding.original.get(key):
+                        continue
+                    try:
+                        field, _ = self.direction.settings(layer, manual=True)
+                    except (ValueError, TypeError):
+                        continue
+                    values[key] = self.direction.storage_value(layer, field, value)
+                return values
+            page.form.register_save_behavior(normalize_input, lambda: set())
+            page._direction_save_connected = True
         if targets and not getattr(page,'_direction_sync_connected',False):
             def sync_angle(fid,index,value):
                 if page.feature_id == fid and not page.binding.loading and not page.binding.saving:
@@ -824,7 +782,6 @@ class EditToolsController(QObject):
         if self._closed:
             return
         layer = self._active_layer()
-        self._sync_action_icons(layer)
         state = self.plugin.integration_state()
         ready = bool(state.get("ready"))
         self.toggle_button.setEnabled(bool(
@@ -885,6 +842,14 @@ class EditToolsController(QObject):
             ready and state.get('can_write') and self._is_managed_edit_layer(layer)
             and not layer.readOnly() and depth_support['supported'] and selected >= 2))
         depth_available = self.depth_batch_button.isEnabled()
+        depth_reason = ('실행 가능 · 선택 ' + str(selected) + '개' if depth_available else
+                        '현재 프로젝트를 열어야 합니다.' if not ready else
+                        '현재 프로젝트의 쓰기 권한이 없습니다.' if not state.get('can_write') else
+                        '현재 프로젝트의 관리 레이어를 선택하세요.' if not self._is_managed_edit_layer(layer) else
+                        '읽기 전용 레이어입니다.' if layer.readOnly() else
+                        '심도 계산 대상 레이어(WTL_PIPE_PS / pip_dep)를 선택하세요.' if not depth_support['supported'] else
+                        '심도 객체를 2개 이상 선택하세요. 현재 ' + str(selected) + '개')
+        self.depth_batch_button.setToolTip('심도 일괄계산 · ' + depth_reason)
         direction_targets = self.direction.targets(layer)
         direction_ready = bool(vector and ready and state.get('can_write') and not layer.readOnly()
                                and self._is_managed_edit_layer(layer) and direction_targets)
@@ -955,10 +920,10 @@ class EditToolsController(QObject):
             self._rotation_dialog.reject()
         if getattr(self, '_depth_results', None) is not None:
             self._depth_results.close()
-        self.depth_batch_button.deleteLater()
-        self.direction_batch_button.deleteLater()
-        if self._calculation_toolbar is not None:
-            self._calculation_toolbar.deleteLater()
+        for button, slot in ((self.depth_batch_button,self._run_depth),
+                             (self.direction_batch_button,self.direction_action)):
+            try: button.clicked.disconnect(slot)
+            except (RuntimeError,TypeError): pass
         self._closed = True
         self.set_mode(False)
         for signal, slot in self._layer_signal_connections:

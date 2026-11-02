@@ -1,0 +1,3 @@
+Legacy UUID matching, explicit capability precedence, no field-name guessing/default angle rules: OK
+Designer-owned widgets, resource icons and refresh preservation: OK
+USER_FLOW: selection-independent depth buttons, real spatial calculation, per-row results, highlights, manual rules, refreshed actions, undo, permissions OK

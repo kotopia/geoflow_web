@@ -103,7 +103,7 @@ plugin.active_context = {"project_id": "project-a"}
 
 dialog = GeoFlowSettingsDialog(plugin, settings_service=service)
 assert [dialog.settingsTabs.tabText(i) for i in range(dialog.settingsTabs.count())] == [
-    "주변값", "도형", "폼",
+    "주변값", "도형", "폼", "방향각",
 ]
 assert not dialog.upperArcSpin.isEnabled() and not dialog.lowerArcSpin.isEnabled()
 dialog.show()

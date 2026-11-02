@@ -123,10 +123,7 @@ class Main(QWidget, FORM_CLASS):
         self._sync_select_tool_state()
 
     def configure_selection_button(self, button):
-        from qgis.core import QgsApplication
-        button.setMenu(None)
-        button.setIcon(QgsApplication.getThemeIcon('/mActionSelectRectangle.svg'))
-        button.setToolTip('클릭: 단일 선택 · 드래그: 영역 선택 · Shift 추가 / Ctrl 해제 · Esc 취소')
+        button.setMenu(None)  # Icon, tooltip and sizing are defined in main_dock.ui.
 
     @property
     def formHeader(self):
@@ -566,11 +563,20 @@ class Main(QWidget, FORM_CLASS):
         if ok and page.feature_id is not None:
             page.photos.refresh_policy()
         self._update_page_dirty(page)
+        if not ok: self._show_transition_failure(page,'취소')
         return ok
+
+    def _show_transition_failure(self, page, action):
+        message=page.note.text() or (action+'하지 못했습니다. 변경사항을 보존했습니다.')
+        page.note.show()
+        QgsMessageLog.logMessage('[NAV] '+action+'_failed reason='+message,'GeoFlow',Qgis.MessageLevel.Warning)
+        bar=getattr(self.plugin.iface,'messageBar',None)
+        if callable(bar): bar().pushWarning('GeoFlow '+action, message)
 
     def _save_page(self, page):
         if not page.binding.save():
             self._update_page_dirty(page)
+            self._show_transition_failure(page,'저장')
             return False
         result = page.photos.commit_pending()
         self._update_page_dirty(page)
@@ -613,6 +619,14 @@ class Main(QWidget, FORM_CLASS):
         self._update_page_dirty(page)
 
     def _guard_object_transition(self, incoming_page, feature_id):
+        if getattr(self,'_transition_guard_active',False): return False
+        self._transition_guard_active=True
+        try:
+            return self._guard_object_transition_impl(incoming_page,feature_id)
+        finally:
+            self._transition_guard_active=False
+
+    def _guard_object_transition_impl(self, incoming_page, feature_id):
         page = self._dirty_page(incoming_page, feature_id)
         if page is None:
             return True
@@ -645,6 +659,14 @@ class Main(QWidget, FORM_CLASS):
         return False
 
     def guard_transition(self, label):
+        if getattr(self,'_transition_guard_active',False): return False
+        self._transition_guard_active=True
+        try:
+            return self._guard_transition_impl(label)
+        finally:
+            self._transition_guard_active=False
+
+    def _guard_transition_impl(self, label):
         dirty = []
         for page in self.pages.values():
             if page.binding.is_feature_deleted():

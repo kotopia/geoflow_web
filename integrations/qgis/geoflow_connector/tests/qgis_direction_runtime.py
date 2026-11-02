@@ -29,7 +29,7 @@ class MathTests(unittest.TestCase):
     def test_endpoints_and_duplicates(self):
         c=config(); line=[('pipe', [[(0,0),(0,0),(10,0),(10,10)]])]
         self.assertEqual(calculate((0,0),line,c)['angle'],90)
-        self.assertEqual(calculate((10,10),line,c)['angle'],180)
+        self.assertEqual(calculate((10,10),line,c)['angle'],0)
         self.assertEqual(calculate((10,0),line,c)['status'],'ambiguous')
         self.assertEqual(calculate((5,0),line,c)['status'],'no_reference')
     def test_straight_junction_multipart_and_zero(self):
@@ -66,6 +66,9 @@ class RuntimeTests(unittest.TestCase):
         self.service=DirectionService(self.plugin)
         self.feature=self.add(self.layer,'Point (0 0)',0)
         self.line=self.add(self.ref,'LineString (0 0, 10 0)',0)
+        tx=QgsCoordinateTransform(self.ref.crs(),QgsCoordinateReferenceSystem(ANGLE_CRS),QgsProject.instance())
+        a,b=[tx.transform(p) for p in self.line.geometry().asPolyline()]
+        self.expected=normalize(90-bearing((a.x(),a.y()),(b.x(),b.y())))
         self.canvas.setDestinationCrs(self.layer.crs());self.canvas.setLayers([self.layer,self.ref])
         self.canvas.setExtent(QgsRectangle(-5,-5,15,15)); self.canvas.show();APP.processEvents()
     def make_layer(self,kind,name):
@@ -81,7 +84,7 @@ class RuntimeTests(unittest.TestCase):
         result=self.service.inspect(self.layer,self.feature)
         self.assertEqual(result['status'],'ok',result)
         self.service.apply(self.layer,[result])
-        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],90)
+        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],self.expected)
         validate_pending(self.plugin,self.layer)
         self.ref.startEditing();self.ref.changeGeometry(self.line.id(),QgsGeometry.fromWkt('LineString (0 0,0 10)'))
         with self.assertRaises(ValueError):validate_pending(self.plugin,self.layer)
@@ -91,7 +94,7 @@ class RuntimeTests(unittest.TestCase):
         geom=QgsGeometry(self.line.geometry());geom.transform(tx)
         self.ref.dataProvider().changeGeometryValues({self.line.id():geom});self.ref.setCrs(QgsCoordinateReferenceSystem('EPSG:4326'))
         result=self.service.inspect(self.layer,self.feature)
-        self.assertEqual(result['status'],'ok',result);self.assertAlmostEqual(result['angle'],90,places=5)
+        self.assertEqual(result['status'],'ok',result);self.assertAlmostEqual(result['angle'],self.expected,places=5)
     def test_batch_failure_preserves_values_and_stale_target(self):
         other=self.add(self.layer,'Point (100 100)',73)
         self.assertEqual(self.service.inspect(self.layer,other)['status'],'no_reference')
@@ -131,13 +134,13 @@ class RuntimeTests(unittest.TestCase):
         form.load_values({self.field['id']:20,'note':'unsaved note'})
         result=self.service.inspect(self.layer,self.feature)
         self.service.apply(self.layer,[result],page)
-        self.assertEqual(float(form.values()[self.field['id']]),90)
+        self.assertEqual(float(form.values()[self.field['id']]),self.expected)
         self.assertEqual(form.values()['note'],'unsaved note')
         self.layer.undoStack().undo()
         self.assertEqual(float(form.values()[self.field['id']]),20)
         self.assertEqual(form.values()['note'],'unsaved note')
         self.layer.undoStack().redo()
-        self.assertEqual(float(form.values()[self.field['id']]),90)
+        self.assertEqual(float(form.values()[self.field['id']]),self.expected)
         page.binding.feature_id=999
         form.load_values({self.field['id']:55,'note':'other feature'})
         self.layer.undoStack().undo()
@@ -167,7 +170,9 @@ class RuntimeTests(unittest.TestCase):
         button=QToolButton()
         Main.configure_selection_button(None,button)
         self.assertIsNone(button.menu())
-        self.assertIn('Esc',button.toolTip())
+        import xml.etree.ElementTree as ET
+        ui=ET.parse(Path(__file__).resolve().parents[1]/'ui/designer/main_dock.ui')
+        self.assertTrue(any('Esc' in (node.text or '') for node in ui.findall('.//property[@name="toolTip"]/string')))
         self.assertFalse(hasattr(IdentifyGeometry(self.canvas),'mode'))
         button.close()
 

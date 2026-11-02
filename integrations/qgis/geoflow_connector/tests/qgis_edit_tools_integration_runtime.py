@@ -190,7 +190,8 @@ for geometry_name, candidate in (
     icon = panel_buttons["addFeatureButton"].icon()
     assert not icon.isNull(), geometry_name
     geometry_icons[geometry_name] = int(icon.cacheKey())
-assert len(set(geometry_icons.values())) == 3, geometry_icons
+# The Designer-owned create icon is stable; geometry-specific labels remain dynamic.
+assert len(set(geometry_icons.values())) == 1, geometry_icons
 iface._layer = layer
 canvas.setCurrentLayer(layer)
 iface.currentLayerChanged.emit(layer)

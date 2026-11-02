@@ -1,13 +1,12 @@
 """GeoFlow layer workspace backed by QGIS' native layer tree."""
 from pathlib import Path
 
-from qgis.PyQt.QtCore import QSize, Qt
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtCore import Qt
 try:
     from qgis.PyQt.QtGui import QAction
 except ImportError:
     from qgis.PyQt.QtWidgets import QAction
-from qgis.PyQt.QtWidgets import QDockWidget, QToolButton, QWidget
+from qgis.PyQt.QtWidgets import QDockWidget, QWidget
 from qgis.PyQt.uic import loadUi
 from qgis.core import (
     QgsEditFormConfig,
@@ -62,37 +61,8 @@ class GeoFlowLayerWorkspace(QWidget):
         self.search.textChanged.connect(self.tree.set_filter_text)
         self.form_edge.clicked.connect(self._toggle_form)
 
-    def _tree_button(self, icon, tooltip, *, checkable=False):
-        button = QToolButton(self)
-        button.setAutoRaise(True)
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        button.setIcon(QIcon(str(
-            Path(__file__).resolve().parents[1]
-            / "resources" / "icons" / "feather" / icon
-        )))
-        button.setIconSize(QSize(18, 18))
-        button.setFixedSize(28, 28)
-        button.setToolTip(tooltip)
-        button.setCheckable(checkable)
-        return button
-
     def _install_tree_toolbar(self):
-        self.expand_groups_button = self._tree_button(
-            "folder-plus.svg", "그룹 펼치기 (레이어 legend는 유지)"
-        )
-        self.collapse_all_button = self._tree_button(
-            "folder-minus.svg", "전체 접기"
-        )
-        self.count_toggle_button = self._tree_button(
-            "hash.svg", "수량 표시/숨김", checkable=True
-        )
-        self.count_toggle_button.setChecked(True)
-        for offset, button in enumerate((
-            self.expand_groups_button,
-            self.collapse_all_button,
-            self.count_toggle_button,
-        ), start=1):
-            self.searchLayout.insertWidget(offset, button)
+        # Widgets and their visual properties are owned by layer_workspace.ui.
         self.expand_groups_button.clicked.connect(self.tree.expand_groups_only)
         self.collapse_all_button.clicked.connect(self.tree.collapse_all_rows)
         self.count_toggle_button.toggled.connect(self.tree.set_count_visible)

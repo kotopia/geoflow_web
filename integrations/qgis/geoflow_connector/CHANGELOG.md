@@ -1,3 +1,10 @@
+## 1.4.7 (local review candidate)
+
+- EPSG:5186 CAD angles: east 0, counterclockwise, original segment direction; ambiguous candidates require review.
+- Separate metric search, CAD axes, field precision and map/symbol display; HALF_UP at application.
+- Designer-owned main icons; project-scoped radius/reference settings; field actions and navigation save/discard fixes.
+- No automatic conversion of existing values; no production publication.
+
 ## 1.4.6 (candidate)
 
 - 클릭/드래그 자동 선택과 수정키 다중 선택.

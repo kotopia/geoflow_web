@@ -22,6 +22,8 @@ class GeoFlowSettingsDialog(QDialog):
         self.cancelButton.clicked.connect(self.reject)
         self.saveButton.clicked.connect(self.save)
         self.reload()
+        from .direction_settings import DirectionSettingsEditor
+        self.direction_editor = DirectionSettingsEditor(self, plugin, self.service)
 
     def reload(self):
         self.project_id = self.service.project_id()
@@ -48,6 +50,7 @@ class GeoFlowSettingsDialog(QDialog):
 
     def save(self):
         try:
+            direction_document = self.direction_editor.document()
             self.service.save_nearby(
                 default_radius_m=self.defaultRadiusSpin.value(),
                 depth_radius_m=self.depthRadiusSpin.value(),
@@ -61,10 +64,16 @@ class GeoFlowSettingsDialog(QDialog):
                 show_field_action_buttons=self.showFieldActionsCheck.isChecked(),
                 project_id=self.project_id,
             )
+            self.direction_editor.preferences.save(direction_document)
         except SettingsValidationError as exc:
+            self.direction_editor.focus_error(exc)
             QMessageBox.warning(self, "GeoFlow 환경설정", str(exc))
             return
         apply_form_preferences(self.plugin, self.service)
+        controller = getattr(self.plugin, 'edit_tools', None)
+        if controller is not None:
+            if controller._rotation_dialog is not None: controller._rotation_dialog.reject()
+            controller.refresh()
         self.accept()
 
 

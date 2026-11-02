@@ -260,7 +260,7 @@ iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, plugin.dock)
 more_button = QToolButton()
 more_button.setMenu(QMenu(more_button))
 plugin.presentation = SimpleNamespace(
-    root=SimpleNamespace(moreActionsButton=more_button)
+    root=SimpleNamespace(moreActionsButton=more_button, GeoFlowRail_depth=QToolButton(), GeoFlowRail_direction=QToolButton())
 )
 toggle = QPushButton(); toggle.setCheckable(True)
 controller = EditToolsController(plugin, toggle)

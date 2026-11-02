@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>GeoFlowLayerWorkspace</class>
  <widget class="QWidget" name="GeoFlowLayerWorkspace">
@@ -29,6 +29,138 @@
        </property>
        <property name="placeholderText">
         <string>레이어 이름·코드 검색</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="expand_groups_button">
+       <property name="minimumSize">
+        <size>
+         <width>28</width>
+         <height>28</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>28</width>
+         <height>28</height>
+        </size>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>18</width>
+         <height>18</height>
+        </size>
+       </property>
+       <property name="icon">
+        <iconset resource="../../resources/feather.qrc">
+         <normaloff>:/geoflow/feather/folder-plus.svg</normaloff>
+        </iconset>
+       </property>
+       <property name="toolTip">
+        <string>그룹 펼치기 (레이어 legend는 유지)</string>
+       </property>
+       <property name="accessibleName">
+        <string>그룹 펼치기 (레이어 legend는 유지)</string>
+       </property>
+       <property name="text">
+        <string />
+       </property>
+       <property name="toolButtonStyle">
+        <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="collapse_all_button">
+       <property name="minimumSize">
+        <size>
+         <width>28</width>
+         <height>28</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>28</width>
+         <height>28</height>
+        </size>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>18</width>
+         <height>18</height>
+        </size>
+       </property>
+       <property name="icon">
+        <iconset resource="../../resources/feather.qrc">
+         <normaloff>:/geoflow/feather/folder-minus.svg</normaloff>
+        </iconset>
+       </property>
+       <property name="toolTip">
+        <string>전체 접기</string>
+       </property>
+       <property name="accessibleName">
+        <string>전체 접기</string>
+       </property>
+       <property name="text">
+        <string />
+       </property>
+       <property name="toolButtonStyle">
+        <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QToolButton" name="count_toggle_button">
+       <property name="minimumSize">
+        <size>
+         <width>28</width>
+         <height>28</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>28</width>
+         <height>28</height>
+        </size>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>18</width>
+         <height>18</height>
+        </size>
+       </property>
+       <property name="icon">
+        <iconset resource="../../resources/feather.qrc">
+         <normaloff>:/geoflow/feather/hash.svg</normaloff>
+        </iconset>
+       </property>
+       <property name="toolTip">
+        <string>수량 표시/숨김</string>
+       </property>
+       <property name="accessibleName">
+        <string>수량 표시/숨김</string>
+       </property>
+       <property name="text">
+        <string />
+       </property>
+       <property name="toolButtonStyle">
+        <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
+       </property>
+       <property name="autoRaise">
+        <bool>true</bool>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
        </property>
       </widget>
      </item>
@@ -94,7 +226,7 @@
   </layout>
  </widget>
  <resources>
-  <include location="../../resources/feather.qrc"/>
+  <include location="../../resources/feather.qrc" />
  </resources>
- <connections/>
+ <connections />
 </ui>

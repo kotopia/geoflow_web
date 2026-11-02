@@ -20,19 +20,6 @@ class FormActionToolbar(QWidget):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.saveButton.setIcon(QIcon(":/geoflow/feather/save.svg"))
-        self.previousButton.setIcon(QIcon(":/geoflow/tabler/history.svg"))
-        self.nearbyButton.setIcon(QIcon(":/geoflow/tabler/location-search.svg"))
-        self.layoutButton.setIcon(QIcon(":/geoflow/tabler/layout.svg"))
-        self.referenceRefreshButton.setIcon(QIcon(":/geoflow/tabler/refresh.svg"))
-        self.photoButton.setIcon(QIcon(":/geoflow/feather/camera.svg"))
-        for button in (
-            self.saveButton, self.previousButton, self.nearbyButton,
-            self.layoutButton, self.referenceRefreshButton, self.photoButton,
-        ):
-            configure_field_action_button(button)
-            button.setVisible(True)
-
     def set_layer_title(self, title):
         self.layerTitleLabel.setText(str(title or ""))
 
