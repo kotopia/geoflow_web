@@ -25,7 +25,7 @@ def prepare(cur):
     cur.execute("SELECT code FROM bid.filter_values WHERE kind='industry' AND active=true")
     codes = [row[0] for row in cur.fetchall()]
     selected = [str(pk) for pk in CollectionRule.objects.using(central_alias()).filter(
-        kind='industry', value__in=codes, active=True).values_list('pk', flat=True)]
+        source='g2b', kind='industry', value__in=codes, active=True).values_list('pk', flat=True)]
     cur.execute("""INSERT INTO bid.central_preferences(id,rule_ids) VALUES (1,%s::jsonb)
                    ON CONFLICT(id) DO NOTHING""", [json.dumps(selected)])
     cur.execute("SELECT count(*) FROM bid.central_reviews WHERE central_notice_id=ANY(%s::uuid[])", [ids])

@@ -66,6 +66,9 @@ def worker_lock():
 
 
 def rule_matches(rule, row, details):
+    if rule.source == "kepco" and rule.kind == "industry":
+        from .kepco import industry_matches
+        return industry_matches(rule.value, row.get("_kepco", {}))
     if rule.kind == "keyword":
         return keyword_matches(rule.value, row.get("bidNtceNm"))
     # Preserve token boundaries: code 1468 must not match 11468.
@@ -75,6 +78,10 @@ def rule_matches(rule, row, details):
 
 def store_notice(row, details, rule, now):
     normalized = _normalized_notice(row, details["regions"], details["industries"], [])
+    if rule.source == "kepco":
+        if row.get("_kepco", {}).get("progressstate") in {"Close", "Fail", "OpenTimed", "Final"} and normalized["notice_status"] != "cancelled":
+            normalized["notice_status"] = "closed"
+        normalized["basic_amount"] = _normalized_notice(row, [], [], [{"bssamt": row.get("_kepco", {}).get("estimatedpricebasicamount")}])["basic_amount"]
     posted = normalized["posted_at"]
     if not posted:
         raise G2BError("MISSING_POSTED_DATE", "공고게시일을 확인할 수 없습니다.")
@@ -86,14 +93,19 @@ def store_notice(row, details, rule, now):
     import hashlib
     digest = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     summary.pop("raw_payload", None)
+    summary["source"] = rule.source
+    summary["source_label"] = rule.get_source_display()
+    if rule.source == "kepco":
+        summary["qualification_text"] = row.get("_kepco", {}).get("bidattendrestrict", "")
+        summary["attachments"] = row.get("_attachments", [])
     summary["industry_parse_status"] = "review_required" if details["industries"] else "unknown"
     summary["direct_production_parse_status"] = "unknown"
     alias = central_alias()
     with transaction.atomic(using=alias):
-        old_hash = Notice.objects.using(alias).filter(id=notice_id(normalized["bid_notice_no"], normalized["bid_notice_ord"])).values_list("payload_hash", flat=True).first()
+        old_hash = Notice.objects.using(alias).filter(id=notice_id(normalized["bid_notice_no"], normalized["bid_notice_ord"], rule.source)).values_list("payload_hash", flat=True).first()
         notice, _ = Notice.objects.using(alias).update_or_create(
-            id=notice_id(normalized["bid_notice_no"], normalized["bid_notice_ord"]),
-            defaults=dict(number=normalized["bid_notice_no"], order=canonical_order(normalized["bid_notice_ord"]),
+            id=notice_id(normalized["bid_notice_no"], normalized["bid_notice_ord"], rule.source),
+            defaults=dict(source=rule.source, number=normalized["bid_notice_no"], order=canonical_order(normalized["bid_notice_ord"]),
                           title=normalized["title"], posted_at=posted, close_at=normalized["bid_close_at"],
                           agency=normalized["notice_agency_name"], demand_agency=normalized["demand_agency_name"],
                           estimated_price=normalized["estimated_price"], region_text=normalized["region_text"],
@@ -158,6 +170,7 @@ def run_step(job, client, now=None, mode=None):
                     outcomes=outcomes,
                     total=None, processed=len(completed_keys), stored=previous.get("stored", 0) if resume else 0,
                     api_page_cache=previous.get("api_page_cache", {}) if resume else {},
+                    kepco_days=previous.get("kepco_days", {}) if resume else {},
                     suspended_windows=suspended,
                     updated_at=timezone.now().isoformat())
     job_query = CollectionJob.objects.using(alias).filter(pk=job.pk, generation=job.generation)
@@ -194,13 +207,13 @@ def run_step(job, client, now=None, mode=None):
                 continue
             if not CollectionRule.objects.using(alias).filter(pk=job.rule_id, active=True).exists():
                 raise G2BError("PAUSED", "비활성 조건의 수집을 중단했습니다.")
-            existing = Notice.objects.using(alias).filter(number=key[0], order=key[1]).first()
+            existing = Notice.objects.using(alias).filter(source=job.rule.source, number=key[0], order=key[1]).first()
             if existing and existing.raw.get("notice") == row:
                 details = {name: existing.raw.get(name, []) for name in ("regions", "industries", "products")}
             else:
                 details = client.details(row)
-            known = Notice.objects.using(alias).filter(number=key[0], order=key[1], rules=job.rule).exists()
-            selected_by_industry = job.rule.kind == "industry" and key in search_keys
+            known = Notice.objects.using(alias).filter(source=job.rule.source, number=key[0], order=key[1], rules=job.rule).exists()
+            selected_by_industry = job.rule.source == "g2b" and job.rule.kind == "industry" and key in search_keys
             with transaction.atomic(using=alias):
                 outcome = "rejected"
                 if selected_by_industry or known or rule_matches(job.rule, row, details):
@@ -219,7 +232,7 @@ def run_step(job, client, now=None, mode=None):
         for h in active_hashes:
             item = outcomes[h]
             if item["outcome"] in {"inserted", "updated", "unchanged"} and not Notice.objects.using(alias).filter(
-                    number=item["number"], order=item["order"], rules=job.rule).exists():
+                    source=job.rule.source, number=item["number"], order=item["order"], rules=job.rule).exists():
                 raise G2BError("MATCH_COUNT_MISMATCH", "저장된 조건 연결을 확인할 수 없습니다.")
         if sum(metrics.values()) != len(selected):
             raise G2BError("COUNT_MISMATCH", "수신 고유 공고와 처리 수량이 일치하지 않습니다.")
@@ -228,6 +241,7 @@ def run_step(job, client, now=None, mode=None):
         progress.update(metrics=metrics, finished=True, stored=matched, processed=len(selected))
         progress.pop("completed_keys", None)
         progress.pop("outcomes", None)
+        progress.pop("kepco_days", None)
         progress["api_queries"] = [dict(operation=q["operation"], query=q["query"], numOfRows=q["numOfRows"],
                                        totalCount=q["totalCount"], complete=q["complete"],
                                        received=sum(p["received"] for p in q["pages"]),
@@ -236,10 +250,12 @@ def run_step(job, client, now=None, mode=None):
                                    if q["operation"] in {"getBidPblancListInfoServcPPSSrch", "getBidPblancListInfoServc"}]
         metrics["api_queries"] = progress["api_queries"]
         source_queries = [q for q in progress["api_queries"] if q["operation"] == "getBidPblancListInfoServcPPSSrch"]
-        if isinstance(client, Client) and (len(source_queries) != 1 or not source_queries[0]["complete"] or
+        if isinstance(client, Client) and job.rule.source == "g2b" and (len(source_queries) != 1 or not source_queries[0]["complete"] or
                                            source_queries[0]["totalCount"] != len(rows)):
             raise G2BError("SOURCE_COUNT_MISMATCH", "API 전체 건수와 수신 건수가 일치하지 않습니다.")
-        metrics["source_total"] = source_queries[0]["totalCount"] if source_queries else None
+        metrics["source_total"] = source_queries[0]["totalCount"] if source_queries else len(rows) if job.rule.source == "kepco" else None
+        if job.rule.source == "kepco":
+            metrics["provider_received"] = progress.get("provider_received", 0)
         updates = dict(status="success", error_code="", last_success_at=now, fetched_count=len(selected))
         if live:
             updates.update(live_cursor=end, last_incremental_success=now,
@@ -269,13 +285,17 @@ def run_step(job, client, now=None, mode=None):
         raise
 
 
-def run_worker(budget=100, max_steps=10):
+def run_worker(budget=100, max_steps=10, source=None):
+    if source not in {None, "g2b", "kepco"}:
+        raise ValueError("공고 출처를 확인하세요.")
     import time
     from .lifecycle import match_existing
     with worker_lock() as acquired:
         if not acquired:
             return 0
         jobs = CollectionJob.objects.using(central_alias()).filter(rule__active=True).select_related("rule").order_by("due_at", "id")
+        if source:
+            jobs = jobs.filter(rule__source=source)
         completed = 0
         live_allowance = max(1, budget // 2)
         remaining = budget
@@ -283,6 +303,8 @@ def run_worker(budget=100, max_steps=10):
         next_request_at = 0
         for mode in ("live", "backfill"):
             client = Client(budget=min(remaining, live_allowance) if mode == "live" else remaining)
+            from .kepco import KepcoClient
+            kepco = KepcoClient()
             client.deadline = deadline
             client.next_request_at = next_request_at
             initial_budget = client.budget
@@ -311,7 +333,14 @@ def run_worker(budget=100, max_steps=10):
                     allowance = min(phase_budget, turn_budget)
                     client.budget = allowance
                     try:
-                        changed = run_step(job, client, now, mode=mode)
+                        active_client = kepco if job.rule.source == "kepco" else client
+                        if active_client is kepco:
+                            kepco.budget, kepco.deadline, kepco.next_request_at = client.budget, deadline, client.next_request_at
+                        try:
+                            changed = run_step(job, active_client, now, mode=mode)
+                        finally:
+                            if active_client is kepco:
+                                client.budget, client.next_request_at = kepco.budget, kepco.next_request_at
                         completed += int(changed)
                         progress |= changed
                     except G2BError as exc:

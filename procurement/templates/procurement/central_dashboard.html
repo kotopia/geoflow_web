@@ -21,7 +21,7 @@
 <p id="bid-refresh-status" class="small text-muted" role="status">진행 상태는 10초마다 갱신됩니다.</p>
 <div class="card"><div class="card-body">
   <h2 class="h4">수집조건 추가</h2>
-  <p class="text-muted">업종은 나라장터 업종코드, 키워드는 공고명 검색어입니다. 등록된 코드·검색어를 바꾸려면 기존 조건을 비활성화하고 새로 추가하세요.</p>
+  <p class="text-muted">나라장터 업종은 숫자 코드, 한전 업종은 참가자격에 표시되는 업종명입니다. 키워드는 공고명 검색어입니다. 한전 업종명 일치는 검토 후보이며 참가자격 확정이 아닙니다. 등록된 코드·검색어를 바꾸려면 기존 조건을 비활성화하고 새로 추가하세요.</p>
   <form method="post">{% csrf_token %}<input type="hidden" name="action" value="create">
     {{ form.non_field_errors }}
     <div class="row g-3">{% for field in form %}<div class="col-md-4"><label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}</div>

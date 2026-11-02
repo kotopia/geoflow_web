@@ -26,7 +26,7 @@ def selected_ids(alias, filters=None):
     filters = filters if filters is not None else load_filters(alias)
     codes = [item["code"] for item in filters.get("industry", [])]
     return [str(pk) for pk in CollectionRule.objects.using(central_alias()).filter(
-        active=True, kind="industry", value__in=codes).values_list("pk", flat=True)]
+        active=True, source="g2b", kind="industry", value__in=codes).values_list("pk", flat=True)]
 
 
 def save(alias, values):
@@ -46,7 +46,9 @@ def save(alias, values):
                     [json.dumps(sorted(selected))])
 
 
-def add_keyword(alias, keyword):
+def add_keyword(alias, keyword, source="g2b"):
+    if source not in {"g2b", "kepco"}:
+        raise ValueError("공고 출처를 확인하세요.")
     """A tenant manager explicitly adds an OR collection keyword; never reactivate."""
     from .service import enqueue_rule
     term = str(keyword or '').strip()
@@ -57,10 +59,10 @@ def add_keyword(alias, keyword):
     # idempotent; if tenant preference save fails, retry attaches the same rule.
     choices(alias)
     with transaction.atomic(using=central_alias()):
-        rule = CollectionRule.objects.using(central_alias()).filter(kind='keyword', value__iexact=term).first()
+        rule = CollectionRule.objects.using(central_alias()).filter(source=source, kind='keyword', value__iexact=term).first()
         if rule is None:
             rule, _ = CollectionRule.objects.using(central_alias()).get_or_create(
-                kind='keyword', value=term, defaults={'name': term})
+                source=source, kind='keyword', value=term, defaults={'name': term})
         if not rule.active:
             raise ValueError('중앙에서 중지한 키워드입니다. 중앙 관리자에게 활성화를 요청하세요.')
         enqueue_rule(rule)

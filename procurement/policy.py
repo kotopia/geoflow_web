@@ -29,5 +29,5 @@ def canonical_order(value):
     return str(int(text)) if text.isdigit() else text.casefold()
 
 
-def notice_id(number, order):
-    return uuid5(NAMESPACE_URL, f"geoflow:g2b:service:{number}:{canonical_order(order)}")
+def notice_id(number, order, source="g2b"):
+    return uuid5(NAMESPACE_URL, f"geoflow:{source}:service:{number}:{canonical_order(order)}")

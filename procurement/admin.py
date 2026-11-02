@@ -9,13 +9,13 @@ from .service import central_alias, enqueue_rule
 class RuleForm(forms.ModelForm):
     class Meta:
         model = CollectionRule
-        fields = ("kind", "value", "name", "active")
+        fields = ("source", "kind", "value", "name", "active")
 
     def clean(self):
         data = super().clean()
         value = str(data.get("value") or "").strip()
-        if not value or (data.get("kind") == "industry" and not value.isascii()) or (
-            data.get("kind") == "industry" and not value.isdigit()
+        if not value or (data.get("source") != "kepco" and data.get("kind") == "industry" and not value.isascii()) or (
+            data.get("source") != "kepco" and data.get("kind") == "industry" and not value.isdigit()
         ):
             raise ValidationError("업종은 나라장터 숫자 코드를, 키워드는 공고명 검색어를 입력하세요.")
         data["value"] = value
@@ -42,10 +42,10 @@ class CentralAdmin(admin.ModelAdmin):
 @admin.register(CollectionRule)
 class RuleAdmin(CentralAdmin):
     form = RuleForm
-    list_display = ("name", "kind", "value", "active", "created_at")
+    list_display = ("name", "source", "kind", "value", "active", "created_at")
 
     def get_readonly_fields(self, request, obj=None):
-        return ("kind", "value") if obj else ()
+        return ("source", "kind", "value") if obj else ()
 
     def save_model(self, request, obj, form, change):
         # Changed search semantics require a new rule; old provenance stays intact.

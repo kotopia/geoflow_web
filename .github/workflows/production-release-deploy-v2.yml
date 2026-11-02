@@ -35,6 +35,7 @@ jobs:
       SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
       G2B_API_SERVICE_KEY: ${{ secrets.G2B_API_SERVICE_KEY }}
+      KEPCO_API_KEY: ${{ secrets.KEPCO_API_KEY }}
       SSH_PORT: ${{ inputs.ssh_port || '22' }}
 
     steps:
@@ -57,6 +58,7 @@ jobs:
           test -n "$SSH_KEY"
           test -n "$SSH_KNOWN_HOSTS"
           test -n "$G2B_API_SERVICE_KEY"
+          test -n "$KEPCO_API_KEY"
           printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
 
       - uses: actions/setup-python@v5
@@ -81,7 +83,11 @@ jobs:
           chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
           ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
           umask 077
-          printf '%s' "$G2B_API_SERVICE_KEY" > "$RUNNER_TEMP/geoflow_g2b_key"
+          python - <<'PYKEY'
+          import json, os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'geoflow_g2b_key'), 'w') as target:
+              json.dump({name: os.environ[name] for name in ('G2B_API_SERVICE_KEY', 'KEPCO_API_KEY')}, target)
+          PYKEY
 
       - name: Deploy current release and migrate tenant databases
         shell: bash
@@ -249,15 +255,15 @@ jobs:
               raise RuntimeError('invalid central tenant database names')
           allowed.add('G2B_CENTRAL_TENANT_DATABASES')
           collector_settings['G2B_CENTRAL_TENANT_DATABASES'] = ','.join(central_tenants)
-          key = open(key_path, encoding='utf-8').read().strip()
-          if not key or '\n' in key or '\r' in key:
-              raise RuntimeError('invalid G2B secret shape')
+          keys = json.load(open(key_path, encoding='utf-8'))
+          if set(keys) != {'G2B_API_SERVICE_KEY', 'KEPCO_API_KEY'} or any(not isinstance(key, str) or not key or '\n' in key or '\r' in key for key in keys.values()):
+              raise RuntimeError('invalid bid secret shape')
           with open(env_path, encoding='utf-8') as source:
               lines = source.readlines()
-          managed = allowed | {'G2B_API_SERVICE_KEY'}
+          managed = allowed | set(keys)
           kept = [line for line in lines if line.strip().removeprefix('export ').split('=', 1)[0].strip() not in managed]
           kept.extend(f'{name}={value}\n' for name, value in collector_settings.items())
-          kept.append(f'G2B_API_SERVICE_KEY={key}\n')
+          kept.extend(f'{name}={key}\n' for name, key in keys.items())
           directory = os.path.dirname(env_path)
           fd, temporary = tempfile.mkstemp(prefix='.geoflow-env-', dir=directory, text=True)
           try:
@@ -282,6 +288,7 @@ jobs:
           echo 'central_bids_audit_after_schema_before_worker'
           "$python" "$repo/manage.py" report_central_bids
           "$python" "$repo/manage.py" seed_central_bid_rules --file "$repo/deploy/bids/initial-rules.json" --execute
+          "$python" "$repo/manage.py" seed_central_bid_rules --file "$repo/deploy/bids/kepco-rules.json" --execute
           "$python" "$repo/manage.py" shell -c "from procurement.dashboard import snapshot; s=snapshot(); print('central_bids_schema_ok=yes active_rules=' + str(s['active']))"
 
           "$python" - "$repo" <<'PY'
@@ -464,6 +471,7 @@ jobs:
           "$python" "$repo/manage.py" shell -c "from datetime import timedelta; from django.utils import timezone; from geoflow_ops.bids.client import BASIS_AMOUNT_OPERATION, G2BClient, LICENSE_OPERATION, NOTICE_OPERATION, REGION_OPERATION; end=timezone.now(); client=G2BClient(); operations=(NOTICE_OPERATION, REGION_OPERATION, LICENSE_OPERATION, BASIS_AMOUNT_OPERATION); [(lambda page, operation: print(f'production_deploy_v2_g2b_live_ok=yes operation={operation} total={page.total_count}'))(client.fetch_page(operation, end-timedelta(hours=6), end, rows=1), operation) for operation in operations]"
 
           public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
+          "$python" "$repo/manage.py" shell -c "from procurement.kepco import KepcoClient, adapt; from django.utils import timezone; rows=KepcoClient(budget=1).day(timezone.localdate().strftime('%Y%m%d')); parsed=[adapt(row) for row in rows]; print('production_deploy_v2_kepco_live_ok=yes received=' + str(len(rows)) + ' service_candidates=' + str(sum(row is not None for row in parsed)))"
           echo "production_deploy_v2_public_login_status=$public_login"
           [ "$public_login" = 200 ] || fail 'public_login_not_200_after_deploy'
 

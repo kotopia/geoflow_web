@@ -21,7 +21,7 @@ def review_rows(alias):
 
 def nationwide_q():
     # Only an explicit unrestricted value counts as nationwide; absent data does not.
-    return Q(region_known=True, region_text__regex=r"^\s*(전국|지역\s*제한\s*없음|제한\s*없음)\s*$")
+    return Q(region_known=True, region_text__regex=r"^\s*(전국(\s*\(지역\s*제한\s*없음\))?|지역\s*제한\s*없음|제한\s*없음)\s*$")
 
 
 def region_q(items):
@@ -33,7 +33,7 @@ def region_q(items):
     return condition
 
 
-def query_notices(alias, query="", review_status="", include_all=False, region="all", personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new"):
+def query_notices(alias, query="", review_status="", include_all=False, region="all", personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new", apply_extra=False, include_excluded=False, sources=None):
     reviews = review_rows(alias)
     qs = Notice.objects.using(central_alias()).filter(posted_at__gte=retention_start(timezone.now()))
     state = personal_state or {}
@@ -46,7 +46,7 @@ def query_notices(alias, query="", review_status="", include_all=False, region="
         if personal_view == 'saved':
             qs = qs.filter(pk__in=saved)
     if not include_closed and personal_view == 'all':
-        qs = qs.filter(Q(close_at__isnull=True) | Q(close_at__gt=timezone.now())).filter(Q(summary__notice_status__isnull=True) | ~Q(summary__notice_status='cancelled'))
+        qs = qs.filter(Q(close_at__isnull=True) | Q(close_at__gt=timezone.now())).filter(Q(summary__notice_status__isnull=True) | ~Q(summary__notice_status__in=['cancelled', 'closed']))
     if date_from:
         qs = qs.filter(posted_at__date__gte=date_from)
     if date_to:
@@ -56,8 +56,10 @@ def query_notices(alias, query="", review_status="", include_all=False, region="
             qs = qs.exclude(pk__in=[pk for pk, r in reviews.items() if r["review_status"] != "unreviewed"])
         else:
             qs = qs.filter(pk__in=[pk for pk, r in reviews.items() if r["review_status"] == review_status])
-    elif personal_view == "all":
+    elif personal_view == "all" and not include_excluded:
         qs = qs.exclude(pk__in=[pk for pk, r in reviews.items() if r["review_status"] == "excluded"])
+    if sources is not None:
+        qs = qs.filter(source__in=sources)
     if query:
         qs = qs.filter(Q(title__icontains=query[:100]) | Q(number__icontains=query[:100]) |
                        Q(agency__icontains=query[:100]) | Q(demand_agency__icontains=query[:100]))
@@ -66,26 +68,27 @@ def query_notices(alias, query="", review_status="", include_all=False, region="
     filters = load_filters(alias)
     # The central rule relation is authoritative. Multiple selected rules are OR;
     # distinct prevents double counting a notice belonging to several rules.
-    qs = qs.filter(rules__id__in=selected_ids(alias, filters)).distinct()
+    if not include_all:
+        qs = qs.filter(rules__id__in=selected_ids(alias, filters)).distinct()
     regions = filters.get("region", [])
     unknown = Q(region_known=False) | Q(region_text="")
     if region == "nationwide":
         qs = qs.filter(nationwide_q())
     elif region == "unknown":
         qs = qs.filter(unknown)
-    elif region != "all":
+    elif region not in {"all", "configured"}:
         chosen = [item for item in regions if item["id"] == region]
         qs = qs.filter(region_q(chosen)).exclude(nationwide_q()).exclude(unknown)
-    elif regions:
+    elif regions and not include_all:
         qs = qs.filter(region_q(regions) | nationwide_q() | unknown)
-    if filters.get("agency"):
+    if apply_extra and filters.get("agency"):
         condition = Q(pk__in=[])
         for item in filters["agency"]:
             for term in [item["name"], *item.get("aliases", [])]:
                 if term:
                     condition |= Q(agency__icontains=term) | Q(demand_agency__icontains=term)
         qs = qs.filter(condition)
-    for rule_type in ("include", "exclude"):
+    for rule_type in (("include", "exclude") if apply_extra else ()):
         condition = Q()
         for rule in filters.get(rule_type, []):
             import re
