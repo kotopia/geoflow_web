@@ -4,6 +4,7 @@ import configparser
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -31,6 +32,7 @@ def included(path):
 
 def build(repository_builder):
     global OUT
+    source_commit = subprocess.check_output([os.environ.get("GIT_EXECUTABLE", "git"), "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     config = configparser.ConfigParser(interpolation=None)
     config.read(ROOT / 'metadata.txt', encoding='utf-8')
     meta = config['general']
@@ -107,10 +109,10 @@ def build(repository_builder):
         'size_bytes': target.stat().st_size, 'sha256': digest,
         'qgis_minimum_version': meta['qgisMinimumVersion'], 'qgis_maximum_version': meta['qgisMaximumVersion'],
         'experimental': False, 'deprecated': False, 'zip_root': PACKAGE + '/',
-        'download_url': f'https://geoflow.co.kr/gis/qgis/plugins/releases/{filename}',
+        'download_url': f'https://geoflow.co.kr/gis/qgis/plugins/packages/{filename}',
         'download_url_status': 'proposed_only_not_published',
         'metadata': dict(meta), 'missing_publisher_metadata': missing,
-        'publication_ready': False, 'git_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+        'publication_ready': False, 'git_commit': source_commit,
         'publication_note': 'Work must review metadata, validation reports and destination before publishing.',
     }
     (OUT / 'geoflow_connector-release.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
