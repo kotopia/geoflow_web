@@ -29,7 +29,7 @@ class MathTests(unittest.TestCase):
     def test_endpoints_and_duplicates(self):
         c=config(); line=[('pipe', [[(0,0),(0,0),(10,0),(10,10)]])]
         self.assertEqual(calculate((0,0),line,c)['angle'],90)
-        self.assertEqual(calculate((10,10),line,c)['angle'],180)
+        self.assertEqual(calculate((10,10),line,c)['angle'],0)
         self.assertEqual(calculate((10,0),line,c)['status'],'ambiguous')
         self.assertEqual(calculate((5,0),line,c)['status'],'no_reference')
     def test_straight_junction_multipart_and_zero(self):
@@ -66,6 +66,9 @@ class RuntimeTests(unittest.TestCase):
         self.service=DirectionService(self.plugin)
         self.feature=self.add(self.layer,'Point (0 0)',0)
         self.line=self.add(self.ref,'LineString (0 0, 10 0)',0)
+        tx=QgsCoordinateTransform(self.ref.crs(),QgsCoordinateReferenceSystem(ANGLE_CRS),QgsProject.instance())
+        a,b=[tx.transform(p) for p in self.line.geometry().asPolyline()]
+        self.expected=normalize(90-bearing((a.x(),a.y()),(b.x(),b.y())))
         self.canvas.setDestinationCrs(self.layer.crs());self.canvas.setLayers([self.layer,self.ref])
         self.canvas.setExtent(QgsRectangle(-5,-5,15,15)); self.canvas.show();APP.processEvents()
     def make_layer(self,kind,name):
@@ -81,7 +84,7 @@ class RuntimeTests(unittest.TestCase):
         result=self.service.inspect(self.layer,self.feature)
         self.assertEqual(result['status'],'ok',result)
         self.service.apply(self.layer,[result])
-        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],90)
+        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],self.expected)
         validate_pending(self.plugin,self.layer)
         self.ref.startEditing();self.ref.changeGeometry(self.line.id(),QgsGeometry.fromWkt('LineString (0 0,0 10)'))
         with self.assertRaises(ValueError):validate_pending(self.plugin,self.layer)
@@ -91,7 +94,7 @@ class RuntimeTests(unittest.TestCase):
         geom=QgsGeometry(self.line.geometry());geom.transform(tx)
         self.ref.dataProvider().changeGeometryValues({self.line.id():geom});self.ref.setCrs(QgsCoordinateReferenceSystem('EPSG:4326'))
         result=self.service.inspect(self.layer,self.feature)
-        self.assertEqual(result['status'],'ok',result);self.assertAlmostEqual(result['angle'],90,places=5)
+        self.assertEqual(result['status'],'ok',result);self.assertAlmostEqual(result['angle'],self.expected,places=5)
     def test_batch_failure_preserves_values_and_stale_target(self):
         other=self.add(self.layer,'Point (100 100)',73)
         self.assertEqual(self.service.inspect(self.layer,other)['status'],'no_reference')
@@ -107,7 +110,7 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.layer.selectedFeatureCount(),2)
         tool.select_ids(self.layer,[other.id()],Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(self.layer.selectedFeatureIds(),[self.feature.id()])
-        tool.mode='area';self.canvas.setMapTool(tool)
+        self.canvas.setMapTool(tool)
         transform=self.canvas.getCoordinateTransform()
         a=transform.transform(QgsPointXY(-1,-1));b=transform.transform(QgsPointXY(3,3))
         press=QgsMapMouseEvent(self.canvas,QEvent.Type.MouseButtonPress,QPoint(round(a.x()),round(a.y())),Qt.MouseButton.LeftButton,Qt.MouseButton.LeftButton)
@@ -131,13 +134,13 @@ class RuntimeTests(unittest.TestCase):
         form.load_values({self.field['id']:20,'note':'unsaved note'})
         result=self.service.inspect(self.layer,self.feature)
         self.service.apply(self.layer,[result],page)
-        self.assertEqual(float(form.values()[self.field['id']]),90)
+        self.assertEqual(float(form.values()[self.field['id']]),self.expected)
         self.assertEqual(form.values()['note'],'unsaved note')
         self.layer.undoStack().undo()
         self.assertEqual(float(form.values()[self.field['id']]),20)
         self.assertEqual(form.values()['note'],'unsaved note')
         self.layer.undoStack().redo()
-        self.assertEqual(float(form.values()[self.field['id']]),90)
+        self.assertEqual(float(form.values()[self.field['id']]),self.expected)
         page.binding.feature_id=999
         form.load_values({self.field['id']:55,'note':'other feature'})
         self.layer.undoStack().undo()
@@ -152,7 +155,7 @@ class RuntimeTests(unittest.TestCase):
         self.canvas.setDestinationCrs(QgsCoordinateReferenceSystem('EPSG:4326'))
         self.canvas.setExtent(QgsRectangle(-0.0001,-0.0001,0.0001,0.0001));APP.processEvents()
         tool=IdentifyGeometry(self.canvas,layer_provider=lambda:{self.layer.id():self.layer},active_layer=lambda:self.layer)
-        tool.mode='area';self.canvas.setMapTool(tool)
+        self.canvas.setMapTool(tool)
         def event(kind,point,buttons):
             return QgsMapMouseEvent(self.canvas,kind,point,Qt.MouseButton.LeftButton,buttons)
         tool.canvasPressEvent(event(QEvent.Type.MouseButtonPress,QPoint(50,50),Qt.MouseButton.LeftButton))
@@ -162,15 +165,27 @@ class RuntimeTests(unittest.TestCase):
         QTest.keyClick(self.canvas,Qt.Key.Key_Escape)
         self.assertIsNone(tool._start)
         self.canvas.unsetMapTool(tool);tool.dispose()
-    def test_delayed_popup_does_not_trigger_short_click(self):
-        button=QToolButton();menu=QMenu(button);menu.addAction('single');menu.addAction('area')
-        button.setMenu(menu);button.setPopupMode(QToolButton.ToolButtonPopupMode.DelayedPopup)
-        clicks=[];shown=[];button.clicked.connect(lambda:clicks.append(True));menu.aboutToShow.connect(lambda:shown.append(True))
-        menu.aboutToShow.connect(lambda:QTimer.singleShot(20,menu.close))
-        button.show();APP.processEvents()
-        QTest.mouseClick(button,Qt.MouseButton.LeftButton);self.assertEqual(len(clicks),1)
-        QTest.mousePress(button,Qt.MouseButton.LeftButton);QTest.qWait(1000);QTest.mouseRelease(button,Qt.MouseButton.LeftButton)
-        self.assertTrue(shown);self.assertEqual(len(clicks),1);button.close()
+    def test_selection_button_has_no_mode_menu(self):
+        from geoflow_connector.ui.form_host import Main
+        button=QToolButton()
+        Main.configure_selection_button(None,button)
+        self.assertIsNone(button.menu())
+        import xml.etree.ElementTree as ET
+        ui=ET.parse(Path(__file__).resolve().parents[1]/'ui/designer/main_dock.ui')
+        self.assertTrue(any('Esc' in (node.text or '') for node in ui.findall('.//property[@name="toolTip"]/string')))
+        self.assertFalse(hasattr(IdentifyGeometry(self.canvas),'mode'))
+        button.close()
+
+    def test_manual_rotation_without_auto_reference_settings(self):
+        self.field['direction'] = {key:self.cfg[key] for key in
+            ('zero_axis','positive_direction','symbol_offset','allow_reverse')}
+        result=self.service.manual_result(self.layer,self.feature)
+        with self.assertRaises(ValueError):self.service.settings(self.layer)
+        self.service.apply(self.layer,[dict(result,angle=42)],track=False)
+        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],42)
+        self.layer.undoStack().undo()
+        self.assertEqual(self.layer.getFeature(self.feature.id())['ang_dir'],0)
+
 
     def test_preview_sync_cancel_and_apply(self):
         values={self.field['id']:0,'other':'draft'}

@@ -1,0 +1,2 @@
+Text-angle facility: unavailable controls visible, valid facilities save, legacy invalid configuration removable: OK
+Direction settings UI save/cancel/reopen; midpoint/radius/crossing; manual independence; server/project isolation; invalid fields/references; stale-result guard: OK

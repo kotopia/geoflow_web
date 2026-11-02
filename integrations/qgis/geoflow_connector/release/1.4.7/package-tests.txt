@@ -1,0 +1,87 @@
+python-qgis.bat : test_145_archive_remains_byte_exact (scripts.qgis.test_stable_repository.StableRepositoryTests.test_1
+45_archive_remains_byte_exact) ... ok
+위치 줄:2 문자:559
++ ... -Object Id; & 'C:\Program Files\QGIS 4.2.2\bin\python-qgis.bat' -m un ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (test_145_archiv...e_exact) ... ok:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+test_approved_143_archive_is_byte_exact_on_this_platform (scripts.qgis.test_stable_repository.StableRepositoryTests.tes
+t_approved_143_archive_is_byte_exact_on_this_platform) ... ok
+test_approved_144_archive_remains_byte_exact (scripts.qgis.test_stable_repository.StableRepositoryTests.test_approved_1
+44_archive_remains_byte_exact) ... ok
+test_created_index_requires_successful_readback (scripts.qgis.test_stable_repository.StableRepositoryTests.test_created
+_index_requires_successful_readback) ... ok
+test_current_release_archive_matches_its_new_inventory (scripts.qgis.test_stable_repository.StableRepositoryTests.test_
+current_release_archive_matches_its_new_inventory) ... ok
+test_direct_publisher_execution_finds_project_without_pythonpath (scripts.qgis.test_stable_repository.StableRepositoryT
+ests.test_direct_publisher_execution_finds_project_without_pythonpath) ... ok
+test_hash_mismatch_stops_before_any_write (scripts.qgis.test_stable_repository.StableRepositoryTests.test_hash_mismatch
+_stops_before_any_write) ... ok
+test_history_index_restores_previous_version_and_retains_packages (scripts.qgis.test_stable_repository.StableRepository
+Tests.test_history_index_restores_previous_version_and_retains_packages) ... ok
+test_immutable_collision_does_not_replace_index (scripts.qgis.test_stable_repository.StableRepositoryTests.test_immutab
+le_collision_does_not_replace_index) ... ok
+test_missing_index_with_s3_403_is_created_conditionally (scripts.qgis.test_stable_repository.StableRepositoryTests.test
+_missing_index_with_s3_403_is_created_conditionally) ... ok
+test_release_inventory_rejects_changed_file_bytes (scripts.qgis.test_stable_repository.StableRepositoryTests.test_relea
+se_inventory_rejects_changed_file_bytes) ... ok
+test_stable_publish_keeps_test_bytes_and_uses_separate_package_prefix (scripts.qgis.test_stable_repository.StableReposi
+toryTests.test_stable_publish_keeps_test_bytes_and_uses_separate_package_prefix) ... ok
+test_test_download_url_cannot_enter_stable_index (scripts.qgis.test_stable_repository.StableRepositoryTests.test_test_d
+ownload_url_cannot_enter_stable_index) ... ok
+test_test_repository_denial_stops_before_writes_with_safe_diagnostics (scripts.qgis.test_stable_repository.StableReposi
+toryTests.test_test_repository_denial_stops_before_writes_with_safe_diagnostics) ... ok
+test_unreadable_existing_index_is_never_overwritten (scripts.qgis.test_stable_repository.StableRepositoryTests.test_unr
+eadable_existing_index_is_never_overwritten) ... ok
+test_xml_special_characters_metadata_and_update_identity (scripts.qgis.test_stable_repository.StableRepositoryTests.tes
+t_xml_special_characters_metadata_and_update_identity) ... ok
+test_runtime_cache_code_survives_but_development_data_is_excluded (scripts.qgis.test_build_plugin_repository.BuildPlugi
+nRepositoryTests.test_runtime_cache_code_survives_but_development_data_is_excluded) ... ok
+test_xml_matches_metadata_package_and_hash (scripts.qgis.test_build_plugin_repository.BuildPluginRepositoryTests.test_x
+ml_matches_metadata_package_and_hash) ... ok
+test_xml_rejects_download_url_filename_mismatch (scripts.qgis.test_build_plugin_repository.BuildPluginRepositoryTests.t
+est_xml_rejects_download_url_filename_mismatch) ... ok
+test_zip_is_deterministic_and_has_single_plugin_root (scripts.qgis.test_build_plugin_repository.BuildPluginRepositoryTe
+sts.test_zip_is_deterministic_and_has_single_plugin_root) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 189.142s
+
+OK
+qgis_plugin_index_read=denied:create_only:key=qgis-plugins/stable/plugins.xml
+qgis_plugin_previous_index=unknown:create_only
+qgis_plugin_previous_index=none
+qgis_plugin_channel=stable
+qgis_plugin_package_key=qgis-plugins/stable/packages/geoflow_connector-1.2.3.zip
+qgis_plugin_repository_key=qgis-plugins/stable/plugins.xml
+qgis_plugin_sha256=51b080aa04264750425bd1216b5ae364077ae14569e6b67bfc02d0f7e7d8e171
+RESULT qgis_plugin_stable_repository=SUCCESS
+qgis_plugin_previous_index=qgis-plugins/stable/history/plugins-b3da095fbdfdeda99c27c29f857104bf47ffac5b7155282c822cf0b4abf3cf4a.xml
+qgis_plugin_channel=stable
+qgis_plugin_package_key=qgis-plugins/stable/packages/geoflow_connector-1.2.4.zip
+qgis_plugin_repository_key=qgis-plugins/stable/plugins.xml
+qgis_plugin_sha256=2c6484a51966b20641b876be5cf7145a6367f468bda86b96e1a5e52a7d3346fd
+RESULT qgis_plugin_stable_repository=SUCCESS
+qgis_plugin_previous_index=qgis-plugins/stable/history/plugins-12b71826e4a632520e7c1d9cca07a1c5d10b99836e2ba0a6dba9b01e8f4289e4.xml
+qgis_plugin_channel=stable
+qgis_plugin_package_key=qgis-plugins/stable/packages/geoflow_connector-1.2.3.zip
+qgis_plugin_repository_key=qgis-plugins/stable/plugins.xml
+qgis_plugin_sha256=51b080aa04264750425bd1216b5ae364077ae14569e6b67bfc02d0f7e7d8e171
+RESULT qgis_plugin_stable_repository=SUCCESS
+qgis_plugin_previous_index=none
+qgis_plugin_index_read=denied:create_only:key=qgis-plugins/stable/plugins.xml
+qgis_plugin_previous_index=unknown:create_only
+qgis_plugin_channel=stable
+qgis_plugin_package_key=qgis-plugins/stable/packages/geoflow_connector-1.2.3.zip
+qgis_plugin_repository_key=qgis-plugins/stable/plugins.xml
+qgis_plugin_sha256=51b080aa04264750425bd1216b5ae364077ae14569e6b67bfc02d0f7e7d8e171
+RESULT qgis_plugin_stable_repository=SUCCESS
+qgis_plugin_previous_index=none
+qgis_plugin_channel=stable
+qgis_plugin_package_key=qgis-plugins/stable/packages/geoflow_connector-1.2.3.zip
+qgis_plugin_repository_key=qgis-plugins/stable/plugins.xml
+qgis_plugin_sha256=51b080aa04264750425bd1216b5ae364077ae14569e6b67bfc02d0f7e7d8e171
+RESULT qgis_plugin_stable_repository=SUCCESS
+qgis_plugin_index_read=denied:create_only:key=qgis-plugins/stable/plugins.xml
+qgis_plugin_previous_index=unknown:create_only

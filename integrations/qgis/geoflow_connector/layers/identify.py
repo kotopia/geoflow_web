@@ -23,6 +23,7 @@
  ***************************************************************************/
 """
 from qgis.PyQt.QtCore import pyqtSignal, Qt, QPoint
+from qgis.PyQt.QtWidgets import QApplication
 from qgis.PyQt.QtGui import QPixmap, QCursor, QColor
 from qgis.core import QgsVectorLayer, QgsFeature, QgsMessageLog, QgsGeometry, QgsPointXY, QgsFeatureRequest, QgsCoordinateTransform, QgsProject, QgsWkbTypes
 from qgis.gui import QgsMapToolIdentify, QgsMapMouseEvent, QgsRubberBand
@@ -43,7 +44,6 @@ class IdentifyGeometry(QgsMapToolIdentify):
         self.canvas = canvas
         QgsMapToolIdentify.__init__(self, canvas)
         self.setCursor(QCursor())
-        self.mode = 'single'
         self._start = None
         self._drag_layer = None
         self._band = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
@@ -69,7 +69,7 @@ class IdentifyGeometry(QgsMapToolIdentify):
             super().keyPressEvent(event)
 
     def canvasPressEvent(self, event):
-        if self.mode == 'area' and event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self.cancel_drag()
             self._start = event.pos()
             self._drag_layer = self.active_layer()
@@ -119,9 +119,13 @@ class IdentifyGeometry(QgsMapToolIdentify):
     def canvasReleaseEvent(self, mouseEvent):
         if mouseEvent.button() != Qt.MouseButton.LeftButton:
             return
-        if self.mode == 'area':
+        if self._start is None:
+            return
+        dragged = (mouseEvent.pos() - self._start).manhattanLength() >= QApplication.startDragDistance()
+        if dragged:
             self._select_area(mouseEvent)
             return
+        self.cancel_drag()
         try:
             pos = mouseEvent.pos()
             layer = self.active_layer()

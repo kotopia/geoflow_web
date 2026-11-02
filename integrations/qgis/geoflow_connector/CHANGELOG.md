@@ -1,3 +1,17 @@
+## 1.4.7 (local review candidate)
+
+- EPSG:5186 CAD angles: east 0, counterclockwise, original segment direction; ambiguous candidates require review.
+- Separate metric search, CAD axes, field precision and map/symbol display; HALF_UP at application.
+- Designer-owned main icons; project-scoped radius/reference settings; field actions and navigation save/discard fixes.
+- No automatic conversion of existing values; no production publication.
+
+## 1.4.6 (candidate)
+
+- 클릭/드래그 자동 선택과 수정키 다중 선택.
+- 일반 아이콘에서 심도 계산, 객체별 결과표와 임시 강조, 편집 버퍼 적용.
+- 명시적 중앙 방향각 기능 대상의 필드 버튼과 설정 진단·재조회 갱신.
+- 수동 회전 규칙과 자동계산 기준선 검증 분리.
+
 # GeoFlow Connector
 
 ## 1.4.5 — 2026-10-28 (검증 후보, 미배포)

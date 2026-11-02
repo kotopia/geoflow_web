@@ -5,13 +5,13 @@ import json
 import traceback
 from pathlib import Path
 
-from qgis.PyQt.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer
-from qgis.PyQt.QtGui import QAction, QIcon
-from qgis.PyQt.QtWidgets import QMessageBox, QMenu, QPushButton, QToolBar, QVBoxLayout, QWidget
+from qgis.PyQt.QtCore import QEvent, QObject, QPoint, Qt, QTimer
+from qgis.PyQt.QtGui import QAction
+from qgis.PyQt.QtWidgets import QMessageBox, QMenu, QToolBar, QVBoxLayout, QWidget
 from qgis.PyQt.uic import loadUi
 from qgis.PyQt import sip
 from qgis.core import (
-    QgsApplication, QgsMessageLog, QgsProject, QgsVectorLayer, QgsWkbTypes, Qgis,
+    QgsMessageLog, QgsProject, QgsVectorLayer, QgsWkbTypes, Qgis,
 )
 
 from ..services.depth import DepthService, FAILURE_REASONS
@@ -34,9 +34,6 @@ class EditToolsController(QObject):
         palette_layout.setContentsMargins(4, 4, 4, 4)
         palette_layout.addWidget(self.panel)
         self.palette.setFixedWidth(46)
-        for button in self.panel.findChildren(type(self.panel.addFeatureButton)):
-            button.setFixedSize(32, 32)
-            button.setIconSize(QSize(22, 22))
         apply_main_style(self.palette)
         self.palette.hide()
         self.host = self.palette  # Compatibility for runtime diagnostics.
@@ -66,28 +63,21 @@ class EditToolsController(QObject):
         self._save_action = None
         self._save_action_hosts = []
         self._log("edit_tools_panel_created")
-        self.depth_batch_button = QPushButton('심도 일괄계산', self.panel)
-        self.panel.layout().addWidget(self.depth_batch_button)
+        root = plugin.presentation.root
+        self.depth_batch_button = root.GeoFlowRail_depth
+        self.direction_batch_button = root.GeoFlowRail_direction
         self.depth_batch_button.clicked.connect(self._run_depth)
-        self.direction_batch_button = QPushButton('방향각 일괄계산', self.panel)
-        self.panel.layout().addWidget(self.direction_batch_button)
-        for button, title, icon in (
-            (self.depth_batch_button, '심도 일괄계산', '/mActionFieldCalculator.svg'),
-            (self.direction_batch_button, '방향각 일괄계산', '/mActionRotatePointSymbols.svg')):
-            button.setText('')
-            button.setAccessibleName(title)
-            button.setToolTip(title)
-            button.setIcon(QgsApplication.getThemeIcon(icon))
-            button.setFixedSize(32, 32)
-            button.setIconSize(QSize(22, 22))
-        self.direction_batch_button.clicked.connect(self.calculate_direction)
+        self.direction_batch_button.clicked.connect(self.direction_action)
+        self._definition_events = getattr(plugin, '_definition_service', None)
+        if self._definition_events is not None:
+            self._definition_events.changed.connect(self.refresh)
         self._wire()
         plugin.dock.visibilityChanged.connect(self._main_dock_visibility_changed)
         plugin.dock.installEventFilter(self)
         main_window.installEventFilter(self)
         self._bind_native_actions()
         self._install_online_save_proxy()
-        self._log("edit_tools_bound")
+        self._log("edit_tools_bound local_ui_revision=20261030-designer-2")
         self._active_layer_changed(self._active_layer())
         self.set_mode(False)
 
@@ -166,7 +156,6 @@ class EditToolsController(QObject):
         note = getattr(target, "note", None)
         if note is not None:
             note.setText(str(message))
-            return
         bar = getattr(self.plugin.iface, "messageBar", lambda: None)()
         if bar is not None:
             bar.pushMessage("GeoFlow", str(message))
@@ -249,20 +238,9 @@ class EditToolsController(QObject):
             "undo": (self.panel.undoButton, ("actionUndo",)),
             "redo": (self.panel.redoButton, ("actionRedo",)),
         }
-        fallback_icons = {
-            "snapping": ":/geoflow/tabler/magnet.svg",
-            "undo": ":/geoflow/tabler/arrow-back-up.svg",
-            "redo": ":/geoflow/tabler/arrow-forward-up.svg",
-        }
         for key, (button, names) in bindings.items():
             action = self._iface_action(*names)
             self._native_actions[key] = action
-            icon = action.icon() if action is not None and hasattr(action, "icon") else QIcon()
-            if not isinstance(icon, QIcon):
-                icon = QIcon()
-            if icon.isNull() and key in fallback_icons:
-                icon = QIcon(fallback_icons[key])
-            button.setIcon(icon)
             changed = getattr(action, "changed", None)
             if changed is not None:
                 changed.connect(self.refresh)
@@ -336,30 +314,6 @@ class EditToolsController(QObject):
         finally:
             self.plugin._online_save_trigger = previous
         self.refresh()
-
-    def _sync_action_icons(self, layer):
-        for key, action in self._native_actions.items():
-            if action is not None and hasattr(action, "icon"):
-                icon = action.icon()
-                if isinstance(icon, QIcon) and not icon.isNull():
-                    getattr(self.panel, {
-                        "add": "addFeatureButton", "move": "moveButton",
-                        "vertex": "vertexButton", "split": "splitButton",
-                        "delete": "deleteButton", "snapping": "snappingButton",
-                        "undo": "undoButton", "redo": "redoButton",
-                    }[key]).setIcon(icon)
-        if not isinstance(layer, QgsVectorLayer):
-            return
-        geometry = QgsWkbTypes.geometryType(layer.wkbType())
-        theme_icon = {
-            QgsWkbTypes.GeometryType.PointGeometry: "/mActionCapturePoint.svg",
-            QgsWkbTypes.GeometryType.LineGeometry: "/mActionCaptureLine.svg",
-            QgsWkbTypes.GeometryType.PolygonGeometry: "/mActionCapturePolygon.svg",
-        }.get(geometry)
-        if theme_icon:
-            icon = QgsApplication.getThemeIcon(theme_icon)
-            if not icon.isNull():
-                self.panel.addFeatureButton.setIcon(icon)
 
     def _is_managed_edit_layer(self, layer):
         if not isinstance(layer, QgsVectorLayer):
@@ -604,38 +558,100 @@ class EditToolsController(QObject):
         )
         for button in self._depth_field_actions[layer.id()]:
             button.setVisible(visible)
+        self._refresh_direction_page(page, layer)
+        self.refresh()
+
+    def _refresh_direction_page(self, page, layer):
         from qgis.PyQt.QtWidgets import QToolButton
         from .form_actions import configure_field_action_button
-        try:
-            field, config = self.direction.settings(layer)
-        except (ValueError, TypeError):
-            pass
-        else:
-            self.direction.bind_renderer(layer)
-            buttons = []
-            for label, callback in (('방향 조정', self.rotate_direction), ('방향각 계산', self.calculate_direction)):
-                button = QToolButton(page.form)
-                configure_field_action_button(button, icon=':/geoflow/tabler/rotate.svg', tooltip=label)
-                button.clicked.connect(lambda checked=False, cb=callback: cb())
-                if page.form.add_field_action(field['id'], button): buttons.append(button)
-            self._direction_buttons[layer.id()] = buttons
-            def sync_angle(fid, index, value):
-                if (page.feature_id == fid and not page.binding.loading and not page.binding.saving
-                        and index == layer.fields().indexFromName(field['storage']['key'])):
-                    self.direction.sync_form(page, layer)
+        targets = self.direction.targets(layer)
+        attached = getattr(page, '_direction_actions', {})
+        for field in targets:
+            field_id = field['id']
+            if field_id not in attached:
+                buttons = []
+                for manual,label,callback in ((False,'자동계산',self.calculate_direction),(True,'직접 회전',self.rotate_direction)):
+                    button = QToolButton(page.form)
+                    button.setProperty('directionManual',manual)
+                    configure_field_action_button(button,icon=':/geoflow/tabler/rotate.svg',tooltip=label)
+                    button.setAccessibleName(label)
+                    button.clicked.connect(lambda checked=False, cb=callback, p=page: cb(page=p))
+                    if page.form.add_field_action(field_id,button):
+                        buttons.append(button)
+                    else:
+                        button.deleteLater()
+                        self._set_message('방향각 필드 액션 부착 실패: ' + field_id, page)
+                        self._log('direction_attach_failed field_id=' + field_id)
+                attached[field_id] = buttons
+        valid_ids = {f['id'] for f in targets}
+        for field_id,buttons in attached.items():
+            for button in buttons:
+                button.setVisible(field_id in valid_ids)
+                manual = bool(button.property('directionManual'))
+                label = '직접 회전' if manual else '자동계산'
+                reason = ''
+                try: self.direction.settings(layer,manual=manual)
+                except (ValueError,TypeError,AttributeError) as exc: reason = str(exc)
+                state = self.plugin.integration_state()
+                if not state.get('ready') or not state.get('can_write') or layer.readOnly() or not self._is_managed_edit_layer(layer):
+                    reason = '현재 프로젝트의 편집 권한이 없습니다.'
+                elif page.feature_id is None or layer.selectedFeatureIds() != [page.feature_id]:
+                    reason = reason or '대상 객체를 하나 선택하세요.'
+                button.setEnabled(not reason and field_id in valid_ids)
+                button.setToolTip(label + (' · ' + reason if reason else ''))
+                if reason and reason != button.property('directionReason'):
+                    self._log('direction_action_unavailable field_id=' + field_id + ' reason=' + reason)
+                button.setProperty('directionReason',reason)
+        page._direction_actions = attached
+        self._direction_buttons[layer.id()] = [b for buttons in attached.values() for b in buttons]
+        if targets and not getattr(page, '_direction_save_connected', False):
+            def normalize_input(values):
+                for target in self.direction.targets(layer):
+                    key = target['id']
+                    value = values.get(key)
+                    # Unedited historical values must survive unrelated saves verbatim.
+                    if value is None or value == page.binding.original.get(key):
+                        continue
+                    try:
+                        field, _ = self.direction.settings(layer, manual=True)
+                    except (ValueError, TypeError):
+                        continue
+                    values[key] = self.direction.storage_value(layer, field, value)
+                return values
+            page.form.register_save_behavior(normalize_input, lambda: set())
+            page._direction_save_connected = True
+        if targets and not getattr(page,'_direction_sync_connected',False):
+            def sync_angle(fid,index,value):
+                if page.feature_id == fid and not page.binding.loading and not page.binding.saving:
+                    for field in self.direction.targets(layer):
+                        if index == layer.fields().indexFromName((field.get('storage') or {}).get('key','')):
+                            try:
+                                self.direction.sync_form(page,layer)
+                            except (ValueError,TypeError,AttributeError) as exc:
+                                self._log('direction_sync_failed field_id=' + field['id'] + ' reason=' + str(exc))
+                                self._set_message('방향각 폼 동기화 실패: ' + str(exc),page)
             layer.attributeValueChanged.connect(sync_angle)
-            self._direction_connections.append((layer, sync_angle))
-            page.destroyed.connect(lambda: self._disconnect_direction(layer, sync_angle))
-        self.refresh()
+            self._direction_connections.append((layer,sync_angle))
+            page.destroyed.connect(lambda:self._disconnect_direction(layer,sync_angle))
+            page._direction_sync_connected = True
+        try:
+            field,config = self.direction.settings(layer,manual=True)
+            signature = (field['id'],json.dumps(config,sort_keys=True))
+            if signature != getattr(page,'_direction_render_signature',None):
+                self.direction.bind_renderer(layer)
+                page._direction_render_signature = signature
+        except (ValueError,TypeError,AttributeError) as exc:
+            page._direction_render_signature = None
 
     @staticmethod
     def _disconnect_direction(layer, slot):
         try: layer.attributeValueChanged.disconnect(slot)
         except (RuntimeError, TypeError): pass
 
-    def rotate_direction(self):
+    def rotate_direction(self, checked=False, page=None):
         from .direction import RotationDialog
-        layer, page = self._active_layer(), self._current_page()
+        page = page or self._current_page()
+        layer = self._layer_by_id(page.layer_id) if page is not None else self._active_layer()
         if page is None or page.feature_id is None or layer.selectedFeatureCount() != 1:
             return
         try:
@@ -644,9 +660,10 @@ class EditToolsController(QObject):
             self._rotation_dialog.show()
         except Exception as exc: self._set_message(str(exc), page)
 
-    def calculate_direction(self):
+    def calculate_direction(self, checked=False, page=None):
         from .direction import DirectionResults
-        layer, page = self._active_layer(), self._current_page()
+        page = page or self._current_page()
+        layer = self._layer_by_id(page.layer_id) if page is not None else self._active_layer()
         if layer is None: return
         features = list(layer.selectedFeatures())
         if not features and page is not None and page.feature_id is not None:
@@ -726,142 +743,45 @@ class EditToolsController(QObject):
         feature = layer.getFeature(page.feature_id)
         return feature if feature.isValid() else None
 
-    @staticmethod
-    def _merge_depth_result(summary, result):
-        summary["results"].append(result)
-        if result.get("skipped"):
-            summary["skipped"] += 1
-        elif result.get("ok"):
-            summary["success"] += 1
-            summary["review"] += int(bool(result.get("requires_review")))
-        else:
-            summary["failed"] += 1
-            reason = result.get("reason") or "invalid_result"
-            summary["failures"].append(FAILURE_REASONS.get(reason, reason))
-
     def _run_depth(self):
         layer = self._active_layer()
-        selected = list(layer.selectedFeatures()) if isinstance(layer, QgsVectorLayer) else []
-        page = self._current_page()
-        feature_id = ""
-        if selected and "id" in selected[0].fields().names():
-            feature_id = str(selected[0]["id"] or "")
-        elif page is not None and page.feature_id is not None:
-            current = layer.getFeature(page.feature_id)
-            if current.isValid() and "id" in current.fields().names():
-                feature_id = str(current["id"] or "")
-        standard = str(layer.customProperty(
-            "geoflow/standard_name", ""
-        ) or "") if isinstance(layer, QgsVectorLayer) else ""
-        self._log(
-            "depth_action_clicked "
-            f"layer={standard or 'none'} selected={len(selected)} "
-            f"form_feature={str(bool(page and page.feature_id is not None)).lower()} "
-            f"feature_id={feature_id or 'none'}"
-        )
-        stage = "eligibility"
+        if not isinstance(layer, QgsVectorLayer): return
+        selected = list(layer.selectedFeatures())
+        if len(selected) < 2:
+            self._set_message('심도 객체를 2개 이상 선택하세요.'); return
+        state = self.plugin.integration_state()
+        if not (state.get('ready') and state.get('can_write') and self._is_managed_edit_layer(layer)
+                and not layer.readOnly() and self.depth.target_supported(layer)):
+            self._set_message('현재 프로젝트의 쓰기 가능한 심도 레이어가 필요합니다.'); return
+        overwrite = self._overwrite_choice()
+        if overwrite is None: return
         try:
-            support = self.depth.support_status(layer)
-            if not support["supported"]:
-                self._log(
-                    "depth_calculate_failed stage=eligibility reason="
-                    + ",".join(support["reasons"])
-                )
-                self._set_message(
-                    "현재 레이어에서는 심도 자동계산을 사용할 수 없습니다."
-                )
-                return
-            stage = "overwrite_choice"
-            overwrite = self._overwrite_choice()
-            if overwrite is None:
-                self._log(
-                    "depth_calculate_failed stage=overwrite_choice reason=cancelled"
-                )
-                return
-            stage = "apply_selection"
-            if selected:
-                form_feature = self._current_form_feature(layer, page)
-                form_uuid = self._feature_uuid(form_feature)
-                form_targets = [
-                    feature for feature in selected
-                    if form_uuid and self._feature_uuid(feature) == form_uuid
-                ]
-                buffer_targets = [
-                    feature for feature in selected
-                    if not form_uuid or self._feature_uuid(feature) != form_uuid
-                ]
-                result = {
-                    "success": 0, "failed": 0, "skipped": 0, "review": 0,
-                    "failures": [], "results": [],
-                }
-                if form_targets:
-                    form_result = self.depth.apply_to_form(
-                        page, form_feature, overwrite=overwrite
-                    )
-                    self._merge_depth_result(result, form_result)
-                if buffer_targets:
-                    buffer_result = self.depth.apply_to_features(
-                        layer, buffer_targets, overwrite=overwrite
-                    )
-                    for key in ("success", "failed", "skipped", "review"):
-                        result[key] += int(buffer_result[key])
-                    result["failures"].extend(buffer_result["failures"])
-                    result["results"].extend(buffer_result["results"])
-                reasons = ", ".join(result["failures"][:3])
-                suffix = f" · {reasons}" if reasons else ""
-                self._set_message(
-                    f"심도 계산 · 성공 {result['success']} · 실패 {result['failed']} "
-                    f"· 기존값 유지 {result['skipped']} · 검토 {result['review']}{suffix}"
-                )
-                if page is not None:
-                    page.binding.has_actual_changes()
-                    page.update_dirty()
-                self.refresh()
-                return
-            stage = "resolve_form_feature"
-            if page is None or page.feature_id is None:
-                self._log(
-                    "depth_calculate_failed stage=target reason=no_target_feature"
-                )
-                self._set_message(
-                    "대상 객체를 선택하거나 Dynamic Form을 여세요."
-                )
-                return
-            feature = layer.getFeature(page.feature_id)
-            stage = "apply_form"
-            result = self.depth.apply_to_form(
-                page, feature, overwrite=overwrite
-            )
-            if result.get("skipped"):
-                text = "기존 심도값을 유지했습니다."
-            elif result.get("ok"):
-                text = (
-                    f"심도 {result['depth']:.3f}m 적용 · "
-                    f"기준 H 거리 {result['distance_m']:.2f}m · 저장 전 검토하세요."
-                )
-                if result.get("requires_review"):
-                    text += " · 음수 결과 검토 필요"
-            else:
-                text = "심도 계산 실패 · " + FAILURE_REASONS.get(
-                    result.get("reason"), str(result.get("reason") or "알 수 없음")
-                )
-            self._set_message(text, page)
+            summary = self.depth.apply_to_features(layer, selected, overwrite=overwrite, page=self._current_page())
+            from .depth_results import DepthResults
+            old = getattr(self, '_depth_results', None)
+            if old is not None: old.close()
+            self._depth_results = DepthResults(self,layer,summary)
+            self._depth_results.show()
             self.refresh()
         except Exception as exc:
-            self._log(
-                "depth_calculate_failed "
-                f"stage={stage} reason=exception "
-                f"exception_type={type(exc).__name__} message={str(exc)[:500]}"
-            )
-            self._set_message(
-                "심도 계산 중 오류가 발생했습니다. GeoFlow 로그를 확인하세요."
-            )
+            self._log('depth_batch_failed ' + str(exc))
+            self._set_message('심도 일괄계산 실패: ' + str(exc))
+
+    def direction_action(self):
+        layer = self._active_layer()
+        if layer is None or not layer.selectedFeatureCount():
+            self._set_message('방향각 대상 객체를 선택하세요.'); return
+        if layer.selectedFeatureCount() > 1:
+            self.calculate_direction(); return
+        menu = QMenu(self.direction_batch_button)
+        menu.addAction('자동계산', self.calculate_direction)
+        menu.addAction('직접 회전', self.rotate_direction)
+        menu.exec(self.direction_batch_button.mapToGlobal(self.direction_batch_button.rect().bottomRight()))
 
     def refresh(self, *args):
         if self._closed:
             return
         layer = self._active_layer()
-        self._sync_action_icons(layer)
         state = self.plugin.integration_state()
         ready = bool(state.get("ready"))
         self.toggle_button.setEnabled(bool(
@@ -918,27 +838,33 @@ class EditToolsController(QObject):
         page = self._current_page()
         work = getattr(self.plugin, "work", None)
         depth_support = self.depth.support_status(layer)
-        depth_available = bool(
-            editable and depth_support["supported"]
-            and (selected > 0 or (page is not None and page.feature_id is not None))
-        )
         self.depth_batch_button.setEnabled(bool(
-            editable and depth_support['supported'] and selected >= 2))
-        try:
-            self.direction.settings(layer)
-            direction_ready = bool(ready and state.get('can_write') and not layer.readOnly())
-        except (ValueError, TypeError, AttributeError):
-            direction_ready = False
-        self.direction_batch_button.setEnabled(direction_ready and selected >= 2)
-        for layer_id, buttons in self._direction_buttons.items():
-            for button in buttons:
-                button.setEnabled(direction_ready and selected == 1 and layer_id == layer.id())
+            ready and state.get('can_write') and self._is_managed_edit_layer(layer)
+            and not layer.readOnly() and depth_support['supported'] and selected >= 2))
+        depth_available = self.depth_batch_button.isEnabled()
+        depth_reason = ('실행 가능 · 선택 ' + str(selected) + '개' if depth_available else
+                        '현재 프로젝트를 열어야 합니다.' if not ready else
+                        '현재 프로젝트의 쓰기 권한이 없습니다.' if not state.get('can_write') else
+                        '현재 프로젝트의 관리 레이어를 선택하세요.' if not self._is_managed_edit_layer(layer) else
+                        '읽기 전용 레이어입니다.' if layer.readOnly() else
+                        '심도 계산 대상 레이어(WTL_PIPE_PS / pip_dep)를 선택하세요.' if not depth_support['supported'] else
+                        '심도 객체를 2개 이상 선택하세요. 현재 ' + str(selected) + '개')
+        self.depth_batch_button.setToolTip('심도 일괄계산 · ' + depth_reason)
+        direction_targets = self.direction.targets(layer)
+        direction_ready = bool(vector and ready and state.get('can_write') and not layer.readOnly()
+                               and self._is_managed_edit_layer(layer) and direction_targets)
+        self.direction_batch_button.setEnabled(direction_ready and selected > 0)
+        self.direction_batch_button.setToolTip('방향각 · ' + (
+            '대상 객체를 선택하세요.' if not selected else
+            '중앙 방향각 기능 정의를 확인하세요.' if not direction_targets else
+            '자동계산 / 직접 회전' if selected == 1 else '선택 객체 일괄계산'))
         stale_page_ids = []
         for page_layer_id, candidate_page in self._form_pages.items():
             candidate_layer = self._layer_by_id(page_layer_id)
             if candidate_layer is None:
                 stale_page_ids.append(page_layer_id)
                 continue
+            self._refresh_direction_page(candidate_page,candidate_layer)
             candidate_standard = str(candidate_layer.customProperty(
                 "geoflow/standard_name", ""
             ) or "")
@@ -985,11 +911,19 @@ class EditToolsController(QObject):
             )
 
     def close(self):
+        if self._definition_events is not None:
+            self._definition_events.changed.disconnect(self.refresh)
         for layer, slot in self._direction_connections:
             self._disconnect_direction(layer, slot)
         self._direction_connections.clear()
         if self._rotation_dialog is not None:
             self._rotation_dialog.reject()
+        if getattr(self, '_depth_results', None) is not None:
+            self._depth_results.close()
+        for button, slot in ((self.depth_batch_button,self._run_depth),
+                             (self.direction_batch_button,self.direction_action)):
+            try: button.clicked.disconnect(slot)
+            except (RuntimeError,TypeError): pass
         self._closed = True
         self.set_mode(False)
         for signal, slot in self._layer_signal_connections:

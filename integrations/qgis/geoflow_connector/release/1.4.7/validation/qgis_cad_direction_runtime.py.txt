@@ -1,0 +1,3 @@
+CAD_QGIS_OK: cardinals/diagonals/endpoints/reversal/multipart/duplicates/ambiguity/rounding/settings/symbols/handle/project-reload; operational data untouched
+C:\PROGRA~1\QGIS42~1.2\apps\Python312\Lib\tempfile.py:940: ResourceWarning: Implicitly cleaning up <TemporaryDirectory 'C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\tmpd5xgfygc'>
+  _warnings.warn(warn_message, ResourceWarning)

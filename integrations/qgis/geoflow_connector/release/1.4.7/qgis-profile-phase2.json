@@ -1,0 +1,16 @@
+{
+  "phase": 2,
+  "runtime": "4.2.2-Belém do Pará",
+  "pid": 31240,
+  "version": "1.4.7",
+  "plugin_root": "C:\\Users\\Public\\Documents\\ESTsoft\\CreatorTemp\\geoflow-release147-runtime\\profiles\\release\\python\\plugins\\geoflow_connector",
+  "modules_imported": 105,
+  "class_factory": true,
+  "init_gui": true,
+  "login_ui": true,
+  "dynamic_form_host": true,
+  "cad_value_and_renderer_after_process_restart": true,
+  "project_save_or_reload": true,
+  "ui_flow_script": "passed",
+  "ok": true
+}

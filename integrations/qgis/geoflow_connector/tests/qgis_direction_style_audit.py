@@ -12,7 +12,9 @@ from geoflow_connector.layers.default_style import apply_default_qgis_style
 APP=QgsApplication([],False);APP.initQgis()
 QFontDatabase.addApplicationFont('C:/Windows/Fonts/arial.ttf')
 root=Path(__file__).resolve().parents[1]
-out=root/'release'/'1.4.5';out.mkdir(parents=True,exist_ok=True)
+import configparser
+metadata=configparser.ConfigParser();metadata.read(root/'metadata.txt',encoding='utf8')
+out=root/'release'/metadata['general']['version'];out.mkdir(parents=True,exist_ok=True)
 report=[]; images=[]
 for name in ('wtl_valv_ps','wtl_etc_ps'):
  layer=QgsVectorLayer('Point?crs=EPSG:3857&field=id:string&field=ang_dir:double&field=ftr_cde:string',name,'memory')

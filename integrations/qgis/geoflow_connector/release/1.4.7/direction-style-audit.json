@@ -1,0 +1,306 @@
+[
+  {
+    "layer": "wtl_valv_ps",
+    "category": "제수변",
+    "symbol_layers": [
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "360- 0",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "180",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "180 + (360- 0)",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "360- 0",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "90",
+        "marker": "line",
+        "active": true,
+        "expression": "90 + (360- 0)",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "line",
+        "active": true,
+        "expression": "360- 0",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "90",
+        "marker": "line",
+        "active": true,
+        "expression": "90 + (360- 0)",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "FontMarker",
+        "base": "0",
+        "marker": null,
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": true,
+        "expression": "360- 0",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "360- 0",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "180",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "180 + (360- 0)",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "FontMarker",
+        "base": "0",
+        "marker": null,
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "360- 0",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "180",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "180 + (360- 0)",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "90",
+        "marker": "diamond",
+        "active": true,
+        "expression": "90 + (360- 0)",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "line",
+        "active": true,
+        "expression": "-90 + (90 + (360- 0))",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "line",
+        "active": true,
+        "expression": "-90 + (90 + (360- 0))",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      }
+    ],
+    "before_0_equals_90": true,
+    "after_0_equals_90": false
+  },
+  {
+    "layer": "wtl_etc_ps",
+    "category": "지수전",
+    "symbol_layers": [
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "line",
+        "active": true,
+        "expression": "360- \"angdir\"",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "90",
+        "marker": "line",
+        "active": true,
+        "expression": "90 + (360- \"angdir\")",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "square",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "90",
+        "marker": "cross2",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": true,
+        "expression": "360- \"angdir\"",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "360- \"angdir\"",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "180",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "180 + (360- \"angdir\")",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "filled_arrowhead",
+        "active": true,
+        "expression": "360- \"angdir\"",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "FontMarker",
+        "base": "0",
+        "marker": null,
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "90",
+        "marker": "arrowhead",
+        "active": true,
+        "expression": "270-\"angdir\"",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "line",
+        "active": true,
+        "expression": "-90 + (270-\"angdir\")",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": true,
+        "expression": "-90 + (270-\"angdir\")",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "circle",
+        "active": false,
+        "expression": "",
+        "field": ""
+      },
+      {
+        "type": "SimpleMarker",
+        "base": "0",
+        "marker": "semi_circle",
+        "active": true,
+        "expression": "270- \"angdir\"",
+        "field": ""
+      }
+    ],
+    "before_0_equals_90": true,
+    "after_0_equals_90": false
+  }
+]

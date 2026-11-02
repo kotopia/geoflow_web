@@ -1,0 +1,1 @@
+Actual QGIS rotation -> Save/Discard navigation: one prompt; reentry blocked; unrelated batch edits retained; commit failure and external-provider conflict retained: OK
