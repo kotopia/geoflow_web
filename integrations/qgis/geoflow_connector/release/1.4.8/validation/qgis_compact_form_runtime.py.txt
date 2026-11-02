@@ -1,0 +1,1 @@
+PASS: real Qt switch mouse/key input; NULL/P/D save/reload/discard/permissions/failure; unrelated NULL retained; Designer tab corner, order and form rebuild

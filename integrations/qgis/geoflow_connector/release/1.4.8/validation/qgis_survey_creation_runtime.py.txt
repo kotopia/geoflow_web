@@ -1,0 +1,6 @@
+SURVEY_BATCH_BENCHMARK={"13": {"after_ms": 174.688, "after_online_save": 1, "before_ms": 2.701, "before_online_save": 13, "server_save_ms": 0.146, "unaccounted_ms": 0.051}, "20": {"after_ms": 366.752, "after_online_save": 1, "before_ms": 6.121, "before_online_save": 20, "server_save_ms": 0.206, "unaccounted_ms": 0.058}, "5": {"after_ms": 46.571, "after_online_save": 1, "before_ms": 1.157, "before_online_save": 5, "server_save_ms": 0.22, "unaccounted_ms": 0.057}, "50": {"after_ms": 2047.446, "after_online_save": 1, "before_ms": 9.568, "before_online_save": 50, "server_save_ms": 0.356, "unaccounted_ms": 0.073}}
+.........................
+----------------------------------------------------------------------
+Ran 25 tests in 6.708s
+
+OK

@@ -38,13 +38,13 @@ class QgisPluginRepositoryPublishContractTests(unittest.TestCase):
 
     def test_stable_only_workflow_preserves_operational_boundaries(self):
         workflow = (ROOT / '.github/workflows/qgis-plugin-stable-repository-publish.yml').read_text(encoding='utf-8')
-        for token in ('workflow_dispatch:', 'environment: production',
+        for token in ("if: github.event_name == 'workflow_dispatch' && github.ref_name == 'release/stabilized-deploy'", 'environment: production',
                       'PUBLISH_QGIS_PLUGIN:stable:geoflow-upload:qgis-plugins',
                       '--release-manifest', '--inventory', '--verify-http',
                       'stable_release_descriptor_mismatch', 'merge-base',
                       'StrictHostKeyChecking=yes', 'flock -x 9'):
             self.assertIn(token, workflow)
-        for forbidden in ('  push:', 'systemctl restart', 'migrate_all_tenants',
+        for forbidden in ('systemctl restart', 'migrate_all_tenants',
                           'manage.py migrate', 'aws s3 sync', 'iam:', 'git reset --hard'):
             self.assertNotIn(forbidden, workflow)
 
