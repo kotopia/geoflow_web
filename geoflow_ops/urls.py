@@ -13,6 +13,7 @@ urlpatterns = [
     path('api/calendar/events/', views_calendar.calendar_events, name='calendar_events'),
 
     path('bids/', bid_security_views.notice_list, name='bid_notice_list'),
+    path('bids/personal/', bid_security_views.personal_save, name='bid_personal_save'),
     path('bids/settings/', bid_security_views.settings_page, name='bid_settings'),
     path('bids/settings/filter/save/', bid_security_views.filter_value_save, name='bid_filter_save'),
     path('bids/settings/keyword/save/', bid_security_views.keyword_save, name='bid_keyword_save'),

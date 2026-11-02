@@ -33,19 +33,36 @@ def region_q(items):
     return condition
 
 
-def query_notices(alias, query="", review_status="", include_all=False, region="all"):
+def query_notices(alias, query="", review_status="", include_all=False, region="all", personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new"):
     reviews = review_rows(alias)
     qs = Notice.objects.using(central_alias()).filter(posted_at__gte=retention_start(timezone.now()))
+    state = personal_state or {}
+    hidden = [pk for pk, value in state.items() if value['hidden']]
+    saved = [pk for pk, value in state.items() if value['saved']]
+    if personal_view == 'hidden':
+        qs = qs.filter(pk__in=hidden)
+    else:
+        qs = qs.exclude(pk__in=hidden)
+        if personal_view == 'saved':
+            qs = qs.filter(pk__in=saved)
+    if not include_closed and personal_view == 'all':
+        qs = qs.filter(Q(close_at__isnull=True) | Q(close_at__gt=timezone.now())).filter(Q(summary__notice_status__isnull=True) | ~Q(summary__notice_status='cancelled'))
+    if date_from:
+        qs = qs.filter(posted_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(posted_at__date__lte=date_to)
     if review_status in REVIEW_STATUSES:
         if review_status == "unreviewed":
             qs = qs.exclude(pk__in=[pk for pk, r in reviews.items() if r["review_status"] != "unreviewed"])
         else:
             qs = qs.filter(pk__in=[pk for pk, r in reviews.items() if r["review_status"] == review_status])
-    else:
+    elif personal_view == "all":
         qs = qs.exclude(pk__in=[pk for pk, r in reviews.items() if r["review_status"] == "excluded"])
     if query:
         qs = qs.filter(Q(title__icontains=query[:100]) | Q(number__icontains=query[:100]) |
                        Q(agency__icontains=query[:100]) | Q(demand_agency__icontains=query[:100]))
+    if personal_view in {'saved', 'hidden'}:
+        return qs, reviews
     filters = load_filters(alias)
     # The central rule relation is authoritative. Multiple selected rules are OR;
     # distinct prevents double counting a notice belonging to several rules.
@@ -89,7 +106,7 @@ def count_notices(alias, **kwargs):
 
 def list_notices(alias, limit=15, offset=0, **kwargs):
     qs, reviews = query_notices(alias, **kwargs)
-    qs = qs.order_by("-posted_at", "id")[max(0, offset):max(0, offset) + (30 if limit == 30 else 15)]
+    qs = qs.order_by(*(["close_at", "-posted_at", "id"] if kwargs.get("sort") == "deadline" else ["-posted_at", "id"]))[max(0, offset):max(0, offset) + (30 if limit == 30 else 15)]
     result = []
     for notice in qs.defer("raw"):
         row = dict(notice.summary, id=str(notice.pk), title=notice.title, posted_at=notice.posted_at,

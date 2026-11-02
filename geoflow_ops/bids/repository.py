@@ -160,9 +160,26 @@ def reevaluate_all(alias: str) -> int:
     return changed
 
 
-def _notice_filters(*, query: str, review_status: str, include_all: bool, reviewed_only: bool = False) -> tuple[list[str], list[Any]]:
+def _notice_filters(*, query: str, review_status: str, include_all: bool, reviewed_only: bool = False, personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new") -> tuple[list[str], list[Any]]:
     where = ["(%s OR COALESCE(m.matched,false)=true OR COALESCE(m.needs_review,false)=true)"]
     params: list[Any] = [include_all]
+    state = personal_state or {}
+    ids = [pk for pk, value in state.items() if value['hidden']]
+    if personal_view in {'saved', 'hidden'}:
+        ids = [pk for pk, value in state.items() if value['hidden']] if personal_view == 'hidden' else [pk for pk, value in state.items() if value['saved'] and not value['hidden']]
+        where = ['n.id IN (' + ','.join(['%s'] * len(ids)) + ')'] if ids else ['false']
+        params = ids
+    elif ids:
+        where.append('n.id NOT IN (' + ','.join(['%s'] * len(ids)) + ')')
+        params.extend(ids)
+    if not include_closed and personal_view == 'all':
+        where.append("(n.bid_close_at IS NULL OR n.bid_close_at>now()) AND n.notice_status<>'cancelled'")
+    if date_from:
+        where.append('n.posted_at::date >= %s')
+        params.append(date_from)
+    if date_to:
+        where.append('n.posted_at::date <= %s')
+        params.append(date_to)
     if reviewed_only:
         where.append("r.notice_id IS NOT NULL")
     if query:
@@ -172,13 +189,13 @@ def _notice_filters(*, query: str, review_status: str, include_all: bool, review
     if review_status in REVIEW_STATUSES:
         where.append("COALESCE(r.status,'unreviewed')=%s")
         params.append(review_status)
-    else:
+    elif personal_view == "all":
         where.append("COALESCE(r.status,'unreviewed')<>'excluded'")
     return where, params
 
 
-def count_notices(alias: str, *, query: str = "", review_status: str = "", include_all: bool = False, reviewed_only: bool = False) -> int:
-    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only)
+def count_notices(alias: str, *, query: str = "", review_status: str = "", include_all: bool = False, reviewed_only: bool = False, **options) -> int:
+    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only, **options)
     sql = f"""
         SELECT count(*)
           FROM bid.notices n
@@ -200,10 +217,12 @@ def list_notices(
     reviewed_only: bool = False,
     limit: int = 15,
     offset: int = 0,
+    **options,
 ) -> list[dict[str, Any]]:
-    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only)
+    where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only, **options)
     limit = 30 if limit == 30 else 15
     offset = max(int(offset), 0)
+    ordering = "n.posted_at DESC NULLS LAST,n.id" if options.get("sort") == "new" else "n.bid_close_at NULLS LAST,n.posted_at DESC NULLS LAST,n.id"
     sql = f"""
         SELECT n.id::text,n.bid_notice_no,n.bid_notice_ord,n.title,
                COALESCE(n.notice_agency_name,''),COALESCE(n.demand_agency_name,''),
@@ -217,7 +236,7 @@ def list_notices(
           LEFT JOIN bid.notice_matches m ON m.notice_id=n.id
           LEFT JOIN bid.notice_reviews r ON r.notice_id=n.id
          WHERE {' AND '.join(where)}
-         ORDER BY n.bid_close_at NULLS LAST,n.posted_at DESC NULLS LAST
+         ORDER BY {ordering}
          LIMIT %s OFFSET %s
     """
     params.extend([limit, offset])
@@ -262,3 +281,21 @@ def latest_sync(alias: str) -> dict[str, Any] | None:
         return None
     keys = ["status","fetched_count","inserted_count","updated_count","matched_count","error_message","started_at","finished_at"]
     return dict(zip(keys, row))
+
+
+def save_selection(alias, kind, values):
+    """Toggle existing tenant filter/keyword rows without changing their identity."""
+    if kind not in FILTER_KINDS | KEYWORD_TYPES:
+        raise ValueError('설정 구분을 확인하세요.')
+    try:
+        selected = {str(UUID(str(v))) for v in values}
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError('선택 항목을 확인하세요.')
+    table, column = ('filter_values', 'kind') if kind in FILTER_KINDS else ('keyword_rules', 'rule_type')
+    with transaction.atomic(using=alias), connections[alias].cursor() as cur:
+        cur.execute(f'SELECT id FROM bid.{table} WHERE {column}=%s FOR UPDATE', [kind])
+        available = {str(row[0]) for row in cur.fetchall()}
+        if not selected <= available:
+            raise ValueError('존재하지 않는 설정 항목입니다.')
+        for pk in available:
+            cur.execute(f'UPDATE bid.{table} SET active=%s,updated_at=now() WHERE id=%s', [pk in selected, pk])

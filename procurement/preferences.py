@@ -44,3 +44,26 @@ def save(alias, values):
         cur.execute("""INSERT INTO bid.central_preferences(id,rule_ids) VALUES (1,%s::jsonb)
           ON CONFLICT(id) DO UPDATE SET rule_ids=excluded.rule_ids,updated_at=now()""",
                     [json.dumps(sorted(selected))])
+
+
+def add_keyword(alias, keyword):
+    """A tenant manager explicitly adds an OR collection keyword; never reactivate."""
+    from .service import enqueue_rule
+    term = str(keyword or '').strip()
+    if not 2 <= len(term) <= 120:
+        raise ValueError('수집 키워드는 2~120자로 입력하세요.')
+    term = term.upper() if term.isascii() else term
+    # Validate tenant before any central mutation. Shared rule/job creation is
+    # idempotent; if tenant preference save fails, retry attaches the same rule.
+    choices(alias)
+    with transaction.atomic(using=central_alias()):
+        rule = CollectionRule.objects.using(central_alias()).filter(kind='keyword', value__iexact=term).first()
+        if rule is None:
+            rule, _ = CollectionRule.objects.using(central_alias()).get_or_create(
+                kind='keyword', value=term, defaults={'name': term})
+        if not rule.active:
+            raise ValueError('중앙에서 중지한 키워드입니다. 중앙 관리자에게 활성화를 요청하세요.')
+        enqueue_rule(rule)
+    values = set(selected_ids(alias))
+    values.add(str(rule.pk))
+    save(alias, values)
