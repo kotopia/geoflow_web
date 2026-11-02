@@ -16,7 +16,11 @@ class CollectionPeriod(models.Model):
                                               name="procurement_period_order")]
 
 
+SOURCES = [("g2b", "나라장터"), ("kepco", "한국전력")]
+
+
 class CollectionRule(models.Model):
+    source = models.CharField(max_length=16, choices=SOURCES, default="g2b")
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(max_length=16, choices=[("industry", "업종코드"), ("keyword", "공고명 키워드")])
     value = models.CharField(max_length=120)
@@ -25,7 +29,7 @@ class CollectionRule(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["kind", "value"], name="procurement_rule_unique")]
+        constraints = [models.UniqueConstraint(fields=["source", "kind", "value"], name="procurement_rule_source_unique")]
         verbose_name = "중앙 수집조건"
         verbose_name_plural = "중앙 수집조건"
 
@@ -63,6 +67,7 @@ class CollectionJob(models.Model):
 
 
 class Notice(models.Model):
+    source = models.CharField(max_length=16, choices=SOURCES, default="g2b", db_index=True)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     number = models.CharField(max_length=80)
     order = models.CharField(max_length=20)
@@ -84,7 +89,7 @@ class Notice(models.Model):
     rules = models.ManyToManyField(CollectionRule, related_name="notices")
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["number", "order"], name="procurement_notice_unique")]
+        constraints = [models.UniqueConstraint(fields=["source", "number", "order"], name="procurement_notice_source_unique")]
         indexes = [models.Index(fields=["-posted_at", "id"], name="procurement_notice_page_idx")]
 
 

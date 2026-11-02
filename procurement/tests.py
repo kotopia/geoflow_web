@@ -565,9 +565,9 @@ class TenantIsolationTests(TestCase):
     def test_unknown_does_not_hide_candidate_and_keyword_boundary(self):
         from .tenant import count_notices
         with patch("procurement.tenant.load_filters", return_value={"include": [{"keyword": "GIS"}]}):
-            self.assertEqual(count_notices("company_a"), 1)
+            self.assertEqual(count_notices("company_a", apply_extra=True), 1)
             Notice.objects.update(title="GIST 프로그램")
-            self.assertEqual(count_notices("company_a"), 0)
+            self.assertEqual(count_notices("company_a", apply_extra=True), 0)
 
     def test_rules_or_distinct_and_no_selection(self):
         from .tenant import count_notices
@@ -579,7 +579,8 @@ class TenantIsolationTests(TestCase):
         self.assertEqual(count_notices('company_a', include_all=True), 1)
         with connections['company_a'].cursor() as cur:
             cur.execute('UPDATE bid.central_preferences SET rule_ids=%s', ['[]'])
-        self.assertEqual(count_notices('company_a', include_all=True), 0)
+        self.assertEqual(count_notices('company_a', apply_extra=True), 0)
+        self.assertEqual(count_notices('company_a', include_all=True), 1)
         self.assertEqual(count_notices('company_b', review_status='excluded'), 1)
 
     def test_region_tabs_nationwide_unknown_and_keyword_intersection(self):
@@ -590,11 +591,11 @@ class TenantIsolationTests(TestCase):
             for text, known, expected in [('대전광역시', True, 'daejeon'), ('전국', True, 'nationwide'),
                                            ('', False, 'unknown'), ('서울특별시', True, None)]:
                 Notice.objects.update(region_text=text, region_known=known)
-                self.assertEqual(count_notices('company_a'), int(expected is not None))
+                self.assertEqual(count_notices('company_a', apply_extra=True), int(expected is not None))
                 for tab in ('daejeon', 'nationwide', 'unknown', 'forged'):
-                    self.assertEqual(count_notices('company_a', region=tab), int(tab == expected))
+                    self.assertEqual(count_notices('company_a', region=tab, apply_extra=True), int(tab == expected))
             Notice.objects.update(region_text='전국', region_known=True, title='GIST')
-            self.assertEqual(count_notices('company_a'), 0)
+            self.assertEqual(count_notices('company_a', apply_extra=True), 0)
 
     @override_settings(G2B_CENTRAL_TENANT_ALIASES=('company_a',))
     def test_invalid_and_disabled_condition_rejected(self):

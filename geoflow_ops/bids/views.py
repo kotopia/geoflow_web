@@ -51,12 +51,17 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         return HttpResponseBadRequest('조회 날짜를 확인하세요.')
     if date_from and date_to and date_from > date_to:
         return HttpResponseBadRequest('시작일은 종료일보다 늦을 수 없습니다.')
+    apply_extra = request.GET.get('extra') == '1'
+    include_excluded = request.GET.get('excluded') == '1'
+    sources = [v for v in request.GET.getlist('source') if v in {'g2b', 'kepco'}]
+    if central_enabled(alias) and not history:
+        extra.update(apply_extra=apply_extra, include_excluded=include_excluded, sources=sources or None)
     extra.update(personal_state=state, personal_view=personal_view, include_closed=include_closed,
                  date_from=date_from, date_to=date_to, sort=sort)
     region_tabs = []
     if central_enabled(alias) and not history:
         filters = repository.load_filters(alias)
-        tabs = [("all", "전체"), *[(r["id"], r["name"]) for r in filters.get("region", [])],
+        tabs = [("all", "모든 지역" if include_all else "설정 지역·전국·확인 필요"), *[(r["id"], r["name"]) for r in filters.get("region", [])],
                 ("nationwide", "전국"), ("unknown", "지역 확인 필요")]
         for value, label in tabs:
             params = request.GET.copy()
@@ -91,6 +96,9 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         next_params["page"] = str(page + 1)
         next_query = next_params.urlencode()
     return render(request, "geoflow_ops/bids/notice_list.html", {
+        "apply_extra": apply_extra, "include_excluded": include_excluded,
+        "source_choices": [dict(value=v, label=l, selected=v in sources) for v,l in [('g2b','나라장터'),('kepco','한국전력')]],
+        "active_filters": filters if central_enabled(alias) and not history else {},
         "notices": notices, "personal_view": personal_view, "include_closed": include_closed,
         "sort": sort, "date_from": date_from, "date_to": date_to,
         "return_to": request.get_full_path(),
@@ -124,7 +132,7 @@ def settings_page(request, alias: str):
     repo = central_repository if central_enabled(alias) else repository
     central = central_enabled(alias)
     selected = set(preferences.selected_ids(alias)) if central else set()
-    rules = [dict(id=str(r.pk), name=r.name, kind=r.get_kind_display(), active=r.active,
+    rules = [dict(id=str(r.pk), name=r.name, source=r.source, source_label=r.get_source_display(), kind=r.get_kind_display(), active=r.active,
                   selected=str(r.pk) in selected) for r in preferences.choices(alias)] if central else []
     configured = repository.list_settings(alias)
     return render(request, "geoflow_ops/bids/settings.html", {
@@ -162,7 +170,7 @@ def filter_value_save(request, alias: str):
 def keyword_save(request, alias: str):
     try:
         if central_enabled(alias) and request.POST.get('rule_type') == 'collection':
-            preferences.add_keyword(alias, request.POST.get('keyword'))
+            preferences.add_keyword(alias, request.POST.get('keyword'), request.POST.get('source') or "g2b")
         else:
             repository.save_keyword(alias, request.POST)
         if not central_enabled(alias):

@@ -46,7 +46,7 @@ def match_existing(job, now, batch_size=500):
     if job.local_match_complete:
         return True
     alias = central_alias()
-    qs = Notice.objects.using(alias).filter(posted_at__gte=retention_start(now), posted_at__lte=now).order_by("id")
+    qs = Notice.objects.using(alias).filter(source=job.rule.source, posted_at__gte=retention_start(now), posted_at__lte=now).order_by("id")
     if job.local_match_cursor:
         qs = qs.filter(id__gt=job.local_match_cursor)
     notices = list(qs[:batch_size])

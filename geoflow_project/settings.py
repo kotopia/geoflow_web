@@ -437,6 +437,7 @@ G2B_BID_API_ENDPOINT = os.getenv(
     "G2B_BID_API_ENDPOINT",
     "https://apis.data.go.kr/1230000/ad/BidPublicInfoService",
 )
+KEPCO_API_KEY = os.getenv("KEPCO_API_KEY", "")
 G2B_API_SERVICE_KEY = os.getenv("G2B_API_SERVICE_KEY", "")
 G2B_API_TIMEOUT_SECONDS = get_optional_env_int(
     os.environ,

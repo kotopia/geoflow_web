@@ -8,11 +8,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--request-budget", type=int, default=getattr(settings, "G2B_JOB_REQUEST_BUDGET", 100))
+        parser.add_argument("--source", choices=["g2b", "kepco"])
         parser.add_argument("--max-steps", type=int, default=getattr(settings, "G2B_JOB_MAX_STEPS", 10))
 
     def handle(self, **options):
         budget, steps = options["request_budget"], options["max_steps"]
         if not 1 <= budget <= 1000 or not 1 <= steps <= 100:
             raise CommandError("호출예산 1~1000, 작업수 1~100 범위가 필요합니다.")
-        completed = run_worker(budget, steps)
+        completed = run_worker(budget, steps, source=options.get("source"))
         self.stdout.write(f"Completed windows: {completed}")

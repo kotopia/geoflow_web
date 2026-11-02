@@ -15,16 +15,17 @@ from .service import central_alias, enqueue_rule
 
 
 class RuleForm(forms.Form):
+    source = forms.ChoiceField(label="공고 출처", required=False, choices=CollectionRule._meta.get_field("source").choices, initial="g2b", widget=forms.Select(attrs={"class": "form-select"}))
     kind = forms.ChoiceField(label="조건 종류", choices=CollectionRule._meta.get_field("kind").choices,
                              widget=forms.Select(attrs={"class": "form-select"}))
-    value = forms.CharField(label="나라장터 업종코드 또는 키워드", max_length=120,
+    value = forms.CharField(label="나라장터 업종코드 / 한전 참가자격 업종명 / 공고명 키워드", max_length=120,
                             widget=forms.TextInput(attrs={"class": "form-control"}))
     name = forms.CharField(label="표시 이름", max_length=255,
                            widget=forms.TextInput(attrs={"class": "form-control"}))
 
     def clean_value(self):
         value = self.cleaned_data["value"].strip()
-        if self.cleaned_data.get("kind") == "industry" and not (value.isascii() and value.isdigit()):
+        if self.cleaned_data.get("source", "g2b") != "kepco" and self.cleaned_data.get("kind") == "industry" and not (value.isascii() and value.isdigit()):
             raise forms.ValidationError("나라장터 숫자 업종코드를 입력하세요.")
         return value
 
@@ -73,7 +74,7 @@ def dashboard(request):
             if form.is_valid():
                 with transaction.atomic(using=alias):
                     rule, created = CollectionRule.objects.using(alias).get_or_create(
-                        kind=form.cleaned_data["kind"], value=form.cleaned_data["value"],
+                        source=form.cleaned_data.get("source") or "g2b", kind=form.cleaned_data["kind"], value=form.cleaned_data["value"],
                         defaults={"name": form.cleaned_data["name"]})
                     if created:
                         enqueue_rule(rule)
