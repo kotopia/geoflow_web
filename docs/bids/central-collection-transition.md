@@ -217,6 +217,8 @@ migration을 입찰 배포가 암묵적으로 실행하지 않도록 한다. 005
 한전 응답에는 차수가 없어 `0`을 사용하고 같은 번호의 변경은 NoticeRevision에 보관한다.
 중앙 migration 0005는 기존 행을 g2b로 유지한다. 한전 적재 후 이전 고유키로 역이전하면
 기관 간 동일 번호 충돌 가능성이 있으므로 데이터 보존 후 roll-forward 수정한다.
+이 migration 적용 후 배포가 실패하여 출처 미지원 코드로 복귀할 때는 수집 timer를 중지 상태로 유지한다.
+이전 수집기가 한전 조건을 나라장터에 요청하지 않게 하고 후속 roll-forward 배포로 복구한다.
 
 `procurement.kepco.KepcoClient`는 전력 데이터개방포털 공식 전자입찰 계약정보
 `https://bigdata.kepco.co.kr/openapi/v1/electContract.do`를 POST로 호출한다.

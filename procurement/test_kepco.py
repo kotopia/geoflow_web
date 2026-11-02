@@ -30,6 +30,7 @@ class KepcoTests(TestCase):
         item = adapt(row(estimatedPriceBasicAmount='1234567'))
         self.assertTrue(industry_matches(self.rule.value, item['_kepco']))
         self.assertFalse(industry_matches('5023', item['_kepco']))
+        self.assertFalse(industry_matches('<br>', item['_kepco']))
         self.assertFalse(industry_matches('지하시설물측량업', item['_kepco']))
         self.assertIsNone(adapt(dict(row(), itemType='Construction')))
         g2b = CollectionRule.objects.create(kind='industry', value='5023', name='공공측량업')

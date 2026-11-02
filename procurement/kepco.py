@@ -28,7 +28,8 @@ def industry_matches(term, row):
     # KEPCO does not expose a G2B license-code search. Match declared eligibility text,
     # never infer eligibility from a title, a delivery location, or a numeric G2B code.
     normalize = lambda s: re.sub(r'\s+', '', strip_tags(str(s or ''))).casefold()
-    return bool(term.strip()) and normalize(term) in normalize(str(row.get('bidattendrestrict', '')) + ' ' + str(row.get('etc', '')))
+    needle = normalize(term)
+    return bool(needle) and needle in normalize(str(row.get('bidattendrestrict', '')) + ' ' + str(row.get('etc', '')))
 
 
 def date_value(value):

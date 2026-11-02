@@ -163,6 +163,9 @@ jobs:
           echo "production_deploy_v2_candidate_sha=$candidate_sha"
 
           rollback_needed=0
+          kepco_schema_applied=0
+          previous_kepco_support=no
+          git -C "$repo" cat-file -e "$previous_sha:procurement/kepco.py" 2>/dev/null && previous_kepco_support=yes || true
           rollback_code() {
             set +e
             if [ "$collector_touched" -eq 1 ]; then
@@ -199,7 +202,12 @@ jobs:
               else
                 sudo -n systemctl disable geoflow-bid-collector.timer
               fi
-              if [ "$collector_was_active" = yes ]; then sudo -n systemctl start geoflow-bid-collector.timer; fi
+              if [ "$kepco_schema_applied" -eq 1 ] && [ "$previous_kepco_support" = no ]; then
+                sudo -n systemctl disable --now geoflow-bid-collector.timer
+                echo 'production_deploy_v2_collector_paused=source_schema_requires_roll_forward'
+              elif [ "$collector_was_active" = yes ]; then
+                sudo -n systemctl start geoflow-bid-collector.timer
+              fi
             fi
           }
           on_exit() {
@@ -284,6 +292,7 @@ jobs:
           "$python" -m pip check
           "$python" "$repo/manage.py" check
           "$python" "$repo/manage.py" migrate procurement --database=default --noinput
+          kepco_schema_applied=1
           "$python" "$repo/manage.py" migrate procurement --database=default --check
           echo 'central_bids_audit_after_schema_before_worker'
           "$python" "$repo/manage.py" report_central_bids
