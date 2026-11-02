@@ -2,8 +2,11 @@
 import importlib
 import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
@@ -17,7 +20,9 @@ from psycopg2 import sql
 
 django.setup()
 from django.db import connections
+from django.test import RequestFactory
 from control.services import tenant_employee_registration as service
+from geoflow_ops import views_employee_profile
 from control.services.tenant_role_request_service import TenantRoleRequest, queue_tenant_role_request
 from control.services.join_membership_approval_service import JoinMembershipApproval, approve_join_membership
 
@@ -71,7 +76,7 @@ def main():
         cur.execute("""CREATE SCHEMA hr;
             CREATE TABLE hr.employee_profile (
                 id uuid PRIMARY KEY, central_user_id uuid, email text NOT NULL,
-                name text NOT NULL, status text NOT NULL, title text,
+                name text NOT NULL, status text NOT NULL, title text, role_code text,
                 is_deleted boolean NOT NULL DEFAULT false,
                 created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL
             )""")
@@ -141,6 +146,44 @@ def main():
         with tenant_cursor(GROUP) as cur:
             cur.execute("SELECT count(*),min(title),min(status) FROM hr.employee_profile")
             assert cur.fetchone() == (1, "Preserved", "휴직")
+
+    # A real tenant form cannot pass a stale duplicate check while a central
+    # registration is uncommitted. Observe the blocked lock before releasing it.
+    alias = "employee_registration_ci"
+    config = dict(connections.settings["default"])
+    config.update(NAME=TENANT_DB, OPTIONS={"sslmode": "disable", "application_name": "employee_registration_form_ci"})
+    connections.settings[alias] = config
+
+    def submit_tenant_form():
+        try:
+            request = RequestFactory().post("/employees/new/", {"email": "race-ci@example.invalid", "name": "Tenant Form"})
+            with patch.object(views_employee_profile, "require_tenant_context", return_value=alias), patch.object(
+                views_employee_profile, "employee_access_policy", return_value=SimpleNamespace(can_create=True),
+            ):
+                return views_employee_profile.employees_create(request).status_code
+        finally:
+            connections[alias].close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with tenant_cursor(GROUP, write=True) as cur:
+            service.register_employee_profile(cur, user_id=str(UUID(int=999)), email="race-ci@example.invalid", name="Central Form")
+            future = pool.submit(submit_tenant_form)
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                blocked = central_one("""SELECT count(*) FROM pg_stat_activity
+                    WHERE application_name='employee_registration_form_ci' AND wait_event_type='Lock'""")[0]
+                if blocked:
+                    break
+                if future.done():
+                    raise AssertionError("tenant form did not serialize with central registration")
+                time.sleep(0.05)
+            else:
+                raise AssertionError("tenant form lock was not observed")
+        assert future.result(timeout=10) == 400
+    with tenant_cursor(GROUP) as cur:
+        cur.execute("SELECT count(*) FROM hr.employee_profile WHERE email='race-ci@example.invalid'")
+        assert cur.fetchone() == (1,)
+    print("employee_registration_concurrent_tenant_form=passed")
     print("employee_registration_separate_databases_and_retry=passed")
     print("employee_registration_existing_role_request_approval=passed")
 

@@ -7,6 +7,7 @@ on:
     paths:
       - control/views_user_assignment.py
       - control/views_users_admin.py
+      - geoflow_ops/views_employee_profile.py
       - control/services/tenant_employee_registration.py
       - control/services/join_membership_approval_service.py
       - control/migrations/0010_tenant_employee_registrations.py
