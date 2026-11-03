@@ -19,7 +19,12 @@ from django.contrib.auth.decorators import login_required
 from control.services import central_repo as C   # 표준 접속/조회
 from .models import Project, Contract, ProjectScopeItem
 from control.catalog.models import CategoryNode, CategoryFacetOption, CategoryParent
-from .forms import ProjectForm, ProjectNoteForm
+from .forms import ProjectForm
+from django.core.exceptions import ValidationError, PermissionDenied
+from django.db.models.functions import Coalesce
+from control.gf_authz.permissions import gf_has_perm
+from .services.contract_project_pair import create_project, save_project
+from .services.project_status import project_status_options, status_key
 from control.middleware import current_db_alias
 from collections import defaultdict
 
@@ -58,32 +63,75 @@ class ProjectListView(ListView):
         visible_ids = policy.visible_project_ids()
         if visible_ids is not None:
             queryset = queryset.filter(pk__in=visible_ids)
+        contract_id = self.request.GET.get("contract")
+        if contract_id:
+            try:
+                from uuid import UUID
+                queryset = queryset.filter(contract_id=UUID(contract_id))
+            except ValueError:
+                queryset = queryset.none()
+        queryset = queryset.annotate(modified_order=Coalesce("updated_at", "created_at")).order_by("-modified_order", "id")
         if self.request.GET.get("overview") == "1":
             from .services.dashboard import workflow_map, filter_records
-            rows = list(queryset.order_by("-contract__code", "contract__name"))
+            rows = list(queryset)
             summaries = workflow_map(self.request, alias, [p.contract for p in rows if p.contract_id])
             return filter_records(rows, summaries, self.request.GET, projects=True)
-        return queryset.order_by("-contract__code", "contract__name")
+        return queryset
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         alias = _alias(self.request)
         projects = list(self.object_list)
-        contracts = [p.contract for p in projects if getattr(p, "contract", None)]
-        summaries = contract_workflow_summaries(alias, contracts, request=self.request)
-        counts = {"total": 0, "planned": 0, "active": 0, "pause": 0, "cancel": 0, "complete": 0}
+        labels = dict(project_status_options(alias))
+        counts = {"total": len(projects), "planned": 0, "active": 0, "pause": 0, "cancel": 0, "complete": 0}
+        from .views_dashboard import _project_managers
+        managers = _project_managers(alias, [str(p.pk) for p in projects]) if gf_has_perm(self.request, "directory.view") else {}
         for project in projects:
-            workflow = summaries.get(str(project.contract_id)) or contract_workflow_summary(alias, project.contract, request=self.request)
-            project.contract_workflow = workflow
-            counts["total"] += 1
-            key = workflow.get("filter_key") or ""
-            if key in counts:
-                counts[key] += 1
+            project.manager_names = managers.get(str(project.pk), "미지정") if gf_has_perm(self.request, "directory.view") else "열람 제한"
+            project.status_label = labels.get(project.status, project.status or "미설정")
+            project.status_key = status_key(project.status)
+            if project.status_key in counts:
+                counts[project.status_key] += 1
+        policy = project_access_policy(self.request, alias)
+        ctx["can_create_project"] = policy.can_edit_all and gf_has_perm(self.request, "projects.edit") and gf_has_perm(self.request, "contracts.view")
+        # Filter choices derive only from projects the current user can see.
+        visible = Project.objects.using(alias).select_related("contract")
+        ids = policy.visible_project_ids()
+        if ids is not None:
+            visible = visible.filter(pk__in=ids)
+        ctx["contract_options"] = sorted({str(p.contract_id): p.contract for p in visible if p.contract_id}.values(), key=lambda c: (c.code or "", str(c.pk)), reverse=True)
+        ctx["selected_contract"] = self.request.GET.get("contract", "")
         ctx["projects"] = projects
         ctx["status_counts"] = counts
         ctx["project_access"] = project_access_policy(self.request, alias)
         ctx["current_year"] = timezone.localdate().year
         return ctx
+
+
+def project_create(request):
+    alias = _alias(request)
+    contracts = Contract.objects.using(alias).order_by("-code", "id")
+    initial = {"status": "active"}
+    if request.GET.get("contract"):
+        from uuid import UUID
+        try:
+            contract = get_object_or_404(contracts, pk=UUID(request.GET["contract"]))
+        except ValueError:
+            from django.http import Http404
+            raise Http404
+        initial.update(contract=contract.pk, name=contract.name if (contract.ext or {}).get("project_mode") == "SINGLE" else "",
+                       start_date=contract.start_date, end_date=contract.end_date)
+    form = ProjectForm(request.POST if request.method == "POST" else None, alias=alias, contracts=contracts, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        try:
+            obj = create_project(alias, form.cleaned_data["contract"].pk, form.cleaned_data,
+                                 allow_duplicate=form.cleaned_data["confirm_duplicate"])
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(request, "프로젝트를 생성했습니다.")
+            return redirect("tenant:project_detail", pk=obj.pk)
+    return render(request, "geoflow_ops/projects/project_form.html", {"form": form, "contract_names": {str(c.pk): {"name": c.name, "single": (c.ext or {}).get("project_mode") == "SINGLE"} for c in contracts}})
 
 
 @login_required
@@ -116,8 +164,8 @@ def project_json(request, pk):
         "project_status": obj.status,
         "contract_code": obj.contract.code,
         "contract_name": obj.contract.name,
-        "start_date": obj.contract.start_date.isoformat() if obj.contract.start_date else None,
-        "end_date": obj.contract.end_date.isoformat() if obj.contract.end_date else None,
+        "start_date": obj.start_date.isoformat() if obj.start_date else None,
+        "end_date": obj.end_date.isoformat() if obj.end_date else None,
         "kind": obj.contract.kind,
         "client_name": (obj.contract.sub_client.name if obj.contract.kind == "하도급"
                         else (obj.contract.client.name if obj.contract.client else None)),
@@ -133,7 +181,6 @@ def project_json(request, pk):
     return JsonResponse(d)
 
 
-from .forms import ProjectNoteForm
 
 
 @gf_perm_required("projects.view")
@@ -147,16 +194,21 @@ def project_detail_page(request, pk):
     )
     policy = project_access_policy(request, alias)
     member_ctx = project_member_context(request, alias, obj.pk)
+    obj.status_label = dict(project_status_options(alias)).get(obj.status, obj.status or "미설정")
     contract_workflow = contract_workflow_summary(alias, obj.contract, request=request)
 
     if request.method == "POST":
-        form = ProjectNoteForm(request.POST, instance=obj)
+        if not policy.can_edit_project(obj.pk):
+            raise PermissionDenied("Permission denied")
+        form = ProjectForm(request.POST, instance=obj, alias=alias)
         if form.is_valid():
-            inst = form.save(commit=False)
-            inst.contract_id = obj.contract_id
-            inst.save(using=alias, update_fields=["description", "updated_at"])
-            messages.success(request, "저장했습니다.")
-            return redirect("tenant:project_detail", pk=obj.pk)
+            try:
+                save_project(alias, obj.pk, form.cleaned_data, allow_duplicate=form.cleaned_data["confirm_duplicate"])
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                messages.success(request, "저장했습니다.")
+                return redirect("tenant:project_detail", pk=obj.pk)
 
         errors_json = form.errors.get_json_data()
         flat_errors = [e["message"] for _, errs in errors_json.items() for e in errs]
@@ -182,7 +234,7 @@ def project_detail_page(request, pk):
         **member_ctx,
     }
     if edit_mode:
-        context["form"] = ProjectNoteForm(instance=obj)
+        context["form"] = ProjectForm(instance=obj, alias=alias)
 
     context["scope_groups"] = build_scope_groups(alias, obj.pk)
     return render(request, "geoflow_ops/projects/project_detail.html", context)

@@ -192,8 +192,12 @@
                      role="tabpanel"
                      aria-labelledby="contract-scope-tab"
                      tabindex="0">
+                  <div class="mb-3">
+                  {% if can_create_project %}<a class="btn btn-sm btn-outline-primary mb-2" href="{% url 'tenant:project_create' %}?contract={{ obj.pk }}">프로젝트 생성</a>{% endif %}
+                  {% for project in linked_projects %}<div class="d-flex gap-2 mb-2"><a href="{% url 'tenant:project_detail' project.pk %}">{{ project.code }} · {{ project.name }}</a><a class="small" href="?project={{ project.pk }}">업무범위 보기</a></div>{% empty %}<div class="text-muted">열람 가능한 연결 프로젝트가 없습니다.</div>{% endfor %}
+                  </div>
                   {% if not project_for_scope %}
-                    <div class="text-muted small py-3">연결된 프로젝트가 없습니다.</div>
+                    <div class="text-muted small py-3">프로젝트를 선택하면 업무범위를 표시합니다.</div>
                   {% elif scope_groups and scope_groups|length %}
                     {% include "geoflow_ops/projects/project_summary.html" with summary_only=True scope_groups=scope_groups project=project_for_scope only %}
                   {% else %}
@@ -215,6 +219,8 @@
             {% if errors %}<div class="alert alert-warning py-2 mb-3">{% for e in errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
+              <div class="col-12"><label class="form-label">프로젝트 운영방식</label>{{ form.project_mode }}<div class="form-text">단일: 계약과 함께 프로젝트 1개를 생성하고 이름을 연동합니다. 복수: 계약 저장 후 프로젝트를 추가합니다.</div></div>
+              {% if not force_create %}<div class="col-12 form-check">{{ form.confirm_single }} {{ form.confirm_single.label_tag }}</div>{% endif %}
               <div class="col-md-4"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
               <div class="col-md-12"><label class="form-label">계약명 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required value="{{ form.name.value|default_if_none:'' }}"></div>
               <div class="col-md-6"><label class="form-label">시작일</label><input type="text" id="start_date" name="start_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY/MM/DD" autocomplete="off" value="{{ form.instance.start_date|date:'Y-m-d' }}"></div>

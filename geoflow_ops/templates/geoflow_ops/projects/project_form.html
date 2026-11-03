@@ -1,0 +1,31 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% block content %}
+<h1 class="h3">프로젝트 생성</h1>
+<div class="card"><div class="card-body">
+<p class="text-muted">단일 프로젝트는 계약명을 사용합니다. 복수 프로젝트는 이름·일정·수행상태를 각각 관리합니다. 프로젝트코드는 저장할 때 자동 발급됩니다.</p>
+<form method="post">{% csrf_token %}
+{{ form.non_field_errors }}
+{% for field in form %}<div class="mb-3">{{ field.label_tag }} {{ field }} {{ field.errors }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}</div>{% endfor %}
+<button class="btn btn-primary" type="submit">생성</button> <a class="btn btn-outline-secondary" href="{% url 'tenant:project_list' %}">취소</a>
+</form></div></div>
+{% endblock %}
+
+{% block scripts %}
+{{ contract_names|json_script:"project-contract-names" }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const contracts = JSON.parse(document.getElementById('project-contract-names').textContent);
+  const select = document.getElementById('id_contract');
+  const name = document.getElementById('id_name');
+  function updateName(changed) {
+    const selected = contracts[select.value];
+    const wasReadonly = name.readOnly;
+    name.readOnly = !!(selected && selected.single);
+    if (name.readOnly) name.value = selected.name;
+    else if (changed && wasReadonly) name.value = '';
+  }
+  select.addEventListener('change', function () { updateName(true); });
+  updateName(false);
+});
+</script>
+{% endblock %}

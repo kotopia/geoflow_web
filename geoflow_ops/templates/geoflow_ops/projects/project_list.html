@@ -5,7 +5,6 @@
 
 {% block content %}
 <style>
-  #statusButtons .gf-k-cancel { display: none !important; }
   #datatables-projects tr.gf-contract-complete > td:not([data-col="workflow"]) {
     color: var(--bs-secondary-color, #6c757d);
     opacity: .68;
@@ -21,17 +20,18 @@
       <div class="card-actions float-end">
         <div class="dropdown position-relative">
           <a href="#" data-bs-toggle="dropdown" data-bs-display="static"><i class="align-middle" data-feather="more-horizontal"></i></a>
-          <div class="dropdown-menu dropdown-menu-end"><a class="dropdown-item" href="{% url 'tenant:contract_list' %}">계약 목록</a></div>
+          <div class="dropdown-menu dropdown-menu-end">{% if can_create_project %}<a class="dropdown-item" href="{% url 'tenant:project_create' %}">프로젝트 생성</a>{% endif %}<a class="dropdown-item" href="{% url 'tenant:contract_list' %}">계약 목록</a></div>
         </div>
       </div>
 
+      <form method="get" class="mb-3"><label for="contract-filter" class="form-label">연결 계약</label><select name="contract" id="contract-filter" class="form-select" onchange="this.form.submit()"><option value="">전체 계약</option>{% for c in contract_options %}<option value="{{ c.pk }}" {% if selected_contract == c.pk|stringformat:'s' %}selected{% endif %}>{{ c.code }} · {{ c.name }}</option>{% endfor %}</select></form>
       <div class="d-flex align-items-center mb-3">
         <div id="statusButtons" class="gf-status-tabs"
              data-count-all="{{ status_counts.total|default:0 }}"
              data-count-planned="{{ status_counts.planned|default:0 }}"
              data-count-active="{{ status_counts.active|default:0 }}"
              data-count-pause="{{ status_counts.pause|default:0 }}"
-             data-count-cancel="0"
+             data-count-cancel="{{ status_counts.cancel|default:0 }}"
              data-count-complete="{{ status_counts.complete|default:0 }}"></div>
         <div class="form-check ms-3">
           <input class="form-check-input" type="checkbox" id="showPreviousCompleted">
@@ -43,32 +43,19 @@
     <div class="card-body">
       <table id="datatables-projects" class="table table-responsive table-striped table-hover" width="100%" style="cursor:pointer" data-entity="project" data-current-year="{{ current_year }}">
         <thead class="text-center">
-          <tr><th>번호</th><th>사업명</th><th>상태</th><th>시작</th><th>종료</th><th>계약</th><th>발주처</th><th>계약자</th></tr>
+          <tr><th>계약번호</th><th>프로젝트코드</th><th>프로젝트명</th><th>수행상태</th><th>시작일</th><th>종료일</th><th>프로젝트 수정일</th><th>담당자</th></tr>
         </thead>
         <tbody>
           {% for p in projects %}
-          {# p.contract_workflow remains the server-derived linked-contract lifecycle source; the tag augments it with legacy-aware active event badges. #}
-          {% contract_workflow p.contract as wf %}
-          <tr data-id="{{ p.pk }}"
-              data-status="{{ wf.filter_key }}"
-              data-workflow-phase="{{ wf.major_code }}"
-              data-workflow-complete="{{ wf.is_complete|yesno:'1,0' }}"
-              data-end-year="{{ p.contract.end_date|date:'Y' }}"
-              data-href="{% url 'tenant:project_detail' p.pk %}"{% if wf.is_complete %} class="gf-contract-complete"{% endif %}>
-            <td data-col="code">{{ p.contract.code }}</td>
-            <td data-col="name" class="text-truncate">{{ p.contract.name }}</td>
-            <td data-col="workflow" class="text-center" data-event-labels="{{ wf.active_event_labels|join:', ' }}">
-              {% include "geoflow_ops/partials/workflow_badge.html" %}
-            </td>
-            <td data-col="start">{{ p.contract.start_date|date:"Y-m-d" }}</td>
-            <td data-col="end">{{ p.contract.end_date|date:"Y-m-d" }}</td>
-            <td data-col="kind">{{ p.contract.get_kind_display|default:p.contract.kind }}</td>
-            <td data-col="client">
-              {% with kd=p.contract.get_kind_display|default:p.contract.kind %}
-                {% if "하도급" in kd %}{{ p.contract.sub_client.name|default:p.contract.client.name }}{% else %}{{ p.contract.client.name|default:"-" }}{% endif %}
-              {% endwith %}
-            </td>
-            <td data-col="orgunit">{{ p.contract.org_unit.label|default:"-" }}</td>
+          <tr data-id="{{ p.pk }}" data-status="{{ p.status_key }}" data-workflow-complete="{% if p.status == 'complete' %}1{% else %}0{% endif %}" data-end-year="{{ p.end_date|date:'Y' }}" data-href="{% url 'tenant:project_detail' p.pk %}">
+            <td data-col="contract">{{ p.contract.code|default:"-" }}</td>
+            <td data-col="code">{{ p.code|default:"-" }}</td>
+            <td data-col="name">{{ p.name|default:"-" }}</td>
+            <td data-col="status">{{ p.status_label }}</td>
+            <td data-col="start">{{ p.start_date|date:"Y-m-d" }}</td>
+            <td data-col="end">{{ p.end_date|date:"Y-m-d" }}</td>
+            <td data-col="modified" data-order="{{ p.modified_order|date:'U' }}">{{ p.modified_order|date:"Y-m-d H:i" }}</td>
+            <td>{{ p.manager_names|default:"-" }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -82,7 +69,7 @@
   <script src="{% static 'geoflow_ops/js/gf-list-core.js' %}"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function(){
-      const labels = {planned:'계약', active:'진행', pause:'준공', complete:'완료'};
+      const labels = {planned:'계약전', active:'진행', pause:'중지', cancel:'취소', complete:'완료'};
       Object.keys(labels).forEach(function(key) {
         const button = document.querySelector('#statusButtons .gf-k-' + key);
         if (!button) return;

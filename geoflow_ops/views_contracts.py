@@ -24,6 +24,9 @@ from control.services import central_repo as C   # 표준 접속/조회
 from control.middleware import current_db_alias
 from .models import Contract, Partner, Project, MyOrgUnit, Attachment
 from .forms import ContractForm, PartnerForm
+from django.core.exceptions import ValidationError
+from .services.contract_project_pair import save_contract
+from .services.project_access import project_access_policy
 from .views_catalog import build_scope_groups  # ← 프로젝트 범위 SSR용
 
 
@@ -127,13 +130,13 @@ def contract_detail_page(request, pk):
         logger.info("contract detail update request")
         if form.is_valid():
             inst = form.save(commit=False)
-            inst.updated_at = timezone.now()
-            if inst.ext is None:
-                inst.ext = {}
-            inst.save(using=alias)
-            logger.info("contract detail update processed")
-            messages.success(request, "저장했습니다.")
-            return redirect("tenant:contract_detail", pk=obj.pk)
+            try:
+                save_contract(alias, inst, form.cleaned_data["project_mode"], confirm_single=form.cleaned_data["confirm_single"])
+            except ValidationError as exc:
+                form.add_error(None, exc)
+            else:
+                messages.success(request, "저장했습니다.")
+                return redirect("tenant:contract_detail", pk=obj.pk)
 
         # ❗검증 실패: 편집 모드로 재렌더 + 에러 메시지 전달
         errors_json = form.errors.get_json_data()
@@ -163,8 +166,18 @@ def contract_detail_page(request, pk):
         "edit_mode": edit_mode,
     }
 
-    # 🔹 (추가) 이 계약과 연결된 프로젝트 1건 + 범위 그룹(SSR용)
-    prj = Project.objects.using(alias).filter(contract=obj).first()
+    policy = project_access_policy(request, alias)
+    projects = Project.objects.using(alias).filter(contract=obj).order_by("code", "id")
+    visible = policy.visible_project_ids()
+    if not gf_has_perm(request, "projects.view"):
+        projects = projects.none()
+    elif visible is not None:
+        projects = projects.filter(pk__in=visible)
+    projects = list(projects)
+    selected = request.GET.get("project")
+    prj = next((p for p in projects if str(p.pk) == selected), None) if selected else (projects[0] if len(projects) == 1 else None)
+    context["linked_projects"] = projects
+    context["can_create_project"] = policy.can_edit_all and gf_has_perm(request, "projects.edit") and gf_has_perm(request, "projects.view")
     context["project_for_scope"] = prj
     context["scope_groups"] = build_scope_groups(alias, prj.id) if prj else []
 
@@ -305,6 +318,7 @@ def contract_create(request):
 
     # 유효하면 저장
     obj = form.save(commit=False)
+    obj.ext = {**(obj.ext or {}), "project_mode": form.cleaned_data["project_mode"]}
     now = timezone.now()
     if not getattr(obj, "created_at", None):
         obj.created_at = now
@@ -315,34 +329,6 @@ def contract_create(request):
     try:
         with transaction.atomic(using=alias):
             obj.save(using=alias)
-
-            # (선택) 프로젝트 자동 생성/동기화가 기존에 있었다면 유지
-            # try:
-            #     proj = Project.objects.using(alias).filter(contract=obj).first()
-            #     if not proj:
-            #         Project.objects.using(alias).create(
-            #             contract=obj,
-            #             code=f"C{str(obj.code).replace('-', '')}",
-            #             name=obj.name,
-            #             start_date=obj.start_date,
-            #             end_date=obj.end_date,
-            #             status="active",
-            #             ext={} if hasattr(Project, "ext") else None,
-            #             created_at=now if hasattr(Project, "created_at") else None,
-            #             updated_at=now if hasattr(Project, "updated_at") else None,
-            #         )
-            #     else:
-            #         proj.name = obj.name
-            #         proj.start_date = obj.start_date
-            #         proj.end_date = obj.end_date
-            #         if hasattr(proj, "updated_at"):
-            #             proj.updated_at = now
-            #         if hasattr(proj, "ext") and proj.ext is None:
-            #             proj.ext = {}
-            #         proj.save(using=alias)
-            # except Exception:
-            #     # Project 모델/필드가 없거나 비활성화된 경우를 무시
-            #     pass
 
     except IntegrityError:
         # 주로 code 중복(UNIQUE) 등

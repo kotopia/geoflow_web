@@ -26,7 +26,8 @@
 {% if not edit_mode %}
 <div class="card mb-3">
   <div class="card-body py-3">
-    <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 gap-lg-3 small" aria-label="업무 프로세스">
+    <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 gap-lg-3 small" aria-label="연결 계약 업무단계">
+      <span class="text-muted">연결 계약 업무단계</span>
       <span aria-label="1. 준비" class="{% if contract_workflow.major_code == 'preparation' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준비</span>
       <span class="text-muted">→</span>
       <span aria-label="2. 계약" class="{% if contract_workflow.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
@@ -51,6 +52,14 @@
           {% if not edit_mode %}
           <div id="view-mode">
             <div class="row g-3">
+              <h5 class="h6 card-title">프로젝트 정보</h5>
+              <div class="col-md-12"><label class="small text-muted">프로젝트명</label><div class="form-control-plaintext fw-semibold">{{ obj.name|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">프로젝트코드</label><div>{{ obj.code|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">수행상태</label><div>{{ obj.status_label }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">프로젝트 시작일</label><div>{{ obj.start_date|date:"Y-m-d"|default:"-" }}</div></div>
+              <div class="col-md-6"><label class="small text-muted">프로젝트 종료일</label><div>{{ obj.end_date|date:"Y-m-d"|default:"-" }}</div></div>
+              <div class="col-md-12"><label class="small text-muted">프로젝트 수정일</label><div>{{ obj.updated_at|date:"Y-m-d H:i"|default:"-" }}</div></div>
+              <hr>
               <h5 class="h6 card-title">계약정보</h5>
 
               <div class="col-md-3">
@@ -115,58 +124,9 @@
             </div>
             {% endif %}
 
-            <div class="row g-3">
-              <h5 class="h6 card-title">계약정보</h5>
-
-              <div class="col-md-3">
-                <label class="small text-muted">계약번호</label>
-                <div class="form-control-plaintext">{{ obj.contract.code|default:"-" }}</div>
-              </div>
-              <div class="col-md-3">
-                <label class="small text-muted">업무단계</label>
-                <div class="form-control-plaintext">
-                  <span class="badge {{ contract_workflow.phase_class }}">{% if contract_workflow.is_complete %}<span aria-hidden="true">✓</span> {% endif %}{{ contract_workflow.major_label }}</span>
-                </div>
-              </div>
-              <div class="col-md-3">
-                <label class="small text-muted">계약형태</label>
-                <div class="form-control-plaintext">{{ obj.contract.kind|default:"-" }}</div>
-              </div>
-              <div class="col-md-12">
-                <label class="small text-muted">계약명</label>
-                <div class="form-control-plaintext fw-semibold">{{ obj.contract.name|default:"-" }}</div>
-              </div>
-              <div class="col-md-6">
-                <label class="small text-muted">시작일</label>
-                <div class="form-control-plaintext">{{ obj.contract.start_date|date:"Y-m-d"|default:"-" }}</div>
-              </div>
-              <div class="col-md-6">
-                <label class="small text-muted">종료일</label>
-                <div class="form-control-plaintext">{{ obj.contract.end_date|date:"Y-m-d"|default:"-" }}</div>
-              </div>
-              <div class="col-md-6">
-                <label class="small text-muted">발주처</label>
-                <div class="form-control-plaintext">
-                  {% if obj.contract.kind == "하도급" %}
-                    {{ obj.contract.sub_client.name|default:"-" }}
-                  {% else %}
-                    {{ obj.contract.client.name|default:"-" }}
-                  {% endif %}
-                </div>
-              </div>
-              <div class="col-md-6">
-                <label class="small text-muted">계약자</label>
-                <div class="form-control-plaintext">{{ obj.contract.org_unit.name|default:"-" }}</div>
-              </div>
-
-              <hr />
-              <h5 class="h6 card-title">기타정보</h5>
-
-              <div class="col-md-12">
-                <textarea name="description" rows="4" class="form-control">{{ form.description.value|default_if_none:obj.description }}</textarea>
-              </div>
+            <div class="row g-3"><h5 class="h6 card-title">프로젝트 정보</h5>
+            {% for field in form %}<div class="col-12">{{ field.label_tag }} {{ field }} {{ field.errors }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}</div>{% endfor %}
             </div>
-
             <div class="mt-4 d-flex gap-2">
               <button class="btn btn-primary" type="submit">저장</button>
               <a href="{% url 'tenant:project_detail' pk=obj.id %}" class="btn btn-outline-secondary">취소</a>
