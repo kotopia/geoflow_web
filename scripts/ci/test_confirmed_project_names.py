@@ -1,4 +1,3 @@
-import copy
 import importlib.util
 import os
 from pathlib import Path
@@ -76,7 +75,7 @@ class DatabaseTests(unittest.TestCase):
 
     def names(self):
         with self.conn.cursor() as c:
-            c.execute('SELECT name FROM prj.projects ORDER BY code')
+            c.execute('SELECT name FROM prj.projects ORDER BY id')
             values=[r[0] for r in c.fetchall()]
         self.conn.rollback()
         return values
