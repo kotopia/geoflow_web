@@ -134,6 +134,7 @@ class ProjectForm(forms.ModelForm):
         model = Project
         fields = ["contract", "name", "start_date", "end_date", "status", "description"]
         labels = {"contract": "연결 계약", "name": "프로젝트명", "description": "기타사항"}
+        widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
     def __init__(self, *args, alias, contracts=None, **kwargs):
         super().__init__(*args, **kwargs)

@@ -6,6 +6,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  let fixture='list'; const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',route=>{
   const u=new URL(route.request().url());if(u.hostname!=='preview.local')return route.abort();
+  if(route.request().resourceType()==='fetch')return route.fulfill({json:{events:[],items:[],stages:[],types_by_stage:{}}});
   let f=`artifacts/project-policy/${fixture}.html`;
   if(u.pathname.startsWith('/static/')){
    const rest=u.pathname.slice(8);f=path.join(rest.startsWith('control/')?'control/static':'geoflow_ops/static',rest);
@@ -23,6 +24,11 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.locator('.gf-k-complete').click();
  assert.equal(await page.locator('#datatables-projects tbody [data-col="name"]').innerText(),'독립 프로젝트 2');
  await page.screenshot({path:'artifacts/project-policy/list-desktop.png',fullPage:true});
+ fixture='detail';await page.goto('http://preview.local/projects/detail/');
+ await page.waitForSelector('#view-mode');
+ const detail=await page.locator('#view-mode').innerText();
+ for(const value of ['독립 수행단위','계약명 원본','A26-001','중지','2026-11-20','2026-12-31','프로젝트 비고'])assert(detail.includes(value),value);
+ await page.screenshot({path:'artifacts/project-policy/detail-desktop.png',fullPage:true});
  fixture='create';await page.goto('http://preview.local/projects/new/');
  await page.selectOption('#id_contract','single');
  assert(await page.locator('#id_name').evaluate(e=>e.readOnly));assert.equal(await page.inputValue('#id_name'),'단일 계약 원본');
@@ -31,6 +37,8 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.fill('#id_name','독립 입력');assert.equal(await page.inputValue('#id_name'),'독립 입력');
  await page.screenshot({path:'artifacts/project-policy/create-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
+ await page.goto('http://preview.local/projects/new/');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth),390);
  await page.screenshot({path:'artifacts/project-policy/create-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);await browser.close();console.log('Project list sorting/status and SINGLE/MULTIPLE name UI passed');
 })().catch(e=>{console.error(e);process.exit(1)});

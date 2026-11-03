@@ -25,8 +25,19 @@ class CreationForm(forms.Form):
  start_date=forms.DateField(required=False);end_date=forms.DateField(required=False)
  description=forms.CharField(required=False,widget=forms.Textarea)
  confirm_duplicate=forms.BooleanField(required=False)
+for field in CreationForm.base_fields.values():
+ field.widget.attrs['class']='form-check-input' if isinstance(field.widget,forms.CheckboxInput) else ('form-select' if isinstance(field.widget,forms.Select) else 'form-control')
+CreationForm.base_fields['contract'].label='연결 계약'
+CreationForm.base_fields['name'].label='프로젝트명'
+CreationForm.base_fields['status'].label='수행상태'
+CreationForm.base_fields['start_date'].label='시작일'
+CreationForm.base_fields['end_date'].label='종료일'
+CreationForm.base_fields['description'].label='기타사항'
+CreationForm.base_fields['description'].widget.attrs['rows']=3
+CreationForm.base_fields['confirm_duplicate'].label='같은 계약의 중복 이름을 확인했습니다.'
 out=Path('artifacts/project-policy');out.mkdir(parents=True,exist_ok=True)
 with patch('django.urls.reverse',side_effect=lambda name,args=None,kwargs=None,**kw:'/'+str(name).replace(':','/')+'/'):
  (out/'list.html').write_text(e.get_template('geoflow_ops/projects/project_list.html').render(Context(ctx)))
+ (out/'detail.html').write_text(e.get_template('geoflow_ops/projects/project_detail.html').render(Context({**ctx,'obj':Row(id='p1',pk='p1',name='독립 수행단위',code='A26-001',status_label='중지',start_date=date(2026,11,2),end_date=date(2026,11,20),updated_at=datetime(2026,11,3,12),description='프로젝트 비고',contract=Row(code='A26',name='계약명 원본',kind='용역',start_date=date(2026,1,1),end_date=date(2026,12,31))), 'can_edit_project':True,'contract_workflow':{'major_code':'execution','major_label':'수행','phase_class':'bg-success'}})))
  (out/'create.html').write_text(e.get_template('geoflow_ops/projects/project_form.html').render(Context({**ctx,'form':CreationForm(),'contract_names':{'single':{'name':'단일 계약 원본','single':True},'multiple':{'name':'복수 계약 원본','single':False}}})))
 print('Rendered project list and creation fixtures')

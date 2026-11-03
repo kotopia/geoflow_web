@@ -78,7 +78,7 @@ jobs:
         run: |
           bash scripts/ci/use_ubuntu_https_mirrors.sh
           sudo apt-get update
-          sudo apt-get install -y gdal-bin libgdal-dev
+          sudo apt-get install -y gdal-bin libgdal-dev fonts-noto-cjk
 
       - name: Install exact Python dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
