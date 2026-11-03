@@ -1,5 +1,38 @@
 # 계약 목록·개인 상세필터
 
+## 계약–프로젝트 정책 전환 준비
+
+상태: **정책 확정, 운영 읽기 전용 감사 준비. 기능·데이터 전환 및 배포는 아직 미실행.**
+
+- 기존 `Project.contract_id`와 UUID를 유지한다. 별도 매핑/그룹 모델이나 프로젝트 계약금액 복사는 추가하지 않는다.
+- `Contract.ext.project_mode`는 `SINGLE`/`MULTIPLE`만 허용하며 기존 ext 항목을 보존한다.
+- 신규 SINGLE 계약은 기존 UX대로 실제 프로젝트 1개를 원자적으로 생성한다. MULTIPLE 계약은 계약만 생성하고 프로젝트 메뉴에서 추가한다.
+- SINGLE의 이름 원본은 Contract.name이다. 계약명 편집 및 MULTIPLE→SINGLE 전환 시 서버에서 프로젝트명을 맞추고 프로젝트 화면의 이름은 읽기 전용으로 둔다. MULTIPLE에서는 프로젝트명을 독립 관리한다.
+- SINGLE 개수 제한과 계약별 코드 순번은 계약 행 잠금 안에서 검사/배정한다. 신규 코드는 `{contract.code}-{sequence:03d}`이며 삭제 후 번호 재사용 방지를 위한 발급 최댓값을 계약 ext에 보존하는 방향이다. 기존 코드는 감사 후 검토된 항목만 바꾸며 UUID는 보존한다.
+- Project.status와 프로젝트 기간을 목록·상세의 수행상태/일정 원본으로 사용한다. 상태 코드는 운영 distinct 값 확인 후 기존 체계를 재사용하며 계약 이벤트를 자동 전환하지 않는다.
+- 수정일은 프로젝트 본문 변경 시 갱신한다. 통합 활동일, 손익, GIS/플러그인/Survey 구조 변경은 범위 밖이다.
+
+### 감사와 데이터 변경 경계
+
+`scripts/ops/audit_contract_projects.py`는 활성 테넌트의 계약/프로젝트 개수·연결·이름/코드 변경 예상값·상태·컬럼·FK/UNIQUE/CHECK·인덱스·사용자 트리거를 읽는다. 중앙 조회는 READ ONLY, 테넌트는 REPEATABLE READ + READ ONLY이며 commit/DDL/DML/서비스 재시작을 하지 않는다. 연결 실패·부분 스키마·과다 행은 미검증을 숨기지 않고 중단한다.
+
+`.github/workflows/contract-project-policy-audit.yml`은 PR에서 순수 분석 검사를 하고, release push 또는 명시 실행에서는 기존 `production` 보호 승인 후 감사한다. 로그에는 집계와 고정된 검토 사유만 남긴다. 실제 이름/코드/UUID 및 DB 제약 상세는 공개 인증서 `deploy/contracts/audit-recipient.pem`으로 암호화하여 7일 보관 artifact에 저장한다. 개인키는 저장소/Actions에 넣지 않는다. 감사 결과는 데이터 변경 허가나 자동 실행 명령이 아니다.
+
+기존 복수 프로젝트, 계약 없는 프로젝트, 이름 의미 차이, 변환 충돌, 미인식 코드, 예상 밖 제약/트리거 또는 외부 영구 식별자 사용이 있으면 데이터 변경 전에 보고한다. 프로젝트가 없는 계약도 별도 검토 대상으로 표시한다. 일반 런타임에서 프로젝트 개수로 모드를 자동 판별하지 않는다.
+
+### 코드 참조 영향 조사
+
+| 경로 | 현재 참조와 전환 영향 |
+|---|---|
+| Web/API·프로젝트 참여자 | URL과 관계는 UUID, 응답 code/name은 표시값. 기존 UUID 유지 |
+| QGIS manifest/package·Survey API | `gis/qgis_views.py`는 UUID로 URL/권한을 구성. code는 manifest·다운로드 파일명에 사용 |
+| QGIS 로컬 cache | `cache/reuse.py`의 프로젝트 폴더와 `cache/snapshot.py`의 식별 비교는 UUID. 파일명·메타데이터·표시에는 이전 코드가 남을 수 있음 |
+| QField package | UUID project_id와 표시용 project_code를 함께 기록. 기존 오프라인 package 재생성/표시 갱신 검증 필요 |
+| Finance | 기존 거래 연결은 project_id. `finance_import_views._project`는 이름/코드로 검색하므로 이전 코드를 담은 외부 입력 파일의 호환성 확인 필요 |
+| 임시 계약 Sheets export | `scripts/integrations/temp_contract_sheet_sync.gs`에 프로젝트 ID·코드·이름·전체 프로젝트 열이 존재. 코드 변경 후 소비자/수식 영향은 운영 확인 필요 |
+
+저장소 밖 소비자가 코드를 영구 키로 사용하는지는 코드 검사만으로 확정하지 않는다. 운영 감사 및 사용자에게 변경 예정값을 보고하기 전에는 이름·코드를 수정하지 않는다. 향후 구현에서는 목록·상세·계약 첫 프로젝트 참조·대시보드·외부 입력을 회귀 검증하고 이 절의 구현/검증/배포 상태를 갱신한다.
+
 ## 범위와 원본
 
 `/contracts/` → `security_views.contract_list` → `views_contracts.ContractListView`
