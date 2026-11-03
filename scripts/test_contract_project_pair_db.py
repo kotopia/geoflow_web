@@ -119,6 +119,22 @@ class PolicyTests(unittest.TestCase):
                 activation.apply(connections['tenant'],rows,{**target,'after':'invalid'})
         c.refresh_from_db(using='tenant');p.refresh_from_db(using='tenant')
         self.assertEqual((c.ext,p.code,p.name),({'keep':1},'CA26','Old'))
+    def test_prepare_checks_constraints_indexes_and_snapshot(self):
+        c,p,rows,target=self.fixture()
+        with transaction.atomic(using='tenant'):
+            with connections['tenant'].cursor() as cur:
+                cur.execute("""SELECT conrelid::regclass::text,conname,contype,pg_get_constraintdef(oid)
+                    FROM pg_constraint WHERE conrelid IN ('ctr.contracts'::regclass,'prj.projects'::regclass)
+                    OR confrelid IN ('ctr.contracts'::regclass,'prj.projects'::regclass)""")
+                target['constraints']=activation.digest(sorted([list(r) for r in cur.fetchall()]))
+                cur.execute("SELECT schemaname,tablename,indexname,indexdef FROM pg_indexes WHERE schemaname IN ('ctr','prj')")
+                target['indexes']=activation.digest(sorted([list(r) for r in cur.fetchall()]))
+            checked,done=activation.prepare(connections['tenant'],target)
+            self.assertFalse(done);self.assertEqual(len(checked),1)
+            with connections['tenant'].cursor() as cur:cur.execute('CREATE UNIQUE INDEX unexpected_code ON prj.projects(code,name)')
+            with self.assertRaisesRegex(RuntimeError,'indexes_changed'):
+                activation.prepare(connections['tenant'],target)
+
     def test_snapshot_and_relation_guard(self):
         c,p,rows,target=self.fixture()
         rows[0]['project_name']='concurrent edit'

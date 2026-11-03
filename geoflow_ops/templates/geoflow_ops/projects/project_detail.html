@@ -16,7 +16,7 @@
     <h1 class="h3 mb-0">프로젝트 상세</h1>
   </div>
   <div class="d-flex gap-2">
-    {% if not edit_mode %}
+    {% if not edit_mode and can_edit_project %}
     <a class="btn btn-primary btn-sm" href="?edit=1">편집</a>
     {% endif %}
     <a href="{% url 'tenant:project_list' %}" class="btn btn-outline-secondary btn-sm">목록</a>

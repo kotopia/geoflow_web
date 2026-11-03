@@ -77,6 +77,11 @@ def prepare(conn, target):
         constraints = [list(r) for r in cursor.fetchall()]
         if digest(sorted(constraints)) != target['constraints']:
             raise RuntimeError('constraints_changed')
+        cursor.execute("""SELECT schemaname,tablename,indexname,indexdef FROM pg_indexes
+            WHERE (schemaname='ctr' AND tablename='contracts')
+               OR (schemaname='prj' AND tablename='projects')""")
+        if digest(sorted([list(r) for r in cursor.fetchall()])) != target['indexes']:
+            raise RuntimeError('indexes_changed')
         rows = read_rows(cursor)
         return rows, validate(rows, target)
 
