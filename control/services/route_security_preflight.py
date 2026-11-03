@@ -51,6 +51,7 @@ ROUTE_SECURITY_BOUNDARIES = (
     (f"/finance/claim/{_UUID}/delete/", "tenant:finance_record_delete", "geoflow_ops.finance_security_views", "record_soft_delete"),
     (f"/finance/claim/{_UUID}/restore/", "tenant:finance_record_restore", "geoflow_ops.finance_security_views", "record_restore"),
     (f"/finance/claim/{_UUID}/purge/", "tenant:finance_record_purge", "geoflow_ops.finance_security_views", "record_hard_delete"),
+    ("/projects/new/", "tenant:project_create", "geoflow_ops.security_views", "project_create"),
     ("/projects/", "tenant:project_list", "geoflow_ops.security_views", "project_list"),
     (f"/projects/{_UUID}/", "tenant:project_detail", "geoflow_ops.security_views", "project_detail"),
     (f"/projects/{_UUID}/json/", "tenant:project_detail_json", "geoflow_ops.security_views", "project_json"),

@@ -27,7 +27,6 @@ on:
       - geoflow_ops/templates/geoflow_ops/events/_event_modal.html
       - geoflow_ops/templates/geoflow_ops/projects/project_detail.html
       - geoflow_ops/templates/geoflow_ops/projects/project_summary.html
-      - geoflow_ops/static/geoflow_ops/js/project-contract-card-parity.js
       - geoflow_ops/static/geoflow_ops/js/process-events-ui.js
       - geoflow_ops/static/geoflow_ops/js/process-workboard-ui.js
   workflow_dispatch:
@@ -148,10 +147,11 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o ConnectTimeout=15 \
-            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA' '$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT'" <<'REMOTE'
           set -euo pipefail
 
           candidate_sha="$1"
+          policy_run_id="$2"
           service='geoflow-stabilized.service'
           expected_branch='release/stabilized-deploy'
 
@@ -360,6 +360,14 @@ jobs:
           sudo -n install -d -m 0700 -o "$(id -un)" "$workspace_backup"
           "$python" "$repo/manage.py" activate_company_workspace --apply --backup-dir "$workspace_backup"
           "$python" "$repo/manage.py" activate_company_workspace --verify
+          # Approved contract/project policy initialization. Stop old writers only
+          # for the first rollout; failure restarts the previous release via trap.
+          policy_command='scripts/ops/activate_contract_project_policy.py'
+          if git -C "$repo" cat-file -e "$candidate_sha:$policy_command" 2>/dev/null && \
+             ! git -C "$repo" cat-file -e "$previous_sha:$policy_command" 2>/dev/null; then
+            sudo -n systemctl stop "$service"
+            "$python" "$repo/$policy_command" "$policy_run_id"
+          fi
           "$python" "$repo/manage.py" collectstatic --noinput
 
           sudo -n systemctl restart "$service"

@@ -19,7 +19,7 @@ def tenant_dashboard(request):
                'can_view_contracts': gf_has_perm(request, 'contracts.view'),
                'can_view_directory': gf_has_perm(request, 'directory.view')}
     try:
-        projects = list(visible_projects(request, alias).only('id','name','contract_id','contract__id','contract__end_date'))
+        projects = list(visible_projects(request, alias).only('id','name','status','end_date','contract_id','contract__id','contract__end_date'))
         contracts = list(Contract.objects.using(alias).only('id','end_date')) if context['can_view_contracts'] else []
         all_contracts = {str(c.id): c for c in contracts}
         all_contracts.update({str(p.contract_id): p.contract for p in projects if p.contract_id})
@@ -31,11 +31,13 @@ def tenant_dashboard(request):
             cards.append(summary_card('프로젝트', reverse('tenant:project_list'), projects, summaries, projects=True))
         ending = filter_records(projects, summaries, {'ending_days': context['days']}, projects=True, today=context['today'])
         managers = _project_managers(alias, [str(p.id) for p in ending[:5]]) if context['can_view_directory'] else {}
+        from .services.project_status import project_status_options
+        labels = dict(project_status_options(alias))
         context.update(cards=cards, ending_count=len(ending), ending_rows=[{
             'manager': managers.get(str(p.id), '미지정') if context['can_view_directory'] else '열람 제한',
-            'id': p.id, 'name': p.name or '프로젝트', 'end_date': p.contract.end_date,
-            'days_left': (p.contract.end_date-context['today']).days,
-            'workflow': summaries.get(str(p.contract_id), {}),
+            'id': p.id, 'name': p.name or '프로젝트', 'end_date': p.end_date,
+            'days_left': (p.end_date-context['today']).days,
+            'status_label': labels.get(p.status, p.status or '미설정'),
         } for p in ending[:5]])
     except DatabaseError:
         logger.exception('Dashboard overview query failed')

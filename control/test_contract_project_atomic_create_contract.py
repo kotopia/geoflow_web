@@ -24,18 +24,18 @@ class ContractProjectAtomicCreateContractTests(TestCase):
 
     def test_pair_service_rejects_existing_project(self):
         text = PAIR_SERVICE.read_text()
-        self.assertIn("filter(contract_id=contract.pk).count()", text)
-        self.assertIn('raise RuntimeError("new contract already has a project")', text)
+        self.assertIn("mode == \"SINGLE\" and projects.exists()", text)
+        self.assertIn('select_for_update()', text)
 
     def test_pair_service_uses_canonical_contract_fields(self):
         text = PAIR_SERVICE.read_text()
         for expected in (
-            '"contract_id": contract.pk',
+            'contract_id=contract.pk',
             '"name": contract.name',
             '"start_date": contract.start_date',
             '"end_date": contract.end_date',
             '"status": "active"',
-            '"ext": {}',
+            'ext={}',
         ):
             self.assertIn(expected, text)
 

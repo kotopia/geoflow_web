@@ -13,25 +13,26 @@ class OverviewTests(SimpleTestCase):
         self.states = {}
         for i, offset in enumerate([-1,0,30,31,50,51,None]):
             contract = Row(id=i, end_date=self.today+timedelta(days=offset) if offset is not None else None)
-            self.projects.append(Row(pk=i, contract=contract))
+            self.projects.append(Row(pk=i, contract=contract, status="active", end_date=contract.end_date))
             self.states[str(i)] = {'filter_key': 'active', 'is_complete': False}
 
     def test_boundaries_sort_missing_past_and_completed(self):
         params = {'ending_days':'30'}
         self.assertEqual([p.pk for p in filter_records(self.projects[::-1], self.states, params, projects=True, today=self.today)], [1,2])
-        self.states['2']['is_complete'] = True
+        self.projects[2].status = 'complete'
         self.assertEqual([p.pk for p in filter_records(self.projects, self.states, {'ending_days':'50'}, projects=True, today=self.today)], [1,3,4])
 
-    def test_contract_date_is_authoritative_and_edit_reflected(self):
+    def test_project_date_and_status_are_independent_of_contract(self):
         self.projects[0].end_date = self.today
         self.projects[0].contract.end_date = self.today+timedelta(days=50)
-        self.assertEqual(len(filter_records(self.projects[:1], self.states, {'ending_days':30}, projects=True,today=self.today)),0)
-        self.projects[0].contract.end_date = self.today
+        self.states['0'] = {'filter_key':'complete','is_complete':True}
         self.assertEqual(len(filter_records(self.projects[:1], self.states, {'ending_days':30}, projects=True,today=self.today)),1)
+        self.projects[0].end_date = self.today+timedelta(days=50)
+        self.assertEqual(len(filter_records(self.projects[:1], self.states, {'ending_days':30}, projects=True,today=self.today)),0)
 
     def test_card_links_match_same_list_filter_without_merging_other_states(self):
-        self.states['1']={'filter_key':'pause','is_complete':False}
-        self.states['2']={'filter_key':'complete','is_complete':True}
+        self.projects[1].status='pause'
+        self.projects[2].status='complete'
         card=summary_card('프로젝트','/projects/',self.projects,self.states,projects=True)
         for metric in card['metrics']:
             if metric['url']:

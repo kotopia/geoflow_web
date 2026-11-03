@@ -145,6 +145,19 @@ def project_list(request):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+def project_create(request):
+    _require(request, "projects.view")
+    _require(request, "projects.edit")
+    _require(request, "contracts.view")
+    from .services.project_access import project_access_policy
+    alias = require_tenant_context(request)
+    if not project_access_policy(request, alias).can_edit_all:
+        raise PermissionDenied("Permission denied")
+    return views_projects.project_create(request)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
 def project_detail(request, pk):
     _require_project(request, pk, write=request.method == "POST")
     return views_projects.project_detail_page(request, pk)

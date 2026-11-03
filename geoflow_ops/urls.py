@@ -65,6 +65,7 @@ urlpatterns = [
     path("catalog/board/", security_views.catalog_board, name="catalog_board"),
 
     path("projects/", security_views.project_list, name="project_list"),
+    path("projects/new/", security_views.project_create, name="project_create"),
     path("projects/<uuid:pk>/", security_views.project_detail, name="project_detail"),
     path("projects/<uuid:pk>/json/", security_views.project_json, name="project_detail_json"),
     path("projects/<uuid:pk>/members/", security_views.project_members_panel, name="project_members_panel"),

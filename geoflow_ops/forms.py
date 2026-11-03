@@ -3,6 +3,7 @@ from django import forms
 from .models import Contract, Partner, Project, MyOrgUnit
 from control.middleware import current_db_alias
 from .services.tenant_settings import settings_options
+from .services.contract_project_pair import PROJECT_MODES, project_mode
 
 KIND_CHOICES = []
 
@@ -23,6 +24,8 @@ class ISODateInput(forms.DateInput):
 class ContractForm(forms.ModelForm):
     """Edit contract facts only; lifecycle is derived from milestone events."""
 
+    project_mode = forms.ChoiceField(choices=PROJECT_MODES, label="프로젝트 운영방식", initial="SINGLE", widget=forms.Select(attrs={"class": "form-select"}))
+    confirm_single = forms.BooleanField(required=False, label="단일 방식 전환 시 프로젝트명을 계약명으로 변경합니다.")
     kind = forms.ChoiceField(choices=KIND_CHOICES, required=False)
 
     start_date = forms.DateField(
@@ -61,6 +64,7 @@ class ContractForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         alias = current_db_alias()
+        self.initial["project_mode"] = (self.instance.ext or {}).get("project_mode", "SINGLE") if isinstance(self.instance.ext, (dict, type(None))) else ""
 
         def _partner_label(p):
             name = getattr(p, "name", "") or str(p)
@@ -121,30 +125,48 @@ class PartnerForm(forms.ModelForm):
 
 
 class ProjectForm(forms.ModelForm):
-    start_date = forms.DateField(
-        required=False,
-        input_formats=["%Y-%m-%d", "%Y%m%d"],
-        widget=ISODateInput(),
-    )
-    end_date = forms.DateField(
-        required=False,
-        input_formats=["%Y-%m-%d", "%Y%m%d"],
-        widget=ISODateInput(),
-    )
+    confirm_duplicate = forms.BooleanField(required=False, label="같은 계약의 중복 이름을 확인했습니다.")
+    status = forms.ChoiceField(required=False, label="수행상태")
+    start_date = forms.DateField(required=False, input_formats=["%Y-%m-%d", "%Y%m%d"], widget=ISODateInput(), label="시작일")
+    end_date = forms.DateField(required=False, input_formats=["%Y-%m-%d", "%Y%m%d"], widget=ISODateInput(), label="종료일")
 
     class Meta:
         model = Project
-        fields = [
-            "contract", "code", "name",
-            "start_date", "end_date",
-            "status", "description", "org_unit_id",
-        ]
+        fields = ["contract", "name", "start_date", "end_date", "status", "description"]
+        labels = {"contract": "연결 계약", "name": "프로젝트명", "description": "기타사항"}
+        widgets = {"description": forms.Textarea(attrs={"rows": 4})}
 
+    def __init__(self, *args, alias, contracts=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .services.project_status import project_status_options
+        self.fields["contract"].queryset = contracts if contracts is not None else Contract.objects.using(alias).none()
+        self.fields["contract"].required = True
+        self.fields["contract"].label_from_instance = lambda c: f"{c.code} · {c.name}"
+        self.fields["status"].choices = [("", "미설정"), *project_status_options(alias)]
+        current = self.instance.status
+        if current and current not in dict(self.fields["status"].choices):
+            self.fields["status"].choices.append((current, current + " (기존값)"))
+        if not self.instance._state.adding:
+            self.fields["contract"].queryset = Contract.objects.using(alias).filter(pk=self.instance.contract_id)
+            self.fields["contract"].disabled = True
+            if project_mode(self.instance.contract) == "SINGLE":
+                self.fields["name"].disabled = True
+                self.initial["name"] = self.instance.contract.name
+                self.fields["name"].help_text = "계약명을 변경하면 함께 변경됩니다."
+        for field in self.fields.values():
+            field.widget.attrs["class"] = "form-check-input" if isinstance(field.widget, forms.CheckboxInput) else ("form-select" if isinstance(field.widget, forms.Select) else "form-control")
 
-class ProjectNoteForm(forms.ModelForm):
-    class Meta:
-        model = Project
-        fields = ["description"]
+    def clean(self):
+        cleaned = super().clean()
+        start, end = cleaned.get("start_date"), cleaned.get("end_date")
+        if start and end and end < start:
+            self.add_error("end_date", "종료일은 시작일 이후여야 합니다.")
+        contract = cleaned.get("contract")
+        if contract and project_mode(contract) == "SINGLE":
+            cleaned["name"] = contract.name
+        elif contract and not str(cleaned.get("name") or "").strip():
+            self.add_error("name", "프로젝트명을 입력하세요.")
+        return cleaned
 
 
 class MyOrgUnitForm(forms.ModelForm):

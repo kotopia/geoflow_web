@@ -10,29 +10,23 @@ def source(path):
 
 
 class ListEventBadgeAndProjectContractParityTests(SimpleTestCase):
-    def test_contract_and_project_lists_render_stage_plus_active_event_badges(self):
+    def test_contract_events_and_project_performance_remain_separate(self):
         contract_list = source("templates/geoflow_ops/contracts/contract_list.html")
         project_list = source("templates/geoflow_ops/projects/project_list.html")
         workflow_tags = source("templatetags/workflow_tags.py")
         helper = source("services/active_event_badges.py")
 
         self.assertIn("wf.active_event_labels", contract_list)
-        self.assertIn("{% contract_workflow p.contract as wf %}", project_list)
-        self.assertIn("wf.active_event_labels", project_list)
+        self.assertNotIn("{% contract_workflow p.contract as wf %}", project_list)
+        self.assertIn("p.status_label", project_list)
         self.assertIn("active_event_summaries_for_contracts", workflow_tags)
         self.assertIn('Q(scope_type="contract", scope_id__in=ids)', helper)
         self.assertIn('Q(scope_type="project", scope_id__in=project_ids)', helper)
         self.assertIn("project_to_contract", helper)
 
-    def test_project_contract_information_uses_contract_detail_row_design(self):
+    def test_project_detail_keeps_independent_facts_after_page_load(self):
         base = source("templates/geoflow_ops/base_tenant.html")
-        parity = source("static/geoflow_ops/js/project-contract-card-parity.js")
-
-        self.assertIn("project-contract-card-parity.js", base)
-        self.assertIn("card-header", parity)
-        self.assertIn("card-title mb-0\">계약정보", parity)
-        self.assertIn("row py-2 border-top", parity)
-        self.assertIn("col-sm-4 col-lg-3 small text-muted", parity)
-        self.assertIn("col-sm-8 col-lg-9", parity)
-        self.assertIn("현재 업무단계", parity)
-        self.assertIn("계약기간", parity)
+        detail = source("templates/geoflow_ops/projects/project_detail.html")
+        self.assertNotIn("project-contract-card-parity.js", base)
+        for field in ("obj.name", "obj.code", "obj.start_date", "obj.end_date", "obj.status_label", "obj.contract.name"):
+            self.assertIn(field, detail)
