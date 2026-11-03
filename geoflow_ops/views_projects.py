@@ -22,6 +22,7 @@ from control.catalog.models import CategoryNode, CategoryFacetOption, CategoryPa
 from .forms import ProjectForm
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db.models.functions import Coalesce
+from django.db.models import F
 from control.gf_authz.permissions import gf_has_perm
 from .services.contract_project_pair import create_project, save_project
 from .services.project_status import project_status_options, status_key
@@ -70,7 +71,7 @@ class ProjectListView(ListView):
                 queryset = queryset.filter(contract_id=UUID(contract_id))
             except ValueError:
                 queryset = queryset.none()
-        queryset = queryset.annotate(modified_order=Coalesce("updated_at", "created_at")).order_by("-modified_order", "id")
+        queryset = queryset.annotate(modified_order=Coalesce("updated_at", "created_at")).order_by(F("modified_order").desc(nulls_last=True), "id")
         if self.request.GET.get("overview") == "1":
             from .services.dashboard import workflow_map, filter_records
             rows = list(queryset)

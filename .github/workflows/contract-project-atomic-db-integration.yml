@@ -88,3 +88,19 @@ jobs:
 
       - name: Exercise real PostgreSQL commit and rollback
         run: python scripts/test_contract_project_pair_db.py
+
+      - name: Render and exercise project UI
+        env:
+          CHROME_CHANNEL: chrome
+        run: |
+          python scripts/ci/render_project_policy.py
+          npm install --prefix /tmp/project-policy-browser --no-save playwright@1.55.0
+          NODE_PATH=/tmp/project-policy-browser/node_modules node scripts/ci/test_project_policy_browser.cjs
+
+      - name: Upload project UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-policy-screenshots
+          path: artifacts/project-policy/*.png
+          if-no-files-found: ignore

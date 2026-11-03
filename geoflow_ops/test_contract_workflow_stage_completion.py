@@ -93,7 +93,7 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertNotIn('getattr(contract, "status"', runtime)
         self.assertIn("DEPRECATED_EVENT_TYPE_CODES", workflow)
 
-    def test_project_pages_use_linked_contract_workflow_not_contract_status(self):
+    def test_project_pages_separate_performance_from_linked_contract_workflow(self):
         views = (ROOT / "views_projects.py").read_text(encoding="utf-8")
         listing = (ROOT / "templates" / "geoflow_ops" / "projects" / "project_list.html").read_text(encoding="utf-8")
         detail = (ROOT / "templates" / "geoflow_ops" / "projects" / "project_detail.html").read_text(encoding="utf-8")
@@ -106,9 +106,10 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertIn('"contract_workflow_label": workflow.get("major_label")', views)
 
         self.assertNotIn("p.contract.status", listing)
-        self.assertIn("p.contract_workflow", listing)
-        self.assertIn("<th>상태</th>", listing)
-        self.assertIn('data-col="workflow"', listing)
+        self.assertNotIn("p.contract_workflow", listing)
+        self.assertIn("p.status_label", listing)
+        self.assertIn("<th>수행상태</th>", listing)
+        self.assertIn('data-col="status"', listing)
         self.assertNotIn("obj.contract.status", detail)
         self.assertIn("contract_workflow.major_label", detail)
         self.assertIn("업무단계", detail)

@@ -30,7 +30,12 @@ def read_rows(cursor):
     rows = cursor.fetchmany(20001)
     if len(rows) > 20000:
         raise RuntimeError('row_limit_exceeded')
-    return [dict(zip(names, row)) for row in rows]
+    result = [dict(zip(names, row)) for row in rows]
+    for row in result:
+        for key in ('contract_record', 'project_record'):
+            if isinstance(row[key], str):
+                row[key] = json.loads(row[key])
+    return result
 
 
 def validate(rows, target):
