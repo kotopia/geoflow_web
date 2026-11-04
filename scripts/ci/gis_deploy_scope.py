@@ -15,7 +15,7 @@ PLUGIN_ONLY_PATHS = frozenset({
 
 
 def requires_server_deploy(paths):
-    return any(not path.startswith("integrations/qgis/geoflow_connector/")
+    return any(not path.startswith(("integrations/qgis/geoflow_connector/", "integrations/qgis/geoflow_qc_structure/"))
                and path not in PLUGIN_ONLY_PATHS for path in paths)
 
 

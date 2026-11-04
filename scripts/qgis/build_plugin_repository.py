@@ -14,6 +14,10 @@ import zipfile
 
 PACKAGE_DIR = "geoflow_connector"
 QGIS_REPOSITORY_FILE_NAME = f"{PACKAGE_DIR}.zip"
+QC_PACKAGE = "geoflow_qc_structure"
+PLUGIN_NAMES = {PACKAGE_DIR: "GeoFlow Connector", QC_PACKAGE: "GeoFlow QC & Structure"}
+QC_FILES = {"__init__.py", "metadata.txt", "catalog.py", "qc.py", "structure.py",
+            "spatial.py", "ui.py", "ui_values.py", "resources/catalog.json"}
 VERSION_RE = re.compile(r"\A[0-9]+\.[0-9]+\.[0-9]+\Z")
 EXCLUDED_NAMES = {"__pycache__", ".DS_Store", ".git", ".github", ".vscode", ".pytest_cache",
                   "tests", "test_artifacts", "release", "scripts", "docs", "logs"}
@@ -31,12 +35,19 @@ def metadata(source: Path) -> dict[str, str]:
     version = values.get("version", "")
     if not VERSION_RE.fullmatch(version):
         raise ValueError("QGIS plugin version must be semantic x.y.z")
-    if values.get("name") != "GeoFlow Connector":
+    if values.get("name") != PLUGIN_NAMES.get(source.name, PLUGIN_NAMES[PACKAGE_DIR]):
         raise ValueError("Unexpected QGIS plugin name")
     return values
 
 
 def package_files(source: Path):
+    if source.name == QC_PACKAGE:
+        for relative in sorted(QC_FILES):
+            path = source / relative
+            if not path.is_file() or path.resolve() != source.resolve() / relative:
+                raise ValueError(f"Missing or indirect QC runtime file: {relative}")
+            yield path, PurePosixPath(QC_PACKAGE, relative)
+        return
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
         if any(part in EXCLUDED_NAMES for part in relative.parts):
@@ -96,7 +107,7 @@ def build_zip(source: Path, destination: Path, *, release_manifest: Path | None 
         release, files = release_payloads(source, release_manifest, inventory)
     else:
         files = [(path.read_bytes(), name) for path,name in package_files(source)]
-    directories = {PurePosixPath(PACKAGE_DIR)}
+    directories = {PurePosixPath(QC_PACKAGE if source.name == QC_PACKAGE else PACKAGE_DIR)}
     for _, archive_path in files:
         directories.update(
             parent
@@ -111,6 +122,8 @@ def build_zip(source: Path, destination: Path, *, release_manifest: Path | None 
             )
             if release is not None:
                 info.create_system = 0
+            if source.name == QC_PACKAGE:
+                info.create_system = 3
             info.compress_type = zipfile.ZIP_STORED
             info.external_attr = ((stat.S_IFDIR | 0o755) << 16) | 0x10
             archive.writestr(info, b"")
@@ -118,7 +131,9 @@ def build_zip(source: Path, destination: Path, *, release_manifest: Path | None 
             info = zipfile.ZipInfo(str(archive_path), date_time=(2026, 1, 1, 0, 0, 0))
             if release is not None:
                 info.create_system = 0
-            info.compress_type = zipfile.ZIP_DEFLATED
+            if source.name == QC_PACKAGE:
+                info.create_system = 3
+            info.compress_type = zipfile.ZIP_STORED if source.name == QC_PACKAGE else zipfile.ZIP_DEFLATED
             info.external_attr = (stat.S_IFREG | 0o644) << 16
             archive.writestr(info, data)
     digest = hashlib.sha256(destination.read_bytes()).hexdigest()
@@ -156,7 +171,7 @@ def build_xml(values: dict[str, str], download_url: str, filename: str, digest: 
         # QGIS derives the plugin id from everything before the first dot in
         # file_name.  Keep this logical name stable while download_url points
         # at the immutable, versioned S3 object.
-        ("file_name", QGIS_REPOSITORY_FILE_NAME),
+        ("file_name", QC_PACKAGE + ".zip" if values["name"] == PLUGIN_NAMES[QC_PACKAGE] else QGIS_REPOSITORY_FILE_NAME),
         ("download_url", download_url),
         ("experimental", experimental),
         ("deprecated", values.get("deprecated", "false").strip().lower()),
@@ -165,6 +180,8 @@ def build_xml(values: dict[str, str], download_url: str, filename: str, digest: 
     )
     for name, value in fields:
         ET.SubElement(plugin, name).text = value
+    if values.get("changelog"):
+        ET.SubElement(plugin, "changelog").text = values["changelog"]
     ET.indent(root, space="  ")
     return ET.tostring(root, encoding="utf-8", xml_declaration=True) + b"\n"
 
@@ -180,7 +197,11 @@ def main() -> int:
     parser.add_argument("--inventory", type=Path)
     args = parser.parse_args()
     values = metadata(args.source)
-    filename = f"{PACKAGE_DIR}-{values['version']}.zip"
+    package_id = QC_PACKAGE if args.source.name == QC_PACKAGE else PACKAGE_DIR
+    if package_id == QC_PACKAGE and (values.get("experimental", "").lower() != "true"
+                                    or args.release_manifest or args.base_url.rstrip("/").endswith("/packages")):
+        raise ValueError("QC pilot packages are experimental and TEST only")
+    filename = f"{package_id}-{values['version']}.zip"
     package = args.output / "releases" / filename
     digest = build_zip(args.source, package, release_manifest=args.release_manifest, inventory=args.inventory)
     repository = args.output / "plugins.xml"

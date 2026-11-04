@@ -6,6 +6,7 @@ import re
 QGIS_PLUGIN_BUCKET = "geoflow-upload"
 QGIS_PLUGIN_PREFIX = "qgis-plugins"
 QGIS_PLUGIN_CHANNELS = frozenset({"test", "stable"})
+QC_TEST_PACKAGE_RE = re.compile(r"\Ageoflow_qc_structure-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z")
 QGIS_PLUGIN_PACKAGE_RE = re.compile(
     r"\Ageoflow_connector-[0-9]+\.[0-9]+\.[0-9]+\.zip\Z"
 )
@@ -20,7 +21,9 @@ def repository_object_key(channel: str) -> str:
 
 def package_object_key(filename: str, channel: str = "test") -> str:
     normalized = str(filename or "").strip()
-    if not QGIS_PLUGIN_PACKAGE_RE.fullmatch(normalized):
+    if not QGIS_PLUGIN_PACKAGE_RE.fullmatch(normalized) and not (
+        channel == "test" and QC_TEST_PACKAGE_RE.fullmatch(normalized)
+    ):
         raise ValueError("Unsupported QGIS plugin package filename")
     if channel not in QGIS_PLUGIN_CHANNELS:
         raise ValueError("Unsupported QGIS plugin repository channel")

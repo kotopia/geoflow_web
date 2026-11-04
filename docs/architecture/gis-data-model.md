@@ -355,3 +355,7 @@ Tenant `gis.project_definition` 한 테이블에 중앙 UUID만 저장하며 Def
 
 기존 중앙 필드 설정을 통한 선택 기반 방향각 계산과 QGIS 미리보기·저장 경계는
 [GIS 방향 편집](gis-direction-editing.md)을 따른다. 기존 `ang_dir` 필드를 재사용하고 물리 스키마나 영구 시설물 관계를 추가하지 않는다.
+
+The [QC & Structure local pilot](gis-qc-structure-pilot.md) is an independent
+experimental QGIS plugin. Its disposable outputs do not replace the canonical
+GIS data model or establish a server-side QC/structure contract.
