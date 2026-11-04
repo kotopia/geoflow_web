@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -119,7 +120,9 @@ class PilotTests(unittest.TestCase):
         findings,changes,rows,fields = preview('pipe',[(1,{'pip_len':None},'line')],p,self.fields,self.spatial)
         self.assertFalse(blocked(findings))
         self.assertEqual(len(changes),3)
-        f,c,r,s = preview('pipe',[(1,{'pip_len':1000.25},'line')],self.p,self.fields,self.spatial)
+        overflow = deepcopy(self.p)
+        overflow['field_rules']['PIPE_LENGTH'].update(operation='CONSTANT', params={'value':1000.25})
+        f,c,r,s = preview('pipe',[(1,{},'line')],overflow,self.fields,self.spatial)
         self.assertTrue(blocked(post_qc('pipe',r,self.p,s,self.spatial)))
         self.assertEqual(source,[(1,{'pip_len':3.25},None)])
 
@@ -131,15 +134,49 @@ class PilotTests(unittest.TestCase):
             db.executemany('INSERT INTO pipe (pip_len) VALUES (?)',[(12.34,),(None,)])
             db.execute("UPDATE pipe SET BYC_LEN = pip_len, ftr_cde = 'SA001', mng_cde = 'MNG002'")
             expected = db.execute('SELECT BYC_LEN, ftr_cde, mng_cde FROM pipe ORDER BY rowid').fetchall()
-        findings, changes, rows, fields = preview('pipe',source,self.p,self.fields,self.spatial)
+        copy_profile = deepcopy(self.p)
+        copy_profile['field_rules']['PIPE_LENGTH'].update(operation='COPY', params={'source_field':'pip_len'})
+        findings, changes, rows, fields = preview('pipe',source,copy_profile,self.fields,self.spatial)
         actual = [(float(v['BYC_LEN']) if v['BYC_LEN'] is not None else None,v['ftr_cde'],v['mng_cde']) for _,v,_ in rows]
         self.assertEqual(actual,expected)
         self.assertFalse(post_qc('pipe',rows,self.p,fields,self.spatial))
 
+    def test_generated_fields_without_source_attributes(self):
+        source = [(1, {}, 'line'), (2, {'pip_len': None, 'ftr_cde': None}, 'line')]
+        findings, changes, rows, fields = preview('pipe', source, self.p, self.fields, self.spatial)
+        self.assertFalse(blocked(findings))
+        self.assertTrue(all(values == {'BYC_LEN': Decimal('10.00'), 'ftr_cde': 'SA001', 'mng_cde': 'MNG002'}
+                            for _, values, _ in rows))
+        self.assertFalse(post_qc('pipe', rows, self.p, fields, self.spatial))
+        self.assertEqual(source[0][1], {})
+
+    def test_output_precision_and_facility_value_choice(self):
+        class Measured(FixtureSpatial):
+            def measure(self, geometry, params, kind):
+                return 12.345
+        profile = deepcopy(self.p)
+        rule = profile['field_rules']['PIPE_LENGTH']
+        for target, scale, expected in [('pip_len', 1, Decimal('12.3')), ('byc_len', 2, Decimal('12.35'))]:
+            rule['target'] = target
+            rule['field'].update(physical_name=target, precision=5, scale=scale)
+            profile['field_rules']['FACILITY_CODE'].update(operation='COPY', params={'source_field':'ftr_cde'})
+            source = [(1, {'ftr_cde':'SA200'}, 'line'), (2, {'ftr_cde':'SA203'}, 'line'), (3, {'ftr_cde':None}, 'line')]
+            findings, changes, rows, fields = preview('pipe', source, profile, self.fields, Measured())
+            self.assertFalse(blocked(findings))
+            self.assertEqual([attrs['ftr_cde'] for _,attrs,_ in rows], ['SA200','SA203',None])
+            self.assertTrue(all(attrs[target] == expected for _,attrs,_ in rows))
+            self.assertFalse(post_qc('pipe', rows, profile, fields, Measured()))
+        profile['field_rules']['FACILITY_CODE'].update(operation='CONSTANT', params={'value':'SA001'})
+        _, _, rows, _ = preview('pipe', source, profile, self.fields, Measured())
+        self.assertEqual([attrs['ftr_cde'] for _,attrs,_ in rows], ['SA001']*3)
+        profile['field_rules']['FACILITY_CODE'].update(operation='COPY', params={'source_field':'missing'})
+        _, changes, _, _ = preview('pipe', source, profile, self.fields, Measured())
+        self.assertTrue(any(row[-1].startswith('ERROR') for row in changes))
+
     def test_package_and_existing_entry_preservation(self):
         from scripts.ops import publish_qgis_plugin_repository as publish
         source = Path('integrations/qgis/geoflow_qc_structure')
-        filename = source.name+'-0.1.0.zip'
+        filename = source.name+'-'+metadata(source)['version']+'.zip'
         dest = self.directory/filename
         sha = build_zip(source,dest)
         self.assertEqual(sha,build_zip(source,self.directory/'repeat.zip'))
@@ -158,3 +195,4 @@ class PilotTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
