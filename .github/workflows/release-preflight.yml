@@ -330,3 +330,64 @@ jobs:
           bash scripts/ops/prepare_private_pg_client.sh /tmp/geoflow-client-16
           dpkg-query -W > /tmp/pg-client-packages-after
           cmp /tmp/pg-client-packages-before /tmp/pg-client-packages-after
+
+  qc-structure-qgis-4-2-2:
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'codex/qc-structure')
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run both plugins with the official QGIS 4.2.2 application
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/geoflow-qgis-runtime"
+          mkdir -p "$scratch/mount" "$scratch/profiles" "$scratch/plugins"
+          curl --fail --location --retry 2 --max-time 600 \
+            https://github.com/qgis/QGIS/releases/download/final-4_2_2/QGIS-final-4_2_2.dmg \
+            --output "$scratch/qgis.dmg"
+          echo "91b80ccd4d1a141615435223983b0b718c5e2c5283afc73f3780ad302f435951  $scratch/qgis.dmg" | shasum -a 256 -c -
+          hdiutil attach "$scratch/qgis.dmg" -readonly -nobrowse -mountpoint "$scratch/mount"
+          trap 'hdiutil detach "$scratch/mount"' EXIT
+          app="$(find "$scratch/mount" -maxdepth 2 -type d -name '*.app' -print -quit)"
+          test -n "$app"
+          executable="$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")"
+          qgis="$app/Contents/MacOS/$executable"
+          test -x "$qgis"
+          for plugin in geoflow_connector geoflow_qc_structure; do
+            python3 scripts/qgis/build_plugin_repository.py \
+              --source "integrations/qgis/$plugin" --output "$scratch/$plugin"
+            unzip -q "$scratch/$plugin/releases/"*.zip -d "$scratch/plugins"
+          done
+          export QGIS_PLUGINPATH="$scratch/plugins"
+          export GEOFLOW_QGIS_QC_FIXTURE="$PWD/scripts/qgis/qc_structure_runtime.py"
+          export GEOFLOW_QGIS_QC_RESULT="$scratch/result"
+          for phase in initial restart; do
+            export GEOFLOW_QGIS_QC_PHASE="$phase"
+            rm -f "$GEOFLOW_QGIS_QC_RESULT"
+            "$qgis" --nologo --noversioncheck --profiles-path "$scratch/profiles" \
+              --profile qc_structure_test --code "$PWD/scripts/qgis/qc_structure_bootstrap.py" \
+              > "$scratch/$phase.log" 2>&1 &
+            pid=$!
+            for ((i=0; i<120; i++)); do
+              test ! -s "$GEOFLOW_QGIS_QC_RESULT" || break
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+            done
+            if [ "$(cat "$GEOFLOW_QGIS_QC_RESULT" 2>/dev/null || true)" != "PASS $phase" ]; then
+              kill "$pid" 2>/dev/null || true
+              cat "$scratch/$phase.log"
+              cat "$GEOFLOW_QGIS_QC_RESULT" 2>/dev/null || true
+              exit 1
+            fi
+            for ((i=0; i<15; i++)); do
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              kill "$pid" 2>/dev/null || true
+              exit 1
+            fi
+            wait "$pid"
+            cat "$GEOFLOW_QGIS_QC_RESULT"
+          done
