@@ -1,6 +1,6 @@
 # GIS QC & Structure Local Pilot
 
-GeoFlow QC & Structure (`geoflow_qc_structure`, 0.1.0 experimental) is a
+GeoFlow QC & Structure (`geoflow_qc_structure`, 0.1.1 experimental) is a
 separate QGIS plugin. It consumes explicitly selected layers in the open QGIS
 project. It does not import Connector, authenticate, write to source layers,
 execute user SQL/Python, or extend the server GIS catalog. Project and tenant
@@ -9,7 +9,10 @@ data remain in the providers that originally loaded them.
 ## Workflow and storage
 
 1. Select a vector layer and Profile in the independent modeless window.
-2. Run QC or recheck selected features. Inspect issue rows and zoom to geometry.
+2. In the Profile tab, use each row's Settings button to select the output name,
+   type, length/precision/scale and source-field, geometry calculation or constant
+   value. Add a field for additional output attributes. Unsaved form changes apply
+   to Preview immediately; save a new revision to retain them. Then run QC or recheck selected features. Inspect issue rows and zoom to geometry.
 3. Preview. An open ERROR marked blocks_structure stops calculation. Warnings
    alone do not stop it.
 4. Execute: recompute and compare preview, validate output, populate a detached
@@ -22,8 +25,16 @@ profiles; `qc.py` and `structure.py` do not depend on QGIS. `spatial.py` supplie
 geometry/CRS/reference operations; `ui.py` manages user actions and staging.
 Bundled catalog is immutable. Optional local `fields.json` and numbered
 `profiles/*.json` live under `QgsApplication.qgisSettingsDirPath()/geoflow_qc_structure`.
-The Profile tab shows inherited mappings and overrides with a JSON settings
-editor. Revisions keep resolved rules and field snapshots. The output layer
+The Profile tab shows inherited mappings and overrides with per-field form
+controls. COPY/KEEP lists actual input fields, CONSTANT accepts a typed value
+or explicit NULL, and LENGTH/AREA select a metric calculation CRS and unit.
+Advanced reference/code/condition operations retain validated JSON parameter
+inputs in their field dialog. Source selection and calculation parameters are
+separate from output schema. Missing output fields are created in the temporary
+result. Missing explicitly selected COPY inputs remain errors. CONSTANT replaces
+all output values, while COPY preserves source values, including NULL.
+`field_editor.py` owns the form widgets and uses the shared operation/field
+validators. Revisions keep resolved rules and field snapshots. The output layer
 retains the exact resolved Profile and output field definitions. QSettings
 keeps the last Profile only.
 
@@ -43,12 +54,19 @@ Source materials: the water, sewer and QC sheets in the supplied workbook and
 the accompanying SQL collection. Daejeon water pipe was selected because the
 workbook and SQL both identify the working layer and provide an explicit
 length alias and attribute constants. The draft Profile is **only a comparison
-subset**: `BYC_LEN = pip_len`, `ftr_cde = SA001`, `mng_cde = MNG002`. It
+subset**. Version 0.1.0 copied `BYC_LEN = pip_len`; that assumption was
+corrected by the user. Version 0.1.1 defaults to planar geometry LENGTH with
+explicit EPSG:5186 and unit m, plus `ftr_cde = SA001`, `mng_cde = MNG002`.
+The visible CRS must be reviewed for the project before execution. It
 uses the Daejeon working `BYC_LEN numeric(5,2)`, not an assumed delivery
 schema; the workbook lists a different delivery type. The separate base
 profile outputs `pip_len`, allowing comparison from the same source. No
 confirmed full Asan profile is supplied. Both fixtures with a value and NULL
-were compared against the equivalent three SQL assignments in SQLite.
+were compared against the equivalent three SQL assignments in SQLite for
+the original COPY mode; this remains a regression case. Geometry LENGTH now
+works with no pip_len/byc_len/mng_cde input fields. Tests cover numeric(5,1)
+and numeric(5,2) rounding, preserved mixed facility codes SA200/SA203/NULL,
+explicit constant replacement and missing COPY inputs.
 This does not establish parity for the full SQL or spatial results.
 Spatial join patterns and duplicate checks inform reusable rules.
 Management ID assignment, largest overlap, code lists not in the evidence,
@@ -84,7 +102,10 @@ substitute for those interactive checks.
 Status: implementation and non-QGIS tests passed. Windows CI QGIS 4.2.2
 passed initial load, unload/reload, QC/preview/output and restart checks in
 run 41756237602. Authenticated Connector project loading and TEST Plugin
-Manager installation remain to be verified. TEST publication is pending.
+Manager installation remain to be verified. Version 0.1.0 TEST publication
+succeeded in run 41782888417 with public XML/ZIP/SHA256 checks. Version
+0.1.1 is an implementation candidate pending CI runtime validation and TEST
+publication.
 
 The existing GIS deployment supports workflow_dispatch for the download
 allowlist prerequisite. Register the GIS deployment and TEST publishing
@@ -105,3 +126,4 @@ already-reviewed policy closeout documents, docs/contracts/contract-list.md
 and docs/planning/GeoFlow_Product_Structure_v1.md. The GIS deploy scope permits
 these exact documentation paths. Runtime files outside the GIS contract
 remain rejected. Retry the current reviewed release, then publish TEST.
+
