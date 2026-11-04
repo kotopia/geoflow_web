@@ -305,6 +305,8 @@ jobs:
           reference_groups_required=no
           while IFS= read -r changed_path; do
             case "$changed_path" in
+              # Reviewed documentation-only closeout of the already deployed project policy.
+              docs/contracts/contract-list.md|docs/planning/GeoFlow_Product_Structure_v1.md) continue ;;
               control/management/commands/deploy_gis_reference_groups.py|control/migrations/0009_gis_reference_code_groups.py|geoflow_ops/migrations/0048_gis_project_reference_groups.py|geoflow_ops/gis/reference_groups.py|geoflow_ops/gis/test_reference_groups.py|docs/architecture/gis-reference-code-groups.md)
                 reference_groups_required=yes; continue ;;
               docs/operations/qgis-plugin-stable-release.json)
