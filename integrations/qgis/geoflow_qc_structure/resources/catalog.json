@@ -1,0 +1,144 @@
+{
+  "layers": [
+    {
+      "id": "WTL_PIPE_LM",
+      "name": "상수관로"
+    }
+  ],
+  "fields": {
+    "PIPE_LENGTH": {
+      "semantic_key": "PIPE_LENGTH",
+      "physical_name": "pip_len",
+      "display_name": "관로 길이",
+      "description": "관로 길이",
+      "data_type": "NUMERIC",
+      "nullable": true,
+      "required": false,
+      "active": true,
+      "display_order": 0,
+      "precision": 10,
+      "scale": 2,
+      "unit": "m"
+    },
+    "FACILITY_CODE": {
+      "semantic_key": "FACILITY_CODE",
+      "physical_name": "ftr_cde",
+      "display_name": "시설물 코드",
+      "description": "시설물 코드",
+      "data_type": "VARCHAR",
+      "nullable": true,
+      "required": false,
+      "active": true,
+      "display_order": 0,
+      "length": 5
+    },
+    "MANAGEMENT_AGENCY": {
+      "semantic_key": "MANAGEMENT_AGENCY",
+      "physical_name": "mng_cde",
+      "display_name": "관리기관",
+      "description": "관리기관",
+      "data_type": "VARCHAR",
+      "nullable": true,
+      "required": false,
+      "active": true,
+      "display_order": 0,
+      "length": 6
+    }
+  },
+  "profiles": {
+    "BASE_WATER_PIPE": {
+      "id": "BASE_WATER_PIPE",
+      "name": "상수관로 기준",
+      "agency": "",
+      "business_type": "상수도",
+      "layer_id": "WTL_PIPE_LM",
+      "revision": 1,
+      "description": "Local pilot baseline",
+      "field_rules": {
+        "PIPE_LENGTH": {
+          "operation": "COPY",
+          "params": {
+            "source_field": "pip_len"
+          }
+        }
+      },
+      "qc_rules": {
+        "has_geometry": {
+          "type": "GEOMETRY_EXISTS",
+          "phase": "BOTH"
+        },
+        "valid_geometry": {
+          "type": "GEOMETRY_VALID",
+          "phase": "BOTH"
+        },
+        "line_geometry": {
+          "type": "GEOMETRY_TYPE",
+          "params": {
+            "types": [
+              "LINESTRING",
+              "MULTILINESTRING"
+            ]
+          },
+          "phase": "BOTH"
+        },
+        "length_type": {
+          "type": "TYPE_CHECK",
+          "field": "pip_len",
+          "params": {
+            "data_type": "NUMERIC"
+          }
+        }
+      },
+      "created_at": "2026-11-04T00:00:00+00:00",
+      "updated_at": "2026-11-04T00:00:00+00:00"
+    },
+    "DAEJEON_WATER_PIPE_PILOT": {
+      "id": "DAEJEON_WATER_PIPE_PILOT",
+      "name": "대전 상수관로 · 비교용",
+      "agency": "대전광역시",
+      "business_type": "상수도",
+      "layer_id": "WTL_PIPE_LM",
+      "revision": 1,
+      "base_profile_id": "BASE_WATER_PIPE",
+      "description": "제공 SQL 중 BYC_LEN, FTR_CDE, MNG_CDE만 비교. 납품 전체 규격 아님.",
+      "field_rules": {
+        "PIPE_LENGTH": {
+          "operation": "COPY",
+          "params": {
+            "source_field": "pip_len"
+          },
+          "target": "BYC_LEN",
+          "field": {
+            "semantic_key": "PIPE_LENGTH",
+            "physical_name": "BYC_LEN",
+            "display_name": "관로 길이",
+            "description": "관로 길이",
+            "data_type": "NUMERIC",
+            "nullable": true,
+            "required": false,
+            "active": true,
+            "display_order": 0,
+            "precision": 5,
+            "scale": 2,
+            "unit": "m"
+          }
+        },
+        "FACILITY_CODE": {
+          "operation": "CONSTANT",
+          "params": {
+            "value": "SA001"
+          }
+        },
+        "MANAGEMENT_AGENCY": {
+          "operation": "CONSTANT",
+          "params": {
+            "value": "MNG002"
+          }
+        }
+      },
+      "qc_rules": {},
+      "created_at": "2026-11-04T00:00:00+00:00",
+      "updated_at": "2026-11-04T00:00:00+00:00"
+    }
+  }
+}

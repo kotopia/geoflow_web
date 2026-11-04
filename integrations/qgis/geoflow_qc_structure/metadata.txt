@@ -1,0 +1,16 @@
+[general]
+name=GeoFlow QC & Structure
+version=0.1.0
+qgisMinimumVersion=4.2
+qgisMaximumVersion=4.99
+description=Local quality checks and profile-based structure preview for GIS layers.
+about=Validate selected layers and build separate temporary delivery layers without modifying source data.
+author=GeoFlow
+email=iroom0@naver.com
+category=Vector
+experimental=True
+deprecated=False
+homepage=https://geoflow.co.kr
+repository=https://github.com/kotopia/geoflow_web
+tracker=https://github.com/kotopia/geoflow_web/issues
+changelog=0.1.0: Local QC, profile inheritance, preview and memory output.
