@@ -56,9 +56,10 @@
       "description": "Local pilot baseline",
       "field_rules": {
         "PIPE_LENGTH": {
-          "operation": "COPY",
+          "operation": "LENGTH",
           "params": {
-            "source_field": "pip_len"
+            "crs": "EPSG:5186",
+            "unit": "m"
           }
         }
       },
@@ -80,13 +81,6 @@
             ]
           },
           "phase": "BOTH"
-        },
-        "length_type": {
-          "type": "TYPE_CHECK",
-          "field": "pip_len",
-          "params": {
-            "data_type": "NUMERIC"
-          }
         }
       },
       "created_at": "2026-11-04T00:00:00+00:00",
@@ -100,12 +94,13 @@
       "layer_id": "WTL_PIPE_LM",
       "revision": 1,
       "base_profile_id": "BASE_WATER_PIPE",
-      "description": "제공 SQL 중 BYC_LEN, FTR_CDE, MNG_CDE만 비교. 납품 전체 규격 아님.",
+      "description": "필드별 원본 복사·도형 계산·고정값 설정용 상수관로 Pilot. 길이는 EPSG:5186 평면 길이(m), 작업 좌표계 확인 필요.",
       "field_rules": {
         "PIPE_LENGTH": {
-          "operation": "COPY",
+          "operation": "LENGTH",
           "params": {
-            "source_field": "pip_len"
+            "crs": "EPSG:5186",
+            "unit": "m"
           },
           "target": "BYC_LEN",
           "field": {
