@@ -1,5 +1,6 @@
 """Preview and output planning: no writes to input layers."""
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import date, datetime
 from .catalog import validate_field
 from .qc import run_qc, blocked
 
@@ -62,6 +63,11 @@ def preview(layer, rows, profile, fields, spatial):
                 new = operation(name, rule.get("params", {}), attrs, geom, spatial, target)
                 if new is None and "default_value" in field:
                     new = field["default_value"]
+                if name == "CONSTANT" and isinstance(new, str):
+                    if field["data_type"] == "DATE":
+                        new = date.fromisoformat(new)
+                    if field["data_type"] in {"DATETIME", "TIMESTAMP"}:
+                        new = datetime.fromisoformat(new)
                 if new is not None and field["data_type"] in {"NUMERIC", "DECIMAL"}:
                     new = Decimal(str(new)).quantize(Decimal(1).scaleb(-field["scale"]), rounding=ROUND_HALF_UP)
                 status = "UNCHANGED" if old == new else "READY"
@@ -94,3 +100,4 @@ def post_qc(layer, rows, profile, fields, spatial):
         for check, params in checks:
             rules[f"output:{target}:{check}"] = dict(type=check, field=target, params=params, phase="POST")
     return run_qc(layer, rows, rules, spatial, "POST")
+
