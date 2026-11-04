@@ -8,7 +8,7 @@ import traceback
 faulthandler.enable()
 print("QC smoke: Python startup script reached", flush=True)
 
-from qgis.core import QgsApplication
+from qgis.core import QgsApplication, QgsProject
 from qgis.PyQt.QtCore import QSettings, QTimer
 from qgis import utils
 
@@ -43,6 +43,8 @@ def smoke():
     except Exception:
         result.write_text(traceback.format_exc(), encoding="utf-8")
     finally:
+        # The disposable fixture changes the project dirty flag even after layer cleanup.
+        QgsProject.instance().setDirty(False)
         QgsApplication.quit()
 
 
