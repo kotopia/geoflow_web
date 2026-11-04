@@ -17,7 +17,7 @@ QGIS_REPOSITORY_FILE_NAME = f"{PACKAGE_DIR}.zip"
 QC_PACKAGE = "geoflow_qc_structure"
 PLUGIN_NAMES = {PACKAGE_DIR: "GeoFlow Connector", QC_PACKAGE: "GeoFlow QC & Structure"}
 QC_FILES = {"__init__.py", "metadata.txt", "catalog.py", "qc.py", "structure.py",
-            "spatial.py", "ui.py", "ui_values.py", "resources/catalog.json"}
+            "spatial.py", "ui.py", "ui_values.py", "field_editor.py", "resources/catalog.json"}
 VERSION_RE = re.compile(r"\A[0-9]+\.[0-9]+\.[0-9]+\Z")
 EXCLUDED_NAMES = {"__pycache__", ".DS_Store", ".git", ".github", ".vscode", ".pytest_cache",
                   "tests", "test_artifacts", "release", "scripts", "docs", "logs"}
