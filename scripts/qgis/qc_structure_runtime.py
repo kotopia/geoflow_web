@@ -12,10 +12,10 @@ assert Path(QgsApplication.qgisSettingsDirPath()).name.startswith("qc_structure_
 assert "geoflow_connector" in plugins and "geoflow_qc_structure" in plugins
 plugin = plugins["geoflow_qc_structure"]
 project = QgsProject.instance()
-layer = QgsVectorLayer("LineString?crs=EPSG:5186&field=pip_len:double", "QC pilot fixture", "memory")
+layer = QgsVectorLayer("LineString?crs=EPSG:5186&field=ftr_cde:string", "QC pilot fixture", "memory")
 ref = QgsVectorLayer("Point?crs=EPSG:5186&field=ref:string", "QC reference fixture", "memory")
 layers = [layer, ref]
-for lyr, wkt, value in [(layer, "LINESTRING (200000 500000, 200010 500000)", 12.34),
+for lyr, wkt, value in [(layer, "LINESTRING (200000 500000, 200010 500000)", "SA203"),
                         (ref, "POINT (200000 500000)", "START"),
                         (ref, "POINT (200010 500000)", "END")]:
     feature = QgsFeature(lyr.fields())
@@ -40,6 +40,18 @@ try:
     assert spatial.lookup(geom,params,"END_REFERENCE") == "END"
     assert spatial.measure(geom,dict(crs="EPSG:5186",unit="m"),"LENGTH") == 10
     assert spatial.measure(geom,dict(crs="EPSG:5186"),"ANGLE") == 0
+    from geoflow_qc_structure.field_editor import FieldEditor
+    resolved = window.current_profile()
+    field_rule = resolved['field_rules']['PIPE_LENGTH']
+    field = dict(field_rule['field'])
+    dialog = FieldEditor(window, 'PIPE_LENGTH', field_rule, field, layer.fields().names(), window.provider.get_operations())
+    dialog.target.setText('pip_len')
+    dialog.size.setValue(5)
+    dialog.scale.setValue(1)
+    dialog.submit()
+    assert dialog.result_rule['field']['precision'] == 5
+    assert dialog.result_rule['field']['scale'] == 1
+    assert dialog.result_rule['operation'] == 'LENGTH'
     window.scan()
     assert not window.findings
     window.prepare()
@@ -51,7 +63,7 @@ try:
     result = project.mapLayer(added.pop())
     layers.append(result)
     output = next(result.getFeatures())
-    assert output["BYC_LEN"] == 12.34 and output["ftr_cde"] == "SA001" and output["mng_cde"] == "MNG002"
+    assert output["BYC_LEN"] == 10.0 and output["ftr_cde"] == "SA001" and output["mng_cde"] == "MNG002"
     assert before == {f.id():(list(f.attributes()), bytes(f.geometry().asWkb())) for f in layer.getFeatures()}
     print("PASS: both plugins enabled; spatial lookup, QC, preview, memory output, source preservation")
 finally:

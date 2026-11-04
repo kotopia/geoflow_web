@@ -1,12 +1,13 @@
 """Independent modeless workspace; output is staged and never committed to source."""
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QAction
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox,
-    QPlainTextEdit, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
+    QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 from qgis.core import QgsApplication, QgsFeature, QgsProject, QgsRectangle, QgsVectorLayer, QgsWkbTypes
@@ -14,6 +15,7 @@ from .catalog import LocalCatalogProvider
 from .qc import blocked, run_qc
 from .spatial import Spatial
 from .structure import plan, post_qc, preview
+from .field_editor import FieldEditor, METHODS
 from .ui_values import output_value, qgis_field, scalar
 
 TITLE = "GeoFlow QC & Structure"
@@ -92,12 +94,10 @@ class Workspace(QDialog):
         qc.addWidget(self.qc_table)
         self.qc_table.cellDoubleClicked.connect(lambda *_: self.zoom_finding())
         editor = self.tab("구조화 Profile")
-        self.profile_table = table(["기준 의미","기준필드","출력필드","자료형","방법","설정","Override"])
+        self.profile_table = table(["기준 의미", "기준필드", "출력필드", "자료형", "방법", "설정", "Override", "필드 설정"])
         editor.addWidget(self.profile_table)
-        self.profile_text = QPlainTextEdit()
-        self.profile_text.setPlaceholderText("Profile JSON 설정 · SQL/Python 실행 없음")
-        editor.addWidget(self.profile_text)
-        self.buttons(editor,[("Profile 새 리비전 저장", self.save_profile)])
+        editor.addWidget(QLabel("각 행 오른쪽의 설정에서 출력 필드와 값 생성 방법을 지정하세요. 변경 후 Preview에 바로 적용됩니다."))
+        self.buttons(editor, [("출력 필드 추가", self.add_field), ("Profile 새 리비전 저장", self.save_profile)])
         execute = self.tab("구조화 실행")
         self.preview_table = table(["객체","필드","현재값","새 값","Operation","Rule","상태"])
         self.buttons(execute,[("Preview",self.prepare),("임시 레이어 생성",self.execute)])
@@ -160,21 +160,73 @@ class Workspace(QDialog):
         key = self.profiles.currentData()
         if key is None:
             return
-        raw = self.provider.profiles()[key]
-        resolved = self.provider.resolve(key)
-        fields = self.provider.get_fields()
+        self.raw_profile = deepcopy(self.provider.profiles()[key])
+        self.refresh_profile_table()
+        self.settings.setValue("geoflow_qc_structure/profile", key)
+
+    def current_profile(self):
+        profiles = self.provider.profiles()
+        profiles[self.raw_profile["id"]] = self.raw_profile
+        return self.provider.resolve(self.raw_profile["id"], profiles)
+
+    def refresh_profile_table(self):
+        resolved = self.current_profile()
+        catalog = self.provider.get_fields()
+        entries = plan(resolved, catalog)
         fill(self.profile_table, [
-            (f.get("display_name",k), fields.get(k,f)["physical_name"], f["physical_name"],
-             f["data_type"], rule["operation"], json.dumps(rule.get("params",{}),ensure_ascii=False),
-             "●" if raw.get("base_profile_id") and k in raw.get("field_rules",{}) else "")
-            for k, rule, f in plan(resolved, fields)
+            (field.get("display_name", key), catalog.get(key, field)["physical_name"],
+             field["physical_name"], self.field_type(field), METHODS.get(rule["operation"], rule["operation"]),
+             json.dumps(rule.get("params", {}), ensure_ascii=False),
+             "●" if self.raw_profile.get("base_profile_id") and key in self.raw_profile.get("field_rules", {}) else "", "")
+            for key, rule, field in entries
         ])
-        self.profile_text.setPlainText(json.dumps({k:v for k,v in raw.items() if k != "snapshot"},ensure_ascii=False,indent=2))
-        self.settings.setValue("geoflow_qc_structure/profile",key)
+        for row, (key, rule, field) in enumerate(entries):
+            button = QPushButton("설정…")
+            button.clicked.connect(lambda checked=False, key=key: self.call(lambda: self.edit_field(key)))
+            self.profile_table.setCellWidget(row, 7, button)
+        self.profile_table.resizeColumnsToContents()
+
+    @staticmethod
+    def field_type(field):
+        kind = field["data_type"]
+        if kind in {"NUMERIC", "DECIMAL"}:
+            return f'{kind}({field["precision"]},{field["scale"]})'
+        if kind in {"CHAR", "VARCHAR"}:
+            return f'{kind}({field["length"]})'
+        return kind
+
+    def add_field(self):
+        self.edit_field(None)
+
+    def edit_field(self, key):
+        profile = self.current_profile()
+        catalog = self.provider.get_fields()
+        if key is None:
+            rule = {"operation": "CONSTANT", "params": {"value": ""}}
+            field = {"data_type": "VARCHAR", "length": 50, "nullable": True}
+        else:
+            rule = profile["field_rules"][key]
+            field = next(field for candidate, _, field in plan(profile, catalog) if candidate == key)
+        layer = self.project.mapLayer(self.layers.currentData() or "")
+        names = layer.fields().names() if isinstance(layer, QgsVectorLayer) else []
+        dialog = FieldEditor(self, key or "", rule, field, names, self.provider.get_operations())
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        result_key = dialog.result_key
+        if key is None and result_key in profile["field_rules"]:
+            raise ValueError("이미 정의된 기준 의미 ID입니다.")
+        proposed = deepcopy(self.raw_profile)
+        proposed.setdefault("field_rules", {})[result_key] = dialog.result_rule
+        profiles = self.provider.profiles()
+        profiles[proposed["id"]] = proposed
+        plan(self.provider.resolve(proposed["id"], profiles), catalog)
+        self.raw_profile = proposed
+        self.invalidate()
+        self.refresh_profile_table()
+        self.status.setText("필드 설정 변경 · Preview에 적용됨 · 보관하려면 새 리비전 저장")
 
     def save_profile(self):
-        raw = json.loads(self.profile_text.toPlainText())
-        saved = self.provider.save(raw)
+        saved = self.provider.save(self.raw_profile)
         self.reload_profiles(saved["id"])
         self.status.setText(f'Profile r{saved["revision"]} 저장')
 
@@ -182,7 +234,7 @@ class Workspace(QDialog):
         layer = self.project.mapLayer(self.layers.currentData() or "")
         if not isinstance(layer, QgsVectorLayer) or not layer.isValid():
             raise ValueError("입력 레이어를 선택하세요.")
-        profile = self.provider.resolve(self.profiles.currentData())
+        profile = self.current_profile()
         names = layer.fields().names()
         rows = [(f.id(),dict(zip(names,map(scalar,f.attributes()))),f.geometry()) for f in layer.getFeatures()]
         if not rows:
@@ -300,3 +352,4 @@ class Workspace(QDialog):
         target.updateExtents()
         self.project.addMapLayer(target)
         self.status.setText(f"임시 출력 {len(features)}개 · Post-QC {len(stored_findings)}건 · 원본 변경 없음")
+
