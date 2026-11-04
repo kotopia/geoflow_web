@@ -395,11 +395,15 @@ jobs:
           $env:GEOFLOW_QGIS_QC_FIXTURE = (Resolve-Path 'scripts/qgis/qc_structure_runtime.py').Path
           $env:GEOFLOW_QGIS_QC_RESULT = Join-Path $scratch 'result'
           $code = (Resolve-Path 'scripts/qgis/qc_structure_bootstrap.py').Path
+          $env:QT_QPA_PLATFORM = 'offscreen'
           foreach ($phase in @('initial','restart')) {
             $env:GEOFLOW_QGIS_QC_PHASE = $phase
             Remove-Item $env:GEOFLOW_QGIS_QC_RESULT -ErrorAction SilentlyContinue
             $launcher = Join-Path $scratch 'osgeo/bin/qgis.bat'
-            $process = Start-Process $launcher -PassThru -ArgumentList @(
+            $stdout = Join-Path $scratch "$phase.stdout.log"
+            $stderr = Join-Path $scratch "$phase.stderr.log"
+            $process = Start-Process $env:ComSpec -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr -ArgumentList @(
+              '/d','/c','call',"`"$launcher`"",
               '--nologo','--noversioncheck','--profiles-path',"`"$profiles`"",
               '--profile','qc_structure_test','--code',"`"$code`""
             )
@@ -409,6 +413,8 @@ jobs:
             $result = Get-Content $env:GEOFLOW_QGIS_QC_RESULT -Raw -ErrorAction SilentlyContinue
             if ($result -ne "PASS $phase") {
               Get-Process 'qgis-bin' -ErrorAction SilentlyContinue | Stop-Process
+              Get-Content $stdout,$stderr -ErrorAction SilentlyContinue
+              if ($process.HasExited) { Write-Output "QGIS launcher exit code: $($process.ExitCode)" }
               throw "QGIS test did not pass ($phase): $result"
             }
             Write-Output $result
