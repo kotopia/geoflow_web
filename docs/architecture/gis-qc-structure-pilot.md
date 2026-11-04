@@ -98,3 +98,10 @@ The QC pilot PR runs the isolated memory fixture in the pinned OSGeo4W QGIS 4.2.
 Windows application, checking both plugins at initial launch, unload/reload,
 and a second launch with enablement persisted. This does not exercise an
 authenticated project or the live Plugin Manager repository.
+
+Deployment troubleshooting: run 41780898200 stopped before code checkout or
+service restart because the diff from deployed SHA 9483501 included the two
+already-reviewed policy closeout documents, docs/contracts/contract-list.md
+and docs/planning/GeoFlow_Product_Structure_v1.md. The GIS deploy scope permits
+these exact documentation paths. Runtime files outside the GIS contract
+remain rejected. Retry the current reviewed release, then publish TEST.
