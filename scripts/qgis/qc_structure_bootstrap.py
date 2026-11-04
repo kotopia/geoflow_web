@@ -1,8 +1,12 @@
 """CI-only QGIS application entry point for the isolated two-launch test."""
+import faulthandler
 import os
 from pathlib import Path
 import runpy
 import traceback
+
+faulthandler.enable()
+print("QC smoke: Python startup script reached", flush=True)
 
 from qgis.core import QgsApplication
 from qgis.PyQt.QtCore import QSettings, QTimer
@@ -15,13 +19,16 @@ def smoke():
     packages = ("geoflow_connector", "geoflow_qc_structure")
     try:
         assert Path(QgsApplication.qgisSettingsDirPath()).name == "qc_structure_test"
+        print(f"QC smoke: profile confirmed; phase={phase}", flush=True)
         if phase == "initial":
             utils.updateAvailablePlugins()
             for package in packages:
                 if package not in utils.plugins:
+                    print(f"QC smoke: loading {package}", flush=True)
                     assert utils.loadPlugin(package), package
                     assert utils.startPlugin(package), package
         assert all(package in utils.plugins for package in packages), utils.active_plugins
+        print("QC smoke: both plugins enabled; checking fixtures", flush=True)
         runpy.run_path(os.environ["GEOFLOW_QGIS_QC_FIXTURE"])
         settings = QSettings()
         if phase == "initial":
