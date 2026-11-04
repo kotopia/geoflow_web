@@ -333,71 +333,66 @@ jobs:
 
   qc-structure-qgis-4-2-2:
     if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'codex/qc-structure')
-    runs-on: macos-15
-    timeout-minutes: 25
+    runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Run both plugins with the official QGIS 4.2.2 application
-        shell: bash
+      - name: Install pinned QGIS from OSGeo4W
+        shell: pwsh
         run: |
-          set -euo pipefail
-          scratch="$RUNNER_TEMP/geoflow-qgis-runtime"
-          mkdir -p "$scratch/mount" "$scratch/profiles" "$scratch/plugins"
-          curl --fail --location --retry 2 --max-time 600 \
-            https://github.com/qgis/QGIS/releases/download/final-4_2_2/QGIS-final-4_2_2.dmg \
-            --output "$scratch/qgis.dmg"
-          echo "91b80ccd4d1a141615435223983b0b718c5e2c5283afc73f3780ad302f435951  $scratch/qgis.dmg" | shasum -a 256 -c -
-          hdiutil attach "$scratch/qgis.dmg" -readonly -nobrowse -mountpoint "$scratch/mount"
-          trap 'hdiutil detach "$scratch/mount"' EXIT
-          app="$(find "$scratch/mount" -maxdepth 2 -type d -name '*.app' -print -quit)"
-          test -n "$app"
-          ditto "$app" "$scratch/QGIS.app"
-          hdiutil detach "$scratch/mount"
-          trap - EXIT
-          app="$scratch/QGIS.app"
-          executable="$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")"
-          qgis="$app/Contents/MacOS/$executable"
-          test -x "$qgis"
-          file "$qgis"
-          export PYTHONFAULTHANDLER=1
-          export QT_QPA_PLATFORM=offscreen
-          for plugin in geoflow_connector geoflow_qc_structure; do
-            python3 scripts/qgis/build_plugin_repository.py \
-              --source "integrations/qgis/$plugin" --output "$scratch/$plugin"
-            unzip -q "$scratch/$plugin/releases/"*.zip -d "$scratch/plugins"
-          done
-          export QGIS_PLUGINPATH="$scratch/plugins"
-          export GEOFLOW_QGIS_QC_FIXTURE="$PWD/scripts/qgis/qc_structure_runtime.py"
-          export GEOFLOW_QGIS_QC_RESULT="$scratch/result"
-          for phase in initial restart; do
-            export GEOFLOW_QGIS_QC_PHASE="$phase"
-            rm -f "$GEOFLOW_QGIS_QC_RESULT"
-            "$qgis" --nologo --noversioncheck --profiles-path "$scratch/profiles" \
-              --profile qc_structure_test --code "$PWD/scripts/qgis/qc_structure_bootstrap.py" \
-              > "$scratch/$phase.log" 2>&1 &
-            pid=$!
-            for ((i=0; i<120; i++)); do
-              test ! -s "$GEOFLOW_QGIS_QC_RESULT" || break
-              kill -0 "$pid" 2>/dev/null || break
-              sleep 1
-            done
-            if [ "$(cat "$GEOFLOW_QGIS_QC_RESULT" 2>/dev/null || true)" != "PASS $phase" ]; then
-              kill "$pid" 2>/dev/null || true
-              cat "$scratch/$phase.log"
-              sleep 2
-              find "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports -iname '*qgis*.ips' \
-                -exec head -c 20000 {} \; 2>/dev/null || true
-              cat "$GEOFLOW_QGIS_QC_RESULT" 2>/dev/null || true
-              exit 1
-            fi
-            for ((i=0; i<15; i++)); do
-              kill -0 "$pid" 2>/dev/null || break
-              sleep 1
-            done
-            if kill -0 "$pid" 2>/dev/null; then
-              kill "$pid" 2>/dev/null || true
-              exit 1
-            fi
-            wait "$pid"
-            cat "$GEOFLOW_QGIS_QC_RESULT"
-          done
+          $scratch = Join-Path $env:RUNNER_TEMP 'geoflow-qgis-runtime'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $installer = Join-Path $scratch 'osgeo4w-setup.exe'
+          curl.exe --fail --location --retry 3 --max-time 120 https://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe --output $installer
+          if ($LASTEXITCODE -ne 0) { throw 'OSGeo4W download failed' }
+          $osgeo = Join-Path $scratch 'osgeo'
+          $cache = Join-Path $scratch 'cache'
+          $install = Start-Process -Wait -PassThru $installer -ArgumentList @(
+            '--quiet-mode','--advanced','--autoaccept','--no-desktop','--no-startmenu','--no-shortcuts',
+            '--root',"`"$osgeo`"",'--local-package-dir',"`"$cache`"",'--site',
+            'https://download.osgeo.org/osgeo4w/v2/','--only-site',
+            '--packages','qgis=4.2.2-1,qgis-common=4.2.2-1'
+          )
+          if ($install.ExitCode -ne 0 -or !(Test-Path "$osgeo/bin/qgis.bat")) {
+            if (Test-Path "$osgeo/var/log/setup.log") { Get-Content "$osgeo/var/log/setup.log" -Tail 60 }
+            throw "QGIS installation failed: $($install.ExitCode)"
+          }
+      - name: Validate both ZIPs with QGIS 4.2.2 and restart
+        shell: pwsh
+        run: |
+          $scratch = Join-Path $env:RUNNER_TEMP 'geoflow-qgis-runtime'
+          $plugins = Join-Path $scratch 'plugins'
+          $profiles = Join-Path $scratch 'profiles'
+          New-Item -ItemType Directory -Path $plugins,$profiles -Force | Out-Null
+          foreach ($plugin in @('geoflow_connector','geoflow_qc_structure')) {
+            python scripts/qgis/build_plugin_repository.py --source "integrations/qgis/$plugin" --output "$scratch/$plugin"
+            if ($LASTEXITCODE -ne 0) { throw "Build failed: $plugin" }
+            $zip = Get-ChildItem "$scratch/$plugin/releases/*.zip" | Select-Object -First 1
+            Expand-Archive -Path $zip.FullName -DestinationPath $plugins
+          }
+          $env:QGIS_PLUGINPATH = $plugins
+          $env:GEOFLOW_QGIS_QC_FIXTURE = (Resolve-Path 'scripts/qgis/qc_structure_runtime.py').Path
+          $env:GEOFLOW_QGIS_QC_RESULT = Join-Path $scratch 'result'
+          $code = (Resolve-Path 'scripts/qgis/qc_structure_bootstrap.py').Path
+          foreach ($phase in @('initial','restart')) {
+            $env:GEOFLOW_QGIS_QC_PHASE = $phase
+            Remove-Item $env:GEOFLOW_QGIS_QC_RESULT -ErrorAction SilentlyContinue
+            $launcher = Join-Path $scratch 'osgeo/bin/qgis.bat'
+            $process = Start-Process $launcher -PassThru -ArgumentList @(
+              '--nologo','--noversioncheck','--profiles-path',"`"$profiles`"",
+              '--profile','qc_structure_test','--code',"`"$code`""
+            )
+            for ($i=0; $i -lt 120 -and !(Test-Path $env:GEOFLOW_QGIS_QC_RESULT); $i++) {
+              Start-Sleep -Seconds 1
+            }
+            $result = Get-Content $env:GEOFLOW_QGIS_QC_RESULT -Raw -ErrorAction SilentlyContinue
+            if ($result -ne "PASS $phase") {
+              Get-Process 'qgis-bin' -ErrorAction SilentlyContinue | Stop-Process
+              throw "QGIS test did not pass ($phase): $result"
+            }
+            Write-Output $result
+            for ($i=0; $i -lt 20 -and (Get-Process 'qgis-bin' -ErrorAction SilentlyContinue); $i++) {
+              Start-Sleep -Seconds 1
+            }
+            if (Get-Process 'qgis-bin' -ErrorAction SilentlyContinue) { throw 'QGIS did not exit' }
+          }

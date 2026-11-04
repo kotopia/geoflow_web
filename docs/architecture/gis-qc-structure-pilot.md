@@ -85,7 +85,7 @@ Status: implementation and non-QGIS tests prepared; real QGIS 4.2.2 and TEST
 publication must be confirmed separately. Central catalog, tenant Profile DB,
 server QC/executor, persistent QC findings and PostGIS delivery DDL are deferred.
 
-The QC pilot PR runs the isolated memory fixture in the official QGIS 4.2.2
-macOS application, checking both plugins at initial launch, unload/reload,
+The QC pilot PR runs the isolated memory fixture in the pinned OSGeo4W QGIS 4.2.2
+Windows application, checking both plugins at initial launch, unload/reload,
 and a second launch with enablement persisted. This does not exercise an
 authenticated project or the live Plugin Manager repository.
