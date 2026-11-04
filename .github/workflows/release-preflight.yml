@@ -351,9 +351,15 @@ jobs:
           trap 'hdiutil detach "$scratch/mount"' EXIT
           app="$(find "$scratch/mount" -maxdepth 2 -type d -name '*.app' -print -quit)"
           test -n "$app"
+          ditto "$app" "$scratch/QGIS.app"
+          hdiutil detach "$scratch/mount"
+          trap - EXIT
+          app="$scratch/QGIS.app"
           executable="$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")"
           qgis="$app/Contents/MacOS/$executable"
           test -x "$qgis"
+          file "$qgis"
+          export PYTHONFAULTHANDLER=1
           for plugin in geoflow_connector geoflow_qc_structure; do
             python3 scripts/qgis/build_plugin_repository.py \
               --source "integrations/qgis/$plugin" --output "$scratch/$plugin"
@@ -377,6 +383,9 @@ jobs:
             if [ "$(cat "$GEOFLOW_QGIS_QC_RESULT" 2>/dev/null || true)" != "PASS $phase" ]; then
               kill "$pid" 2>/dev/null || true
               cat "$scratch/$phase.log"
+              sleep 2
+              find "$HOME/Library/Logs/DiagnosticReports" -iname '*qgis*.ips' \
+                -exec head -c 20000 {} \; 2>/dev/null || true
               cat "$GEOFLOW_QGIS_QC_RESULT" 2>/dev/null || true
               exit 1
             fi
