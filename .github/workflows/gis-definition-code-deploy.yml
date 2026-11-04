@@ -1,6 +1,7 @@
 name: GIS central definition deploy
 
 on:
+  workflow_dispatch:
   push:
     branches: [release/stabilized-deploy]
     paths:
