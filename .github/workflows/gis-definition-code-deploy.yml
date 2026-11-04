@@ -1,0 +1,602 @@
+name: GIS central definition deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/stabilized-deploy]
+    paths:
+      - control/views_gis_admin.py
+      - control/views_gis_photo.py
+      - control/services/gis_admin.py
+      - control/services/gis_catalog_navigation.py
+      - control/services/gis_definitions.py
+      - control/services/gis_photo_policy.py
+      - control/services/gis_schema_manager.py
+      - control/services/gis_schema_execution.py
+      - control/test_gis_schema_manager.py
+      - geoflow_ops/gis/test_definition_visibility.py
+      - docs/architecture/gis-definition-admin-v2-20260922.md
+      - control/services/gis_definition_transition.py
+      - control/management/commands/deploy_gis_central_definitions.py
+      - control/management/commands/deploy_gis_photo_phase1.py
+      - control/management/commands/deploy_gis_photo_phase3.py
+      - control/management/commands/deploy_gis_photo_phase4.py
+      - control/management/commands/deploy_gis_photo_catalog_v2.py
+      - control/management/commands/smoke_gis_definition_admin.py
+      - control/management/commands/inspect_gis_definition_rows.py
+      - control/management/commands/smoke_gis_definition_admin_write.py
+      - control/management/commands/smoke_gis_photo_catalog.py
+      - control/management/commands/diagnose_gis_photo_runtime.py
+      - control/management/commands/repair_gis_definition_layouts.py
+      - control/management/commands/cleanup_gis_standard_fields.py
+      - control/management/commands/repair_qgis_flow_dip.py
+      - scripts/ops/inventory_gis_standard_cleanup.py
+      - scripts/ops/inventory_gis_photo_catalog_v2.py
+      - .github/workflows/gis-standard-cleanup-inventory.yml
+      - .github/workflows/gis-photo-catalog-v2-inventory.yml
+      - control/templates/control/gis/**
+      - control/test_gis_admin_navigation.py
+      - geoflow_ops/gis/form_definitions.py
+      - geoflow_ops/gis/form_definition_views.py
+      - geoflow_ops/gis/central_definitions.py
+      - geoflow_ops/gis/photo_policy_views.py
+      - geoflow_ops/gis/feature_photo_views.py
+      - geoflow_ops/gis/photo_edit_data.py
+      - geoflow_ops/gis/changeset.py
+      - geoflow_ops/gis/layer_plan.py
+      - geoflow_ops/gis/gpkg.py
+      - geoflow_ops/gis/gpkg_snapshot_v2.py
+      - geoflow_ops/gis/gpkg_snapshot_file.py
+      - geoflow_ops/gis/qgis_sync.py
+      - geoflow_ops/gis/qgis_sync_v2.py
+      - geoflow_ops/gis/test_qgis_sync.py
+      - geoflow_ops/gis/qgis_manifest.py
+      - geoflow_ops/gis/qgis_views.py
+      - geoflow_ops/gis/qgis_plugin_repository_views.py
+      - scripts/ops/publish_qgis_plugin_repository.py
+      - docs/operations/qgis-plugin-stable-release.json
+      - control/management/commands/deploy_gis_reference_groups.py
+      - control/migrations/0009_gis_reference_code_groups.py
+      - geoflow_ops/migrations/0048_gis_project_reference_groups.py
+      - geoflow_ops/gis/reference_groups.py
+      - geoflow_ops/gis/qgis_plugin_repository.py
+      - geoflow_ops/gis/test_qgis_plugin_repository.py
+      - geoflow_ops/gis/test_feature_photo_edit_contract.py
+      - geoflow_ops/gis/test_feature_photo_metadata_contract.py
+      - geoflow_ops/gis/test_feature_photo_database_boundary.py
+      - geoflow_ops/gis/test_feature_photo_runtime_diagnostic.py
+      - geoflow_ops/gis/test_photo_edit_data.py
+      - geoflow_ops/gis/qfield_package.py
+      - geoflow_ops/gis/qfield_device_views.py
+      - geoflow_ops/gis/qfield_persistent.py
+      - geoflow_ops/gis/server_snapshot_cache.py
+      - geoflow_ops/gis/survey_sources.py
+      - geoflow_ops/gis/survey_views.py
+      - geoflow_ops/gis/test_survey_lineage.py
+      - geoflow_ops/gis/registry.py
+      - integrations/qgis/geoflow_connector/plugin.py
+      - integrations/qgis/geoflow_connector/snapshot_cache.py
+      - integrations/qgis/geoflow_connector/snapshot_reuse.py
+      - integrations/qgis/geoflow_connector/test_snapshot_cache.py
+      - scripts/ops/inspect_gis_form_definition.py
+      - docs/architecture/gis-central-definitions.sql
+      - docs/architecture/gis-photo-policy-central.sql
+      - docs/architecture/gis-photo-policy-central-v2.sql
+      - docs/architecture/gis-photo-policy-v2.md
+      - docs/architecture/gis-photo-policy-phase1.md
+      - docs/architecture/gis-photo-image-metadata-v1.md
+      - geoflow_ops/migrations/0039_gis_feature_photo.py
+      - geoflow_ops/migrations/0040_merge_bid_photo_branches.py
+      - geoflow_ops/migrations/0041_gis_feature_photo_edited_representation.py
+      - geoflow_ops/migrations/0042_gis_feature_photo_image_metadata.py
+      - geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py
+      - geoflow_ops/migrations/0044_gis_survey_lineage.py
+      - geoflow_ops/migrations/0045_gis_survey_soft_delete.py
+      - geoflow_ops/migrations/0046_gis_survey_final_fields.py
+      - geoflow_ops/migrations/0047_remove_survey_targets.py
+      - control/management/commands/deploy_gis_survey_target_removal.py
+      - geoflow_ops/gis/survey_final.py
+      - geoflow_ops/gis/survey_backfill.py
+      - control/management/commands/deploy_gis_survey_final_fields.py
+      - control/management/commands/deploy_gis_survey_lineage.py
+      - control/management/commands/smoke_gis_survey_facility_delete.py
+      - docs/architecture/gis-survey-lineage-contract-v1.md
+      - docs/gis-survey-lineage-contract-v1.md
+      - docs/architecture/gis-data-model.md
+      - scripts/ops/diagnose_gis_photo_api_503.py
+      - .github/workflows/gis-photo-api-503-diagnostic.yml
+      - geoflow_ops/templates/geoflow_ops/gis/form_configuration.html
+      - .github/workflows/gis-definition-code-deploy.yml
+      - .github/workflows/gis-survey-source-delete-policy-apply.yml
+      - scripts/ops/apply_gis_survey_source_delete_policy.py
+
+concurrency:
+  group: geoflow-gis-production-code
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  classify-release:
+    if: github.ref_name == 'release/stabilized-deploy'
+    runs-on: ubuntu-latest
+    outputs:
+      server_deploy: ${{ steps.scope.outputs.server_deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - id: scope
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python3 scripts/ci/gis_deploy_scope.py --event "$GITHUB_EVENT_NAME" \
+            --before "$BEFORE_SHA" --after "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  deploy-current-release:
+    needs: classify-release
+    if: github.ref_name == 'release/stabilized-deploy' && needs.classify-release.outputs.server_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    env:
+      APPROVED_SHA: ${{ github.sha }}
+      SSH_HOST: ${{ secrets.GEOFLOW_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.GEOFLOW_DEPLOY_USER }}
+      SSH_KEY: ${{ secrets.GEOFLOW_DEPLOY_SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.GEOFLOW_DEPLOY_KNOWN_HOSTS }}
+      SSH_PORT: "22"
+      VWORLD_API_KEY: ${{ secrets.VWORLD_API_KEY }}
+
+    steps:
+      - name: Checkout exact reviewed release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate release and deployment inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPROVED_SHA" | grep -Eq '^[0-9a-f]{40}$'
+          test "$APPROVED_SHA" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = 'release/stabilized-deploy'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags --depth=1 origin release/stabilized-deploy
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || {
+            echo 'production_release_deploy_blocker=release_advanced'
+            exit 2
+          }
+          test -n "$VWORLD_API_KEY" || { echo "VWorld API key secret is required"; exit 2; }
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s' "$SSH_PORT" | grep -Eq '^[0-9]{1,5}$'
+
+      - name: Configure strict SSH trust
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/geoflow_deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/geoflow_deploy_key" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/geoflow_deploy_key" >/dev/null
+
+      - name: Deploy central GIS definitions with guarded schema transition
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/geoflow_deploy_key" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            "$SSH_USER@$SSH_HOST" "bash -s -- '$GITHUB_SHA'" < <(printf 'export VWORLD_API_KEY=%q\n' "$VWORLD_API_KEY"; cat <<'REMOTE'
+          set -euo pipefail
+
+          candidate_sha="$1"
+          service='geoflow-stabilized.service'
+          expected_branch='release/stabilized-deploy'
+
+          fail() {
+            echo "production_release_deploy_blocker=$1"
+            exit 2
+          }
+
+          for cmd in git systemctl curl sudo; do command -v "$cmd" >/dev/null 2>&1 || fail "${cmd}_missing"; done
+          sudo -n true >/dev/null 2>&1 || fail 'passwordless_sudo_required'
+
+          active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+          sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+          [ "$active" = active ] && [ "$sub" = running ] || fail 'service_not_running_before_deploy'
+
+          workdir="$(systemctl show "$service" -p WorkingDirectory --value 2>/dev/null || true)"
+          [ -n "$workdir" ] && [ -d "$workdir" ] || fail 'service_working_directory_missing'
+          repo="$(git -C "$workdir" rev-parse --show-toplevel 2>/dev/null || true)"
+          [ -n "$repo" ] && [ -d "$repo/.git" ] || fail 'service_repo_missing'
+          [ -f "$repo/manage.py" ] || fail 'manage_py_missing'
+          [ -f "$repo/requirements.txt" ] || fail 'requirements_missing'
+          [ -f "$repo/.env" ] || fail 'runtime_dotenv_missing'
+
+          origin="$(git -C "$repo" remote get-url origin 2>/dev/null || true)"
+          case "$origin" in
+            https://github.com/kotopia/geoflow_web|https://github.com/kotopia/geoflow_web.git|git@github.com:kotopia/geoflow_web.git) ;;
+            *) fail 'unexpected_repository_origin' ;;
+          esac
+
+          dirty_count="$(git -C "$repo" status --porcelain | wc -l | tr -d ' ')"
+          [ "$dirty_count" = 0 ] || fail 'production_worktree_dirty'
+
+          python="$repo/.venv/bin/python"
+          [ -x "$python" ] || fail 'venv_python_missing'
+          [ -x "$repo/.venv/bin/gunicorn" ] || fail 'gunicorn_missing'
+
+          before_code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 http://127.0.0.1:8011/login/ || true)"
+          case "$before_code" in 2??|3??) ;; *) fail 'local_login_unhealthy_before_deploy' ;; esac
+
+          previous_sha="$(git -C "$repo" rev-parse HEAD)"
+          previous_branch="$(git -C "$repo" symbolic-ref --short -q HEAD || true)"
+          [ "$previous_branch" = "$expected_branch" ] || fail 'unexpected_production_branch'
+          echo "production_release_previous_sha=$previous_sha"
+          echo "production_release_candidate_sha=$candidate_sha"
+
+          rollback_needed=0
+          schema_committed=0
+          rollback_code() {
+            set +e
+            if [ "$rollback_needed" -eq 1 ]; then
+              if [ "$schema_committed" -eq 1 ]; then
+                echo 'production_release_code_rollback_blocked=central_schema_committed'
+                sudo -n systemctl restart "$service" || true
+                if systemctl is-active --quiet "$service"; then
+                  echo 'production_release_service_recovered_after_schema_failure=yes'
+                else
+                  echo 'production_release_service_recovery_failed_after_schema_failure=yes'
+                fi
+                echo 'production_release_requires_operator=yes'
+                return
+              fi
+              echo 'production_release_code_rollback_started=yes'
+              if [ -n "$previous_branch" ]; then
+                git -C "$repo" checkout -B "$previous_branch" "$previous_sha" >/dev/null 2>&1
+              else
+                git -C "$repo" checkout --detach "$previous_sha" >/dev/null 2>&1
+              fi
+              sudo -n systemctl restart "$service"
+              if [ "$(git -C "$repo" rev-parse HEAD)" = "$previous_sha" ] && systemctl is-active --quiet "$service"; then
+                echo 'production_release_code_rollback_service_active=yes'
+              else
+                echo 'production_release_code_rollback_requires_operator=yes'
+              fi
+            fi
+          }
+          on_exit() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then rollback_code; fi
+            exit "$rc"
+          }
+          trap on_exit EXIT
+
+          git -C "$repo" fetch --prune origin refs/heads/release/stabilized-deploy
+          fetched_sha="$(git -C "$repo" rev-parse FETCH_HEAD)"
+          [ "$fetched_sha" = "$candidate_sha" ] || fail 'candidate_not_current_release_head'
+          git -C "$repo" merge-base --is-ancestor "$previous_sha" "$candidate_sha" || fail 'non_forward_release'
+          # Reject unrelated release drift instead of deploying omitted dependencies/migrations.
+          changed_paths="$(git -C "$repo" diff --name-only "$previous_sha" "$candidate_sha")"
+          schema_transition_required=no
+          photo_phase1_required=no
+          photo_phase3_required=no
+          photo_phase4_required=no
+          photo_catalog_v2_required=no
+          standard_cleanup_required=no
+          qgis_flow_dip_repair_required=no
+          survey_lineage_required=no
+          survey_final_required=no
+          survey_target_removal_required=no
+          stable_plugin_required=no
+          reference_groups_required=no
+          while IFS= read -r changed_path; do
+            case "$changed_path" in
+              control/management/commands/deploy_gis_reference_groups.py|control/migrations/0009_gis_reference_code_groups.py|geoflow_ops/migrations/0048_gis_project_reference_groups.py|geoflow_ops/gis/reference_groups.py|geoflow_ops/gis/test_reference_groups.py|docs/architecture/gis-reference-code-groups.md)
+                reference_groups_required=yes; continue ;;
+              docs/operations/qgis-plugin-stable-release.json)
+                stable_plugin_required=yes; continue ;;
+              docs/survey-inspection-release-handoff.md|geoflow_ops/gis/reference_views.py) continue ;;
+              docs/architecture/gis-direction-editing.md|geoflow_ops/gis/test_direction_definition.py|docs/architecture/gis-qc-structure-pilot.md|scripts/ci/gis_deploy_scope.py|scripts/ops/publish_qgis_plugin_repository.py) continue ;;
+              docs/development/qgis-connector-mvp.md|.github/workflows/release-preflight.yml|scripts/qgis/build_plugin_repository.py|scripts/qgis/test_build_plugin_repository.py|geoflow_ops/gis/qgis_plugin_repository_views.py|scripts/qgis/test_stable_repository.py) continue ;;
+            esac
+            # QGIS plugin packages are independently tested and published by
+            # qgis-plugin-test-repository-publish.yml. They never require a
+            # central/tenant database transition in this deployment job.
+            case "$changed_path" in
+              integrations/qgis/geoflow_connector/*|integrations/qgis/geoflow_qc_structure/*|scripts/qgis/*|scripts/ci/run_gis_unit_tests.py|geoflow_ops/gis/test_feature_photo_catalog_v2_contract.py|geoflow_ops/gis/test_feature_photo_database_boundary.py|geoflow_ops/gis/test_feature_photo_runtime_diagnostic.py|scripts/ops/diagnose_gis_photo_api_503.py|.github/workflows/gis-photo-api-503-diagnostic.yml|.github/workflows/qgis-projects-500-diagnostic.yml) continue ;;
+            esac
+            case "$changed_path" in
+              geoflow_ops/migrations/0047_remove_survey_targets.py|control/management/commands/deploy_gis_survey_target_removal.py)
+                survey_target_removal_required=yes; survey_lineage_required=yes; continue ;;
+              AGENTS.md|docs/architecture/gis-schema-foundation.sql|docs/development/gis-dev-demo-seed.sql|scripts/dev/seed_geoflow_dev_gis_demo.ps1|docs/development/gis-dev-db-bootstrap.md|docs/gis/gis-common-foundation-closeout.md|docs/gis/qfield-launcher-validation.md|docs/architecture/gis-sync-architecture-v1.md|geoflow_ops/gis/test_realtime.py|geoflow_ops/gis/test_survey_target_removal.py) continue ;;
+            esac
+            case "$changed_path" in
+              .github/workflows/gis-survey-final-fields-inventory.yml|scripts/ops/inventory_gis_survey_final_fields.py|.github/workflows/gis-survey-final-fields-tests.yml|scripts/ci/test_survey_final_postgis.py) continue ;;
+              geoflow_ops/gis/survey_final.py|geoflow_ops/gis/survey_backfill.py|geoflow_ops/migrations/0046_gis_survey_final_fields.py|control/management/commands/deploy_gis_survey_final_fields.py)
+                survey_final_required=yes
+                continue ;;
+            esac
+            case "$changed_path" in
+              geoflow_ops/gis/survey*.py|geoflow_ops/gis/test_survey*.py|geoflow_ops/gis/survey_sources.py|geoflow_ops/gis/realtime_views.py|geoflow_ops/gis/survey_views.py|geoflow_ops/gis/test_survey_lineage.py|geoflow_ops/migrations/0044_gis_survey_lineage.py|geoflow_ops/migrations/0045_gis_survey_soft_delete.py|control/management/commands/deploy_gis_survey_lineage.py|control/management/commands/smoke_gis_survey_source_upload.py|control/management/commands/smoke_gis_survey_facility_delete.py|docs/architecture/gis-survey-lineage-contract-v1.md|docs/gis-survey-lineage-contract-v1.md)
+                survey_lineage_required=yes
+                continue ;;
+              .github/workflows/gis-survey-source-delete-policy-apply.yml|scripts/ops/apply_gis_survey_source_delete_policy.py)
+                survey_lineage_required=yes
+                continue ;;
+            esac
+            if [ "$changed_path" != 'control/services/gis_catalog_navigation.py' ] && \
+               [ "$changed_path" != 'control/test_gis_admin_navigation.py' ] && \
+               [ "$changed_path" != 'control/management/commands/inspect_gis_definition_rows.py' ] && \
+               [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin.py' ] && \
+               [ "$changed_path" != 'control/management/commands/smoke_gis_definition_admin_write.py' ] && \
+               [ "$changed_path" != 'control/management/commands/smoke_gis_photo_catalog.py' ] && \
+               [ "$changed_path" != 'control/management/commands/diagnose_gis_photo_runtime.py' ] && \
+               [ "$changed_path" != 'control/management/commands/repair_gis_definition_layouts.py' ] && \
+               [ "$changed_path" != 'control/management/commands/smoke_qgis_project_runtime.py' ]; then
+              case "$changed_path" in
+              ''|control/views_gis_admin.py|control/views_gis_photo.py|control/services/gis_admin.py|control/services/gis_photo_policy.py|control/templates/control/gis/definitions.html|control/templates/control/gis/photo_catalog.html|control/urls.py|control/templates/control/partials/sidebar.html|control/test_gis_form_inventory.py|control/test_gis_photo_policy.py|geoflow_ops/gis/form_definitions.py|geoflow_ops/gis/form_definition_views.py|geoflow_ops/gis/photo_policy_views.py|geoflow_ops/gis/feature_photo_views.py|geoflow_ops/gis/photo_edit_data.py|geoflow_ops/gis/urls.py|geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html|geoflow_ops/templates/geoflow_ops/gis/form_configuration.html|geoflow_ops/gis/test_form_definitions.py|geoflow_ops/gis/test_form_admin_authorization.py|docs/architecture/gis-form-definitions-v1.sql|docs/architecture/gis-final-form-investigation.md|docs/architecture/gis-photo-policy-central.sql|docs/architecture/gis-photo-policy-central-v2.sql|docs/architecture/gis-photo-policy-v2.md|docs/architecture/gis-photo-policy-phase1.md|docs/architecture/gis-photo-image-metadata-v1.md|docs/operations/gis-definition-admin-release.md|.github/workflows/gis-form-definition-tests.yml|.github/workflows/gis-form-inventory.yml|control/services/gis_definitions.py|control/services/gis_schema_manager.py|control/services/gis_schema_execution.py|control/test_gis_schema_manager.py|geoflow_ops/gis/test_definition_visibility.py|docs/architecture/gis-definition-admin-v2-20260922.md|control/services/gis_definition_transition.py|control/management/commands/deploy_gis_central_definitions.py|control/management/commands/deploy_gis_photo_phase1.py|control/management/commands/deploy_gis_photo_phase3.py|control/management/commands/deploy_gis_photo_phase4.py|control/management/commands/deploy_gis_photo_catalog_v2.py|control/management/commands/cleanup_gis_standard_fields.py|control/management/commands/repair_qgis_flow_dip.py|control/management/commands/diagnose_gis_project_load.py|scripts/ops/diagnose_gis_flow_dip.py|.github/workflows/qgis-production-project-load-diagnostic.yml|scripts/ops/inventory_gis_standard_cleanup.py|scripts/ops/inventory_gis_photo_catalog_v2.py|.github/workflows/gis-standard-cleanup-inventory.yml|.github/workflows/gis-photo-catalog-v2-inventory.yml|geoflow_project/settings.py|geoflow_ops/gis/views.py|geoflow_ops/static/geoflow_ops/js/gis-project-map.js|geoflow_ops/gis/central_definitions.py|geoflow_ops/gis/changeset.py|geoflow_ops/gis/reference_catalog.py|geoflow_ops/gis/layer_plan.py|geoflow_ops/gis/gpkg.py|geoflow_ops/gis/gpkg_snapshot_v2.py|geoflow_ops/gis/gpkg_snapshot_file.py|geoflow_ops/gis/qgis_sync.py|geoflow_ops/gis/qgis_sync_v2.py|geoflow_ops/gis/test_qgis_sync.py|geoflow_ops/gis/qgis_manifest.py|geoflow_ops/gis/qgis_views.py|geoflow_ops/gis/qgis_plugin_repository.py|geoflow_ops/gis/test_qgis_plugin_repository.py|geoflow_ops/gis/test_feature_photo_edit_contract.py|geoflow_ops/gis/test_feature_photo_metadata_contract.py|geoflow_ops/gis/test_photo_edit_data.py|geoflow_ops/gis/test_qgis_manifest.py|geoflow_ops/gis/qfield_package.py|geoflow_ops/gis/qfield_device_views.py|geoflow_ops/gis/qfield_persistent.py|geoflow_ops/gis/server_snapshot_cache.py|geoflow_ops/gis/registry.py|geoflow_ops/gis/test_central_definitions.py|geoflow_ops/gis/test_gpkg_snapshot_v2.py|geoflow_ops/gis/test_layer_plan_fail_closed.py|geoflow_ops/gis/test_geojson.py|geoflow_ops/migrations/0039_gis_feature_photo.py|geoflow_ops/migrations/0040_merge_bid_photo_branches.py|geoflow_ops/migrations/0041_gis_feature_photo_edited_representation.py|geoflow_ops/migrations/0042_gis_feature_photo_image_metadata.py|geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py|geoflow_ops/test_gis_reference_catalog.py|geoflow_ops/test_qgis_plugin_repository_publish_contract.py|geoflow_ops/test_gis_c26059_production_activation_contract.py|geoflow_ops/test_gis_catalog_auto_registration_contract.py|geoflow_ops/test_gis_catalog_binding_production_workflow_contract.py|geoflow_ops/test_gis_project_readiness_workflow_contract.py|integrations/qgis/geoflow_connector/metadata.txt|integrations/qgis/geoflow_connector/plugin.py|integrations/qgis/geoflow_connector/photo_selection.py|integrations/qgis/geoflow_connector/test_photo_selection.py|integrations/qgis/geoflow_connector/snapshot_cache.py|integrations/qgis/geoflow_connector/snapshot_reuse.py|integrations/qgis/geoflow_connector/test_snapshot_cache.py|scripts/ops/inspect_gis_form_definition.py|docs/architecture/gis-central-definitions.sql|docs/architecture/gis-data-model.md|.github/workflows/gis-definition-code-deploy.yml|.github/workflows/gis-photo-catalog-v2-inventory.yml|.github/workflows/qgis-plugin-test-repository-publish.yml|.github/workflows/geoflow-tenant-group-locator.yml|.github/workflows/gis-business-approval-tests.yml|.github/workflows/gis-business-contract-code-deploy.yml|.github/workflows/gis-c26059-production-activation.yml|.github/workflows/gis-catalog-binding-cheonan-production.yml|geoflow_ops/gis/business_approval.py|geoflow_ops/gis/business_fields.py|geoflow_ops/gis/business_messages.py|geoflow_ops/gis/test_business_contract.py|scripts/ci/business_approval_fixture.py|scripts/ci/test_business_approval_postgres.py|scripts/ci/test_business_deploy_workflow.py|scripts/ci/test_business_fields_postgis.py|scripts/dev/check_geoflow_dev_runtime.py|scripts/dev/reconcile_geoflow_dev_gis_scope_matrix.py|scripts/dev/sync_geoflow_dev_gis_catalog_bindings.py|scripts/ops/activate_c26059_gis_foundation.py|scripts/ops/diagnose_gis_project_readiness.py|scripts/ops/reconcile_gis_business_fields.py|scripts/ops/sync_gis_catalog_capability_bindings.py|scripts/ops/verify_business_messages.py|docs/operations/business-execution-guard.md|docs/operations/business-forms-release-readiness.md|docs/operations/qgis-business-fields-readonly.sql|docs/operations/business-forms.md) ;;
+              *) fail 'changed_path_outside_gis_code_contract' ;;
+              esac
+            fi
+            case "$changed_path" in
+              docs/architecture/gis-central-definitions.sql|control/management/commands/deploy_gis_central_definitions.py)
+                schema_transition_required=yes ;;
+            esac
+            case "$changed_path" in
+              docs/architecture/gis-photo-policy-central.sql|geoflow_ops/migrations/0039_gis_feature_photo.py|control/management/commands/deploy_gis_photo_phase1.py)
+                photo_phase1_required=yes ;;
+            esac
+            case "$changed_path" in
+              geoflow_ops/migrations/0041_gis_feature_photo_edited_representation.py|control/management/commands/deploy_gis_photo_phase3.py)
+                photo_phase3_required=yes ;;
+            esac
+            case "$changed_path" in
+              geoflow_ops/migrations/0042_gis_feature_photo_image_metadata.py|control/management/commands/deploy_gis_photo_phase4.py)
+                photo_phase4_required=yes ;;
+            esac
+            case "$changed_path" in
+              docs/architecture/gis-photo-policy-central-v2.sql|geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py|control/management/commands/deploy_gis_photo_catalog_v2.py)
+                photo_catalog_v2_required=yes ;;
+            esac
+            case "$changed_path" in
+              control/management/commands/cleanup_gis_standard_fields.py)
+                standard_cleanup_required=yes ;;
+            esac
+            case "$changed_path" in
+              control/management/commands/repair_qgis_flow_dip.py)
+                qgis_flow_dip_repair_required=yes ;;
+            esac
+          done <<< "$changed_paths"
+          # Catalogue v2 replaces the legacy central photo schema.  Running the
+          # Phase 1 bootstrap first against an existing Phase 1 installation
+          # would execute v2-only indexes before the v2 transition creates their
+          # tables.  Let the reviewed v2 transition own this upgrade instead.
+          if [ "$photo_catalog_v2_required" = yes ]; then
+            photo_phase1_required=no
+          fi
+          git -C "$repo" checkout -B "$expected_branch" "$candidate_sha"
+          rollback_needed=1
+
+          "$python" -m pip check
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" check
+
+
+          # Persist only the supplied browser tile key; do not log its value.
+          "$python" - "$repo/.env" <<'PYKEY'
+          import os, pathlib, re, sys
+          path = pathlib.Path(sys.argv[1])
+          key = os.environ['VWORLD_API_KEY']
+          if not re.fullmatch(r'[A-Za-z0-9-]{16,128}', key):
+              raise SystemExit('Invalid VWorld key format')
+          lines = path.read_text().splitlines()
+          lines = [line for line in lines if not re.match(r'^\s*(?:export\s+)?VWORLD_API_KEY\s*=', line)]
+          lines.append('VWORLD_API_KEY=' + key)
+          with path.open('w') as output:
+              output.write('\n'.join(lines) + '\n')
+          print('vworld_runtime_key_configured=yes')
+          PYKEY
+
+          # A failed previous deployment may have checked out this code before
+          # applying its migration. File drift alone cannot detect that state.
+          final_schema_status="$(PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" deploy_gis_survey_final_fields --check)"
+          case "$final_schema_status" in
+            survey_final_pending=yes)
+              survey_final_required=yes
+              survey_lineage_required=yes ;;
+            survey_final_pending=no) ;;
+            *) fail 'survey_final_schema_status_invalid' ;;
+          esac
+          target_status="$(PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" deploy_gis_survey_target_removal --check)"
+          case "$target_status" in
+            survey_target_removal_pending=yes) survey_target_removal_required=yes; survey_lineage_required=yes ;;
+            survey_target_removal_pending=no) ;;
+            *) fail 'survey_target_removal_status_invalid' ;;
+          esac
+          reference_status="$(PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" deploy_gis_reference_groups --check)"
+          case "$reference_status" in
+            reference_groups_pending=yes) reference_groups_required=yes ;;
+            reference_groups_pending=no) ;;
+            *) fail 'reference_groups_status_invalid' ;;
+          esac
+          survey_inventory_args=()
+          if [ "$survey_final_required" = yes ]; then
+            survey_inventory_args=(--survey-final-readonly)
+          fi
+          backup_dir="/var/backups/geoflow/gis-central-ssot/$candidate_sha"
+          sudo -n install -d -m 0700 -o "$(id -un)" "$backup_dir"
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            inspect_gis_definition_rows --write "$backup_dir/definition-row-counts-before.json" "${survey_inventory_args[@]}"
+          sudo -n systemctl stop "$service"
+          if [ "$reference_groups_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_reference_groups --apply --backup-dir "$backup_dir"
+          fi
+          if [ "$schema_transition_required" = yes ]; then
+            # The command spans central and tenant databases. Once it starts an
+            # automatic checkout of old code is unsafe even if a later store fails.
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_central_definitions --apply --backup-dir "$backup_dir"
+          else
+            echo 'gis_central_schema_transition=skipped_code_only_release'
+          fi
+          if [ "$photo_phase1_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_photo_phase1 --apply
+          else
+            echo 'gis_photo_phase1=skipped'
+          fi
+          if [ "$photo_phase3_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_photo_phase3 --apply
+          else
+            echo 'gis_photo_phase3=skipped'
+          fi
+          if [ "$photo_phase4_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_photo_phase4 --apply
+          else
+            echo 'gis_photo_phase4=skipped'
+          fi
+          if [ "$photo_catalog_v2_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_photo_catalog_v2 --apply
+          else
+            echo 'gis_photo_catalog_v2=skipped'
+          fi
+          if [ "$standard_cleanup_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" cleanup_gis_standard_fields --apply \
+              --report-file "$backup_dir/gis-standard-cleanup.json"
+          else
+            echo 'gis_standard_cleanup=skipped'
+          fi
+          if [ "$qgis_flow_dip_repair_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" repair_qgis_flow_dip --apply \
+              --report-file "$backup_dir/qgis-flow-dip-repair.json"
+          else
+            echo 'qgis_flow_dip_repair=skipped'
+          fi
+          if [ "$survey_lineage_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_survey_lineage --apply
+          else
+            echo 'gis_survey_lineage=skipped'
+          fi
+          if [ "$survey_final_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_survey_final_fields --apply --backup-dir "$backup_dir"
+          fi
+          if [ "$survey_target_removal_required" = yes ]; then
+            schema_committed=1
+            "$python" "$repo/manage.py" deploy_gis_survey_target_removal --apply --backup-dir "$backup_dir"
+          fi
+
+          "$python" "$repo/manage.py" repair_gis_definition_layouts --apply \
+            --backup-file "$backup_dir/non-object-definition-field-layouts.json"
+          "$python" "$repo/manage.py" collectstatic --noinput
+          sudo -n systemctl restart "$service"
+
+          ready=no
+          for _ in $(seq 1 30); do
+            active="$(systemctl show "$service" -p ActiveState --value 2>/dev/null || true)"
+            sub="$(systemctl show "$service" -p SubState --value 2>/dev/null || true)"
+            code="$(curl -sS -H 'Host: geoflow.co.kr' -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8011/login/ || true)"
+            if [ "$active" = active ] && [ "$sub" = running ]; then
+              case "$code" in 2??|3??) ready=yes; break ;; esac
+            fi
+            sleep 2
+          done
+          [ "$ready" = yes ] || fail 'service_failed_post_restart_healthcheck'
+
+          if [ "$survey_final_required" = yes ]; then
+            # Catch any final import completed by an old worker before restart,
+            # then verify that normal reruns leave generated values stable.
+            "$python" "$repo/manage.py" deploy_gis_survey_final_fields --apply \
+              --backup-dir "$backup_dir/post-restart"
+          fi
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 400 --minimum-codes 111
+
+          "$python" "$repo/manage.py" smoke_gis_definition_admin_write
+
+          "$python" "$repo/manage.py" smoke_gis_photo_catalog
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            inspect_gis_definition_rows --compare "$backup_dir/definition-row-counts-before.json" "${survey_inventory_args[@]}"
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            smoke_qgis_project_runtime --survey-inspection
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            deploy_gis_reference_groups --verify
+
+          if [ "$survey_lineage_required" = yes ]; then
+            "$python" "$repo/manage.py" smoke_gis_survey_source_upload --apply
+            "$python" "$repo/manage.py" smoke_gis_survey_facility_delete --apply
+          fi
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            diagnose_gis_photo_runtime
+
+          target_status="$(PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" deploy_gis_survey_target_removal --check)"
+          [ "$target_status" = survey_target_removal_pending=no ] || fail 'survey_target_removal_incomplete'
+
+          if [ "$stable_plugin_required" = yes ]; then
+            schema_committed=1  # External publication requires keeping compatible routes on failure.
+            # Rebuild the exact approved artifact after new routes are healthy.
+            # No test index or test release object is written by this promotion.
+            exec 9>/tmp/geoflow-qgis-stable-publish.lock
+            flock -x 9
+            stable_dir="$backup_dir/qgis-stable"
+            mkdir -p "$stable_dir"
+            cd "$repo"
+            "$python" - "$repo" "$stable_dir" <<'PLUGIN'
+          import hashlib,json,pathlib,subprocess,sys
+          repo=pathlib.Path(sys.argv[1]); output=pathlib.Path(sys.argv[2])
+          plan=json.loads((repo/'docs/operations/qgis-plugin-stable-release.json').read_text())
+          subprocess.run(['git','merge-base','--is-ancestor',plan['source_commit'],'HEAD'],check=True)
+          manifest=repo/plan['manifest']; inventory=repo/plan['inventory']
+          release=json.loads(manifest.read_text())
+          for key in ('version','zip_filename','size_bytes','sha256'):
+              if plan[key]!=release[key]: raise SystemExit('stable_release_descriptor_mismatch')
+          subprocess.run([sys.executable,str(repo/'scripts/qgis/build_plugin_repository.py'),
+              '--source',str(repo/'integrations/qgis/geoflow_connector'),'--output',str(output),
+              '--release-manifest',str(manifest),'--inventory',str(inventory),
+              '--base-url','https://geoflow.co.kr/gis/qgis/plugins/packages'],check=True)
+          package=output/'releases'/plan['zip_filename']
+          if len(package.read_bytes())!=plan['size_bytes'] or hashlib.sha256(package.read_bytes()).hexdigest()!=plan['sha256']:
+              raise SystemExit('stable_artifact_mismatch')
+          subprocess.run([sys.executable,str(repo/'scripts/ops/publish_qgis_plugin_repository.py'),
+              '--channel','stable','--repository',str(output/'plugins.xml'),'--package',str(package),
+              '--confirm','PUBLISH_QGIS_PLUGIN:stable:geoflow-upload:qgis-plugins','--verify-http'],check=True)
+          PLUGIN
+            flock -u 9
+          fi
+
+          public_login="$(curl --proto '=https' -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 https://geoflow.co.kr/login/ || true)"
+          echo "production_release_public_login_status=$public_login"
+          [ "$public_login" = 200 ] || fail 'public_login_not_200_after_deploy'
+
+          rollback_needed=0
+          trap - EXIT
+          echo "production_release_deployed_sha=$(git -C "$repo" rev-parse HEAD)"
+          echo "production_release_deployed_branch=$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
+          echo 'production_release_deploy_complete=yes'
+          REMOTE
+          )
