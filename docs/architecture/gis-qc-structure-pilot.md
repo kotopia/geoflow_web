@@ -81,8 +81,17 @@ Also verify Connector login and project load with an authorized test project,
 unload/reload each plugin, and repeat after restart. The script does not
 substitute for those interactive checks.
 
-Status: implementation and non-QGIS tests prepared; real QGIS 4.2.2 and TEST
-publication must be confirmed separately. Central catalog, tenant Profile DB,
+Status: implementation and non-QGIS tests passed. Windows CI QGIS 4.2.2
+passed initial load, unload/reload, QC/preview/output and restart checks in
+run 41756237602. Authenticated Connector project loading and TEST Plugin
+Manager installation remain to be verified. TEST publication is pending.
+
+The existing GIS deployment supports workflow_dispatch for the download
+allowlist prerequisite. Register the GIS deployment and TEST publishing
+workflow files on the default branch to expose their Run workflow controls,
+then select release/stabilized-deploy. Both operational jobs retain the
+protected production Environment. Run server deployment first, followed by
+TEST publishing with package geoflow_qc_structure. Central catalog, tenant Profile DB,
 server QC/executor, persistent QC findings and PostGIS delivery DDL are deferred.
 
 The QC pilot PR runs the isolated memory fixture in the pinned OSGeo4W QGIS 4.2.2
