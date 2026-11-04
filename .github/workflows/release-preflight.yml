@@ -347,6 +347,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OSGeo4W download failed' }
           $osgeo = Join-Path $scratch 'osgeo'
           $cache = Join-Path $scratch 'cache'
+          $python = (Get-Command python.exe -ErrorAction Stop).Source
+          $runnerPath = $env:Path
           # The unattended installer rejects the hosted runner's long PATH.
           $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\Wbem"
           $install = Start-Process -Wait -PassThru $installer -ArgumentList @(
@@ -355,6 +357,7 @@ jobs:
             'https://download.osgeo.org/osgeo4w/v2/','--only-site',
             '--packages','qgis'
           )
+          $env:Path = $runnerPath
           if ($install.ExitCode -ne 0 -or !(Test-Path "$osgeo/bin/qgis.bat")) {
             if (Test-Path "$osgeo/var/log/setup.log") { Get-Content "$osgeo/var/log/setup.log" -Tail 60 }
             throw "QGIS installation failed: $($install.ExitCode)"
@@ -372,7 +375,7 @@ jobs:
             if ($LASTEXITCODE -ne 0 -or (Get-FileHash $archive -Algorithm MD5).Hash -ne $package.Md5) {
               throw "OSGeo4W package verification failed: $($package.File)"
             }
-            tar.exe -xf $archive -C $osgeo
+            & $python -m tarfile -e $archive $osgeo
             if ($LASTEXITCODE -ne 0) { throw "OSGeo4W package extraction failed: $($package.File)" }
           }
       - name: Validate both ZIPs with QGIS 4.2.2 and restart
