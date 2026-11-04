@@ -189,6 +189,7 @@ class PilotTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             publish.validate_package(xml,dest,'stable')
         with zipfile.ZipFile(dest) as z:
+            self.assertIn(source.name+'/field_editor.py', z.namelist())
             self.assertTrue(all(n.startswith(source.name+'/') for n in z.namelist()))
             self.assertFalse(any('test_' in n or '__pycache__' in n for n in z.namelist()))
 
