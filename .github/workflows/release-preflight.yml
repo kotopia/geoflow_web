@@ -347,15 +347,33 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'OSGeo4W download failed' }
           $osgeo = Join-Path $scratch 'osgeo'
           $cache = Join-Path $scratch 'cache'
+          # The unattended installer rejects the hosted runner's long PATH.
+          $env:Path = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\Wbem"
           $install = Start-Process -Wait -PassThru $installer -ArgumentList @(
             '--quiet-mode','--advanced','--autoaccept','--no-desktop','--no-startmenu','--no-shortcuts',
             '--root',"`"$osgeo`"",'--local-package-dir',"`"$cache`"",'--site',
             'https://download.osgeo.org/osgeo4w/v2/','--only-site',
-            '--packages','qgis=4.2.2-1,qgis-common=4.2.2-1'
+            '--packages','qgis'
           )
           if ($install.ExitCode -ne 0 -or !(Test-Path "$osgeo/bin/qgis.bat")) {
             if (Test-Path "$osgeo/var/log/setup.log") { Get-Content "$osgeo/var/log/setup.log" -Tail 60 }
             throw "QGIS installation failed: $($install.ExitCode)"
+          }
+          # Setup installs the dependency set; replace both QGIS packages together
+          # with the matched archived release. The fixture asserts the runtime version.
+          $root = 'https://download.osgeo.org/osgeo4w/v2/x86_64/release/qgis/qgis'
+          $pinned = @(
+            @{ File='qgis-4.2.2-1.tar.bz2'; Url="$root/qgis-4.2.2-1.tar.bz2"; Md5='b440da7e0ebec983cb199e90163ab355' },
+            @{ File='qgis-common-4.2.2-1.tar.bz2'; Url="$root/qgis-common/qgis-common-4.2.2-1.tar.bz2"; Md5='a489a2986bdc1652e648c0b4d4c8057c' }
+          )
+          foreach ($package in $pinned) {
+            $archive = Join-Path $scratch $package.File
+            curl.exe --fail --location --retry 3 --max-time 180 $package.Url --output $archive
+            if ($LASTEXITCODE -ne 0 -or (Get-FileHash $archive -Algorithm MD5).Hash -ne $package.Md5) {
+              throw "OSGeo4W package verification failed: $($package.File)"
+            }
+            tar.exe -xf $archive -C $osgeo
+            if ($LASTEXITCODE -ne 0) { throw "OSGeo4W package extraction failed: $($package.File)" }
           }
       - name: Validate both ZIPs with QGIS 4.2.2 and restart
         shell: pwsh
