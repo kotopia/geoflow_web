@@ -224,7 +224,8 @@ class TenantConversionTests(TestCase):
                          restore_file=str(backup),backup_file=str(Path(directory)/'undo.json'),stdout=StringIO())
             with connections['company_a'].cursor() as cur:
                 cur.execute('SELECT rule_ids FROM bid.central_preferences WHERE id=1')
-                self.assertEqual(cur.fetchone()[0],[str(self.rule.pk)])
+                raw = cur.fetchone()[0]
+                self.assertEqual(json.loads(raw) if isinstance(raw, str) else raw, [str(self.rule.pk)])
             save('company_a',[])
             with self.assertRaises(CommandError):
                 call_command('migrate_bid_interest_conditions',database='company_a',execute=True,
@@ -240,6 +241,6 @@ class TenantConversionTests(TestCase):
         self.assertIn('preferences=absent',out.getvalue())
         with patch('procurement.preferences.load_filters',return_value={'industry':[{'code':'5031'}]}):
             self.assertEqual(selected_conditions('company_a'),[str(self.condition.pk)])
-        save('company_a',[])
+            save('company_a',[])
         with patch('procurement.preferences.load_filters',return_value={'industry':[{'code':'5031'}]}):
             self.assertEqual(selected_conditions('company_a'),[])
