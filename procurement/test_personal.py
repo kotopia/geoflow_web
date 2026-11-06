@@ -84,11 +84,12 @@ class PersonalStateTests(TestCase):
 
     def test_keyword_reuses_case_insensitive_rule_never_reactivates(self):
         rule = CollectionRule.objects.create(kind='keyword',value='gis',name='GIS')
-        with patch('procurement.preferences.selected_ids',return_value=[]), patch('procurement.preferences.save') as save:
+        with patch('procurement.preferences.selected_conditions',return_value=[]), patch('procurement.preferences.save') as save:
             add_keyword('company_a',' GIS ')
-            self.assertEqual(CollectionRule.objects.count(),1)
-            self.assertIn(str(rule.pk),save.call_args.args[1])
-            rule.active=False; rule.save()
+            self.assertEqual(CollectionRule.objects.count(),2)
+            rule.refresh_from_db()
+            self.assertIn(str(rule.condition_id),save.call_args.args[1])
+            CollectionRule.objects.filter(condition_id=rule.condition_id).update(active=False)
             with self.assertRaises(ValueError):
                 add_keyword('company_a','GIS')
 

@@ -131,8 +131,8 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
 def settings_page(request, alias: str):
     repo = central_repository if central_enabled(alias) else repository
     central = central_enabled(alias)
-    selected = set(preferences.selected_ids(alias)) if central else set()
-    rules = [dict(id=str(r.pk), name=r.name, source=r.source, source_label=r.get_source_display(), kind=r.get_kind_display(), active=r.active,
+    selected = set(preferences.selected_conditions(alias)) if central else set()
+    rules = [dict(id=str(r.pk), name=r.name, kind=r.get_kind_display(), active=r.active,
                   selected=str(r.pk) in selected) for r in preferences.choices(alias)] if central else []
     configured = repository.list_settings(alias)
     return render(request, "geoflow_ops/bids/settings.html", {
@@ -154,7 +154,7 @@ def filter_value_save(request, alias: str):
                 raise ValueError('업종은 중앙 수집조건에서 선택하세요.')
             repository.save_selection(alias, kind, request.POST.getlist('selected_ids'))
         elif central_enabled(alias) and request.POST.get("action") == "central_rules":
-            preferences.save(alias, request.POST.getlist("rule_ids"))
+            preferences.save(alias, request.POST.getlist("condition_ids"))
         elif central_enabled(alias) and request.POST.get("kind") == "industry":
             raise ValueError("업종은 중앙 수집조건에서 선택하세요.")
         else:
@@ -170,7 +170,7 @@ def filter_value_save(request, alias: str):
 def keyword_save(request, alias: str):
     try:
         if central_enabled(alias) and request.POST.get('rule_type') == 'collection':
-            preferences.add_keyword(alias, request.POST.get('keyword'), request.POST.get('source') or "g2b")
+            preferences.add_keyword(alias, request.POST.get('keyword'))
         else:
             repository.save_keyword(alias, request.POST)
         if not central_enabled(alias):

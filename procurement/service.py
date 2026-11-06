@@ -33,6 +33,8 @@ def enabled(alias):
 
 
 def enqueue_rule(rule, now=None):
+    from .conditions import bind_rule
+    bind_rule(rule)
     now = minute(now or timezone.now())
     job, created = CollectionJob.objects.using(central_alias()).get_or_create(
         rule=rule, defaults=dict(backfill_cursor=retention_start(now), backfill_end=now,

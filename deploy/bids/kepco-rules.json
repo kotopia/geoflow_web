@@ -3,19 +3,22 @@
     "source": "kepco",
     "kind": "industry",
     "value": "공공측량업",
-    "name": "공공측량업"
+    "name": "공공측량업",
+    "condition_key": "public-survey"
   },
   {
     "source": "kepco",
     "kind": "industry",
     "value": "지하시설물측량업",
-    "name": "지하시설물측량업"
+    "name": "지하시설물측량업",
+    "condition_key": "underground-survey"
   },
   {
     "source": "kepco",
     "kind": "industry",
     "value": "수치지도제작업",
-    "name": "수치지도제작업"
+    "name": "수치지도제작업",
+    "condition_key": "digital-map"
   },
   {
     "source": "kepco",

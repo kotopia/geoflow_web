@@ -6,7 +6,7 @@ from django.db.models import Count
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from .models import ApiBudget, CollectionJob, CollectionRule, Notice, CollectionWindow
+from .models import ApiBudget, CollectionJob, CollectionRule, Notice, CollectionWindow, InterestCondition
 from .policy import minute, retention_start
 from .service import central_alias
 from .lifecycle import recent_backfill_window
@@ -28,7 +28,7 @@ def lane_stats(progress):
 def snapshot():
     now = timezone.now()
     alias = central_alias()
-    rules = list(CollectionRule.objects.using(alias).annotate(stored_count=Count("notices")).order_by("created_at"))
+    rules = list(CollectionRule.objects.using(alias).select_related("condition").annotate(stored_count=Count("notices")).order_by("created_at"))
     jobs = {job.rule_id: job for job in CollectionJob.objects.using(alias).all()}
     statuses = {"pending": "대기", "running": "수집 중", "success": "최근 구간 완료", "failed": "실패"}
     rows = []
@@ -63,10 +63,17 @@ def snapshot():
                          window_end=parse_datetime(progress.get("end", "")),
                          state=statuses.get(job.status, "확인 필요") if job else "작업 미등록",
                          backfill_complete=bool(job and job.backfill_status == "BACKFILL_COMPLETE")))
+    groups = {}
+    for row in rows:
+        rule = row['rule']
+        key = rule.condition_id or rule.pk
+        group = groups.setdefault(key, {'condition': rule.condition, 'name': rule.condition.name if rule.condition else rule.name,
+                                         'rows': []})
+        group['rows'].append(row)
     successful = [job.last_success_at for job in jobs.values() if job.last_success_at]
     budget = ApiBudget.objects.using(alias).filter(day=minute(now).date()).first()
     notices = Notice.objects.using(alias)
-    return dict(rows=rows, collection_period=selection(now), total=notices.count(), expired=notices.filter(posted_at__lt=retention_start(now)).count(),
+    return dict(rows=rows, condition_groups=list(groups.values()), active_conditions=InterestCondition.objects.using(alias).filter(active=True).count(), collection_period=selection(now), total=notices.count(), expired=notices.filter(posted_at__lt=retention_start(now)).count(),
                 active=sum(rule.active for rule in rules), running=sum(job.status == "running" for job in jobs.values()),
                 requested=sum(job.requested for job in jobs.values()),
                 last_success=max(successful) if successful else None,

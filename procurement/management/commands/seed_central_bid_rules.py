@@ -3,8 +3,10 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.core.exceptions import ValidationError
 
-from procurement.models import CollectionRule
+from procurement.models import CollectionRule, SOURCES
+from procurement.conditions import bind_rule
 from procurement.service import central_alias, enqueue_rule
 
 
@@ -21,9 +23,12 @@ class Command(BaseCommand):
             if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
                 raise ValueError()
             for row in rows:
-                if not isinstance(row, dict) or set(row) not in ({"kind", "value", "name"}, {"source", "kind", "value", "name"}):
+                if not isinstance(row, dict) or not {"kind", "value", "name"} <= row.keys() or row.keys() - {"kind", "value", "name", "source", "condition_key"}:
                     raise ValueError()
-                if row.get("source", "g2b") not in {"g2b", "kepco"}:
+                if "condition_key" in row:
+                    from django.core.validators import validate_slug
+                    validate_slug(row["condition_key"])
+                if row.get("source", "g2b") not in {source for source, _ in SOURCES}:
                     raise ValueError()
                 if row["kind"] not in {"industry", "keyword"}:
                     raise ValueError()
@@ -33,7 +38,7 @@ class Command(BaseCommand):
                     row[field] = row[field].strip()
                 if row.get("source", "g2b") == "g2b" and row["kind"] == "industry" and not (row["value"].isascii() and row["value"].isdigit()):
                     raise ValueError()
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError, ValidationError):
             raise CommandError("초기 수집조건 파일 형식을 확인하세요.") from None
         if not options["execute"]:
             self.stdout.write(f"Validated rules: {len(rows)}; no changes")
@@ -43,6 +48,7 @@ class Command(BaseCommand):
             for row in rows:
                 rule, created = CollectionRule.objects.using(central_alias()).get_or_create(
                     source=row.get("source", "g2b"), kind=row["kind"], value=row["value"], defaults={"name": row["name"]})
+                bind_rule(rule, key=row.get("condition_key"))
                 if created:
                     enqueue_rule(rule)
                     created_count += 1

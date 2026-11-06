@@ -19,7 +19,23 @@ class CollectionPeriod(models.Model):
 SOURCES = [("g2b", "나라장터"), ("kepco", "한국전력")]
 
 
+class InterestCondition(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    kind = models.CharField(max_length=16, choices=[("industry", "업종"), ("keyword", "수집 키워드")])
+    key = models.SlugField(max_length=120)
+    name = models.CharField(max_length=255)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["kind", "key"], name="procurement_condition_key_unique")]
+
+    def __str__(self):
+        return self.name
+
+
 class CollectionRule(models.Model):
+    condition = models.ForeignKey(InterestCondition, null=True, blank=True, on_delete=models.PROTECT,
+                                  related_name="source_rules")
     source = models.CharField(max_length=16, choices=SOURCES, default="g2b")
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(max_length=16, choices=[("industry", "업종코드"), ("keyword", "공고명 키워드")])

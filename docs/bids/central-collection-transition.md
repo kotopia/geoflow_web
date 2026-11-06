@@ -242,9 +242,9 @@ migration을 입찰 배포가 암묵적으로 실행하지 않도록 한다. 005
 30일보다 오래된 공고의 정정은 과거 재수집이 필요하다. 모든 과거 정정을 실시간 수집한다고 보장하지 않는다.
 
 테넌트는 중앙 공고만 조회하고 개인 관심·숨김 및 회사 검토기록은 기존 tenant DB에 유지한다.
-테넌트 설정에서 출처별 중앙 조건을 선택하고 새 키워드의 출처를 지정할 수 있다.
-중앙 관리자도 출처·업종/키워드별 등록·수집 상태·저장 수량을 관리한다.
-새 한전 조건을 등록해도 기존 테넌트 선택을 임의 변경하지 않는다.
+테넌트 설정은 기관과 독립적인 논리 업종/키워드를 선택한다. 중앙 관리 화면도 논리 조건으로 묶어
+표시하고 펼친 내부 규칙에서 출처별 등록·수집 상태·저장 수량을 관리한다.
+새 기관의 규칙을 기존 논리 조건에 연결하면 기존 선택에 자동 적용되며 테넌트 선택을 추가하지 않는다.
 
 목록의 `맞춤공고`는 선택한 업종 OR 수집키워드와 설정 지역을 적용한다.
 `중앙 저장공고 검색`은 선택 조건·설정 지역을 생략하고 중앙의 최근 2년 저장 공고를 검색한다.
@@ -259,3 +259,128 @@ migration을 입찰 배포가 암묵적으로 실행하지 않도록 한다. 005
 서버 비밀값은 지속 수집에 필요하므로 폐기하지 않으며 교체는 별도 운영 작업이다.
 보호된 production 승인 경계를 유지하고, 공식 API live probe가 성공해야 배포 점검을 통과한다.
 검증과 운영 반영 결과는 PR 및 배포 실행 결과를 기준으로 판단한다.
+
+
+## 논리 관심조건과 기관별 규칙 분리
+
+### 목적·현재 구현
+
+기존 `bid.central_preferences.rule_ids`는 중앙 `CollectionRule` UUID를 직접 저장했다.
+나라장터 업종을 선택한 뒤 같은 업종의 한전 규칙이 등록되어도 UUID가 달라 후보가 누락될 수 있었다.
+표시 이름은 식별자가 아니다. 명시적인 조건 키로 연결하며 기관명을 문자열에서 제거해 묶지 않는다.
+
+중앙의 `InterestCondition(kind,key,name,active)`가 사용자 관심조건의 원본이다.
+기존 `CollectionRule`에 `condition` FK를 추가하여 하나의 논리 업종에 N개 기관별 matcher를 연결한다.
+기관별 `(source,kind,value)`, `CollectionJob` 및 `Notice.rules`는 그대로 재사용한다.
+현재 업종은 다음과 같이 연결하며 기존 기타 업종은 독립 조건으로 보존한다. 측지측량업은 추가하지 않는다.
+
+| 논리 키 | 사용자 업종 | G2B 값 | KEPCO 값 |
+| --- | --- | --- | --- |
+| public-survey | 공공측량업 | 5023 | 공공측량업 |
+| underground-survey | 지하시설물측량업 | 5031 | 지하시설물측량업 |
+| digital-map | 수치지도제작업 | 5029 | 수치지도제작업 |
+| software-business | 소프트웨어사업자 | 1468 | 기존 규칙 없음 |
+
+기존 키워드는 기존 matcher의 공백 제거·casefold 정책으로 통합한다. 한글 부분 포함 검색과
+ASCII 토큰 경계 정책은 바꾸지 않는다. `지하시설물`은 `지하 시설물도`에도 매칭된다.
+
+Tenant에는 새 테이블이나 DB 간 FK를 만들지 않는다. 기존 JSONB `rule_ids` 컬럼에 논리 UUID를
+저장하며 새 설정 POST는 논리 UUID만 받는다. 읽기 resolver는 기존 기관별 UUID도 받아 논리 조건을
+거쳐 현재 연결된 모든 기관별 규칙으로 확장한다. 따라서 명시적 tenant 변환 전에도 기존 선택 의미가
+유지된다. 조건 없는 기존 행은 호환 조회만 지원하고 변환 명령은 해당 행을 발견하면 중단한다.
+없는 설정 행의 기존 G2B 업종 fallback과 명시적인 빈 선택의 차이를 유지한다.
+
+논리 `active=False`는 신규 선택을 막는다. 이미 선택된 조건·과거 공고 관계는 보존한다.
+기관별 `CollectionRule.active`는 실제 수집 중지를 관리하며 논리 활성 상태와 혼동하지 않는다.
+자동 변환은 기존 규칙의 이름·활성 상태, 작업 cursor, 원본, 검토·개인 상태를 변경하지 않는다.
+테넌트 키워드 추가는 하나의 논리 조건 아래 설정된 `PROCUREMENT_KEYWORD_SOURCES`의 규칙을
+등록한다(기본값: 등록된 source 목록). 기존 중지 규칙을 재활성화하지 않는다.
+
+새 기관의 adapter를 구현한 뒤 기존 논리 조건을 선택해 source rule을 등록하면 resolver가 자동 확장한다.
+기관별 업종 코드/표현은 명시적 mapping으로 관리한다. seed 파일의 `condition_key` 또는 중앙 관리
+폼의 논리 조건 연결을 사용한다. 미확정 업종은 별도 legacy 조건으로 보존하고 운영 담당자가 검토한다.
+기존 source rule의 identity와 연결은 수정 화면에서 잠그고, matcher 의미를 바꿀 때 기존 provenance를 보존한다.
+
+### 중앙·테넌트 책임과 코드 위치
+
+중앙은 API 수집, 정규화, source별 공고 식별·UPSERT, 2년 rolling cache, matcher 실행과
+논리 조건 mapping을 소유한다. 테넌트는 관심조건 선택 및 중앙 원본 조회, 지역 필터와 검토·개인 상태를
+소유한다. 관심조건은 OR이고 지역 등 기존 후속 필터는 유지한다. 여러 rule이 같은 공고에 매칭되어도
+`(source,number,order)` 원본은 하나이며 목록은 distinct 조회한다. 테넌트별 API 재수집은 없다.
+
+권한은 기존 중앙 관리자 검증, 테넌트 manager 설정 검증 및 CSRF를 그대로 사용한다.
+입찰 이외 업무 및 사용자/권한 구조는 변경하지 않는다. 결과 목록·상세의 공고 출처 표시는 유지한다.
+
+- 모델·resolver: `procurement/models.py`, `procurement/conditions.py`
+- 테넌트 선택·목록: `procurement/preferences.py`, `procurement/tenant.py`, `geoflow_ops/bids/views.py`
+- 중앙 수집·matcher: `procurement/service.py`, `procurement/kepco.py`, `geoflow_ops/bids/matcher.py`
+- 중앙 관리: `procurement/views_central.py`, `procurement/dashboard.py`, `procurement/admin.py`
+- seed mapping: `deploy/bids/initial-rules.json`, `deploy/bids/kepco-rules.json`
+
+### Migration과 승인 후 적용 절차
+
+이 변경은 구현 및 격리 검증 대상이다. 운영 migration·배포·timer 재시작은 별도 승인 전 실행하지 않는다.
+기존 배포 workflow는 중앙 procurement migration을 최신까지 적용하므로 이 PR을 병합한 뒤에도
+운영 workflow를 승인 없이 실행하지 않는다. 테넌트 선택 변환은 자동 배포에 넣지 않는다.
+
+1. 중앙/대상 테넌트 DB와 현재 코드를 백업하고, 대상 alias 및 기존 선택을 확인한다.
+2. 승인된 점검 시간에 수집 worker와 앱의 schema 변경 동시 접근을 멈춘다.
+3. 중앙 DB에만 `python manage.py migrate procurement --database=default --noinput`을 적용한다.
+   0006은 논리 조건과 FK를 추가하고, 0007은 명시적 매핑으로 기존 규칙을 연결한다.
+   위 default는 실제 `CENTRAL_DB_ALIAS`가 default인 배포 기준이다. 다른 구성은 해당 alias를 사용한다.
+4. 새 앱 코드로 중앙/테넌트 읽기를 확인한다. 기존 tenant `rule_ids`도 resolver가 지원한다.
+5. 각 활성 tenant에 아래 dry-run을 실행한 뒤 승인 범위 안에서 execute한다.
+   `cheonan_db`는 현재 운영 설정 예이며 다른 회사에는 해당 alias를 명시한다.
+
+```bash
+python manage.py migrate_bid_interest_conditions --database=cheonan_db
+python manage.py migrate_bid_interest_conditions --database=cheonan_db --execute --backup-file=/secure/cheonan-interest-before.json
+```
+
+변환은 PostgreSQL 테이블 잠금 및 트랜잭션 안에서 수행한다. 새 mode0600 백업 파일을 먼저
+생성·fsync한 후 UPDATE하며 기존 파일을 덮어쓰지 않는다. 알려지지 않은 UUID나 미연결 규칙은
+원본을 유지하고 오류로 중단한다. 재실행 시 이미 변환된 값은 변경하지 않는다.
+테넌트 schema migration은 추가하지 않는다. 기존 0038 central_preferences가 있어야 한다.
+
+6. 실제 공고/선택/목록을 대조하고 기존 수집·증분·backfill 정상 여부를 확인한 뒤 승인 범위대로 재개한다.
+7. 복귀가 필요하면 현재 설정이 백업의 변환 후 값과 같을 때만 아래 guarded restore를 사용한다.
+   이후 사용자가 수정한 설정은 자동 덮어쓰지 않는다.
+
+```bash
+python manage.py migrate_bid_interest_conditions --database=cheonan_db --restore-file=/secure/cheonan-interest-before.json
+python manage.py migrate_bid_interest_conditions --database=cheonan_db --restore-file=/secure/cheonan-interest-before.json --execute --backup-file=/secure/cheonan-interest-restore-before.json
+```
+
+새 logical UUID로 저장된 설정을 복구하지 않고 구버전 코드로 돌아가면 조회가 누락될 수 있다.
+새로 추가·변경한 설정은 별도 대조해야 하므로 단순 코드 rollback을 무손실 복구로 간주하지 않는다.
+중앙 0007은 역방향 데이터를 삭제하지 않는다. 운영 0006 역이전으로 조건을 삭제하지 말고
+테넌트 백업 보존 및 roll-forward 수정을 우선한다.
+
+### E012607882 검증과 남은 사항
+
+공개 재현 공고의 제목은 `서산지역 전기공급시설 전력구공사(서산-성연) 지하시설물도 작성용역`이다.
+공개 재현 본문(https://work.00data.kr/projects/KPE012607882)의 참가자격에 공공측량업(또는 측지측량업),
+수치지도제작업, 지하시설물측량업이 함께 기재되어 있다. 이는 후보 matcher 회귀 표본에만 사용하며
+실제 KEPCO API 응답을 확보했다는 증거로 사용하지 않는다. 후보 검색의 OR를 입찰 자격의 OR로 해석하지 않는다.
+
+`procurement/test_conditions.py`의 해당 번호 표본은 API 형식에 맞춘 합성 fixture임을 명시한다.
+실 API 수신, 운영 중앙 저장·rule 관계, 실제 테넌트 노출은 별도 확인이 필요하다.
+이번 작업 세션에서 운영 중앙 화면은 권한 없음으로 조회가 막혔다. DB/API 값은 추측하지 않는다.
+
+승인된 읽기 환경에서 다음 명령으로 실제 중앙 원본·저장 rule·현재 matcher·논리 조건·테넌트 선택 및
+후속 지역/검토 필터 결과를 대조할 수 있다. 이 명령은 API 호출이나 DB 변경을 수행하지 않는다.
+
+```bash
+python manage.py diagnose_bid_notice_conditions --database=cheonan_db --number=E012607882 --source=kepco
+```
+
+실제 API JSON 파일을 별도로 확보한 경우에만 `--api-response=/secure/kepco-response.json`을 추가한다.
+파일이 없으면 `api_received`는 null(미확인)이다. 개인 숨김까지 확인하려면 해당 중앙 사용자 UUID를
+`--user-id`로 명시한다. 생략하면 회사 후보 목록만 검증하며 실제 사용자별 표시를 확정하지 않는다.
+기본 목록과 마감 포함 목록, 개인 숨김·회사 참여 안 함·지역 설정에 의한 제외를 구분한다.
+이 명령은 새 중앙 schema가 필요하므로 기존 운영 schema에서 무작정 실행하지 않는다.
+
+검증 범위는 기존 선택 변환·백업·보호 복원, 신규 source 동적 확장, G2B/한전 결과 통합,
+공고 중복 방지, 키워드 공백·접미사, 출처 표시와 기존 수집 회귀를 포함한다.
+PostgreSQL 전용 검증은 CI의 격리 DB에서 실행한다. 실제 API/운영 공고 검증 및 데이터 규모별
+query 실행계획·성능은 운영 반영 전 남은 항목이다.
