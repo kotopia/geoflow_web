@@ -487,7 +487,9 @@ class CentralDashboardTests(TestCase):
 
     def test_condition_create_duplicate_and_disable(self):
         from .views_central import dashboard
-        data = dict(action="create", kind="industry", value="5031", name="지하시설물측량업")
+        from .models import InterestCondition
+        condition = InterestCondition.objects.create(kind="industry", key="underground-survey", name="지하시설물측량업")
+        data = dict(condition=str(condition.pk), action="create", kind="industry", value="5031", name="지하시설물측량업")
         with patch("control.decorators.lookup_user_id_from_request", return_value="central-admin"):
             self.assertEqual(dashboard(self.request("post", data)).status_code, 302)
             self.assertEqual(dashboard(self.request("post", data)).status_code, 200)
@@ -618,7 +620,8 @@ class TenantIsolationTests(TestCase):
         save('company_a', [])
         self.assertEqual(selected_ids('company_a'), [])
         self.assertEqual(selected_ids('company_b'), [str(self.rule.pk)])
-        save('company_a', [str(self.rule.pk)])
+        from .conditions import bind_rule
+        save('company_a', [str(bind_rule(self.rule).pk)])
         self.assertEqual(selected_ids('company_a'), [str(self.rule.pk)])
 
     @override_settings(G2B_CENTRAL_TENANT_DATABASES=('company_a',))

@@ -9,12 +9,33 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from control.decorators import require_central_admin
 from .dashboard import snapshot
-from .models import CollectionRule, CollectionPeriod
+from .models import CollectionRule, CollectionPeriod, InterestCondition
+from .conditions import condition_id
 from .period import selection, months_before
 from .service import central_alias, enqueue_rule
 
 
+class ConditionForm(forms.Form):
+    kind = forms.ChoiceField(label="관심조건 종류", choices=InterestCondition._meta.get_field("kind").choices)
+    key = forms.SlugField(label="안정적인 조건 키", max_length=120)
+    name = forms.CharField(label="업종명 / 키워드", max_length=255)
+
+
 class RuleForm(forms.Form):
+    condition = forms.ModelChoiceField(label="연결할 논리 관심조건", queryset=InterestCondition.objects.none(),
+                                       widget=forms.Select(attrs={"class": "form-select"}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['condition'].queryset = InterestCondition.objects.using(central_alias()).order_by('kind', 'name')
+
+    def clean(self):
+        data = super().clean()
+        condition = data.get('condition')
+        if condition and condition.kind != data.get('kind'):
+            raise forms.ValidationError('관심조건과 기관별 규칙의 종류가 다릅니다.')
+        return data
+
     source = forms.ChoiceField(label="공고 출처", required=False, choices=CollectionRule._meta.get_field("source").choices, initial="g2b", widget=forms.Select(attrs={"class": "form-select"}))
     kind = forms.ChoiceField(label="조건 종류", choices=CollectionRule._meta.get_field("kind").choices,
                              widget=forms.Select(attrs={"class": "form-select"}))
@@ -25,7 +46,7 @@ class RuleForm(forms.Form):
 
     def clean_value(self):
         value = self.cleaned_data["value"].strip()
-        if self.cleaned_data.get("source", "g2b") != "kepco" and self.cleaned_data.get("kind") == "industry" and not (value.isascii() and value.isdigit()):
+        if (self.cleaned_data.get("source") or "g2b") == "g2b" and self.cleaned_data.get("kind") == "industry" and not (value.isascii() and value.isdigit()):
             raise forms.ValidationError("나라장터 숫자 업종코드를 입력하세요.")
         return value
 
@@ -57,11 +78,22 @@ class PeriodForm(forms.Form):
 @require_http_methods(["GET", "POST"])
 def dashboard(request):
     form = RuleForm()
+    condition_form = ConditionForm()
     period_form = PeriodForm(initial=selection())
     alias = central_alias()
     if request.method == "POST":
         action = request.POST.get("action")
-        if action == "set_period":
+        if action == "create_condition":
+            condition_form = ConditionForm(request.POST)
+            if condition_form.is_valid():
+                data = condition_form.cleaned_data
+                _, created = InterestCondition.objects.using(alias).get_or_create(
+                    kind=data['kind'], key=data['key'],
+                    defaults={'id': condition_id(data['kind'], data['key']), 'name': data['name']})
+                if created:
+                    return redirect("control:central_bids")
+                condition_form.add_error('key', '이미 등록된 관심조건 키입니다.')
+        elif action == "set_period":
             period_form = PeriodForm(request.POST)
             if period_form.is_valid():
                 with transaction.atomic(using=alias):
@@ -75,7 +107,7 @@ def dashboard(request):
                 with transaction.atomic(using=alias):
                     rule, created = CollectionRule.objects.using(alias).get_or_create(
                         source=form.cleaned_data.get("source") or "g2b", kind=form.cleaned_data["kind"], value=form.cleaned_data["value"],
-                        defaults={"name": form.cleaned_data["name"]})
+                        defaults={"name": form.cleaned_data["name"], "condition": form.cleaned_data["condition"]})
                     if created:
                         enqueue_rule(rule)
                 if created:
@@ -107,7 +139,7 @@ def dashboard(request):
             return redirect("control:central_bids")
         else:
             return HttpResponseBadRequest("지원하지 않는 작업입니다.")
-    return render(request, "procurement/central_dashboard.html", {"form": form, "period_form": period_form, **snapshot()})
+    return render(request, "procurement/central_dashboard.html", {"form": form, "condition_form": condition_form, "period_form": period_form, **snapshot()})
 
 
 @require_central_admin

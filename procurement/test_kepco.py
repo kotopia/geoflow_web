@@ -112,7 +112,9 @@ class KepcoTests(TestCase):
 
     def test_central_industry_form_supports_provider_specific_values(self):
         from .views_central import RuleForm
-        form=RuleForm({'source':'kepco','kind':'industry','value':'공공측량업','name':'공공측량업'})
+        from .conditions import bind_rule
+        condition = bind_rule(self.rule)
+        form=RuleForm({'condition': str(condition.pk), 'source':'kepco','kind':'industry','value':'공공측량업','name':'공공측량업'})
         self.assertTrue(form.is_valid(),form.errors)
-        form=RuleForm({'source':'g2b','kind':'industry','value':'공공측량업','name':'공공측량업'})
+        form=RuleForm({'condition': str(condition.pk), 'source':'g2b','kind':'industry','value':'공공측량업','name':'공공측량업'})
         self.assertFalse(form.is_valid())
