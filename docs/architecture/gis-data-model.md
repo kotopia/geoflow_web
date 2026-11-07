@@ -359,3 +359,7 @@ Tenant `gis.project_definition` 한 테이블에 중앙 UUID만 저장하며 Def
 The [QC & Structure local pilot](gis-qc-structure-pilot.md) is an independent
 experimental QGIS plugin. Its disposable outputs do not replace the canonical
 GIS data model or establish a server-side QC/structure contract.
+In the pilot, pipe depth statistics consume the stored numeric values of an
+explicitly selected water-depth layer (repository evidence: `wtl_pipe_ps.pip_dep`),
+without recalculating from Survey or Z. Local revisioned code books and Profiles
+are embedded in disposable output provenance and do not modify central definitions.

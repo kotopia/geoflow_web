@@ -70,3 +70,6 @@ finally:
     plugin.window.close()
     for lyr in layers:
         project.removeMapLayer(lyr.id())
+
+import runpy
+runpy.run_path(str(Path(__file__).with_name('qc_reference_runtime.py')))

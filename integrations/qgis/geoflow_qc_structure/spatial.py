@@ -12,6 +12,8 @@ class Spatial:
         self.crs = layer.crs()
         self.project = QgsProject.instance()
         self.references = {}
+        self.aggregates = {}
+        self.aggregate_searches = 0
 
     @staticmethod
     def exists(geom):
@@ -81,7 +83,101 @@ class Spatial:
         if kind == "AREA" and g.type() != Qgis.GeometryType.Polygon:
             raise ValueError("면적 계산에는 면 도형 필요")
         value = g.length() if kind == "LENGTH" else g.area()
-        return round(value / allowed[kind][params["unit"]], params.get("precision", 9))
+        return value / allowed[kind][params["unit"]]
+
+    def validate_aggregate(self, params):
+        from qgis.core import QgsVectorLayer
+        from .catalog import validate_operation
+        validate_operation('AGGREGATE', params)
+        self.metric(params)
+        ref = self.project.mapLayer(params['reference_layer'])
+        if not isinstance(ref, QgsVectorLayer) or not ref.isValid():
+            raise ValueError('지정한 심도 원본 레이어가 없습니다.')
+        if params.get('reference_binding'):
+            import hashlib
+            current = dict(definition_layer_id=str(ref.customProperty('geoflow/definition_layer_id', '')),
+                           provider=ref.providerType(), source_sha256=hashlib.sha256(ref.source().encode()).hexdigest())
+            if current != params['reference_binding']:
+                raise ValueError('심도 원본 연결 정보가 변경되었습니다. 원본 레이어를 다시 지정하세요.')
+        index = ref.fields().indexFromName(params['reference_field'])
+        if index < 0 or not ref.fields()[index].isNumeric():
+            raise ValueError('지정한 심도 필드는 숫자형이어야 합니다.')
+        if not ref.crs().isValid() or not self.crs.isValid():
+            raise ValueError('원본/참조 좌표계가 필요합니다.')
+        if ref.id() == self.layer.id():
+            raise ValueError('별도의 저장 심도 원본 레이어를 지정하세요.')
+        for key in params.get('candidate_filter', {}):
+            if ref.fields().indexFromName(key) < 0:
+                raise ValueError(f'참조 범위 필드 없음: {key}')
+        for key in params.get('target_filter', {}):
+            if self.layer.fields().indexFromName(key) < 0:
+                raise ValueError(f'관로 범위 필드 없음: {key}')
+
+    def aggregate(self, geom, params):
+        """Assign stored reference objects to unambiguous pipes once per shared group."""
+        import json
+        from .ui_values import scalar
+        from .references import aggregate_values
+        self.validate_aggregate(params)
+        shared = {k: v for k, v in params.items() if k != 'statistic'}
+        key = json.dumps(shared, sort_keys=True)
+        if key not in self.aggregates:
+            crs = self.metric(params)
+            index, refs = self.reference(params, crs)
+            ref_layer = self.project.mapLayer(params['reference_layer'])
+            selected = set(ref_layer.selectedFeatureIds()) if params['scope'] == 'selected' else None
+            # Both indices and statistics are shared by mean/minimum/maximum fields.
+            pipes, groups, ambiguous = {}, {}, {}
+            from qgis.core import QgsFeature
+            pipe_index = QgsSpatialIndex()
+            for feature in self.layer.getFeatures():
+                if any(scalar(feature[k]) != v for k, v in params.get('target_filter', {}).items()):
+                    continue
+                if not self.valid(feature.geometry()):
+                    continue
+                g = self.transform(feature.geometry(), self.crs, crs, self.project)
+                entry = QgsFeature(feature.id())
+                entry.setGeometry(g)
+                pipe_index.addFeature(entry)
+                pipes[feature.id()] = (bytes(feature.geometry().asWkb()), g)
+                groups[feature.id()], ambiguous[feature.id()] = [], []
+            for fid, (feature, g) in refs.items():
+                if selected is not None and fid not in selected:
+                    continue
+                if any(scalar(feature[k]) != v for k, v in params.get('candidate_filter', {}).items()):
+                    continue
+                bounds = g.boundingBox()
+                bounds.grow(params['radius'])
+                candidates = sorted((g.distance(pipes[i][1]), i) for i in set(pipe_index.intersects(bounds)))
+                candidates = [(distance, i) for distance, i in candidates if 0 <= distance <= params['radius']]
+                if not candidates:
+                    continue
+                if len(candidates) > 1 and (params['selection_policy'] == 'unique' or abs(candidates[0][0] - candidates[1][0]) <= 1e-8):
+                    for _, i in candidates:
+                        ambiguous[i].append(fid)
+                    continue
+                groups[candidates[0][1]].append((fid, scalar(feature[params['reference_field']])))
+            results = {}
+            for i, (wkb, _) in pipes.items():
+                result = aggregate_values(groups[i])
+                result.update(settings=shared, ambiguous=ambiguous[i], target_id=i,
+                              reference_layer=ref_layer.id(), reference_field=params['reference_field'], target_wkb=wkb.hex())
+                results[i] = result
+            self.aggregates[key] = results
+            self.aggregate_searches += 1
+        results = self.aggregates[key]
+        if hasattr(self, 'current_feature_id'):
+            result = results.get(self.current_feature_id)
+        else:
+            matches = [r for r in results.values() if r['target_wkb'] == bytes(geom.asWkb()).hex()]
+            if len(matches) > 1:
+                raise ValueError('동일 위치 관로 후보가 여러 개입니다. 검토가 필요합니다.')
+            result = matches[0] if matches else None
+        if result is None:
+            raise ValueError('관로 범위에서 제외되었거나 유효한 도형이 없습니다.')
+        if result['ambiguous']:
+            raise ValueError(f"복수 관로 후보: 원본 객체 {result['ambiguous']} · 검토 필요")
+        return result
 
     def reference(self, params, crs):
         from qgis.core import QgsFeature, QgsVectorLayer
