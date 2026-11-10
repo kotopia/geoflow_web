@@ -19,47 +19,30 @@ def tenant_dashboard(request):
                'can_view_contracts': gf_has_perm(request, 'contracts.view'),
                'can_view_directory': gf_has_perm(request, 'directory.view')}
     try:
-        projects = list(visible_projects(request, alias).only('id','name','status','end_date','contract_id','contract__id','contract__end_date'))
-        contracts = list(Contract.objects.using(alias).only('id','end_date')) if context['can_view_contracts'] else []
-        all_contracts = {str(c.id): c for c in contracts}
-        all_contracts.update({str(p.contract_id): p.contract for p in projects if p.contract_id})
-        summaries = workflow_map(request, alias, all_contracts.values())
+        projects = list(visible_projects(request, alias).only('id', 'status'))
+        contracts = []
+        if context['can_view_contracts']:
+            contracts = list(Contract.objects.using(alias).select_related('client', 'org_unit').only(
+                'id', 'name', 'end_date', 'client__name', 'org_unit__label', 'org_unit__name',
+            ))
+        summaries = workflow_map(request, alias, contracts)
         cards = []
         if context['can_view_contracts']:
             cards.append(summary_card('계약', reverse('tenant:contract_list'), contracts, summaries))
         if context['can_view_projects']:
             cards.append(summary_card('프로젝트', reverse('tenant:project_list'), projects, summaries, projects=True))
-        ending = filter_records(projects, summaries, {'ending_days': context['days']}, projects=True, today=context['today'])
-        managers = _project_managers(alias, [str(p.id) for p in ending[:5]]) if context['can_view_directory'] else {}
-        from .services.project_status import project_status_options
-        labels = dict(project_status_options(alias))
+
+        ending = filter_records(contracts, summaries, {'ending_days': context['days']}, today=context['today'])
         context.update(cards=cards, ending_count=len(ending), ending_rows=[{
-            'manager': managers.get(str(p.id), '미지정') if context['can_view_directory'] else '열람 제한',
-            'id': p.id, 'name': p.name or '프로젝트', 'end_date': p.end_date,
-            'days_left': (p.end_date-context['today']).days,
-            'status_label': labels.get(p.status, p.status or '미설정'),
-        } for p in ending[:5]])
+            'id': contract.id,
+            'name': contract.name,
+            'client': contract.client.name if contract.client else None,
+            'company': (contract.org_unit.label or contract.org_unit.name) if contract.org_unit else None,
+            'end_date': contract.end_date,
+            'days_left': (contract.end_date - context['today']).days,
+            'status_label': summaries[str(contract.id)]['major_label'],
+        } for contract in ending[:5]])
     except DatabaseError:
         logger.exception('Dashboard overview query failed')
         context['overview_error'] = True
     return render(request, 'geoflow_ops/home.html', context)
-
-
-def _project_managers(alias, ids):
-    from django.db import connections
-    if not ids:
-        return {}
-    with connections[alias].cursor() as cursor:
-        cursor.execute("SELECT to_regclass('prj.project_members') IS NOT NULL")
-        if not cursor.fetchone()[0]:
-            return {}
-        cursor.execute("""SELECT m.project_id::text, COALESCE(e.name, m.invite_name, '')
-            FROM prj.project_members m LEFT JOIN hr.employee_profile e
-              ON e.id=m.employee_id AND e.is_deleted=false
-            WHERE m.project_id=ANY(%s::uuid[]) AND m.membership_status='active'
-              AND m.member_role='project_manager' ORDER BY m.project_id, m.id""", [ids])
-        names = {}
-        for pid, name in cursor.fetchall():
-            if name:
-                names.setdefault(pid, []).append(name)
-        return {pid: ', '.join(values) for pid, values in names.items()}
