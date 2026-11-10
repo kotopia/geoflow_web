@@ -173,6 +173,16 @@ class PilotTests(unittest.TestCase):
         _, changes, _, _ = preview('pipe', source, profile, self.fields, Measured())
         self.assertTrue(any(row[-1].startswith('ERROR') for row in changes))
 
+    def test_generated_input_qc_and_explicit_null(self):
+        profile = deepcopy(self.p)
+        profile['qc_rules']['output_length'] = dict(type='REQUIRED', field='BYC_LEN', phase='PRE')
+        findings, changes, rows, fields = preview('pipe', [(1, {}, 'line')], profile, self.fields, self.spatial)
+        self.assertFalse(blocked(findings))
+        profile['field_rules']['FACILITY_CODE'].update(operation='COPY', params={'source_field': 'ftr_cde'})
+        profile['field_rules']['FACILITY_CODE']['field'] = dict(self.fields['FACILITY_CODE'], default_value='SA001')
+        _, _, rows, _ = preview('pipe', [(1, {'ftr_cde': None}, 'line')], profile, self.fields, self.spatial)
+        self.assertIsNone(rows[0][1]['ftr_cde'])
+
     def test_package_and_existing_entry_preservation(self):
         from scripts.ops import publish_qgis_plugin_repository as publish
         source = Path('integrations/qgis/geoflow_qc_structure')
@@ -190,6 +200,8 @@ class PilotTests(unittest.TestCase):
             publish.validate_package(xml,dest,'stable')
         with zipfile.ZipFile(dest) as z:
             self.assertIn(source.name+'/field_editor.py', z.namelist())
+            for name in ('references.py', 'reference_editor.py', 'operation_editor.py', 'preview_table.py', 'output.py'):
+                self.assertIn(source.name+'/'+name, z.namelist())
             self.assertTrue(all(n.startswith(source.name+'/') for n in z.namelist()))
             self.assertFalse(any('test_' in n or '__pycache__' in n for n in z.namelist()))
 

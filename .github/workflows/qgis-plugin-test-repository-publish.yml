@@ -61,7 +61,7 @@ jobs:
           [[ "$PLUGIN_ID" =~ ^(geoflow_connector|geoflow_qc_structure)$ ]]
           if [ "$PLUGIN_ID" = geoflow_qc_structure ]; then
             python3 -m pip install botocore
-            python3 -m unittest scripts.qgis.test_qc_structure
+            python3 -m unittest scripts.qgis.test_qc_structure scripts.qgis.test_qc_references
           fi
           python3 scripts/qgis/build_plugin_repository.py \
             --source "integrations/qgis/$PLUGIN_ID" \
