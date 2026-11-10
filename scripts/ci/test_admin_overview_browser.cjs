@@ -5,6 +5,14 @@ if(u.pathname.includes('/calendar_events/')) return route.fulfill({json:[{id:'fi
 if(u.pathname.startsWith('/static/')){let rest=u.pathname.slice(8);let app=rest.split('/')[0];f=path.join(process.cwd(),app==='control'?'control/static':'geoflow_ops/static',rest);}
 if(!fs.existsSync(f))return route.fulfill({status:404,body:''});let ext=path.extname(f);return route.fulfill({path:f,contentType:({'.css':'text/css','.js':'text/javascript','.html':'text/html','.png':'image/png','.woff2':'font/woff2'})[ext]});});
 await page.goto('http://preview.local/');await page.waitForSelector('.fc-daygrid-day');await page.waitForTimeout(500);await page.screenshot({path:'artifacts/admin-overview/desktop.png',fullPage:true});
+const dueCard = page.locator('.card').filter({has: page.getByRole('heading', {name: /종료 예정 계약/})});
+const assert = require('node:assert/strict');
+assert.deepEqual(await dueCard.locator('th').allTextContents(), ['계약명','발주처','계약회사','현재 상태','종료 예정일','남은 일수']);
+assert.equal(await dueCard.locator('tbody tr').count(), 5);
+assert.match(await dueCard.locator('tbody tr').first().innerText(), /검증 발주처/);
+assert.match(await dueCard.locator('tbody tr').first().innerText(), /검증 계약회사/);
+assert.match(await dueCard.locator('tbody a').first().getAttribute('href'), /contract_detail/);
+assert.match(await dueCard.getByRole('link', {name: /전체 보기/}).getAttribute('href'), /contract_list.*overview=1&ending_days=30/);
 if(!(await page.locator('#calendar-details').innerText()).includes('검증용 프로젝트 1')) throw Error('initial date not selected');
 await page.locator('[data-date="2026-10-20"]').first().click();if(!(await page.locator('#selected-date').innerText()).includes('2026-10-20'))throw Error('date selection failed');
 await page.locator('[data-date="2026-10-19"]').first().click();

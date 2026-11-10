@@ -15,13 +15,13 @@
       </div><div class="small text-muted mt-3">준비·계약·준공 등 기타 단계 {{ card.other }}건 포함</div>
     </div></div></div>{% empty %}<div class="col-12"><div class="alert alert-info">계약·프로젝트 현황을 열람할 권한이 없습니다.</div></div>{% endfor %}
   </div>
-  {% if can_view_projects %}<div class="card"><div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
-    <h2 class="h5 card-title mb-0">종료 예정 프로젝트 <span class="text-muted small">{{ ending_count }}건</span></h2>
+  {% if can_view_contracts %}<div class="card"><div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h2 class="h5 card-title mb-0">종료 예정 계약 <span class="text-muted small">{{ ending_count }}건</span></h2>
     <div class="btn-group btn-group-sm" role="group" aria-label="종료 예정 기간"><a href="?ending_days=30" class="btn btn-{% if days != 30 %}outline-{% endif %}primary">30일 이내</a><a href="?ending_days=50" class="btn btn-{% if days != 50 %}outline-{% endif %}primary">50일 이내</a></div>
   </div><div class="card-body pt-0"><p class="small text-muted">오늘부터 {{ days }}일 이내 · 미완료 · 현재 계약 종료일 기준 · 최대 5건</p>
-  <div class="table-responsive"><table class="table table-hover mb-0 text-nowrap"><thead><tr><th>프로젝트명</th><th>담당자</th><th>현재 상태</th><th>종료 예정일</th><th>남은 일수</th></tr></thead><tbody>
-  {% for row in ending_rows %}<tr><td><a href="{% url 'tenant:project_detail' row.id %}">{{ row.name }}</a></td><td>{{ row.manager }}</td><td><span class="badge bg-light text-dark">{{ row.status_label }}</span></td><td class="text-nowrap">{{ row.end_date|date:'Y-m-d' }}</td><td class="text-nowrap">D-{{ row.days_left }}</td></tr>{% empty %}<tr><td colspan="5" class="text-muted text-center py-4">해당 기간에 종료 예정인 프로젝트가 없습니다.</td></tr>{% endfor %}
-  </tbody></table></div><div class="text-end mt-3"><a href="{% url 'tenant:project_list' %}?overview=1&amp;ending_days={{ days }}" class="btn btn-outline-primary btn-sm">전체 보기 ({{ ending_count }})</a></div></div></div>{% endif %}
+  <div class="table-responsive"><table class="table table-hover mb-0 text-nowrap"><thead><tr><th>계약명</th><th>발주처</th><th>계약회사</th><th>현재 상태</th><th>종료 예정일</th><th>남은 일수</th></tr></thead><tbody>
+  {% for row in ending_rows %}<tr><td><a href="{% url 'tenant:contract_detail' row.id %}">{{ row.name }}</a></td><td>{{ row.client|default:"-" }}</td><td>{{ row.company|default:"-" }}</td><td><span class="badge bg-light text-dark">{{ row.status_label }}</span></td><td class="text-nowrap">{{ row.end_date|date:'Y-m-d' }}</td><td class="text-nowrap">D-{{ row.days_left }}</td></tr>{% empty %}<tr><td colspan="6" class="text-muted text-center py-4">해당 기간에 종료 예정인 계약이 없습니다.</td></tr>{% endfor %}
+  </tbody></table></div><div class="text-end mt-3"><a href="{% url 'tenant:contract_list' %}?overview=1&amp;ending_days={{ days }}" class="btn btn-outline-primary btn-sm">전체 보기 ({{ ending_count }})</a></div></div></div>{% endif %}
   {% endif %}
   <div class="card"><div class="card-header"><h2 class="h5 card-title mb-0">월간 일정</h2></div><div class="card-body pt-0">
     <p class="small text-muted">등록된 업무 일정 · 색상 점: 예정 · 회색: 완료 이력</p>

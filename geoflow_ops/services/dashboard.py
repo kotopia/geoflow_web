@@ -14,7 +14,7 @@ def period_days(value):
 
 
 def visible_projects(request, alias):
-    qs = Project.objects.using(alias).select_related('contract')
+    qs = Project.objects.using(alias)
     if not gf_has_perm(request, 'projects.view'):
         return qs.none()
     ids = project_access_policy(request, alias).visible_project_ids()
@@ -22,24 +22,30 @@ def visible_projects(request, alias):
 
 
 def workflow_map(request, alias, contracts):
-    # One shared batch for both cards and the due-project table.
+    # The contract card, deadlines and list share the event-derived workflow.
     return contract_workflow_summaries(alias, contracts, request=request)
+
+
+def _record_state(row, summaries, projects):
+    if projects:
+        return {'filter_key': status_key(row.status), 'is_complete': row.status == 'complete'}
+    return summaries.get(str(row.id), {})
 
 
 def filter_records(rows, summaries, params, *, projects=False, today=None):
     """Dashboard links and the destination list use this exact predicate."""
     today = today or timezone.localdate()
     selected = params.get('overview_status')
-    due = params.get('ending_days') if projects else None
+    due = params.get('ending_days')
+    last_day = today + timedelta(days=period_days(due)) if due else None
     result = []
     for row in rows:
-        contract = row.contract if projects else row
-        state = ({'filter_key': status_key(row.status), 'is_complete': row.status == 'complete'} if projects else (summaries.get(str(contract.id), {}) if contract else {}))
+        state = _record_state(row, summaries, projects)
         if selected in {'active', 'complete', 'planned', 'pause'} and state.get('filter_key') != selected:
             continue
         if due:
-            end = row.end_date if projects else (contract.end_date if contract else None)
-            if not end or state.get('is_complete') or not today <= end <= today + timedelta(days=period_days(due)):
+            end = row.end_date
+            if not end or state.get('is_complete') or not today <= end <= last_day:
                 continue
         result.append(row)
     if due:
@@ -50,8 +56,7 @@ def filter_records(rows, summaries, params, *, projects=False, today=None):
 def summary_card(label, url, rows, summaries, *, projects=False):
     counts = Counter()
     for row in rows:
-        contract = row.contract if projects else row
-        state = ({'filter_key': status_key(row.status), 'is_complete': row.status == 'complete'} if projects else (summaries.get(str(contract.id), {}) if contract else {}))
+        state = _record_state(row, summaries, projects)
         counts[state.get('filter_key', 'other')] += 1
     metrics = []
     for key, name in [('all', '전체'), ('active', '진행'), ('complete', '완료')]:

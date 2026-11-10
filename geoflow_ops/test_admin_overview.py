@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase, RequestFactory
 from geoflow_ops.services.dashboard import filter_records, summary_card, visible_projects
 from geoflow_ops.views_calendar import calendar_events
+from geoflow_ops import views_dashboard
 
 
 class OverviewTests(SimpleTestCase):
@@ -12,7 +13,7 @@ class OverviewTests(SimpleTestCase):
         self.projects = []
         self.states = {}
         for i, offset in enumerate([-1,0,30,31,50,51,None]):
-            contract = Row(id=i, end_date=self.today+timedelta(days=offset) if offset is not None else None)
+            contract = Row(id=i, pk=i, end_date=self.today+timedelta(days=offset) if offset is not None else None)
             self.projects.append(Row(pk=i, contract=contract, status="active", end_date=contract.end_date))
             self.states[str(i)] = {'filter_key': 'active', 'is_complete': False}
 
@@ -30,6 +31,47 @@ class OverviewTests(SimpleTestCase):
         self.projects[0].end_date = self.today+timedelta(days=50)
         self.assertEqual(len(filter_records(self.projects[:1], self.states, {'ending_days':30}, projects=True,today=self.today)),0)
 
+    def test_contract_window_uses_edited_deadline_and_contract_completion(self):
+        contracts = [project.contract for project in reversed(self.projects)]
+        self.projects[0].contract.end_date = self.today + timedelta(days=10)
+        self.projects[1].status = 'complete'
+        self.states['2'] = {'filter_key': 'complete', 'is_complete': True}
+        for days, expected in [(30, [1, 0]), (50, [1, 0, 3, 4])]:
+            with self.subTest(days=days):
+                rows = filter_records(contracts, self.states, {'ending_days': str(days)}, today=self.today)
+                self.assertEqual([row.pk for row in rows], expected)
+
+    def test_dashboard_contract_visibility_and_preview(self):
+        contracts = [Row(id=i, pk=i, name=f'계약 {i}', end_date=self.today,
+                         client=Row(name='발주 기관'), org_unit=Row(label='', name='본사'))
+                     for i in range(6)]
+        states = {str(c.id): {'filter_key': 'active', 'major_label': '수행', 'is_complete': False}
+                  for c in contracts}
+        request = RequestFactory().get('/')
+        with patch.object(views_dashboard, 'require_tenant_context', return_value='tenant_a'), \
+             patch.object(views_dashboard, 'gf_has_perm') as permission, \
+             patch.object(views_dashboard, 'visible_projects') as projects, \
+             patch.object(views_dashboard, 'Contract') as model, \
+             patch.object(views_dashboard, 'workflow_map', return_value=states), \
+             patch.object(views_dashboard.timezone, 'localdate', return_value=self.today), \
+             patch.object(views_dashboard, 'render', side_effect=lambda req, template, ctx: ctx):
+            projects.return_value.only.return_value = []
+            permission.side_effect = lambda req, perm: perm == 'projects.view'
+            self.assertFalse(views_dashboard.tenant_dashboard(request)['can_view_contracts'])
+            model.objects.using.assert_not_called()
+
+            permission.side_effect = lambda req, perm: perm == 'contracts.view'
+            model.objects.using.return_value.select_related.return_value.only.return_value = contracts
+            ctx = views_dashboard.tenant_dashboard(request)
+            model.objects.using.assert_called_once_with('tenant_a')
+            self.assertTrue(ctx['can_view_contracts'])
+            self.assertEqual(ctx['ending_count'], 6)
+            self.assertEqual([row['id'] for row in ctx['ending_rows']], list(range(5)))
+            self.assertEqual(ctx['ending_rows'][0], {
+                'id': 0, 'name': '계약 0', 'client': '발주 기관', 'company': '본사',
+                'end_date': self.today, 'days_left': 0, 'status_label': '수행',
+            })
+
     def test_card_links_match_same_list_filter_without_merging_other_states(self):
         self.projects[1].status='pause'
         self.projects[2].status='complete'
@@ -45,7 +87,7 @@ class OverviewTests(SimpleTestCase):
     @patch('geoflow_ops.services.dashboard.project_access_policy')
     @patch('geoflow_ops.services.dashboard.gf_has_perm')
     def test_visibility_uses_current_alias_and_memberships(self, perm, policy, model):
-        query=model.objects.using.return_value.select_related.return_value
+        query=model.objects.using.return_value
         perm.return_value=False
         visible_projects(object(),'tenant_a')
         query.none.assert_called_once()
