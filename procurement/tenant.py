@@ -2,7 +2,7 @@
 from datetime import datetime
 
 from django.db import connections
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from geoflow_ops.bids.repository import load_filters, REVIEW_STATUSES
@@ -122,15 +122,20 @@ def list_notices(alias, limit=15, offset=0, **kwargs):
     qs, reviews = query_notices(alias, **kwargs)
     qs = qs.order_by(*(["close_at", "-posted_at", "id"] if kwargs.get("sort") == "deadline" else ["-posted_at", "id"]))[max(0, offset):max(0, offset) + (30 if limit == 30 else 15)]
     result = []
+    # Fetch only the two display fields, not potentially large source payloads.
+    qs = qs.annotate(display_award=F("raw__notice__sucsfbidMthdNm"),
+                     display_registration=F("raw__notice__bidQlfctRgstDt")).defer("raw")
     for notice in qs:
         row = dict(notice.summary, id=str(notice.pk), title=notice.title, posted_at=notice.posted_at,
                    bid_close_at=notice.close_at, needs_review=True, reasons=[],
                    review_status="unreviewed", memo="")
         row.update(reviews.get(str(notice.pk), {}))
-        raw_notice = notice.raw.get("notice", {})
-        row["award_method_name"] = raw_notice.get("sucsfbidMthdNm", "")
+        row["award_method_name"] = notice.display_award or ""
         from geoflow_ops.bids.sync import _date
-        row["registration_close_at"] = _date(raw_notice.get("bidQlfctRgstDt"))
+        try:
+            row["registration_close_at"] = _date(notice.display_registration)
+        except (ValueError, TypeError):
+            row["registration_close_at"] = None
         if notice.close_at and notice.close_at <= timezone.now() and row.get("notice_status") != "cancelled":
             row["notice_status"] = "closed"
         result.append(row)

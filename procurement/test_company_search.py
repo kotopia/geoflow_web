@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from geoflow_ops.bids import profiles
 from procurement.models import CollectionRule, InterestCondition, Notice
-from procurement.tenant import query_notices, save_review, review_rows
+from procurement.tenant import query_notices, list_notices, save_review, review_rows
 
 
 class BadgeTests(SimpleTestCase):
@@ -74,6 +74,18 @@ class CompanyQueryTests(TestCase):
             self.assertEqual(query_notices('company_a',search_profile=profile)[0].count(),0)
             state={str(g.pk):dict(saved=True,hidden=False)}
             self.assertEqual(set(query_notices('company_a',search_profile=profile,personal_view='saved',personal_state=state)[0]), {g})
+
+    def test_old_payload_display_and_invalid_registration_date(self):
+        notice = Notice.objects.create(number='display',order='000',title='display',
+            posted_at=timezone.now(),last_seen_at=timezone.now(),
+            raw={'notice':{'sucsfbidMthdNm':'협상에 의한 계약','bidQlfctRgstDt':'2026-13-99 10:00:00'}})
+        with patch('procurement.tenant.review_rows',return_value={}), patch('procurement.tenant.load_filters',return_value={}):
+            row = list_notices('company_a',include_all=True)[0]
+            self.assertEqual(row['award_method_name'], '협상에 의한 계약')
+            self.assertIsNone(row['registration_close_at'])
+            notice.raw['notice']['bidQlfctRgstDt']='2026-11-30 10:00:00'
+            notice.save()
+            self.assertEqual(list_notices('company_a',include_all=True)[0]['registration_close_at'].day,30)
 
     def test_company_profile_regions_do_not_fall_back_to_tenant_filters(self):
         notice = Notice.objects.create(number='region',order='000',title='region',region_known=True,region_text='대전광역시',posted_at=timezone.now(),last_seen_at=timezone.now())
