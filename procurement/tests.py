@@ -646,6 +646,7 @@ class TenantIsolationTests(TestCase):
         request.session = {}
         with patch('geoflow_ops.bids.views.personal.user_id', return_value='00000000-0000-0000-0000-000000000001'), \
              patch('geoflow_ops.bids.views.personal.rows', return_value={}), \
+             patch('geoflow_ops.bids.views.profiles.context', return_value=([], None)), \
              patch('geoflow_ops.bids.views.repository.load_filters', return_value={}), \
              patch('geoflow_ops.bids.views.render', side_effect=lambda req, template, ctx: ctx), \
              patch('geoflow_ops.bids.views.sync_service_notices') as legacy, \

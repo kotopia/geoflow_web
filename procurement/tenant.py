@@ -2,7 +2,7 @@
 from datetime import datetime
 
 from django.db import connections
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from geoflow_ops.bids.repository import load_filters, REVIEW_STATUSES
@@ -33,7 +33,7 @@ def region_q(items):
     return condition
 
 
-def query_notices(alias, query="", review_status="", include_all=False, region="all", personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new", apply_extra=False, include_excluded=False, sources=None):
+def query_notices(alias, query="", review_status="", include_all=False, region="all", personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new", apply_extra=False, include_excluded=False, sources=None, search_profile=None):
     reviews = review_rows(alias)
     qs = Notice.objects.using(central_alias()).filter(posted_at__gte=retention_start(timezone.now()))
     state = personal_state or {}
@@ -65,11 +65,22 @@ def query_notices(alias, query="", review_status="", include_all=False, region="
                        Q(agency__icontains=query[:100]) | Q(demand_agency__icontains=query[:100]))
     if personal_view in {'saved', 'hidden'}:
         return qs, reviews
-    filters = load_filters(alias)
+    if search_profile is not None:
+        from geoflow_ops.bids.profiles import filters as profile_filters
+        filters = profile_filters(alias, search_profile)
+    else:
+        filters = load_filters(alias)
     # The central rule relation is authoritative. Multiple selected rules are OR;
     # distinct prevents double counting a notice belonging to several rules.
     if not include_all:
-        qs = qs.filter(rules__id__in=selected_ids(alias, filters)).distinct()
+        if search_profile is not None:
+            from .conditions import resolve_rule_ids
+            rule_ids = resolve_rule_ids(search_profile.get("condition_ids", []))
+        else:
+            rule_ids = selected_ids(alias, filters)
+        qs = qs.filter(rules__id__in=rule_ids).distinct()
+        if search_profile and search_profile.get("sources") and sources is None:
+            qs = qs.filter(source__in=search_profile["sources"])
     regions = filters.get("region", [])
     unknown = Q(region_known=False) | Q(region_text="")
     if region == "nationwide":
@@ -111,11 +122,20 @@ def list_notices(alias, limit=15, offset=0, **kwargs):
     qs, reviews = query_notices(alias, **kwargs)
     qs = qs.order_by(*(["close_at", "-posted_at", "id"] if kwargs.get("sort") == "deadline" else ["-posted_at", "id"]))[max(0, offset):max(0, offset) + (30 if limit == 30 else 15)]
     result = []
-    for notice in qs.defer("raw"):
+    # Fetch only the two display fields, not potentially large source payloads.
+    qs = qs.annotate(display_award=F("raw__notice__sucsfbidMthdNm"),
+                     display_registration=F("raw__notice__bidQlfctRgstDt")).defer("raw")
+    for notice in qs:
         row = dict(notice.summary, id=str(notice.pk), title=notice.title, posted_at=notice.posted_at,
                    bid_close_at=notice.close_at, needs_review=True, reasons=[],
                    review_status="unreviewed", memo="")
         row.update(reviews.get(str(notice.pk), {}))
+        row["award_method_name"] = notice.display_award or ""
+        from geoflow_ops.bids.sync import _date
+        try:
+            row["registration_close_at"] = _date(notice.display_registration)
+        except (ValueError, TypeError):
+            row["registration_close_at"] = None
         if notice.close_at and notice.close_at <= timezone.now() and row.get("notice_status") != "cancelled":
             row["notice_status"] = "closed"
         result.append(row)
@@ -134,7 +154,7 @@ def latest_sync(alias):
 
 def save_review(alias, notice_id, *, status, memo, updated_by):
     enabled(alias)
-    if status not in REVIEW_STATUSES:
+    if status is not None and status not in REVIEW_STATUSES:
         raise ValueError("검토 상태를 확인하세요.")
     notice = Notice.objects.using(central_alias()).filter(pk=notice_id).first()
     if notice is None:
@@ -143,7 +163,7 @@ def save_review(alias, notice_id, *, status, memo, updated_by):
         cur.execute("""INSERT INTO bid.central_reviews
           (central_notice_id,notice_number,notice_order,title,detail_url,status,memo,updated_by)
           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-          ON CONFLICT(central_notice_id) DO UPDATE SET status=excluded.status,memo=excluded.memo,
+          ON CONFLICT(central_notice_id) DO UPDATE SET status=CASE WHEN %s THEN bid.central_reviews.status ELSE excluded.status END,memo=excluded.memo,
           updated_by=excluded.updated_by,updated_at=now()""",
           [str(notice.pk), notice.number, notice.order, notice.title, notice.summary.get("detail_url"),
-           status, memo[:2000], updated_by[:255]])
+           status or "unreviewed", memo[:2000], updated_by[:255], status is None])
