@@ -56,7 +56,7 @@ def save(alias, values):
                     [json.dumps(sorted(selected))])
 
 
-def add_keyword(alias, keyword):
+def add_keyword(alias, keyword, *, select=True):
     """Add one logical keyword and bind the configured central keyword sources."""
     from django.conf import settings
     from .models import SOURCES
@@ -92,6 +92,8 @@ def add_keyword(alias, keyword):
                 raise ValueError('기존 키워드 연결이 다릅니다. 중앙 관리자의 확인이 필요합니다.')
             if rule.active:
                 enqueue_rule(rule)
+    if not select:
+        return str(condition.pk)
     values = set(selected_conditions(alias))
     values.add(str(condition.pk))
     save(alias, values)

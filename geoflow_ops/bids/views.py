@@ -12,7 +12,7 @@ from django.utils.dateparse import parse_date
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from . import repository, personal
+from . import repository, personal, profiles
 from .client import G2BError
 from .sync import sync_service_notices
 from procurement.service import enabled as central_enabled
@@ -24,7 +24,11 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     history = central_enabled(alias) and request.GET.get("history") == "1"
     repo = central_repository if central_enabled(alias) and not history else repository
     query = str(request.GET.get("q") or "").strip()
-    review_status = str(request.GET.get("status") or "").strip()
+    # Historical status filters remain reachable only through the record archive.
+    archive = history or request.GET.get("archive") == "1"
+    review_status = str(request.GET.get("status") or "").strip() if archive else ""
+    companies, company = profiles.context(alias, request.GET.get("company")) if central_enabled(alias) and not history else ([], None)
+    search_profile, profile_inherited = profiles.effective(alias, company["id"]) if company else (None, False)
     include_all = history or str(request.GET.get("scope") or "") == "all"
     try:
         per_page = int(request.GET.get("per_page") or 15)
@@ -52,15 +56,16 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     if date_from and date_to and date_from > date_to:
         return HttpResponseBadRequest('시작일은 종료일보다 늦을 수 없습니다.')
     apply_extra = request.GET.get('extra') == '1'
-    include_excluded = request.GET.get('excluded') == '1'
+    include_excluded = True  # Only explicit personal hiding excludes a normal-list item.
     sources = [v for v in request.GET.getlist('source') if v in {'g2b', 'kepco'}]
     if central_enabled(alias) and not history:
-        extra.update(apply_extra=apply_extra, include_excluded=include_excluded, sources=sources or None)
+        extra.update(apply_extra=apply_extra, include_excluded=include_excluded, sources=sources or None, search_profile=search_profile)
+    extra["include_excluded"] = include_excluded
     extra.update(personal_state=state, personal_view=personal_view, include_closed=include_closed,
                  date_from=date_from, date_to=date_to, sort=sort)
     region_tabs = []
     if central_enabled(alias) and not history:
-        filters = repository.load_filters(alias)
+        filters = profiles.filters(alias, search_profile) if search_profile is not None else repository.load_filters(alias)
         tabs = [("all", "모든 지역" if include_all else "설정 지역·전국·확인 필요"), *[(r["id"], r["name"]) for r in filters.get("region", [])],
                 ("nationwide", "전국"), ("unknown", "지역 확인 필요")]
         for value, label in tabs:
@@ -81,7 +86,11 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         limit=per_page,
         offset=(page - 1) * per_page, **extra,
     )
+    catalog = repository.list_settings(alias) if company else {}
     for notice in notices:
+        notice['badges'] = profiles.badges(notice)
+        if company and profiles.local_badge(notice, search_profile, catalog):
+            notice['badges'].insert(0, '관내')
         notice['saved'] = state.get(str(notice['id']), {}).get('saved', False)
     query_params = request.GET.copy()
     query_params["per_page"] = str(per_page)
@@ -95,7 +104,10 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         next_params = query_params.copy()
         next_params["page"] = str(page + 1)
         next_query = next_params.urlencode()
+    company_query = ('&company=' + company['id']) if company else ''
     return render(request, "geoflow_ops/bids/notice_list.html", {
+        "companies": companies, "company": company, "company_query": company_query,
+        "profile_inherited": profile_inherited, "archive": archive,
         "apply_extra": apply_extra, "include_excluded": include_excluded,
         "source_choices": [dict(value=v, label=l, selected=v in sources) for v,l in [('g2b','나라장터'),('kepco','한국전력')]],
         "active_filters": filters if central_enabled(alias) and not history else {},
@@ -121,21 +133,33 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         "can_manage": can_manage and not history,
         "latest_sync": repo.latest_sync(alias),
         "central_mode": central_enabled(alias),
-        "review_choices": [
-            ("unreviewed", "미검토"), ("reviewing", "검토 중"),
-            ("interested", "관심"), ("considering", "참여 검토"), ("excluded", "참여 안 함"),
-        ],
     })
 
 
 def settings_page(request, alias: str):
     repo = central_repository if central_enabled(alias) else repository
     central = central_enabled(alias)
+    companies, company = profiles.context(alias, request.GET.get("company")) if central else ([], None)
+    search_profile, inherited = profiles.effective(alias, company["id"]) if company else (None, False)
     selected = set(preferences.selected_conditions(alias)) if central else set()
     rules = [dict(id=str(r.pk), name=r.name, kind=r.get_kind_display(), active=r.active,
                   selected=str(r.pk) in selected) for r in preferences.choices(alias)] if central else []
     configured = repository.list_settings(alias)
+    profile_groups = []
+    profile_rules = []
+    local_regions = []
+    if company:
+        profile_rules = [dict(rule, selected=rule['id'] in search_profile['condition_ids']) for rule in rules]
+        for kind, label in [('region', '관심지역'), ('agency', '발주·수요기관'), ('include', '결과 내 포함 키워드'), ('exclude', '제외 키워드')]:
+            profile_groups.append(dict(kind=kind, label=label, rows=[dict(row, selected=row['id'] in search_profile['selections'].get(kind, [])) for row in configured.get(kind, [])]))
+        local_regions = [dict(row, selected=row['id'] == search_profile.get('local_region_id'),
+                              suggested=row['name'].split()[-1] in company['address'])
+                         for row in configured.get('region', []) if profiles.is_local_region(row)]
     return render(request, "geoflow_ops/bids/settings.html", {
+        "companies": companies, "company": company, "profile_inherited": inherited,
+        "company_query": ('&company=' + company['id']) if company else '',
+        "profile_rules": profile_rules, "profile_groups": profile_groups, "local_regions": local_regions,
+        "profile_sources": [dict(value=v, label=l, selected=v in search_profile.get('sources', [])) for v,l in [('g2b','나라장터'),('kepco','한국전력')]] if company else [],
         "central_mode": central, "central_rules": rules,
         "settings": configured,
         "setting_groups": [dict(kind=kind, label=label, rows=configured.get(kind, []))
@@ -148,7 +172,14 @@ def settings_page(request, alias: str):
 
 def filter_value_save(request, alias: str):
     try:
-        if request.POST.get("action") == "selection":
+        if request.POST.get("action") == "company_profile":
+            if not central_enabled(alias):
+                raise ValueError('회사별 검색은 중앙 입찰 연동 후 사용할 수 있습니다.')
+            profiles.save(alias, request.POST.get('company'), dict(
+                condition_ids=request.POST.getlist('condition_ids'),
+                selections={kind: request.POST.getlist(kind + '_ids') for kind in profiles.KINDS},
+                sources=request.POST.getlist('source'), local_region_id=request.POST.get('local_region_id', '')))
+        elif request.POST.get("action") == "selection":
             kind = request.POST.get('kind')
             if kind == 'industry' and central_enabled(alias):
                 raise ValueError('업종은 중앙 수집조건에서 선택하세요.')
@@ -164,13 +195,21 @@ def filter_value_save(request, alias: str):
     except (ValueError, IntegrityError) as exc:
         return HttpResponseBadRequest(str(exc) if isinstance(exc, ValueError) else "같은 구분과 코드가 이미 등록되어 있습니다.")
     messages.success(request, "입찰 기준 항목을 저장했습니다.")
-    return redirect("tenant:bid_settings")
+    return settings_redirect(request)
 
 
 def keyword_save(request, alias: str):
     try:
         if central_enabled(alias) and request.POST.get('rule_type') == 'collection':
-            preferences.add_keyword(alias, request.POST.get('keyword'))
+            company_id = request.POST.get('company')
+            if company_id:
+                profiles.context(alias, company_id)
+                value, _ = profiles.effective(alias, company_id)
+                condition = preferences.add_keyword(alias, request.POST.get('keyword'), select=False)
+                value['condition_ids'] = sorted(set(value['condition_ids']) | {condition})
+                profiles.save(alias, company_id, value)
+            else:
+                preferences.add_keyword(alias, request.POST.get('keyword'))
         else:
             repository.save_keyword(alias, request.POST)
         if not central_enabled(alias):
@@ -178,7 +217,7 @@ def keyword_save(request, alias: str):
     except (ValueError, IntegrityError) as exc:
         return HttpResponseBadRequest(str(exc) if isinstance(exc, ValueError) else "같은 유형의 키워드가 이미 등록되어 있습니다.")
     messages.success(request, "입찰 키워드를 저장했습니다.")
-    return redirect("tenant:bid_settings")
+    return settings_redirect(request)
 
 
 def review_save(request, alias: str, notice_id):
@@ -187,14 +226,14 @@ def review_save(request, alias: str, notice_id):
         repo.save_review(
             alias,
             notice_id,
-            status=str(request.POST.get("status") or ""),
+            status=None,  # Recording a memo never changes legacy review state.
             memo=str(request.POST.get("memo") or "").strip(),
             updated_by=repository.actor(request),
         )
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
-    messages.success(request, "입찰 검토 상태를 저장했습니다.")
-    return redirect("tenant:bid_notice_list")
+    messages.success(request, "입찰 기록을 저장했습니다.")
+    return list_redirect(request)
 
 
 def sync_now(request, alias: str):
@@ -230,8 +269,18 @@ def personal_save(request, alias):
         return HttpResponseBadRequest(str(exc))
     if request.POST.get('action') == 'hide':
         request.session['bid_hidden_undo:' + alias] = ids
+    return list_redirect(request)
+
+
+def list_redirect(request):
     target = request.POST.get('next', '')
     path = reverse('tenant:bid_notice_list')
     if not url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}, require_https=request.is_secure()) or target.split('?')[0] != path:
         target = path
     return redirect(target)
+
+
+def settings_redirect(request):
+    from urllib.parse import urlencode
+    company = request.POST.get('company', '')
+    return redirect(reverse('tenant:bid_settings') + ('?' + urlencode({'company': company}) if company else ''))

@@ -160,7 +160,7 @@ def reevaluate_all(alias: str) -> int:
     return changed
 
 
-def _notice_filters(*, query: str, review_status: str, include_all: bool, reviewed_only: bool = False, personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new") -> tuple[list[str], list[Any]]:
+def _notice_filters(*, query: str, review_status: str, include_all: bool, reviewed_only: bool = False, personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new", include_excluded=False) -> tuple[list[str], list[Any]]:
     where = ["(%s OR COALESCE(m.matched,false)=true OR COALESCE(m.needs_review,false)=true)"]
     params: list[Any] = [include_all]
     state = personal_state or {}
@@ -189,7 +189,7 @@ def _notice_filters(*, query: str, review_status: str, include_all: bool, review
     if review_status in REVIEW_STATUSES:
         where.append("COALESCE(r.status,'unreviewed')=%s")
         params.append(review_status)
-    elif personal_view == "all":
+    elif personal_view == "all" and not include_excluded:
         where.append("COALESCE(r.status,'unreviewed')<>'excluded'")
     return where, params
 
@@ -231,7 +231,7 @@ def list_notices(
                CASE WHEN n.notice_status<>'cancelled' AND n.bid_close_at<=now() THEN 'closed' ELSE n.notice_status END,
                n.is_correction,COALESCE(m.matched,false),
                COALESCE(m.needs_review,false),COALESCE(m.reasons,'[]'::jsonb),
-               COALESCE(r.status,'unreviewed'),COALESCE(r.memo,'')
+               COALESCE(r.status,'unreviewed'),COALESCE(r.memo,''),n.bid_method_name,n.contract_method_name
           FROM bid.notices n
           LEFT JOIN bid.notice_matches m ON m.notice_id=n.id
           LEFT JOIN bid.notice_reviews r ON r.notice_id=n.id
@@ -247,7 +247,7 @@ def list_notices(
         "id","bid_notice_no","bid_notice_ord","title","notice_agency_name","demand_agency_name",
         "posted_at","bid_close_at","basic_amount","estimated_price","budget_amount","region_text",
         "industry_text","detail_url","notice_status","is_correction","matched","needs_review",
-        "reasons","review_status","memo",
+        "reasons","review_status","memo","bid_method_name","contract_method_name",
     ]
     notices = [dict(zip(keys, row)) for row in rows]
     for notice in notices:
@@ -256,7 +256,7 @@ def list_notices(
 
 
 def save_review(alias: str, notice_id: UUID, *, status: str, memo: str, updated_by: str) -> None:
-    if status not in REVIEW_STATUSES:
+    if status is not None and status not in REVIEW_STATUSES:
         raise ValueError("검토 상태를 확인하세요.")
     with transaction.atomic(using=alias), connections[alias].cursor() as cur:
         cur.execute("SELECT 1 FROM bid.notices WHERE id=%s", [notice_id])
@@ -265,8 +265,8 @@ def save_review(alias: str, notice_id: UUID, *, status: str, memo: str, updated_
         cur.execute(
             """INSERT INTO bid.notice_reviews(notice_id,status,memo,updated_by,updated_at)
                VALUES (%s,%s,%s,%s,now()) ON CONFLICT (notice_id) DO UPDATE SET
-               status=excluded.status,memo=excluded.memo,updated_by=excluded.updated_by,updated_at=now()""",
-            [notice_id, status, memo[:2000] or None, updated_by],
+               status=CASE WHEN %s THEN bid.notice_reviews.status ELSE excluded.status END,memo=excluded.memo,updated_by=excluded.updated_by,updated_at=now()""",
+            [notice_id, status or "unreviewed", memo[:2000] or None, updated_by, status is None],
         )
 
 

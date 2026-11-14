@@ -8,6 +8,8 @@ on:
       - 'geoflow_ops/migrations/0038_bid_central_preferences.py'
       - 'geoflow_ops/migrations/0051_bid_personal_state.py'
       - 'geoflow_ops/migrations/0052_merge_bid_personal_state.py'
+      - 'geoflow_ops/migrations/0053_bid_company_search_profiles.py'
+      - 'geoflow_ops/migrations/0054_merge_bid_company_search.py'
       - 'geoflow_ops/urls.py'
       - 'geoflow_ops/templates/geoflow_ops/bids/**'
       - 'geoflow_project/settings.py'

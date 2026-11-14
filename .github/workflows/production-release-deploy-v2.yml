@@ -351,7 +351,8 @@ jobs:
               return sql
 
           BID_TARGETS = [('0037_central_bid_reviews', '0036_bid_interest_foundation'),
-                         ('0038_bid_central_preferences', '0037_central_bid_reviews')]
+                         ('0038_bid_central_preferences', '0037_central_bid_reviews'),
+                         ('0053_bid_company_search_profiles', '0038_bid_central_preferences')]
           MIGRATION_SQL = {name: load_sql(name) for name, _ in TARGETS + BID_TARGETS}
           from django.conf import settings
           from procurement.cutover import prepare as prepare_bid_cutover
@@ -442,6 +443,7 @@ jobs:
                           cur.execute('INSERT INTO django_migrations(app,name,applied) SELECT %s,%s,NOW() WHERE NOT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)', [APP, name, APP, name])
                       validate(cur)
                       if row.db_name in central_names:
+                          cur.execute('SELECT company_id, settings FROM bid.company_search_profiles LIMIT 0')
                           result = prepare_bid_cutover(cur)
                           print(f'central_bid_cutover db={row.db_name} commit={commit} summary={result}')
                   conn.commit() if commit else conn.rollback()
