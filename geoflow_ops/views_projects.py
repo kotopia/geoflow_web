@@ -32,7 +32,7 @@ from collections import defaultdict
 from control.gf_authz.permissions import gf_perm_required
 from control.gf_authz.query import gf_scope_queryset
 from .views_catalog import build_scope_groups
-from .views_project_members import project_member_context
+from .views_project_members import project_member_context, project_manager_names
 from .services.project_access import project_access_policy
 from .services.workflow_state import contract_workflow_summaries, contract_workflow_summary
 from control.catalog import services_tenant as cat_svc
@@ -85,10 +85,10 @@ class ProjectListView(ListView):
         projects = list(self.object_list)
         labels = dict(project_status_options(alias))
         counts = {"total": len(projects), "planned": 0, "active": 0, "pause": 0, "cancel": 0, "complete": 0}
-        from .views_dashboard import _project_managers
-        managers = _project_managers(alias, [str(p.pk) for p in projects]) if gf_has_perm(self.request, "directory.view") else {}
+        can_view_directory = gf_has_perm(self.request, "directory.view")
+        managers = project_manager_names(alias, [str(p.pk) for p in projects]) if can_view_directory else {}
         for project in projects:
-            project.manager_names = managers.get(str(project.pk), "미지정") if gf_has_perm(self.request, "directory.view") else "열람 제한"
+            project.manager_names = managers.get(str(project.pk), "미지정") if can_view_directory else "열람 제한"
             project.status_label = labels.get(project.status, project.status or "미설정")
             project.status_key = status_key(project.status)
             if project.status_key in counts:

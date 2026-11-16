@@ -35,6 +35,29 @@ def _table_exists(alias: str, relation: str) -> bool:
     return bool(row and row[0])
 
 
+def project_manager_names(alias: str, project_ids: list[str]) -> dict[str, str]:
+    """Display active managers for already-authorized project IDs in one tenant."""
+    if not project_ids or not _table_exists(alias, "prj.project_members"):
+        return {}
+    with connections[alias].cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT m.project_id::text, COALESCE(e.name, m.invite_name, '')
+              FROM prj.project_members m
+              LEFT JOIN hr.employee_profile e ON e.id=m.employee_id AND e.is_deleted=false
+             WHERE m.project_id=ANY(%s::uuid[]) AND m.membership_status='active'
+               AND m.member_role='project_manager'
+             ORDER BY m.project_id, m.id
+            """,
+            [project_ids],
+        )
+        names: dict[str, list[str]] = {}
+        for project_id, name in cursor.fetchall():
+            if name:
+                names.setdefault(project_id, []).append(name)
+    return {project_id: ', '.join(values) for project_id, values in names.items()}
+
+
 def project_member_rows(alias: str, project_id) -> list[dict]:
     if not _table_exists(alias, "prj.project_members"):
         return []
