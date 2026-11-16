@@ -14,7 +14,8 @@ QC_TYPES = tuple("REQUIRED NULL_CHECK TYPE_CHECK LENGTH_CHECK PRECISION_CHECK SC
 OP_PARAMS = {
     "KEEP": (), "COPY": ("source_field",), "CONSTANT": ("value",),
     "LENGTH": ("crs", "unit"), "AREA": ("crs", "unit"),
-    "CODE_MAP": ("source_field", "mapping"),
+    "CODE_MAP": ("source_field",),
+    "AGGREGATE": ("reference_layer", "reference_field", "crs", "radius", "unit", "selection_policy", "scope", "statistic"),
     "START_REFERENCE": ("reference_layer", "reference_field", "crs", "radius"),
     "END_REFERENCE": ("reference_layer", "reference_field", "crs", "radius"),
     "SPATIAL_LOOKUP": ("reference_layer", "reference_field", "crs", "predicate"),
@@ -46,13 +47,31 @@ def validate_operation(name, params):
         raise ValueError(f"Invalid parameters for {name}")
     optional = {
         "KEEP": {"source_field"}, "LENGTH": {"precision"}, "AREA": {"precision"},
-        "CODE_MAP": {"fallback"}, "ANGLE": {"position"},
+        "CODE_MAP": {"mapping", "fallback", "book", "trim", "casefold", "unregistered", "unregistered_value"},
+        "AGGREGATE": {"candidate_filter", "target_filter", "reference_binding"}, "ANGLE": {"position"},
         "SPATIAL_LOOKUP": {"radius", "candidate_filter", "selection_policy"},
         "START_REFERENCE": {"candidate_filter", "selection_policy"},
         "END_REFERENCE": {"candidate_filter", "selection_policy"},
     }
     if params.keys() - set(OP_PARAMS[name]) - optional.get(name, set()):
         raise ValueError(f"Unknown parameters for {name}")
+    if name == "CODE_MAP":
+        from .references import validate_book
+        if "book" in params:
+            validate_book(params["book"], params.get("trim", False), params.get("casefold", False))
+            if type(params["book"].get("revision")) is not int:
+                raise ValueError("Saved code book revision required")
+            if params.get("unregistered", "error") not in {"error", "keep", "null", "value"}:
+                raise ValueError("Invalid unregistered policy")
+            if params.get("unregistered") == "value" and "unregistered_value" not in params:
+                raise ValueError("Unregistered replacement required")
+        elif "mapping" not in params:
+            raise ValueError("Explicit code book or mapping required")
+    if name == "AGGREGATE":
+        if params["statistic"] not in {"mean", "minimum", "maximum"} or params["unit"] not in {"m", "cm", "mm"}:
+            raise ValueError("Invalid aggregate statistic/unit")
+        if params["scope"] not in {"all", "selected"}:
+            raise ValueError("Explicit reference scope required")
     for key in ("source_field", "reference_field", "reference_layer", "crs"):
         if key in params and (not isinstance(params[key], str) or not params[key].strip()):
             raise ValueError(f"Invalid parameter: {key}")
@@ -60,7 +79,7 @@ def validate_operation(name, params):
         raise ValueError("Invalid search radius")
     if "precision" in params and (type(params["precision"]) is not int or not 0 <= params["precision"] <= 15):
         raise ValueError("Invalid measurement precision")
-    for key in ("mapping", "candidate_filter"):
+    for key in ("mapping", "candidate_filter", "target_filter"):
         if key in params and not isinstance(params[key], dict):
             raise ValueError(f"Invalid parameter: {key}")
     for key, values in {"predicate": {"intersects","within","within_radius"}, "position": {"start","end"},
@@ -153,6 +172,12 @@ class LocalCatalogProvider:
         profile.update(revision=old.get("revision", 0)+1, created_at=old.get("created_at", now), updated_at=now)
         profiles[profile["id"]] = profile
         resolved = self.resolve(profile["id"], profiles)
+        # A saved revision remains independent of later base/field catalog edits.
+        profile['field_rules'] = deepcopy(resolved['field_rules'])
+        profile['qc_rules'] = deepcopy(resolved.get('qc_rules', {}))
+        profile['base_profile_id'] = None
+        for key, rule in profile['field_rules'].items():
+            rule['field'] = deepcopy(rule.get('field') or self.get_fields()[key])
         # Pin the resolved definition and field catalog for reproducibility.
         profile["snapshot"] = {"profile": {k:v for k,v in resolved.items() if k != "snapshot"}, "fields": self.get_fields()}
         path = self.directory / "profiles"

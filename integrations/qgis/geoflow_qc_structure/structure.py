@@ -1,8 +1,8 @@
 """Preview and output planning: no writes to input layers."""
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, localcontext
 from datetime import date, datetime
 from .catalog import validate_field
-from .qc import run_qc, blocked
+from .qc import run_qc, blocked, Finding
 
 
 def operation(name, params, attrs, geom, spatial, target):
@@ -15,13 +15,10 @@ def operation(name, params, attrs, geom, spatial, target):
     if name in {"LENGTH", "AREA", "ANGLE"}:
         return spatial.measure(geom, params, name)
     if name == "CODE_MAP":
-        value = attrs[params["source_field"]]
-        mapping = params["mapping"]
-        if str(value) in mapping:
-            return mapping[str(value)]
-        if "fallback" in params:
-            return params["fallback"]
-        raise ValueError("코드 매핑 없음")
+        from .references import convert
+        return convert(attrs[params["source_field"]], params)
+    if name == "AGGREGATE":
+        return spatial.aggregate(geom, params)[params["statistic"]]
     if name == "CONDITION":
         return params["then"] if attrs[params["source_field"]] == params["equals"] else params["else"]
     if name in {"START_REFERENCE", "END_REFERENCE", "SPATIAL_LOOKUP"}:
@@ -47,13 +44,44 @@ def plan(profile, catalog):
     return out
 
 
+def effective_rules(profile, fields):
+    generated = {field['physical_name'] for _, rule, field in fields if rule['operation'] not in {'COPY', 'KEEP'}}
+    rules = {}
+    for key, rule in profile.get('qc_rules', {}).items():
+        rule = dict(rule)
+        if rule.get('field') in generated and rule['type'] not in {'GEOMETRY_EXISTS', 'GEOMETRY_VALID', 'GEOMETRY_TYPE'}:
+            rule['phase'] = 'POST'
+        rules[key] = rule
+    return rules
+
+
+def pre_qc(layer, rows, profile, fields, spatial):
+    findings = run_qc(layer, rows, effective_rules(profile, fields), spatial, 'PRE')
+    for _, rule, field in fields:
+        params = rule.get("params", {})
+        source = params.get("source_field", field["physical_name"])
+        try:
+            if rule["operation"] in {"COPY", "KEEP", "CODE_MAP", "CONDITION"} and any(source not in attrs for _, attrs, _ in rows):
+                raise ValueError(f"Missing input field: {source}")
+            if rule["operation"] == "AGGREGATE":
+                spatial.validate_aggregate(params)
+        except (ValueError, KeyError, TypeError) as exc:
+            for fid, _, geom in rows:
+                findings.append(Finding("input", "Operation input", "ERROR", True, layer, fid,
+                                        field["physical_name"], str(exc), geom, None, params))
+    return findings
+
+
 def preview(layer, rows, profile, fields, spatial):
-    findings = run_qc(layer, rows, profile.get("qc_rules", {}), spatial, "PRE")
-    if blocked(findings):
-        return findings, [], [], []
     fields = plan(profile, fields)
+    findings = pre_qc(layer, rows, profile, fields, spatial)
+    if blocked(findings):
+        # Keep field-level error results available for inspection.
+        return findings, [(fid, f["physical_name"], attrs.get(f["physical_name"]), None, r["operation"], k,
+                           "ERROR: Pre-QC") for fid, attrs, _ in rows for k, r, f in fields], [], [f for _, _, f in fields]
     output, changes = [], []
     for fid, attrs, geom in rows:
+        spatial.current_feature_id = fid
         values = {}
         for key, rule, field in fields:
             target = field["physical_name"]
@@ -61,26 +89,34 @@ def preview(layer, rows, profile, fields, spatial):
             name = rule["operation"]
             try:
                 new = operation(name, rule.get("params", {}), attrs, geom, spatial, target)
-                if new is None and "default_value" in field:
-                    new = field["default_value"]
                 if name == "CONSTANT" and isinstance(new, str):
                     if field["data_type"] == "DATE":
                         new = date.fromisoformat(new)
                     if field["data_type"] in {"DATETIME", "TIMESTAMP"}:
                         new = datetime.fromisoformat(new)
                 if new is not None and field["data_type"] in {"NUMERIC", "DECIMAL"}:
-                    new = Decimal(str(new)).quantize(Decimal(1).scaleb(-field["scale"]), rounding=ROUND_HALF_UP)
-                status = "UNCHANGED" if old == new else "READY"
+                    with localcontext() as ctx:
+                        ctx.prec = max(50, field["precision"] + field["scale"] + 10)
+                        new = Decimal(str(new)).quantize(Decimal(1).scaleb(-field["scale"]), rounding=ROUND_HALF_UP)
+                status = "UNCHANGED" if target in attrs and old == new else "READY"
                 values[target] = new
             except (ValueError, KeyError, TypeError, ArithmeticError) as exc:
                 new, status = None, f"ERROR: {exc}"
+                values[target] = None
             changes.append((fid, target, old, new, name, key, status))
         output.append((fid, values, geom))
+    findings.extend(post_qc(layer, output, profile, [f for _, _, f in fields], spatial))
+    for fid, attrs, geom in output:
+        for _, rule, field in fields:
+            if rule["operation"] == "AGGREGATE" and attrs.get(field["physical_name"]) is None:
+                findings.append(Finding("aggregate_empty", "유효 심도 없음", "WARNING", False, layer,
+                    fid, field["physical_name"], "유효값 없음: NULL 반환", geom, None, None))
     return findings, changes, output, [f for _, _, f in fields]
 
 
 def post_qc(layer, rows, profile, fields, spatial):
-    rules = dict(profile.get("qc_rules", {}))
+    active = {f['semantic_key']: f for f in fields}
+    rules = effective_rules(profile, [(key, rule, active[key]) for key, rule in profile.get('field_rules', {}).items() if key in active])
     for field in fields:
         target = field["physical_name"]
         kind = field["data_type"]

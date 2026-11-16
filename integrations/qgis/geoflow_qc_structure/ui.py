@@ -8,14 +8,15 @@ from qgis.PyQt.QtGui import QAction
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QCheckBox, QPlainTextEdit, QFileDialog, QInputDialog,
 )
 from qgis.core import QgsApplication, QgsFeature, QgsProject, QgsRectangle, QgsVectorLayer, QgsWkbTypes
 from .catalog import LocalCatalogProvider
 from .qc import blocked, run_qc
 from .spatial import Spatial
-from .structure import plan, post_qc, preview
+from .structure import plan, post_qc, pre_qc, preview
 from .field_editor import FieldEditor, METHODS
+from .preview_table import ObjectTable, dependency_snapshot
 from .ui_values import output_value, qgis_field, scalar
 
 TITLE = "GeoFlow QC & Structure"
@@ -97,11 +98,24 @@ class Workspace(QDialog):
         self.profile_table = table(["기준 의미", "기준필드", "출력필드", "자료형", "방법", "설정", "Override", "필드 설정"])
         editor.addWidget(self.profile_table)
         editor.addWidget(QLabel("각 행 오른쪽의 설정에서 출력 필드와 값 생성 방법을 지정하세요. 변경 후 Preview에 바로 적용됩니다."))
-        self.buttons(editor, [("출력 필드 추가", self.add_field), ("Profile 새 리비전 저장", self.save_profile)])
+        self.buttons(editor, [("출력 필드 추가", self.add_field), ("Profile 새 리비전 저장", self.save_profile), ("과거 리비전 조회", self.load_revision)])
         execute = self.tab("구조화 실행")
         self.preview_table = table(["객체","필드","현재값","새 값","Operation","Rule","상태"])
-        self.buttons(execute,[("Preview",self.prepare),("임시 레이어 생성",self.execute)])
+        self.buttons(execute,[("Preview",self.prepare),("임시 레이어 생성",self.execute), ("결과 GeoPackage 저장", self.save_output)])
         execute.addWidget(self.preview_table)
+        self.object_table = ObjectTable()
+        execute.insertWidget(1, self.object_table)
+        self.error_only = QCheckBox("오류 객체만 보기")
+        execute.insertWidget(1, self.error_only)
+        self.detail = QPlainTextEdit()
+        self.detail.setReadOnly(True)
+        self.detail.setMaximumHeight(150)
+        execute.addWidget(self.detail)
+        self.preview_table.setMaximumHeight(130)
+        self.buttons(execute, [("객체 선택", self.select_preview), ("지도 이동", self.pan_preview), ("Zoom", self.zoom_preview)])
+        self.object_table.currentCellChanged.connect(self.show_cell)
+        self.error_only.toggled.connect(self.render_preview)
+        self.buttons(editor, [("참조코드 관리", self.manage_codes), ("심도 평균·최소·최대 공유 설정", self.add_aggregates)])
         self.profiles.currentIndexChanged.connect(self.show_profile)
         self.layers.currentIndexChanged.connect(self.invalidate)
         self.reload_profiles(self.settings.value("geoflow_qc_structure/profile", ""))
@@ -130,6 +144,9 @@ class Workspace(QDialog):
     def invalidate(self, *_):
         self.preview_state = None
         self.preview_table.setRowCount(0)
+        if hasattr(self, 'object_table'):
+            self.object_table.setRowCount(0)
+        self.preview_result = None
 
     def reload_layers(self):
         current = self.layers.currentData() or getattr(self.iface.activeLayer(), "id", lambda: None)()
@@ -230,6 +247,96 @@ class Workspace(QDialog):
         self.reload_profiles(saved["id"])
         self.status.setText(f'Profile r{saved["revision"]} 저장')
 
+    def load_revision(self):
+        key = self.profiles.currentData()
+        paths = sorted((self.provider.directory / 'profiles').glob(f'{key}.*.json'))
+        if not paths:
+            raise ValueError('저장된 Profile 리비전이 없습니다.')
+        chosen, ok = QInputDialog.getItem(self, '과거 Profile', '조회할 리비전', [p.name for p in paths], 0, False)
+        if ok:
+            self.raw_profile = json.loads(next(p for p in paths if p.name == chosen).read_text(encoding='utf-8'))
+            self.invalidate()
+            self.refresh_profile_table()
+            self.status.setText(f'과거 Profile 조회: {chosen} · 변경 저장 시 새 리비전 생성')
+
+    def manage_codes(self):
+        from .reference_editor import ReferenceEditor
+        ReferenceEditor(self, self.provider.directory).exec()
+        self.invalidate()
+
+    def add_aggregates(self):
+        rule = dict(operation='AGGREGATE', params={})
+        field = dict(semantic_key='DEPTH', physical_name='depth', data_type='NUMERIC',
+                     precision=10, scale=3, nullable=True)
+        dialog = FieldEditor(self, '', rule, field, [], self.provider.get_operations())
+        dialog.semantic.setText('DEPTH')
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        proposed = deepcopy(self.raw_profile)
+        rules = proposed.setdefault('field_rules', {})
+        for statistic, suffix in [('mean', 'mean'), ('minimum', 'min'), ('maximum', 'max')]:
+            key = dialog.result_key + '_' + suffix
+            if key in self.current_profile()['field_rules']:
+                raise ValueError('이미 존재하는 집계 의미 ID입니다. 다른 ID로 추가하세요.')
+            new = deepcopy(dialog.result_rule)
+            new['params']['statistic'] = statistic
+            new['target'] = dialog.result_rule['target'] + '_' + suffix
+            new['field'].update(semantic_key=key, physical_name=new['target'])
+            rules[key] = new
+        profiles = self.provider.profiles()
+        profiles[proposed['id']] = proposed
+        plan(self.provider.resolve(proposed['id'], profiles), self.provider.get_fields())
+        self.raw_profile = proposed
+        self.invalidate()
+        self.refresh_profile_table()
+
+    def render_preview(self, *_):
+        if not getattr(self, 'preview_result', None):
+            return
+        layer, output, fields, changes, findings, spatial = self.preview_result
+        if not output:
+            names = layer.fields().names()
+            output = [(f.id(), {field['physical_name']: None for field in fields}, f.geometry()) for f in layer.getFeatures()]
+        self.object_table.populate(output, fields, changes, findings, spatial, self.error_only.isChecked())
+
+    def show_cell(self, row, column, *_):
+        self.detail.setPlainText(self.object_table.details.get((row, column), ''))
+
+    def preview_feature(self):
+        row = self.object_table.currentRow()
+        if not self.preview_result or not 0 <= row < len(self.object_table.ids):
+            raise ValueError('미리보기 객체 행을 선택하세요.')
+        layer = self.preview_result[0]
+        feature = layer.getFeature(self.object_table.ids[row])
+        if not feature.isValid():
+            raise ValueError('객체가 변경되었습니다. Preview를 다시 실행하세요.')
+        return layer, feature
+
+    def select_preview(self):
+        layer, feature = self.preview_feature()
+        self.iface.setActiveLayer(layer)
+        layer.selectByIds([feature.id()])
+
+    def pan_preview(self):
+        layer, feature = self.preview_feature()
+        canvas = self.iface.mapCanvas()
+        geom = Spatial.transform(feature.geometry(), layer.crs(), canvas.mapSettings().destinationCrs(), self.project)
+        if geom.isEmpty():
+            raise ValueError('지도 위치가 없습니다.')
+        canvas.setCenter(geom.boundingBox().center())
+        canvas.refresh()
+
+    def zoom_preview(self):
+        layer, feature = self.preview_feature()
+        canvas = self.iface.mapCanvas()
+        geom = Spatial.transform(feature.geometry(), layer.crs(), canvas.mapSettings().destinationCrs(), self.project)
+        if geom.isEmpty():
+            raise ValueError('지도 위치가 없습니다.')
+        bounds = QgsRectangle(geom.boundingBox())
+        bounds.grow(max(canvas.mapUnitsPerPixel()*40, bounds.width()*0.1))
+        canvas.setExtent(bounds)
+        canvas.refresh()
+
     def context(self):
         layer = self.project.mapLayer(self.layers.currentData() or "")
         if not isinstance(layer, QgsVectorLayer) or not layer.isValid():
@@ -250,7 +357,9 @@ class Workspace(QDialog):
         ids = set(layer.selectedFeatureIds()) if selected else None
         if selected and not ids:
             raise ValueError("재검사할 객체를 선택하세요.")
-        findings = run_qc(layer.name(),rows,p.get("qc_rules",{}),spatial,"PRE",ids)
+        findings = pre_qc(layer.name(), rows, p, plan(p, self.provider.get_fields()), spatial)
+        if ids is not None:
+            findings = [finding for finding in findings if finding.feature_id in ids]
         self.show_findings(layer,findings)
         self.status.setText(f'QC {len(findings)}건 · 구조화 차단 {"예" if blocked(findings) else "아니요"}')
 
@@ -282,7 +391,8 @@ class Workspace(QDialog):
         catalog = self.provider.get_fields()
         findings,changes,output,fields = preview(layer.name(),rows,p,catalog,spatial)
         # Include every output attribute, input geometry, and resolved profile.
-        key = (layer.id(), layer.crs().authid(), p, catalog, changes,
+        key = (layer.id(), layer.crs().authid(), p, catalog, changes, dependency_snapshot(self.project, p, self.provider.directory),
+               layer.subsetString(), [(f.name(), f.typeName(), f.length(), f.precision()) for f in layer.fields()],
                [(fid,attrs,bytes(g.asWkb())) for fid,attrs,g in rows])
         return layer,p,spatial,findings,changes,output,fields,key
 
@@ -290,11 +400,8 @@ class Workspace(QDialog):
         layer,p,spatial,findings,changes,output,fields,key = self.calculate()
         self.show_findings(layer,findings)
         fill(self.preview_table,changes)
-        if blocked(findings):
-            self.invalidate()
-            self.tabs.setCurrentIndex(0)
-            self.status.setText("Pre-QC 차단 오류를 해결하세요.")
-            return
+        self.preview_result = (layer, output, fields, changes, findings, spatial)
+        self.render_preview()
         self.preview_state = key
         errors = sum(str(row[-1]).startswith("ERROR") for row in changes)
         self.status.setText(f"Preview · 객체 {len(output)}개 · 필드 결과 {len(changes)}건 · 계산 오류 {errors}건")
@@ -342,14 +449,34 @@ class Workspace(QDialog):
                     from decimal import Decimal
                     if actual[key] is None or Decimal(str(actual[key])) != Decimal(str(attrs[key])):
                         raise ValueError(f"{key}: 임시 레이어가 값의 정밀도를 보존하지 못합니다.")
+                elif actual[key] != attrs[key]:
+                    raise ValueError(f'{key}: 임시 레이어의 값이 Preview와 다릅니다.')
         stored_findings = post_qc(target.name(),staged,p,fields,Spatial(target))
         self.show_findings(layer,stored_findings)
         if blocked(stored_findings):
             self.tabs.setCurrentIndex(0)
             raise ValueError("임시 출력 Post-QC 실패 · 원본에 변경 없음")
+        target.setCustomProperty("geoflow_qc_structure/aggregate_details", json.dumps([list(group.values()) for group in spatial.aggregates.values()], ensure_ascii=False, default=str))
+        target.setCustomProperty("geoflow_qc_structure/dependencies", json.dumps(dependency_snapshot(self.project, p, self.provider.directory)))
         target.setCustomProperty("geoflow_qc_structure/profile",json.dumps(p,ensure_ascii=False))
         target.setCustomProperty("geoflow_qc_structure/output_fields",json.dumps(fields,ensure_ascii=False))
         target.updateExtents()
+        if self.calculate()[-1] != self.preview_state:
+            self.invalidate()
+            raise ValueError('출력 준비 중 입력 또는 참조가 변경되었습니다. Preview를 다시 실행하세요.')
         self.project.addMapLayer(target)
+        self.last_output = target.id()
         self.status.setText(f"임시 출력 {len(features)}개 · Post-QC {len(stored_findings)}건 · 원본 변경 없음")
+
+    def save_output(self):
+        from .output import save_geopackage
+        layer = self.project.mapLayer(getattr(self, 'last_output', ''))
+        if layer is None:
+            raise ValueError('임시 결과 레이어를 먼저 생성하세요.')
+        path, _ = QFileDialog.getSaveFileName(self, '결과와 실행 기준 저장', '', 'GeoPackage (*.gpkg)')
+        if path:
+            if not path.lower().endswith('.gpkg'):
+                path += '.gpkg'
+            save_geopackage(layer, path)
+            self.status.setText(f'GeoPackage와 Profile·참조 기준 저장: {path}')
 

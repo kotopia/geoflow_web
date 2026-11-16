@@ -1,6 +1,6 @@
 [general]
 name=GeoFlow QC & Structure
-version=0.1.1
+version=0.2.0
 qgisMinimumVersion=4.2
 qgisMaximumVersion=4.99
 description=Local quality checks and profile-based structure preview for GIS layers.
@@ -13,5 +13,5 @@ deprecated=False
 homepage=https://geoflow.co.kr
 repository=https://github.com/kotopia/geoflow_web
 tracker=https://github.com/kotopia/geoflow_web/issues
-changelog=0.1.1: Per-field output settings, geometry length calculation and typed constant input.
+changelog=0.2.0: Object preview, revisioned code books and stored numeric reference aggregation. 0.1.1: Per-field output settings, geometry length calculation and typed constant input.
 
