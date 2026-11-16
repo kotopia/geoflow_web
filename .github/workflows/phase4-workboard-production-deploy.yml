@@ -10,6 +10,8 @@ on:
       - control/management/commands/activate_saved_filters.py
       - control/management/commands/activate_company_overview.py
       - geoflow_ops/views_dashboard.py
+      - geoflow_ops/views_projects.py
+      - geoflow_ops/views_project_members.py
       - geoflow_ops/services/dashboard.py
       - geoflow_ops/views_calendar.py
       - geoflow_ops/templates/geoflow_ops/home.html
