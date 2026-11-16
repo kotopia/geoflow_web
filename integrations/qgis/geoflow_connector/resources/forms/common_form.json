@@ -1,0 +1,453 @@
+{
+  "version": 1,
+  "layouts": {
+    "WTL_ETC_PS": {
+      "version": 1,
+      "layer": "WTL_ETC_PS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "2b6b362a-1742-4a93-9ee6-f973faaa199d",
+                    "weight": 2
+                  },
+                  {
+                    "field": "10a6161a-d2df-4748-a5d1-3ab703640bb6",
+                    "weight": 2
+                  },
+                  "f3fb344e-6a95-4fab-8850-f9fc620ab663"
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "fc4b745f-4272-4627-bd18-dbe0601f85a4"
+                ],
+                [
+                  "0f611847-6d30-4290-b7d8-252e9d7047da"
+                ],
+                [
+                  "502ef46b-9287-4da9-81c2-c085f3ae2090"
+                ],
+                [
+                  "e5531270-db05-49de-9370-d6394b804186"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_FIRE_PS": {
+      "version": 1,
+      "layer": "WTL_FIRE_PS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "184e7944-bda1-492a-9ccd-ab28682fb7e9",
+                    "weight": 2
+                  },
+                  {
+                    "field": "cff72c1d-44d7-4a55-8e41-3bf237ef41d4",
+                    "weight": 2
+                  },
+                  "1a3ae4f7-95b6-40e9-8877-8b70b0e64e93"
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "3b0b75ca-9a4f-4f88-85b8-ac80b79a13d8"
+                ],
+                [
+                  "c809a7fb-2e93-4c70-9f77-1c0a75fcd0ee"
+                ],
+                [
+                  "704402b9-5056-4e60-beb4-be2d94f83e4c"
+                ],
+                [
+                  "251cdd2b-482d-421f-b448-27d11c767a61"
+                ],
+                [
+                  "3db14c3f-3c6c-4bea-bee3-e6c2be3fb717"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_FLOW_PS": {
+      "version": 1,
+      "layer": "WTL_FLOW_PS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "2d389116-b082-4f17-bb2d-40a83a24a09e",
+                    "weight": 2
+                  },
+                  {
+                    "field": "1ac40944-ccdf-4e8e-848e-8278345e67de",
+                    "weight": 2
+                  },
+                  "5421749a-bb66-4f1c-9d44-ae19f552aa73"
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "5ead8e4a-4f5e-4449-b39d-298f8b9f9154"
+                ],
+                [
+                  "04b9cf03-f7c5-4063-992b-11a78d1802c5"
+                ],
+                [
+                  "20675079-d057-40e1-9d27-fa8e409a3e06",
+                  "99345cbb-0a02-460f-9342-9c224a09e67a"
+                ],
+                [
+                  "c0201c99-6543-4131-8e89-b10d837acc68"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_MANH_PS": {
+      "version": 1,
+      "layer": "WTL_MANH_PS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "efa7d1ec-4831-491c-8278-161ab2c23521",
+                    "weight": 2
+                  },
+                  {
+                    "field": "39801ada-2711-404b-96cc-5e2c1a99c1a6",
+                    "weight": 2
+                  },
+                  {
+                    "field": "02fb4a86-8279-451b-8e7f-9421d102d8bf",
+                    "weight": 1
+                  }
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "cf49b5a6-5f0e-4577-8d62-ba850bedceaa"
+                ],
+                [
+                  "a1cc8c97-e572-4ab2-82eb-4e9ca7d43cfd"
+                ],
+                [
+                  "dac512ca-4bda-4483-8290-15bf15a8e0e9"
+                ],
+                [
+                  "9e3c69b7-7633-4dcf-8e3c-e81ae14949fb",
+                  "25c4cc35-0d01-40ab-91d4-7864ab263057"
+                ],
+                [
+                  "2c4d9fbe-c204-4278-9034-8da8361e418f"
+                ],
+                [
+                  "5ec60281-2171-4675-afc4-5ddb067b1478"
+                ],
+                [
+                  "289bf547-ea73-4c4e-8ad3-2d066aeaea76",
+                  "66fc5dc8-abbc-4c14-8097-a443dfcb9476"
+                ],
+                [
+                  "a6028d2f-12d3-4247-8b0f-1d3ff61d0464"
+                ],
+                [
+                  "519e7f84-d6d5-43de-82e5-cba904135b9b"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_PIPE_LM": {
+      "version": 1,
+      "layer": "WTL_PIPE_LM",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "206f8eb2-501c-414f-a456-57e9a4ae22ab",
+                    "weight": 2
+                  },
+                  {
+                    "field": "984cbd87-833b-4d63-a87b-12633b4c1098",
+                    "weight": 2
+                  },
+                  "dd27c88a-53d9-4177-bfa1-00a5eadc0a03"
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "f7613737-f98b-46c7-b19f-6ba727c3cae3"
+                ],
+                [
+                  "d99d2b44-190f-4fa6-9911-ae1a1f9b83b8"
+                ],
+                [
+                  "f52fa98d-7590-4c0e-a7c9-b2fd07d8ac53"
+                ],
+                [
+                  {
+                    "field": "3b881f68-fc51-4742-8af0-2b0091004efa",
+                    "weight": 3
+                  }
+                ],
+                [
+                  {
+                    "field": "746406cd-7726-4532-9056-326f33962154",
+                    "weight": 2
+                  }
+                ],
+                [
+                  "4cb06c92-79d4-4023-a608-39d11098cf86"
+                ],
+                [
+                  "213f826a-4985-49ed-a40b-9d64bde314d2"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_PIPE_PS": {
+      "version": 1,
+      "layer": "WTL_PIPE_PS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "3decce31-6dc0-4592-96e7-754a603900fa",
+                    "weight": 2
+                  },
+                  {
+                    "field": "db438651-0c3c-48fe-970e-ab58591c99fb",
+                    "weight": 2
+                  },
+                  {
+                    "field": "4ff3d445-6998-4645-a6d3-2a4474725fc3",
+                    "weight": 1
+                  }
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "456f7274-e167-419e-a4c7-22a3ecd27d37"
+                ],
+                [
+                  "6c39c3a8-cb19-4ad7-9995-c3889e22696b"
+                ],
+                [
+                  "4f89f97d-27b1-484f-ae23-5fc71f4dc156"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_SPLY_LS": {
+      "version": 1,
+      "layer": "WTL_SPLY_LS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "e7976323-5dbd-45b3-9711-e117e94bae98",
+                    "weight": 2
+                  },
+                  {
+                    "field": "689cdcb8-dd8f-44b2-83a8-c0d900344c63",
+                    "weight": 2
+                  },
+                  "4ec8d23b-045d-4db8-b6b1-db25c1a31934"
+                ]
+              ]
+            },
+            {
+              "title": "속성정보",
+              "rows": [
+                [
+                  "472d3574-8d79-4ee0-bcee-241245166bbf"
+                ],
+                [
+                  "6a6960c8-d76b-48b8-91e5-e0bbe5a64adb"
+                ],
+                [
+                  "c8a7ab44-10ac-4482-abf1-d2f77dc40448"
+                ],
+                [
+                  {
+                    "field": "9e26b1b9-feb8-4bb6-af44-91c327e90395",
+                    "weight": 2
+                  },
+                  "373bcd2d-62e5-4f17-ad7e-8fdfcf409d54"
+                ],
+                [
+                  "e5ae253d-1264-4886-9903-e034bd39a135"
+                ],
+                [
+                  "e20fc853-3f0d-4718-ad7a-17eb8cf01833"
+                ],
+                [
+                  "db437462-7d88-4881-98ee-f6b746b82425"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "WTL_VALV_PS": {
+      "version": 1,
+      "layer": "WTL_VALV_PS",
+      "tabs": [
+        {
+          "title": "기본 정보",
+          "groups": [
+            {
+              "title": "기본정보",
+              "rows": [
+                [
+                  {
+                    "field": "0fcc1496-272c-4089-ad9c-190a796171f4",
+                    "weight": 2
+                  },
+                  {
+                    "field": "e43e2122-bce5-448f-8703-8b497ae5504d",
+                    "weight": 2
+                  },
+                  "c9f8592c-21fd-4629-b657-501c4f4ae150"
+                ]
+              ]
+            },
+            {
+              "title": "속성",
+              "rows": [
+                [
+                  "15b99f03-166f-4281-9988-b93d12929fdb"
+                ],
+                [
+                  "71480151-d65d-462f-b8ad-5237a5a6ad46"
+                ],
+                [
+                  "3e7aae0f-2df7-4204-afe3-1df858ab04b3",
+                  "59caa71e-83f8-4db2-97c9-2532ff4720f1"
+                ],
+                [
+                  "70bc5148-063c-4a4c-87c2-f6b98adb5916",
+                  "1fde9513-4079-4d36-bb8c-5b806f30ea5d"
+                ],
+                [
+                  "8bd3036d-1e79-485d-bc4e-2c895f9f10d6",
+                  "c70050f6-22cb-41b0-987c-67da6f442c10"
+                ],
+                [
+                  "03b84bb7-a03e-4935-9d4e-fc5faf2245d5",
+                  "a601fa6e-df47-442a-95e3-cd6086516865"
+                ],
+                [
+                  "c75e338d-fbab-4d5d-b35f-8a61d54041c1"
+                ],
+                [
+                  "63b76009-fc28-4a7c-b2cf-1fba61e04d2f"
+                ],
+                [
+                  "afa5e2c9-7117-4b42-a970-1de2f920df8c"
+                ]
+              ]
+            },
+            {
+              "title": "맨홀정보",
+              "rows": [
+                [
+                  "bdd90bca-77af-4822-940a-e535d3207cde"
+                ],
+                [
+                  "30c9acac-edcd-4f60-8d6b-7934d5fe69a8"
+                ],
+                [
+                  "65841fd2-d8e7-47fa-9b10-3ac8562f9471",
+                  "904868d2-e160-4af8-bba1-312fb742aa04"
+                ],
+                [
+                  "29d01535-1203-4fb9-a935-dc3ba3052b5d"
+                ],
+                [
+                  "5a5008ea-37a1-431e-bb50-95b8c5caf58b",
+                  "862be32f-2c07-4f65-a4fd-daf2478c7940"
+                ],
+                [
+                  "087162be-785a-4539-a975-515440aa3636"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

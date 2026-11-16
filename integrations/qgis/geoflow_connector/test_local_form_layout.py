@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import unittest
+import json
+from unittest.mock import patch
 
 from .forms.dynamic.layout_model import (
+    BUNDLED_COMMON_FORM, bundled_default_layout,
     default_layout, normalize_layout, placed_field_ids, render_layout, unplaced_fields,
 )
 
@@ -23,6 +26,27 @@ def fields():
 
 
 class LocalFormLayoutTests(unittest.TestCase):
+    def test_bundled_layouts_preserve_saved_order_titles_and_weights(self):
+        raw = BUNDLED_COMMON_FORM.read_bytes()
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
+        layouts = json.loads(raw)['layouts']
+        self.assertEqual(len(layouts), 8)
+        for layer, saved in layouts.items():
+            current_fields = [{'id': fid, 'visible': True, 'widget_type': 'text'}
+                              for fid in placed_field_ids(saved)]
+            self.assertEqual(bundled_default_layout(layer.lower(), current_fields), saved)
+        self.assertEqual(BUNDLED_COMMON_FORM.read_bytes(), raw)
+
+    def test_unbundled_layer_keeps_central_default(self):
+        self.assertEqual(bundled_default_layout('OTHER', fields()), default_layout('OTHER', fields()))
+
+    def test_missing_or_invalid_resource_keeps_central_default(self):
+        for error in (OSError('missing'), ValueError('invalid')):
+            with patch('pathlib.Path.read_text', side_effect=error):
+                self.assertEqual(bundled_default_layout('WTL_PIPE_PS', fields()),
+                                 default_layout('WTL_PIPE_PS', fields()))
+
+
     def test_default_layout_preserves_existing_tab_group_and_field_order(self):
         value = default_layout("wtl_valv_ps", fields())
         self.assertEqual(value["layer"], "WTL_VALV_PS")

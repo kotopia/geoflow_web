@@ -11,7 +11,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from .layout_model import (
-    default_layout, normalize_layout, row_field_id, row_field_weight,
+    bundled_default_layout, default_layout, normalize_layout, row_field_id, row_field_weight,
     unplaced_fields,
 )
 from .style import apply_form_style
@@ -37,12 +37,12 @@ class LocalFormLayoutStore:
     def load(self, layer, fields):
         raw = self.settings.value(self.key(layer), "", type=str)
         if not raw:
-            return default_layout(layer, fields)
+            return bundled_default_layout(layer, fields)
         try:
             value = json.loads(raw)
         except (TypeError, ValueError):
-            return default_layout(layer, fields)
-        return normalize_layout(value, layer, fields) or default_layout(layer, fields)
+            return bundled_default_layout(layer, fields)
+        return normalize_layout(value, layer, fields) or bundled_default_layout(layer, fields)
 
     def save(self, layer, fields, layout):
         value = normalize_layout(layout, layer, fields)
@@ -490,4 +490,4 @@ class FormLayoutEditor(QDialog):
         answer = QMessageBox.question(self, "GeoFlow · 기본 배치 복원", "이 레이어의 사용자 배치를 기본 배치로 되돌릴까요?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
         if answer == QMessageBox.StandardButton.Yes:
-            self._layout_value = default_layout(self.layer, self.fields); self._selection = None; self._reset_requested = True; self._rebuild()
+            self._layout_value = bundled_default_layout(self.layer, self.fields); self._selection = None; self._reset_requested = True; self._rebuild()
