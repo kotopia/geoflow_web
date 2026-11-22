@@ -17,6 +17,7 @@ urlpatterns = [
     path('bids/settings/', bid_security_views.settings_page, name='bid_settings'),
     path('bids/settings/filter/save/', bid_security_views.filter_value_save, name='bid_filter_save'),
     path('bids/settings/keyword/save/', bid_security_views.keyword_save, name='bid_keyword_save'),
+    path('bids/<uuid:notice_id>/detail/', bid_security_views.notice_detail, name='bid_notice_detail'),
     path('bids/<uuid:notice_id>/review/', bid_security_views.review_save, name='bid_review_save'),
     path('bids/sync/', bid_security_views.sync_now, name='bid_sync'),
 

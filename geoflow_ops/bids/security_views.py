@@ -91,3 +91,10 @@ def sync_now(request):
 @require_POST
 def personal_save(request):
     return views.personal_save(request, _require_view(request))
+
+
+@never_cache
+@login_required
+@require_GET
+def notice_detail(request, notice_id):
+    return views.notice_detail(request, _require_view(request), notice_id, can_review=_can_review(request))

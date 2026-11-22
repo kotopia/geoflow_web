@@ -47,6 +47,7 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
             "bids/settings/": "bid_security_views.settings_page",
             "bids/settings/filter/save/": "bid_security_views.filter_value_save",
             "bids/settings/keyword/save/": "bid_security_views.keyword_save",
+            "bids/<uuid:notice_id>/detail/": "bid_security_views.notice_detail",
             "bids/<uuid:notice_id>/review/": "bid_security_views.review_save",
             "bids/sync/": "bid_security_views.sync_now",
             "contracts/": "security_views.contract_list",
@@ -91,6 +92,42 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
         for route, handler in expected.items():
             with self.subTest(route=route):
                 self.assertEqual(routes.get(route), handler)
+
+    def test_bid_detail_guards_tenant_permission_and_method_before_read(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from uuid import uuid4
+        from django.core.exceptions import PermissionDenied
+        from django.http import HttpResponse
+        from django.test import RequestFactory
+        from geoflow_ops.bids import security_views as bids
+
+        request = RequestFactory().get('/bids/detail/')
+        request.user = SimpleNamespace(is_authenticated=True)
+        request.session = {'tenant_db_alias':'company_a'}
+        with patch('geoflow_ops.services.entity_access.current_db_alias', return_value='company_a'), \
+             patch.object(bids, 'gf_has_perm', return_value=False), \
+             patch.object(bids.views, 'notice_detail') as read:
+            with self.assertRaises(PermissionDenied):
+                bids.notice_detail(request, uuid4())
+            read.assert_not_called()
+        with patch('geoflow_ops.services.entity_access.current_db_alias', return_value='company_b'), \
+             patch.object(bids, 'gf_has_perm', return_value=True), \
+             patch.object(bids.views, 'notice_detail') as read:
+            with self.assertRaises(PermissionDenied):
+                bids.notice_detail(request, uuid4())
+            read.assert_not_called()
+        with patch('geoflow_ops.services.entity_access.current_db_alias', return_value='company_a'), \
+             patch.object(bids, 'gf_has_perm', side_effect=lambda request, permission: permission == 'contracts.view'), \
+             patch.object(bids.views, 'notice_detail', return_value=HttpResponse('detail')) as read:
+            pk = uuid4()
+            response = bids.notice_detail(request, pk)
+            read.assert_called_once_with(request, 'company_a', pk, can_review=False)
+            self.assertIn('no-store', response['Cache-Control'])
+            read.reset_mock()
+            request.method = 'POST'
+            self.assertEqual(bids.notice_detail(request, pk).status_code, 405)
+            read.assert_not_called()
 
     def test_shared_permission_wrappers_require_tenant_before_permission(self):
         for filename in ("security_views.py", "employee_security_views.py"):
