@@ -1,14 +1,46 @@
 """Bounded live diagnostic, run only in an explicitly approved disposable runtime."""
 import json
+import time
 from datetime import timedelta
 
-from .client import Client, SEARCH, CHANGES, REGIONS, LICENSES
 from .policy import minute, canonical_order
 from geoflow_ops.bids.client import G2BError
 
 
+PROBE_ATTEMPTS = 3
+PROBE_REQUEST_LIMIT = 9 * PROBE_ATTEMPTS
+PROBE_TIMEOUT_SECONDS = 240
+TRANSIENT_ERRORS = {'HTTP_500', 'HTTP_502', 'HTTP_503', 'HTTP_504', 'NETWORK_ERROR'}
+STOP_ERRORS = TRANSIENT_ERRORS | {
+    'MISSING_SERVICE_KEY', 'API_20', 'API_22', 'API_23', 'API_29', 'API_30', 'API_31',
+    'TIME_BUDGET_EXHAUSTED', 'BUDGET_EXHAUSTED', 'DAILY_BUDGET_EXHAUSTED',
+}
+
+
 def run_probe(now, emit=print, client=None):
-    client = client or Client(budget=9)
+    from .client import Client, SEARCH, CHANGES, REGIONS, LICENSES
+
+    client = client or Client(budget=PROBE_REQUEST_LIMIT)
+    deadline = time.monotonic() + PROBE_TIMEOUT_SECONDS
+    client.deadline = deadline
+
+    def page_with_retry(label, operation, **query):
+        # Retry the identical read only; no altered sample or validation bypass.
+        for attempt in range(1, PROBE_ATTEMPTS + 1):
+            if time.monotonic() + 30 >= deadline:
+                raise G2BError('TIME_BUDGET_EXHAUSTED', '진단 시간 한도 초과')
+            try:
+                return client.page(operation, **query)
+            except G2BError as exc:
+                if exc.code not in TRANSIENT_ERRORS or attempt == PROBE_ATTEMPTS:
+                    raise
+                delay = 2 * attempt
+                if time.monotonic() + delay + 30 >= deadline:
+                    raise G2BError('TIME_BUDGET_EXHAUSTED', '진단 시간 한도 초과') from None
+                emit(json.dumps(dict(check=label, ok=False, code=exc.code,
+                                     attempt=attempt, retry_in_seconds=delay)))
+                time.sleep(delay)
+
     end = minute(now).replace(hour=0, minute=0) - timedelta(minutes=1)
     start = end.replace(hour=0, minute=0)
     dates = dict(inqryBgnDt=start.strftime("%Y%m%d%H%M"), inqryEndDt=end.strftime("%Y%m%d%H%M"))
@@ -23,7 +55,7 @@ def run_probe(now, emit=print, client=None):
     ]
     for label, operation, query in checks:
         try:
-            page = client.page(operation, rows=1, **query)
+            page = page_with_retry(label, operation, rows=1, **query)
             emit(json.dumps(dict(check=label, ok=True, total=page.total_count,
                                  start=query["inqryBgnDt"], end=query["inqryEndDt"])))
             # An unrestricted national notice cannot validate license linkage.
@@ -33,7 +65,7 @@ def run_probe(now, emit=print, client=None):
             # Do not include provider messages, record fields, request URLs, or key.
             emit(json.dumps(dict(check=label, ok=False, code=exc.code)))
             failures += 1
-            if exc.code in {"MISSING_SERVICE_KEY", "API_20", "API_22", "API_23", "API_29", "API_30", "API_31", "NETWORK_ERROR"}:
+            if exc.code in STOP_ERRORS:
                 return False
     if not sample or not sample.get("bidNtceNo"):
         emit(json.dumps(dict(check="details", ok=False, code="NO_INDUSTRY_SAMPLE", skipped=True)))
@@ -41,7 +73,7 @@ def run_probe(now, emit=print, client=None):
     query = dict(inqryDiv="2", bidNtceNo=sample["bidNtceNo"], bidNtceOrd=sample.get("bidNtceOrd") or "00")
     for label, operation in (("regions", REGIONS), ("licenses", LICENSES)):
         try:
-            page = client.page(operation, rows=999 if label == "licenses" else 1, **query)
+            page = page_with_retry(label, operation, rows=999 if label == "licenses" else 1, **query)
             linked = bool(page.items) and all(
                 item.get("bidNtceNo") == sample["bidNtceNo"] and
                 item.get("bidNtceOrd") not in (None, "") and
@@ -58,12 +90,12 @@ def run_probe(now, emit=print, client=None):
         except G2BError as exc:
             emit(json.dumps(dict(check=label, ok=False, code=exc.code)))
             failures += 1
-            if exc.code in {"API_22", "API_23", "NETWORK_ERROR"}:
+            if exc.code in STOP_ERRORS:
                 return False
     try:
         # The official service-notice schema has neither rgnLmtYn nor prtcptLmtYn.
         # Obtain a positive sample from the regional detail endpoint itself.
-        page = client.page(REGIONS, rows=999, inqryDiv="1", **dict(
+        page = page_with_retry("regional_sample", REGIONS, rows=999, inqryDiv="1", **dict(
             dates, inqryBgnDt=(start - timedelta(days=6)).strftime("%Y%m%d%H%M")))
         regional_sample = next((row for row in page.items
                                 if "용역" in str(row.get("bsnsDivNm") or "")
@@ -76,7 +108,7 @@ def run_probe(now, emit=print, client=None):
         if regional_sample is None:
             return False
         # Independently prove the sample belongs to a service notice and order.
-        service_page = client.page(CHANGES, rows=999, inqryDiv="2",
+        service_page = page_with_retry("regional_service_notice", CHANGES, rows=999, inqryDiv="2",
                                    bidNtceNo=regional_sample["bidNtceNo"])
         service_linked = any(
             item.get("bidNtceNo") == regional_sample["bidNtceNo"] and
@@ -87,7 +119,7 @@ def run_probe(now, emit=print, client=None):
                              notice_key_matches=service_linked)))
         if not service_linked:
             return False
-        page = client.page(REGIONS, rows=999, inqryDiv="2", bidNtceNo=regional_sample["bidNtceNo"],
+        page = page_with_retry("restricted_region", REGIONS, rows=999, inqryDiv="2", bidNtceNo=regional_sample["bidNtceNo"],
                            bidNtceOrd=regional_sample.get("bidNtceOrd") or "00")
         linked = bool(page.items) and all(
             item.get("bidNtceNo") == regional_sample["bidNtceNo"] and

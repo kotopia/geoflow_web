@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install Django==5.2.16
-      - name: Probe at most seven API requests in disposable memory DB
+      - name: Probe API linkage with bounded retries in disposable memory DB
         env:
           G2B_PROBE_APPROVED: '1'
           G2B_API_SERVICE_KEY: ${{ secrets.G2B_API_SERVICE_KEY }}
