@@ -172,8 +172,8 @@ def _notice_filters(*, query: str, review_status: str, include_all: bool, review
     elif ids:
         where.append('n.id NOT IN (' + ','.join(['%s'] * len(ids)) + ')')
         params.extend(ids)
-    if not include_closed and personal_view == 'all':
-        where.append("(n.bid_close_at IS NULL OR n.bid_close_at>now()) AND n.notice_status<>'cancelled'")
+    if not include_closed and personal_view != 'hidden':
+        where.append("(COALESCE(n.bid_close_at,n.open_at) IS NULL OR COALESCE(n.bid_close_at,n.open_at)>now()) AND n.notice_status NOT IN ('cancelled','closed')")
     if date_from:
         where.append('n.posted_at::date >= %s')
         params.append(date_from)
@@ -222,16 +222,16 @@ def list_notices(
     where, params = _notice_filters(query=query, review_status=review_status, include_all=include_all, reviewed_only=reviewed_only, **options)
     limit = 30 if limit == 30 else 15
     offset = max(int(offset), 0)
-    ordering = "n.posted_at DESC NULLS LAST,n.id" if options.get("sort") == "new" else "n.bid_close_at NULLS LAST,n.posted_at DESC NULLS LAST,n.id"
+    ordering = "n.posted_at DESC NULLS LAST,n.id" if options.get("sort") == "new" else ("n.open_at NULLS LAST,n.posted_at DESC NULLS LAST,n.id" if options.get("sort") == "opening" else "n.bid_close_at NULLS LAST,n.posted_at DESC NULLS LAST,n.id")
     sql = f"""
         SELECT n.id::text,n.bid_notice_no,n.bid_notice_ord,n.title,
                COALESCE(n.notice_agency_name,''),COALESCE(n.demand_agency_name,''),
                n.posted_at,n.bid_close_at,n.basic_amount,n.estimated_price,n.budget_amount,
                COALESCE(n.region_text,''),COALESCE(n.industry_text,''),n.detail_url,
-               CASE WHEN n.notice_status<>'cancelled' AND n.bid_close_at<=now() THEN 'closed' ELSE n.notice_status END,
+               CASE WHEN n.notice_status<>'cancelled' AND COALESCE(n.bid_close_at,n.open_at)<=now() THEN 'closed' ELSE n.notice_status END,
                n.is_correction,COALESCE(m.matched,false),
                COALESCE(m.needs_review,false),COALESCE(m.reasons,'[]'::jsonb),
-               COALESCE(r.status,'unreviewed'),COALESCE(r.memo,''),n.bid_method_name,n.contract_method_name
+               COALESCE(r.status,'unreviewed'),COALESCE(r.memo,''),n.bid_method_name,n.contract_method_name,n.open_at
           FROM bid.notices n
           LEFT JOIN bid.notice_matches m ON m.notice_id=n.id
           LEFT JOIN bid.notice_reviews r ON r.notice_id=n.id
@@ -247,7 +247,7 @@ def list_notices(
         "id","bid_notice_no","bid_notice_ord","title","notice_agency_name","demand_agency_name",
         "posted_at","bid_close_at","basic_amount","estimated_price","budget_amount","region_text",
         "industry_text","detail_url","notice_status","is_correction","matched","needs_review",
-        "reasons","review_status","memo","bid_method_name","contract_method_name",
+        "reasons","review_status","memo","bid_method_name","contract_method_name","open_at",
     ]
     notices = [dict(zip(keys, row)) for row in rows]
     for notice in notices:

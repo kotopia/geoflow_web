@@ -98,4 +98,4 @@ class PersonalStateTests(TestCase):
             personal_state={self.pk:{'saved':False,'hidden':True}},include_closed=False)
         self.assertIn(self.pk,params)
         self.assertNotIn(self.pk,' '.join(where))
-        self.assertIn('n.bid_close_at>now()', ' '.join(where))
+        self.assertIn('COALESCE(n.bid_close_at,n.open_at)>now()', ' '.join(where))

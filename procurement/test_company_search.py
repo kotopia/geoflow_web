@@ -87,6 +87,27 @@ class CompanyQueryTests(TestCase):
             notice.save()
             self.assertEqual(list_notices('company_a',include_all=True)[0]['registration_close_at'].day,30)
 
+    def test_saved_closed_toggle_and_opening_fallback_before_pagination(self):
+        from datetime import timedelta
+        now = timezone.now()
+        past, future = now-timedelta(days=1), now+timedelta(days=1)
+        past_open = Notice.objects.create(number='past-open',order='000',title='past',posted_at=now,last_seen_at=now,summary={'open_at':past.isoformat()})
+        future_open = Notice.objects.create(number='future-open',order='000',title='future',posted_at=now,last_seen_at=now,summary={'open_at':future.isoformat()})
+        # A future opening must not extend a known expired submission deadline.
+        expired = Notice.objects.create(number='past-close',order='000',title='expired',posted_at=now,last_seen_at=now,close_at=past,summary={'open_at':future.isoformat()})
+        cancelled = Notice.objects.create(number='cancelled',order='000',title='cancelled',posted_at=now,last_seen_at=now,summary={'notice_status':'cancelled','open_at':future.isoformat()})
+        state = {str(n.pk):{'saved':True,'hidden':False} for n in [past_open,future_open,expired,cancelled]}
+        with patch('procurement.tenant.review_rows',return_value={}), patch('procurement.tenant.load_filters',return_value={}):
+            opts=dict(personal_state=state,personal_view='saved',include_closed=False)
+            self.assertEqual(set(query_notices('company_a',**opts)[0]),{future_open})
+            self.assertEqual(len(list_notices('company_a',sort='opening',**opts)),1)
+            opts['include_closed']=True
+            self.assertEqual(query_notices('company_a',**opts)[0].count(),4)
+            rows=list_notices('company_a',sort='opening',**opts)
+            self.assertEqual(rows[0]['id'],str(past_open.pk))
+            self.assertEqual(rows[0]['notice_status'],'closed')
+            self.assertIsNotNone(rows[0]['open_at'])
+
     def test_company_profile_regions_do_not_fall_back_to_tenant_filters(self):
         notice = Notice.objects.create(number='region',order='000',title='region',region_known=True,region_text='대전광역시',posted_at=timezone.now(),last_seen_at=timezone.now())
         with patch('procurement.tenant.review_rows',return_value={}), patch('geoflow_ops.bids.profiles.filters',return_value={'region':[dict(id='x',name='충청남도')]}) as filters:
@@ -140,3 +161,36 @@ class CompanyStorageTests(TestCase):
         self.assertEqual(review_rows('company_a')[str(n.pk)], dict(review_status='excluded',memo='new'))
         self.assertTrue(query_notices('company_a',include_all=True,include_excluded=True)[0].filter(pk=n.pk).exists())
         self.assertEqual(review_rows('company_b'),{})
+
+
+class CompanyNavigationTests(SimpleTestCase):
+    def test_selected_company_persists_per_tenant_and_explicit_empty_resets(self):
+        from django.test import RequestFactory
+        from geoflow_ops.bids.views import company_context
+        company = {'id':str(uuid4()),'name':'company'}
+        request = RequestFactory().get('/bids/', {'company':company['id']})
+        request.session = {}
+        with patch('geoflow_ops.bids.profiles.context',return_value=([company],company)):
+            company_context(request,'company_a')
+        self.assertEqual(request.session['bid_company:company_a'],company['id'])
+        request.GET = RequestFactory().get('/bids/').GET
+        with patch('geoflow_ops.bids.profiles.companies',return_value=[company]), patch('geoflow_ops.bids.profiles.context',return_value=([company],company)) as lookup:
+            company_context(request,'company_a')
+            lookup.assert_called_once_with('company_a',company['id'])
+        request.GET = RequestFactory().get('/bids/',{'company':''}).GET
+        with patch('geoflow_ops.bids.profiles.context',return_value=([company],None)):
+            company_context(request,'company_a')
+        self.assertEqual(request.session['bid_company:company_a'],'')
+        self.assertNotIn('bid_company:company_b',request.session)
+
+    def test_save_redirect_applies_company_or_shared_scope_and_clears_old_query(self):
+        from django.test import RequestFactory
+        from geoflow_ops.bids.views import settings_redirect
+        company = str(uuid4())
+        for action, expected in [('company_profile',company),('central_rules',''),('selection','')]:
+            req=RequestFactory().post('/settings/',{'action':action,'company':company})
+            with patch('geoflow_ops.bids.views.reverse',return_value='/bids/'):
+                response=settings_redirect(req)
+            from urllib.parse import parse_qs,urlparse
+            params=parse_qs(urlparse(response.url).query,keep_blank_values=True)
+            self.assertEqual(params,{'company':[expected],'extra':['1']})
