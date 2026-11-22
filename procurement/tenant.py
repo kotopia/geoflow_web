@@ -2,7 +2,9 @@
 from datetime import datetime
 
 from django.db import connections
-from django.db.models import F, Q
+from django.db.models import DateTimeField, F, Q
+from django.db.models.functions import Cast
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 from geoflow_ops.bids.repository import load_filters, REVIEW_STATUSES
@@ -36,6 +38,7 @@ def region_q(items):
 def query_notices(alias, query="", review_status="", include_all=False, region="all", personal_state=None, personal_view="all", include_closed=True, date_from=None, date_to=None, sort="new", apply_extra=False, include_excluded=False, sources=None, search_profile=None):
     reviews = review_rows(alias)
     qs = Notice.objects.using(central_alias()).filter(posted_at__gte=retention_start(timezone.now()))
+    qs = qs.annotate(opening_at=Cast(KeyTextTransform("open_at", "summary"), DateTimeField()))
     state = personal_state or {}
     hidden = [pk for pk, value in state.items() if value['hidden']]
     saved = [pk for pk, value in state.items() if value['saved']]
@@ -45,8 +48,8 @@ def query_notices(alias, query="", review_status="", include_all=False, region="
         qs = qs.exclude(pk__in=hidden)
         if personal_view == 'saved':
             qs = qs.filter(pk__in=saved)
-    if not include_closed and personal_view == 'all':
-        qs = qs.filter(Q(close_at__isnull=True) | Q(close_at__gt=timezone.now())).filter(Q(summary__notice_status__isnull=True) | ~Q(summary__notice_status__in=['cancelled', 'closed']))
+    if not include_closed and personal_view != 'hidden':
+        qs = qs.filter((Q(close_at__gt=timezone.now()) | Q(close_at__isnull=True, opening_at__gt=timezone.now()) | Q(close_at__isnull=True, opening_at__isnull=True))).filter(Q(summary__notice_status__isnull=True) | ~Q(summary__notice_status__in=['cancelled', 'closed']))
     if date_from:
         qs = qs.filter(posted_at__date__gte=date_from)
     if date_to:
@@ -120,7 +123,7 @@ def count_notices(alias, **kwargs):
 
 def list_notices(alias, limit=15, offset=0, **kwargs):
     qs, reviews = query_notices(alias, **kwargs)
-    qs = qs.order_by(*(["close_at", "-posted_at", "id"] if kwargs.get("sort") == "deadline" else ["-posted_at", "id"]))[max(0, offset):max(0, offset) + (30 if limit == 30 else 15)]
+    qs = qs.order_by(*([F("opening_at").asc(nulls_last=True), "-posted_at", "id"] if kwargs.get("sort") == "opening" else (["close_at", "-posted_at", "id"] if kwargs.get("sort") == "deadline" else ["-posted_at", "id"])))[max(0, offset):max(0, offset) + (30 if limit == 30 else 15)]
     result = []
     # Fetch only the two display fields, not potentially large source payloads.
     qs = qs.annotate(display_award=F("raw__notice__sucsfbidMthdNm"),
@@ -136,7 +139,9 @@ def list_notices(alias, limit=15, offset=0, **kwargs):
             row["registration_close_at"] = _date(notice.display_registration)
         except (ValueError, TypeError):
             row["registration_close_at"] = None
-        if notice.close_at and notice.close_at <= timezone.now() and row.get("notice_status") != "cancelled":
+        row["open_at"] = notice.opening_at
+        cutoff = notice.close_at or notice.opening_at
+        if cutoff and cutoff <= timezone.now() and row.get("notice_status") != "cancelled":
             row["notice_status"] = "closed"
         result.append(row)
     return result

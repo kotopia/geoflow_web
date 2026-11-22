@@ -27,7 +27,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     # Historical status filters remain reachable only through the record archive.
     archive = history or request.GET.get("archive") == "1"
     review_status = str(request.GET.get("status") or "").strip() if archive else ""
-    companies, company = profiles.context(alias, request.GET.get("company")) if central_enabled(alias) and not history else ([], None)
+    companies, company = company_context(request, alias) if central_enabled(alias) and not history else ([], None)
     search_profile, profile_inherited = profiles.effective(alias, company["id"]) if company else (None, False)
     include_all = history or str(request.GET.get("scope") or "") == "all"
     try:
@@ -47,7 +47,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     origin = 'central' if central_enabled(alias) and not history else 'legacy'
     state = personal.rows(alias, personal.user_id(request), origin)
     include_closed = history or request.GET.get('closed') == '1'
-    sort = 'new' if request.GET.get('sort') == 'new' else 'deadline'
+    sort = 'new' if request.GET.get('sort') == 'new' else 'opening'
     try:
         date_from = parse_date(request.GET.get('from', ''))
         date_to = parse_date(request.GET.get('to', ''))
@@ -55,7 +55,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         return HttpResponseBadRequest('조회 날짜를 확인하세요.')
     if date_from and date_to and date_from > date_to:
         return HttpResponseBadRequest('시작일은 종료일보다 늦을 수 없습니다.')
-    apply_extra = request.GET.get('extra') == '1'
+    apply_extra = request.GET.get('extra', '0' if include_all else '1') == '1'
     include_excluded = True  # Only explicit personal hiding excludes a normal-list item.
     sources = [v for v in request.GET.getlist('source') if v in {'g2b', 'kepco'}]
     if central_enabled(alias) and not history:
@@ -91,6 +91,13 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         notice['badges'] = profiles.badges(notice)
         if company and profiles.local_badge(notice, search_profile, catalog):
             notice['badges'].insert(0, '관내')
+        from .sync import _date
+        for field in ('open_at', 'bid_close_at'):
+            if notice.get(field) and not hasattr(notice[field], 'strftime'):
+                try:
+                    notice[field] = _date(notice[field])
+                except (ValueError, TypeError):
+                    notice[field] = None
         notice['saved'] = state.get(str(notice['id']), {}).get('saved', False)
     query_params = request.GET.copy()
     query_params["per_page"] = str(per_page)
@@ -139,7 +146,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
 def settings_page(request, alias: str):
     repo = central_repository if central_enabled(alias) else repository
     central = central_enabled(alias)
-    companies, company = profiles.context(alias, request.GET.get("company")) if central else ([], None)
+    companies, company = company_context(request, alias) if central else ([], None)
     search_profile, inherited = profiles.effective(alias, company["id"]) if company else (None, False)
     selected = set(preferences.selected_conditions(alias)) if central else set()
     rules = [dict(id=str(r.pk), name=r.name, kind=r.get_kind_display(), active=r.active,
@@ -280,7 +287,26 @@ def list_redirect(request):
     return redirect(target)
 
 
+def company_context(request, alias):
+    key = 'bid_company:' + alias
+    explicit = 'company' in request.GET
+    value = request.GET.get('company') if explicit else request.session.get(key, '')
+    if not explicit and value:
+        # A deleted company must not strand the user's entry page.
+        available = profiles.companies(alias)
+        if not any(c['id'] == value for c in available):
+            request.session.pop(key, None)
+            return available, None
+    items, company = profiles.context(alias, value)
+    request.session[key] = company['id'] if company else ''
+    return items, company
+
+
 def settings_redirect(request):
     from urllib.parse import urlencode
     company = request.POST.get('company', '')
-    return redirect(reverse('tenant:bid_settings') + ('?' + urlencode({'company': company}) if company else ''))
+    if request.POST.get('action') in {'company_profile', 'central_rules', 'selection'}:
+        if request.POST.get('action') != 'company_profile':
+            company = ''  # Shared-default edits must open the shared-default list.
+        return redirect(reverse('tenant:bid_notice_list') + '?' + urlencode({'company': company, 'extra': '1'}))
+    return redirect(reverse('tenant:bid_settings') + '?' + urlencode({'company': company}))
