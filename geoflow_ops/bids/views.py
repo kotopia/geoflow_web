@@ -310,3 +310,16 @@ def settings_redirect(request):
             company = ''  # Shared-default edits must open the shared-default list.
         return redirect(reverse('tenant:bid_notice_list') + '?' + urlencode({'company': company, 'extra': '1'}))
     return redirect(reverse('tenant:bid_settings') + '?' + urlencode({'company': company}))
+
+
+def notice_detail(request, alias, notice_id, *, can_review):
+    from . import detail
+    history = central_enabled(alias) and request.GET.get('history') == '1'
+    notice = detail.load(alias, notice_id, history=history)
+    origin = 'central' if central_enabled(alias) and not history else 'legacy'
+    state = personal.rows(alias, personal.user_id(request), origin).get(str(notice_id), {})
+    notice.update(saved=state.get('saved', False), hidden=state.get('hidden', False))
+    return render(request, 'geoflow_ops/bids/notice_detail.html', {
+        'n': notice, 'can_review': can_review and not history, 'read_only': history,
+        'return_to': request.GET.get('next') or reverse('tenant:bid_notice_list'),
+    })

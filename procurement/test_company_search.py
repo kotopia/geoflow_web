@@ -50,7 +50,11 @@ class BadgeTests(SimpleTestCase):
             if name == 'notice_list':
                 self.assertNotIn('<th>지역 / 업종</th>', rendered)
                 self.assertIn('관심 해제', rendered)
-                self.assertIn('보존 기록', rendered)
+                self.assertNotIn('보존 기록', rendered)
+                self.assertNotIn('<th>관리</th>', rendered)
+                self.assertNotIn('bid-interested', rendered)
+                self.assertNotIn('투찰 마감', rendered)
+                self.assertIn('data-detail-url=', rendered)
                 self.assertIn('modal fade', rendered)
 
 

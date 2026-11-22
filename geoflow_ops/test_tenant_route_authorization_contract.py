@@ -47,6 +47,7 @@ class TenantRouteAuthorizationContractTests(unittest.TestCase):
             "bids/settings/": "bid_security_views.settings_page",
             "bids/settings/filter/save/": "bid_security_views.filter_value_save",
             "bids/settings/keyword/save/": "bid_security_views.keyword_save",
+            "bids/<uuid:notice_id>/detail/": "bid_security_views.notice_detail",
             "bids/<uuid:notice_id>/review/": "bid_security_views.review_save",
             "bids/sync/": "bid_security_views.sync_now",
             "contracts/": "security_views.contract_list",
