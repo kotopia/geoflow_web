@@ -6,7 +6,7 @@ from pathlib import Path
 
 def main():
     if os.environ.get("G2B_PROBE_APPROVED") != "1":
-        print('{"ok":false,"code":"PROBE_NOT_ENABLED"}')
+        print('{"ok":false,"code":"PROBE_NOT_ENABLED"}', flush=True)
         return 2
     key = os.environ.get("G2B_API_SERVICE_KEY", "").strip()
     if not key:
@@ -17,12 +17,13 @@ def main():
     if settings.configured or os.environ.get("DJANGO_SETTINGS_MODULE"):
         print('{"ok":false,"code":"NON_ISOLATED_SETTINGS"}')
         return 2
+    from procurement.live_probe import PROBE_REQUEST_LIMIT
     settings.configure(
         SECRET_KEY="disposable-g2b-probe", INSTALLED_APPS=["procurement"],
         DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
         CENTRAL_DB_ALIAS="default", USE_TZ=True, TIME_ZONE="Asia/Seoul",
         DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
-        G2B_API_SERVICE_KEY=key, G2B_CENTRAL_DAILY_BUDGET=9,
+        G2B_API_SERVICE_KEY=key, G2B_CENTRAL_DAILY_BUDGET=PROBE_REQUEST_LIMIT,
     )
     import django
     django.setup()
@@ -31,7 +32,7 @@ def main():
     from procurement.live_probe import run_probe
     try:
         call_command("migrate", "procurement", verbosity=0)
-        return 0 if run_probe(timezone.now()) else 1
+        return 0 if run_probe(timezone.now(), emit=lambda line: print(line, flush=True)) else 1
     except Exception:
         # Never print exception tracebacks from a secret-bearing live request.
         print('{"ok":false,"code":"PROBE_INTERNAL_ERROR"}')

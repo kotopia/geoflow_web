@@ -18,7 +18,7 @@ from geoflow_ops.bids.client import G2BError
 from .models import CollectionRule, CollectionJob, Notice, NoticeRevision, ApiBudget
 from .policy import retention_start, minute, canonical_order
 from .service import enqueue_rule, run_step, store_notice, enabled, central_alias
-from .client import Client, SEARCH
+from .client import Client, SEARCH, LICENSES
 
 NOW = datetime(2026, 9, 11, 3, 0, tzinfo=tz.utc)
 ROW = dict(bidNtceNo="test-001", bidNtceOrd="000", bidNtceNm="GIS DB 구축",
@@ -253,6 +253,63 @@ class LiveProbeTests(SimpleTestCase):
         self.assertFalse(run_probe(NOW, lines.append, client))
         self.assertEqual(client.page.call_count, 8)
         self.assertFalse(json.loads(lines[-1])["notice_key_matches"])
+
+    @patch('procurement.live_probe.time.sleep')
+    def test_transient_retries_keep_identical_queries_and_all_nine_checks(self, sleep):
+        from .live_probe import run_probe, PROBE_REQUEST_LIMIT
+        client = Mock()
+        page = SimpleNamespace(total_count=1, items=[dict(ROW, bsnsDivNm='용역', prtcptPsblRgnNm='충청남도')])
+        client.page.side_effect = [G2BError('HTTP_500', 'secret-url'),
+                                   G2BError('NETWORK_ERROR', 'secret-url'), page] * 9
+        lines = []
+        self.assertTrue(run_probe(NOW, lines.append, client))
+        self.assertEqual(client.page.call_count, PROBE_REQUEST_LIMIT)
+        self.assertEqual(PROBE_REQUEST_LIMIT, 27)
+        for start in range(0, 27, 3):
+            self.assertEqual(client.page.call_args_list[start], client.page.call_args_list[start + 1])
+            self.assertEqual(client.page.call_args_list[start], client.page.call_args_list[start + 2])
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [2, 4] * 9)
+        self.assertEqual(sum(json.loads(line)['ok'] for line in lines), 9)
+        self.assertNotIn('secret-url', ''.join(lines))
+
+    @patch('procurement.live_probe.time.sleep')
+    def test_exhausted_transient_error_still_blocks_deploy(self, sleep):
+        from .live_probe import run_probe
+        for code in ('HTTP_500', 'HTTP_502', 'HTTP_503', 'HTTP_504', 'NETWORK_ERROR'):
+            client = Mock()
+            client.page.side_effect = G2BError(code, 'secret-url')
+            lines = []
+            self.assertFalse(run_probe(NOW, lines.append, client))
+            self.assertEqual(client.page.call_count, 3)
+            self.assertFalse(json.loads(lines[-1])['ok'])
+            self.assertNotIn('secret-url', ''.join(lines))
+
+    @patch('procurement.live_probe.time.sleep')
+    def test_auth_quota_and_invalid_responses_are_never_retried(self, sleep):
+        from .live_probe import run_probe
+        page = SimpleNamespace(total_count=1, items=[dict(ROW, bsnsDivNm='용역', prtcptPsblRgnNm='충청남도')])
+        for code in ('API_20', 'API_22', 'API_23', 'API_29', 'API_30', 'API_31',
+                     'HTTP_400', 'HTTP_401', 'HTTP_403', 'HTTP_429', 'API_10',
+                     'INVALID_RESPONSE', 'INVALID_TOTAL', 'PAGE_METADATA_MISMATCH'):
+            client = Mock()
+            client.page.side_effect = [page] * 5 + [G2BError(code, 'secret-url')] + [page] * 3
+            self.assertFalse(run_probe(NOW, lambda line: None, client))
+            # License request is issued once; no transient retry is logged or slept.
+            self.assertEqual(sum(call.args[0] == LICENSES for call in client.page.call_args_list), 1)
+        sleep.assert_not_called()
+
+    @patch('procurement.live_probe.time.sleep')
+    def test_probe_deadline_stops_before_request_or_retry(self, sleep):
+        from .live_probe import run_probe
+        client = Mock()
+        with patch('procurement.live_probe.time.monotonic', side_effect=[0, 211]):
+            self.assertFalse(run_probe(NOW, lambda line: None, client))
+        client.page.assert_not_called()
+        client.page.side_effect = G2BError('HTTP_500', 'secret-url')
+        with patch('procurement.live_probe.time.monotonic', side_effect=[0, 0, 209]):
+            self.assertFalse(run_probe(NOW, lambda line: None, client))
+        self.assertEqual(client.page.call_count, 1)
+        sleep.assert_not_called()
 
 
 class RolloutTests(TestCase):
