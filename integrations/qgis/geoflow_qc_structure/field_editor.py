@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QSpinBox, QVBoxLayout,
+    QLineEdit, QMessageBox, QPlainTextEdit, QSpinBox, QVBoxLayout, QScrollArea, QWidget,
 )
 from qgis.core import QgsCoordinateReferenceSystem
 from qgis.gui import QgsProjectionSelectionWidget
@@ -20,6 +20,7 @@ METHODS = {
     "CODE_MAP": "코드 변환", "START_REFERENCE": "시점 참조",
     "END_REFERENCE": "종점 참조", "SPATIAL_LOOKUP": "공간검색",
     "CONDITION": "조건별 값",
+    "AGGREGATE": "저장 숫자 참조 집계 (심도)",
 }
 
 
@@ -53,7 +54,13 @@ class FieldEditor(QDialog):
         self.setWindowTitle("출력 필드 설정")
         self.resize(560, 600)
         self.key, self.original_rule, self.original_field = key, deepcopy(rule), deepcopy(field)
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(content)
         form = QFormLayout()
         layout.addLayout(form)
         self.semantic = QLineEdit(key)
@@ -101,11 +108,19 @@ class FieldEditor(QDialog):
             ("참조·코드·조건 연산 매개변수", self.parameters),
         ]:
             form.addRow(label, control)
+        from .operation_editor import ReferenceSettings, AggregateSettings
+        from qgis.core import QgsApplication
+        from pathlib import Path
+        directory = getattr(getattr(parent, 'provider', None), 'directory', Path(QgsApplication.qgisSettingsDirPath()) / 'geoflow_qc_structure')
+        self.code_settings = ReferenceSettings(self, params, directory)
+        self.aggregate_settings = AggregateSettings(self, params)
+        layout.addWidget(self.code_settings)
+        layout.addWidget(self.aggregate_settings)
         layout.addWidget(QLabel("출력 필드는 원본에 없어도 됩니다. 설정한 필드만 별도 결과 레이어에 생성합니다."))
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.submit)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        outer.addWidget(buttons)
         self.method.currentIndexChanged.connect(self.update_controls)
         self.kind.currentTextChanged.connect(self.update_controls)
         self.null_value.toggled.connect(self.update_controls)
@@ -113,12 +128,14 @@ class FieldEditor(QDialog):
 
     def update_controls(self, *_):
         op, kind = self.method.currentData(), self.kind.currentText()
-        self.source.setEnabled(op in {"COPY", "KEEP"})
+        self.source.setEnabled(op in {"COPY", "KEEP", "CODE_MAP"})
+        self.code_settings.setVisible(op == "CODE_MAP")
+        self.aggregate_settings.setVisible(op == "AGGREGATE")
         self.null_value.setEnabled(op == "CONSTANT")
         self.value.setEnabled(op == "CONSTANT" and not self.null_value.isChecked())
-        self.crs.setEnabled(op in {"LENGTH", "AREA", "ANGLE"})
+        self.crs.setEnabled(op in {"LENGTH", "AREA", "ANGLE", "AGGREGATE"})
         self.unit.setEnabled(op in {"LENGTH", "AREA"})
-        self.parameters.setEnabled(op not in {"COPY", "KEEP", "CONSTANT", "LENGTH", "AREA"})
+        self.parameters.setEnabled(op not in {"COPY", "KEEP", "CONSTANT", "LENGTH", "AREA", "CODE_MAP", "AGGREGATE"})
         self.size.setEnabled(kind in {"CHAR", "VARCHAR", "NUMERIC", "DECIMAL"})
         self.scale.setEnabled(kind in {"NUMERIC", "DECIMAL"})
 
@@ -142,6 +159,10 @@ class FieldEditor(QDialog):
                 params = {"value": None if self.null_value.isChecked() else constant_value(self.value.text(), kind)}
             elif op in {"LENGTH", "AREA"}:
                 params = {"crs": self.crs.crs().authid(), "unit": self.unit.currentText()}
+            elif op == "CODE_MAP":
+                params = self.code_settings.parameters(self.source.currentText())
+            elif op == "AGGREGATE":
+                params = self.aggregate_settings.parameters(self.crs.crs().authid())
             else:
                 params = json.loads(self.parameters.toPlainText())
                 if op == "ANGLE":
