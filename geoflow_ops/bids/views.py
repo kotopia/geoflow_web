@@ -47,7 +47,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     origin = 'central' if central_enabled(alias) and not history else 'legacy'
     state = personal.rows(alias, personal.user_id(request), origin)
     include_closed = history or request.GET.get('closed') == '1'
-    sort = 'new' if request.GET.get('sort') == 'new' else 'opening'
+    sort = 'opening' if request.GET.get('sort') == 'opening' else 'new'
     try:
         date_from = parse_date(request.GET.get('from', ''))
         date_to = parse_date(request.GET.get('to', ''))
