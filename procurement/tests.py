@@ -701,8 +701,8 @@ class TenantIsolationTests(TestCase):
         from geoflow_ops.bids.views import notice_list, sync_now
         request = RequestFactory().get('/bids/', {'region': 'nationwide', 'q': 'GIS', 'page': '3'})
         request.session = {}
-        with patch('geoflow_ops.bids.views.personal.user_id', return_value='00000000-0000-0000-0000-000000000001'), \
-             patch('geoflow_ops.bids.views.personal.rows', return_value={}), \
+        with patch('geoflow_ops.bids.views.tenant_state.user_id', return_value='00000000-0000-0000-0000-000000000001'), \
+             patch('geoflow_ops.bids.views.tenant_state.rows', return_value={}), \
              patch('geoflow_ops.bids.views.profiles.context', return_value=([], None)), \
              patch('geoflow_ops.bids.views.repository.load_filters', return_value={}), \
              patch('geoflow_ops.bids.views.render', side_effect=lambda req, template, ctx: ctx), \

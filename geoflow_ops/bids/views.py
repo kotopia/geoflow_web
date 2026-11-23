@@ -12,7 +12,7 @@ from django.utils.dateparse import parse_date
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 
-from . import repository, personal, profiles
+from . import repository, tenant_state, profiles
 from .client import G2BError
 from .sync import sync_service_notices
 from procurement.service import enabled as central_enabled
@@ -45,7 +45,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     if personal_view not in {'all', 'saved', 'hidden'}:
         personal_view = 'all'
     origin = 'central' if central_enabled(alias) and not history else 'legacy'
-    state = personal.rows(alias, personal.user_id(request), origin)
+    state = tenant_state.rows(alias, tenant_state.user_id(request), origin)
     include_closed = history or request.GET.get('closed') == '1'
     sort = 'opening' if request.GET.get('sort') == 'opening' else 'new'
     try:
@@ -56,7 +56,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
     if date_from and date_to and date_from > date_to:
         return HttpResponseBadRequest('시작일은 종료일보다 늦을 수 없습니다.')
     apply_extra = request.GET.get('extra', '0' if include_all else '1') == '1'
-    include_excluded = True  # Only explicit personal hiding excludes a normal-list item.
+    include_excluded = True  # Only explicit tenant-wide hiding excludes a normal-list item.
     sources = [v for v in request.GET.getlist('source') if v in {'g2b', 'kepco'}]
     if central_enabled(alias) and not history:
         extra.update(apply_extra=apply_extra, include_excluded=include_excluded, sources=sources or None, search_profile=search_profile)
@@ -270,7 +270,7 @@ def sync_now(request, alias: str):
 def personal_save(request, alias):
     origin = 'central' if central_enabled(alias) else 'legacy'
     try:
-        ids = personal.save(alias, personal.user_id(request), origin,
+        ids = tenant_state.save(alias, tenant_state.user_id(request), origin,
                             request.POST.getlist('notice_ids'), request.POST.get('action'))
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
@@ -324,7 +324,7 @@ def notice_detail(request, alias, notice_id, *, can_review):
             profile, _ = profiles.effective(alias, company['id'])
             if profiles.local_badge(notice, profile, repository.list_settings(alias)):
                 notice['badges'].insert(0, '관내')
-    state = personal.rows(alias, personal.user_id(request), origin).get(str(notice_id), {})
+    state = tenant_state.rows(alias, tenant_state.user_id(request), origin).get(str(notice_id), {})
     notice.update(saved=state.get('saved', False), hidden=state.get('hidden', False))
     return render(request, 'geoflow_ops/bids/notice_detail.html', {
         'n': notice, 'can_review': can_review and not history, 'read_only': history,

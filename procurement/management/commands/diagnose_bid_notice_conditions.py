@@ -9,7 +9,7 @@ from procurement.models import CollectionRule, Notice
 from procurement.preferences import selected_conditions, selected_ids
 from procurement.service import central_alias, enabled, rule_matches
 from procurement.tenant import query_notices
-from geoflow_ops.bids import personal
+from geoflow_ops.bids import tenant_state
 
 
 class Command(BaseCommand):
@@ -17,7 +17,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--database', required=True)
-        parser.add_argument('--user-id', help='개인 숨김까지 확인할 중앙 사용자 UUID (생략 시 회사 후보 목록만 확인)')
+        parser.add_argument('--user-id', help='테넌트 공통 숨김까지 확인할 중앙 사용자 UUID (생략 시 회사 후보 목록만 확인)')
         parser.add_argument('--number', default='E012607882')
         parser.add_argument('--source', default='kepco')
         parser.add_argument('--api-response', help='별도로 확보한 실제 한전 API JSON 응답 파일')
@@ -33,7 +33,7 @@ class Command(BaseCommand):
                     with connections[alias].cursor() as cur:
                         cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             try:
-                state = personal.rows(tenant, options['user_id'], 'central') if options['user_id'] else None
+                state = tenant_state.rows(tenant, options['user_id'], 'central') if options['user_id'] else None
             except (ValueError, TypeError, AttributeError):
                 raise CommandError('사용자 UUID를 확인하세요.') from None
             notice = Notice.objects.using(central).filter(source=options['source'], number=options['number']).first()
