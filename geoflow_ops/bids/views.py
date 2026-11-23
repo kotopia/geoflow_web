@@ -317,6 +317,13 @@ def notice_detail(request, alias, notice_id, *, can_review):
     history = central_enabled(alias) and request.GET.get('history') == '1'
     notice = detail.load(alias, notice_id, history=history)
     origin = 'central' if central_enabled(alias) and not history else 'legacy'
+    notice['badges'] = profiles.badges(notice)
+    if central_enabled(alias) and not history:
+        _, company = profiles.context(alias, request.GET.get('company', ''))
+        if company:
+            profile, _ = profiles.effective(alias, company['id'])
+            if profiles.local_badge(notice, profile, repository.list_settings(alias)):
+                notice['badges'].insert(0, '관내')
     state = personal.rows(alias, personal.user_id(request), origin).get(str(notice_id), {})
     notice.update(saved=state.get('saved', False), hidden=state.get('hidden', False))
     return render(request, 'geoflow_ops/bids/notice_detail.html', {

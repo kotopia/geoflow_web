@@ -5,6 +5,23 @@
 <style>
 .bid-cancelled .bid-title {text-decoration:line-through;color:var(--bs-secondary-color,#6c757d);}
 .bid-corrected .bid-title {text-decoration:underline dotted;text-underline-offset:4px;}
+#bid-detail-modal .modal-dialog {max-width:1380px;}
+#bid-detail-modal .bid-detail-nav {position:sticky;top:-1rem;z-index:2;background:var(--bs-body-bg);}
+#bid-detail-modal section {scroll-margin-top:4rem;}
+#bid-detail-modal .card-header {padding:1rem 1rem .5rem;}
+#bid-detail-modal .bid-facts {table-layout:fixed;}
+#bid-detail-modal .bid-facts th {width:18%;background:var(--bs-light);font-weight:600;}
+#bid-detail-modal .bid-facts td {overflow-wrap:anywhere;white-space:pre-line;}
+#bid-detail-modal .bid-progress {list-style:none;padding-left:1.25rem;margin:0;}
+#bid-detail-modal .bid-progress li {position:relative;border-left:2px solid var(--bs-border-color);padding:0 0 1.5rem 1.25rem;}
+#bid-detail-modal .bid-progress li:last-child {border-left-color:transparent;padding-bottom:0;}
+#bid-detail-modal .bid-progress li::before {content:'';position:absolute;left:-7px;top:3px;width:12px;height:12px;border:2px solid var(--bs-secondary);border-radius:50%;background:var(--bs-body-bg);}
+#bid-detail-modal .bid-progress li.elapsed::before {background:var(--bs-primary);border-color:var(--bs-primary);}
+@media (max-width:767.98px) {
+  #bid-detail-modal .bid-facts tr {display:grid;grid-template-columns:34% 66%;}
+  #bid-detail-modal .bid-facts th,#bid-detail-modal .bid-facts td {width:auto;}
+  #bid-detail-modal .bid-detail-nav {position:static;}
+}
 </style>
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div><h1 class="h3 mb-1">{% if personal_view == 'saved' %}관심입찰{% elif personal_view == 'hidden' %}숨긴 공고{% elif archive %}이전 검토기록{% else %}입찰 공고{% endif %}</h1><div class="text-muted small">관심 있는 공고를 표시하고, 필요 없는 공고는 숨기세요.</div></div>
@@ -38,13 +55,13 @@
 </div><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0"><thead><tr>{% if not legacy_history %}<th><input type="checkbox" id="bid-select-all" aria-label="현재 페이지 전체 선택"></th>{% endif %}<th>공고명 / 출처</th><th>발주기관</th><th class="text-end">금액</th><th>참가가능지역</th><th>게시일</th></tr></thead><tbody>
 {% for n in notices %}<tr class="{% if n.notice_status == 'cancelled' %}bid-cancelled{% elif n.is_correction %}bid-corrected{% endif %}">
 {% if not legacy_history %}<td><input type="checkbox" name="notice_ids" value="{{ n.id }}" form="bid-bulk-form" class="bid-select" aria-label="{{ n.title }} 선택"></td>{% endif %}
-<td style="min-width:240px;max-width:520px"><div>{% if n.saved %}<span class="text-primary" aria-label="관심입찰">★</span> {% endif %}<button type="button" class="btn btn-link p-0 text-start bid-title" data-bs-toggle="modal" data-bs-target="#bid-detail-modal" data-detail-url="{% url 'tenant:bid_notice_detail' n.id %}?next={{ return_to|urlencode }}{% if legacy_history %}&amp;history=1{% endif %}">{{ n.title }}</button></div><div class="d-flex flex-wrap gap-1 my-1">{% for badge in n.badges %}<span class="badge bg-primary-light text-primary">{{ badge }}</span>{% endfor %}{% if n.notice_status == 'cancelled' %}<span class="badge bg-secondary">취소</span>{% elif n.is_correction %}<span class="badge bg-warning text-dark">정정</span>{% endif %}</div><div class="small text-muted">{{ n.source_label|default:'나라장터' }} · {{ n.bid_notice_no }}-{{ n.bid_notice_ord }}</div></td>
+<td style="min-width:240px;max-width:520px"><div>{% if n.saved %}<span class="text-primary" aria-label="관심입찰">★</span> {% endif %}<button type="button" class="btn btn-link p-0 text-start bid-title" data-bs-toggle="modal" data-bs-target="#bid-detail-modal" data-detail-url="{% url 'tenant:bid_notice_detail' n.id %}?next={{ return_to|urlencode }}&amp;company={{ company.id|default:'' }}{% if legacy_history %}&amp;history=1{% endif %}">{{ n.title }}</button></div><div class="d-flex flex-wrap gap-1 my-1">{% for badge in n.badges %}<span class="badge bg-primary-light text-primary">{{ badge }}</span>{% endfor %}{% if n.notice_status == 'cancelled' %}<span class="badge bg-secondary">취소</span>{% elif n.is_correction %}<span class="badge bg-warning text-dark">정정</span>{% endif %}</div><div class="small text-muted">{{ n.source_label|default:'나라장터' }} · {{ n.bid_notice_no }}-{{ n.bid_notice_ord }}</div></td>
 <td>{{ n.notice_agency_name|default:'-' }}</td><td class="text-end text-nowrap">{% if n.basic_amount != None %}{{ n.basic_amount|intcomma }}<div class="small text-muted">기초금액 · 원</div>{% elif n.estimated_price != None %}{{ n.estimated_price|intcomma }}<div class="small text-muted">추정가격 · 원</div>{% else %}-{% endif %}</td>
 <td style="max-width:180px"><span title="{{ n.region_text }}">{{ n.region_text|default:'확인 필요' }}</span></td>
 <td class="text-nowrap"><div>{{ n.posted_at|date:'Y-m-d H:i'|default:'게시일 미제공' }}</div><div class="small text-muted">개찰 {{ n.open_at|date:'Y-m-d H:i'|default:'미제공' }}</div></td></tr>
 {% empty %}<tr><td colspan="6" class="text-center text-muted py-5">표시할 공고가 없습니다. 마감 포함 또는 전체 공고 검색으로 범위를 넓혀보세요.</td></tr>{% endfor %}
 </tbody></table></div><div class="card-body d-flex justify-content-between"><span class="small text-muted">{{ page }} / {{ total_pages }} 페이지</span><div>{% if previous_query %}<a class="btn btn-sm btn-light" href="?{{ previous_query }}">이전</a>{% endif %} {% if next_query %}<a class="btn btn-sm btn-light" href="?{{ next_query }}">다음</a>{% endif %}</div></div></div>
-<div class="modal fade" id="bid-detail-modal" tabindex="-1" aria-label="입찰 상세 및 기록" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"></div></div></div>
+<div class="modal fade" id="bid-detail-modal" tabindex="-1" aria-label="입찰 상세 및 기록" aria-hidden="true"><div class="modal-dialog modal-xl modal-fullscreen-sm-down modal-dialog-scrollable"><div class="modal-content"></div></div></div>
 <script>
 (()=>{const all=document.getElementById('bid-select-all');if(!all)return;const rows=[...document.querySelectorAll('.bid-select')];function update(){let count=rows.filter(x=>x.checked).length;const bar=document.getElementById('bid-bulk');bar.classList.toggle('d-none',!count);bar.classList.toggle('d-flex',!!count);document.getElementById('bid-selected-count').textContent=count+'개 선택';all.checked=rows.length>0&&count===rows.length;all.indeterminate=count>0&&count<rows.length;}all.addEventListener('change',()=>{rows.forEach(x=>x.checked=all.checked);update()});rows.forEach(x=>x.addEventListener('change',update));})();
 (()=>{
@@ -57,6 +74,11 @@ modal.addEventListener('show.bs.modal',async event=>{
     if(!response.ok||response.redirected)throw new Error('detail');
     const html=await response.text();if(current===sequence)content.innerHTML=html;
   } catch(error) {if(error.name!=='AbortError'&&current===sequence)content.querySelector('.modal-body').textContent='상세정보를 불러오지 못했습니다. 창을 닫고 다시 시도하세요.';}
+});
+modal.addEventListener('click',event=>{
+  const link=event.target.closest('[data-bid-section]');if(!link)return;
+  const target=content.querySelector(link.getAttribute('href'));if(!target)return;
+  event.preventDefault();target.scrollIntoView({block:'start',behavior:'auto'});target.focus({preventScroll:true});
 });
 modal.addEventListener('hidden.bs.modal',()=>{++sequence;controller?.abort();content.replaceChildren();});
 })();

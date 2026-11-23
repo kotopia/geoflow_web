@@ -1,6 +1,8 @@
 """Public notice detail, tenant-owned notes, and safe external attachments."""
 import re
 import importlib
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from uuid import uuid4
 
@@ -54,11 +56,59 @@ class DetailPresentationTests(SimpleTestCase):
         html = engine.from_string(source).render(Context({'n':n, 'can_review':True}))
         self.assertNotIn('<script>', html)
         self.assertNotIn('<img ', html)
+        self.assertIn('개찰 결과', html)
+        self.assertIn('미연동', html)
+        self.assertIn('disabled>개찰 결과 보기', html)
         for label in ['공고원문보기','기관 검색','기록 저장','관심 등록','숨기기','수집 정보 전체']:
             self.assertIn(label, html)
         readonly = engine.from_string(source).render(Context({'n':n,'read_only':True,'can_review':False}))
         self.assertNotIn('<form', readonly)
         self.assertIn('&lt;script&gt;memo', readonly)
+
+    def test_schedule_does_not_claim_opening_or_award_completion(self):
+        now = datetime(2026, 11, 23, 10, tzinfo=ZoneInfo('Asia/Seoul'))
+        for source in ('g2b', 'kepco'):
+            n = detail.presentation(dict(source=source, posted_at=now-timedelta(days=1),
+                bid_begin_at=now+timedelta(days=1), bid_close_at=now+timedelta(days=2),
+                open_at=now+timedelta(days=3)), {}, now=now)
+            self.assertEqual(n['schedule_label'], '접수 예정')
+            self.assertEqual([e['key'] for e in n['timeline'] if e['elapsed']], ['posted_at'])
+            n = detail.presentation(dict(source=source, bid_close_at=now-timedelta(hours=2),
+                open_at=now-timedelta(hours=1)), {}, now=now)
+            self.assertEqual(n['schedule_label'], '마감')
+            self.assertEqual(n['opening_schedule'], '개찰 예정시각 경과')
+            self.assertIn('미확인', n['timeline'][-1]['hint'])
+            self.assertIn('자동 연동 전', n['result_message'])
+            n = detail.presentation(dict(source=source, notice_status='cancelled',
+                open_at=now-timedelta(hours=1)), {}, now=now)
+            self.assertEqual(n['schedule_label'], '취소')
+            self.assertFalse(any(e['elapsed'] for e in n['timeline']))
+
+    def test_g2b_display_uses_raw_registration_and_preserves_zero_and_unknowns(self):
+        n = detail.presentation(dict(source='g2b', estimated_price='0', basic_amount='123,456',
+            open_at='invalid', bid_begin_at=None), {'notice':{
+                'bidQlfctRgstDt':'2026-11-24 18:00', 'sucsfbidMthdNm':'협상에 의한 계약',
+                'cmmnSpldmdMethdNm':'공동이행', 'VAT':'0'}})
+        values = {field['label']:field['value'] for section in n['sections'] for row in section['rows'] for field in row}
+        self.assertEqual(values['추정가격'], '0원')
+        self.assertEqual(values['기초금액'], '123,456원')
+        self.assertEqual(values['부가가치세'], '0원')
+        self.assertEqual(values['사업예산'], '미제공')
+        self.assertEqual(values['낙찰방법'], '협상에 의한 계약')
+        self.assertEqual(values['공동수급'], '공동이행')
+        self.assertIsNone(n['open_at'])
+        self.assertEqual(n['registration_close_at'].day, 24)
+
+    def test_kepco_missing_fields_are_not_inferred_from_qualification_or_progress(self):
+        n = detail.presentation(dict(source='kepco', qualification_text='충남 소재 공공측량업 등록 업체',
+            notice_agency_name='한국전력 충남본부', estimated_price='100000'),
+            {'notice':{'_kepco':{'progressstate':'Final'}, 'VAT':'10000', 'cmmnSpldmdMethdNm':'합성값'}})
+        values = {field['label']:field['value'] for section in n['sections'] for row in section['rows'] for field in row}
+        for key in ('참가가능지역','업종·면허','공동수급','부가가치세','개찰 예정'):
+            self.assertEqual(values[key], '미제공')
+        self.assertEqual(values['참가자격 원문'], '충남 소재 공공측량업 등록 업체')
+        self.assertEqual(n['opening_schedule'], '개찰일 미제공')
+        self.assertIn('자동 연동 전', n['result_message'])
 
 
 @override_settings(G2B_CENTRAL_TENANT_ALIASES=('company_a','company_b'))
