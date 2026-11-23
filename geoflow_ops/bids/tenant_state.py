@@ -32,6 +32,20 @@ def save(alias, actor, origin, notice_ids, action):
     _scope(alias, actor, origin)
     actions = {"save": ("saved", True), "unsave": ("saved", False),
                "hide": ("hidden", True), "restore": ("hidden", False)}
+    return _save(alias, actor, origin, notice_ids, action, actions)
+
+
+def save_progress(alias, actor, origin, notice_id, action):
+    from django.utils import timezone
+    now = timezone.now()
+    return _save(alias, actor, origin, [notice_id], action, {
+        'register': ('registered_at', now), 'unregister': ('registered_at', None),
+        'submit': ('submitted_at', now), 'unsubmit': ('submitted_at', None),
+    })
+
+
+def _save(alias, actor, origin, notice_ids, action, actions):
+    _scope(alias, actor, origin)
     if action not in actions or not 1 <= len(notice_ids) <= 30:
         raise ValueError("최대 30개 공고와 작업을 선택하세요.")
     try:
@@ -70,3 +84,28 @@ def refresh_personal_snapshot(cur):
         ON CONFLICT(origin,notice_id) DO UPDATE
         SET saved=excluded.saved,hidden=excluded.hidden,updated_at=excluded.updated_at
         WHERE excluded.updated_at > bid.tenant_state.updated_at""")
+
+
+def progress_rows(alias, actor, origin, notice_ids):
+    _scope(alias, actor, origin)
+    ids = [str(UUID(str(pk))) for pk in notice_ids]
+    if not ids:
+        return {}
+    with connections[alias].cursor() as cur:
+        cur.execute("SELECT notice_id,registered_at,submitted_at FROM bid.tenant_state WHERE origin=%s AND notice_id IN (" + ",".join(["%s"] * len(ids)) + ")", [origin, *ids])
+        return {str(pk): dict(registered_at=registered, submitted_at=submitted,
+            progress_badge='투찰' if submitted else ('참가' if registered else ''))
+            for pk, registered, submitted in cur.fetchall()}
+
+
+def apply_progress(notice, progress):
+    notice.update(progress)
+    for event in notice.get('timeline', []):
+        if event['key'] in {'registration_close_at', 'bid_close_at'}:
+            registered = event['key'] == 'registration_close_at'
+            done = progress.get('registered_at' if registered else 'submitted_at')
+            event.update(completed_at=done,
+                action=('unregister' if done else 'register') if registered else ('unsubmit' if done else 'submit'),
+                action_label='취소' if done else '완료',
+                action_title=('참가등록' if registered else '투찰') + (' 완료 취소' if done else ' 완료'))
+    return notice

@@ -27,12 +27,13 @@ class PersonalStateTests(TestCase):
                     cur.execute('CREATE SCHEMA IF NOT EXISTS bid')
                     cur.execute(importlib.import_module('geoflow_ops.migrations.0051_bid_personal_state').SQL)
                     cur.execute(importlib.import_module('geoflow_ops.migrations.0055_bid_tenant_state').SQL)
+                    cur.execute(importlib.import_module('geoflow_ops.migrations.0057_bid_progress').SQL)
                 else:
                     cur.execute("PRAGMA database_list")
                     if "bid" not in {row[1] for row in cur.fetchall()}:
                         cur.execute("ATTACH DATABASE ':memory:' AS bid")
                     cur.execute('''CREATE TABLE bid.tenant_state(origin text,notice_id text,
-                        saved boolean DEFAULT false,hidden boolean DEFAULT false,updated_at text,
+                        saved boolean DEFAULT false,hidden boolean DEFAULT false,updated_at text,registered_at timestamp,submitted_at timestamp,
                         PRIMARY KEY(origin,notice_id))''')
 
     def setUp(self):
@@ -93,6 +94,48 @@ class PersonalStateTests(TestCase):
             tenant_state.refresh_personal_snapshot(cur)
         self.assertEqual(tenant_state.rows('company_a',self.user,'central')[self.pk], {'saved':False,'hidden':False})
         self.assertEqual(tenant_state.rows('company_b',self.user,'central'), {})
+
+    def test_progress_shared_badge_priority_undo_and_isolation(self):
+        def state(alias='company_a', origin='central'):
+            return tenant_state.progress_rows(alias,self.other,origin,[self.pk]).get(self.pk,{})
+        tenant_state.save('company_a',self.user,'central',[self.pk],'save')
+        tenant_state.save_progress('company_a',self.user,'central',self.pk,'register')
+        self.assertEqual(state()['progress_badge'],'참가')
+        tenant_state.save_progress('company_a',self.user,'central',self.pk,'submit')
+        self.assertEqual(state()['progress_badge'],'투찰')
+        self.assertTrue(state()['registered_at'])
+        self.assertEqual(state('company_b'),{})
+        self.assertEqual(state(origin='legacy'),{})
+        tenant_state.save_progress('company_a',self.other,'central',self.pk,'unsubmit')
+        self.assertEqual(state()['progress_badge'],'참가')
+        tenant_state.save_progress('company_a',self.other,'central',self.pk,'unregister')
+        self.assertEqual(state()['progress_badge'],'')
+        self.assertTrue(tenant_state.rows('company_a',self.user,'central')[self.pk]['saved'])
+        # Registration is not mandatory for every notice; bidding does not invent registration.
+        tenant_state.save_progress('company_a',self.user,'central',self.pk,'submit')
+        self.assertIsNone(state()['registered_at'])
+        for alias, pk, action in [('default',self.pk,'submit'),('company_a',str(uuid4()),'submit'),('company_a',self.pk,'opened')]:
+            with self.assertRaises(ValueError):
+                tenant_state.save_progress(alias,self.user,'central',pk,action)
+        # The view-only bookmarking endpoint must not accept progress actions.
+        with self.assertRaises(ValueError):
+            tenant_state.save('company_a',self.user,'central',[self.pk],'submit')
+
+    def test_progress_endpoint_requires_write_permission_and_post(self):
+        import sys
+        from types import ModuleType
+        context = ModuleType('geoflow_ops.services.entity_access')
+        context.require_tenant_context = lambda request: 'company_a'
+        with patch.dict(sys.modules, {'geoflow_ops.services.entity_access': context}):
+            from geoflow_ops.bids import security_views
+        request = RequestFactory().post('/bids/progress/', {'action':'submit'})
+        request.user = type('User',(),{'is_authenticated':True})()
+        with patch.object(security_views,'require_tenant_context',return_value='company_a'), patch.object(security_views,'gf_has_perm',side_effect=lambda req,p:p=='contracts.view'), patch.object(security_views.views,'progress_save') as save:
+            with self.assertRaises(PermissionDenied):
+                security_views.progress_save(request,self.notice.pk)
+            save.assert_not_called()
+        request.method='GET'
+        self.assertEqual(security_views.progress_save(request,self.notice.pk).status_code,405)
 
     def test_invalid_batch_is_atomic_and_scope_fails_closed(self):
         for alias, actor, ids, action in [('default', self.user, [self.pk], 'hide'),

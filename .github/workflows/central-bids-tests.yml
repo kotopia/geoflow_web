@@ -14,6 +14,8 @@ on:
       - 'geoflow_ops/migrations/0054_merge_bid_company_search.py'
       - 'geoflow_ops/migrations/0055_bid_tenant_state.py'
       - 'geoflow_ops/migrations/0056_merge_bid_tenant_state.py'
+      - 'geoflow_ops/migrations/0057_bid_progress.py'
+      - 'geoflow_ops/migrations/0058_merge_bid_progress.py'
       - 'geoflow_ops/urls.py'
       - 'geoflow_ops/templates/geoflow_ops/bids/**'
       - 'geoflow_project/settings.py'

@@ -98,3 +98,10 @@ def personal_save(request):
 @require_GET
 def notice_detail(request, notice_id):
     return views.notice_detail(request, _require_view(request), notice_id, can_review=_can_review(request))
+
+
+@never_cache
+@login_required
+@require_POST
+def progress_save(request, notice_id):
+    return views.progress_save(request, _require_review(request), notice_id)
