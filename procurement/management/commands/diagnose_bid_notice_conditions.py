@@ -9,7 +9,7 @@ from procurement.models import CollectionRule, Notice
 from procurement.preferences import selected_conditions, selected_ids
 from procurement.service import central_alias, enabled, rule_matches
 from procurement.tenant import query_notices
-from geoflow_ops.bids import personal
+from geoflow_ops.bids import tenant_state
 
 
 class Command(BaseCommand):
@@ -33,7 +33,7 @@ class Command(BaseCommand):
                     with connections[alias].cursor() as cur:
                         cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             try:
-                state = personal.rows(tenant, options['user_id'], 'central') if options['user_id'] else None
+                state = tenant_state.rows(tenant, options['user_id'], 'central') if options['user_id'] else None
             except (ValueError, TypeError, AttributeError):
                 raise CommandError('사용자 UUID를 확인하세요.') from None
             notice = Notice.objects.using(central).filter(source=options['source'], number=options['number']).first()

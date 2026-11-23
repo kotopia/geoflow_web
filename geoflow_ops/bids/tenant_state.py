@@ -1,4 +1,4 @@
-"""Tenant-owned, central-user scoped bookmarks and reversible hiding."""
+"""Tenant-shared bookmarks and reversible hiding. Actor identity validates requests only."""
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
@@ -21,15 +21,15 @@ def _scope(alias, actor, origin):
 
 
 def rows(alias, actor, origin):
-    actor = _scope(alias, actor, origin)
+    _scope(alias, actor, origin)
     with connections[alias].cursor() as cur:
-        cur.execute("SELECT notice_id,saved,hidden FROM bid.personal_state WHERE user_id=%s AND origin=%s",
-                    [actor, origin])
+        cur.execute("SELECT notice_id,saved,hidden FROM bid.tenant_state WHERE origin=%s",
+                    [origin])
         return {str(pk): {"saved": saved, "hidden": hidden} for pk, saved, hidden in cur.fetchall()}
 
 
 def save(alias, actor, origin, notice_ids, action):
-    actor = _scope(alias, actor, origin)
+    _scope(alias, actor, origin)
     actions = {"save": ("saved", True), "unsave": ("saved", False),
                "hide": ("hidden", True), "restore": ("hidden", False)}
     if action not in actions or not 1 <= len(notice_ids) <= 30:
@@ -50,9 +50,9 @@ def save(alias, actor, origin, notice_ids, action):
     column, value = actions[action]
     with transaction.atomic(using=alias), connections[alias].cursor() as cur:
         for pk in ids:
-            # Column comes only from the fixed action mapping above. Neither another
-            # user's state nor the independent saved/hidden flag is overwritten.
-            cur.execute(f"""INSERT INTO bid.personal_state(user_id,origin,notice_id,{column})
-                VALUES (%s,%s,%s,%s) ON CONFLICT(user_id,origin,notice_id)
-                DO UPDATE SET {column}=excluded.{column},updated_at=CURRENT_TIMESTAMP""", [actor, origin, pk, value])
+            # Column comes only from the fixed action mapping above. The tenant DB
+            # owns the state; preserve the independent saved/hidden flag.
+            cur.execute(f"""INSERT INTO bid.tenant_state(origin,notice_id,{column})
+                VALUES (%s,%s,%s) ON CONFLICT(origin,notice_id)
+                DO UPDATE SET {column}=excluded.{column},updated_at=CURRENT_TIMESTAMP""", [origin, pk, value])
     return ids

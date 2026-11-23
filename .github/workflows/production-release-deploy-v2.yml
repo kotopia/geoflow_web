@@ -327,6 +327,7 @@ jobs:
               ('0035_employee_education_career_settings', '0034_finance_account_card_trash'),
               ('0036_bid_interest_foundation', '0035_employee_education_career_settings'),
               ('0051_bid_personal_state', '0036_bid_interest_foundation'),
+              ('0055_bid_tenant_state', '0051_bid_personal_state'),
           ]
           TENANT_MARKERS = ('ctr.contracts', 'prj.projects', 'hr.employee_profile', 'ops.settings_nodes')
 
