@@ -55,13 +55,13 @@ class BidInterestProductionDeployContractTests(unittest.TestCase):
         self.assertNotIn("count(*) FILTER (WHERE active)", self.workflow)
         self.assertNotIn("bid region seed must contain 17 inactive rows", self.workflow)
 
-    def test_provider_check_precedes_web_stop_and_retry_is_legacy_only(self):
-        check = self.workflow.index('shell -c "from procurement.kepco import KepcoClient')
+    def test_kepco_deferral_is_explicit_and_retry_is_legacy_only(self):
+        self.assertNotIn('shell -c "from procurement.kepco import KepcoClient', self.workflow)
+        self.assertNotIn('production_deploy_v2_kepco_live_ok=yes', self.workflow)
+        self.assertIn('production_deploy_v2_kepco_live_check=deferred_provider_unavailable', self.workflow)
         stop = self.workflow.index('sudo -n systemctl stop "$service"')
         migrate = self.workflow.index('migrate procurement --database=default --noinput')
-        self.assertLess(check, stop)
         self.assertLess(stop, migrate)
-        self.assertEqual(self.workflow.count('shell -c "from procurement.kepco import KepcoClient'), 1)
         self.assertIn('if sys.argv[2] == "no":\n                          refresh_personal_snapshot(cur)', self.workflow)
         self.assertIn('$previous_sha:geoflow_ops/bids/tenant_state.py', self.workflow)
 

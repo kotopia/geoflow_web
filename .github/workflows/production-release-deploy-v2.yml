@@ -293,8 +293,9 @@ jobs:
           systemctl show geoflow-bid-collector.service -p ActiveState -p SubState -p Result -p ExecMainStatus -p ExecMainExitTimestamp
           "$python" -m pip check
           "$python" "$repo/manage.py" check
-          # Check the external provider before interrupting the web service.
-          "$python" "$repo/manage.py" shell -c "from procurement.kepco import KepcoClient, adapt; from django.utils import timezone; rows=KepcoClient(budget=1).day(timezone.localdate().strftime('%Y%m%d')); parsed=[adapt(row) for row in rows]; print('production_deploy_v2_kepco_live_ok=yes received=' + str(len(rows)) + ' service_candidates=' + str(sum(row is not None for row in parsed)))"
+          # User-approved deferral during KEPCO portal unavailability (2026-11-23).
+          # Restore the live probe after provider access is verified; do not report success.
+          echo 'production_deploy_v2_kepco_live_check=deferred_provider_unavailable'
           # Drain old workers before copying personal state into tenant-shared state.
           sudo -n systemctl stop "$service"
           "$python" "$repo/manage.py" migrate procurement --database=default --noinput
