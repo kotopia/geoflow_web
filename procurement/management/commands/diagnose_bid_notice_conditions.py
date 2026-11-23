@@ -17,7 +17,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--database', required=True)
-        parser.add_argument('--user-id', help='개인 숨김까지 확인할 중앙 사용자 UUID (생략 시 회사 후보 목록만 확인)')
+        parser.add_argument('--user-id', help='테넌트 공통 숨김까지 확인할 중앙 사용자 UUID (생략 시 회사 후보 목록만 확인)')
         parser.add_argument('--number', default='E012607882')
         parser.add_argument('--source', default='kepco')
         parser.add_argument('--api-response', help='별도로 확보한 실제 한전 API JSON 응답 파일')

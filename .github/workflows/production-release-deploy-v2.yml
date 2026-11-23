@@ -291,6 +291,8 @@ jobs:
           systemctl show geoflow-bid-collector.service -p ActiveState -p SubState -p Result -p ExecMainStatus -p ExecMainExitTimestamp
           "$python" -m pip check
           "$python" "$repo/manage.py" check
+          # Drain old workers before copying personal state into tenant-shared state.
+          sudo -n systemctl stop "$service"
           "$python" "$repo/manage.py" migrate procurement --database=default --noinput
           kepco_schema_applied=1
           "$python" "$repo/manage.py" migrate procurement --database=default --check
@@ -443,6 +445,7 @@ jobs:
                           cur.execute(MIGRATION_SQL[name])
                           cur.execute('INSERT INTO django_migrations(app,name,applied) SELECT %s,%s,NOW() WHERE NOT EXISTS (SELECT 1 FROM django_migrations WHERE app=%s AND name=%s)', [APP, name, APP, name])
                       validate(cur)
+                      cur.execute('SELECT origin, notice_id, saved, hidden, updated_at FROM bid.tenant_state LIMIT 0')
                       if row.db_name in central_names:
                           cur.execute('SELECT company_id, settings FROM bid.company_search_profiles LIMIT 0')
                           result = prepare_bid_cutover(cur)
