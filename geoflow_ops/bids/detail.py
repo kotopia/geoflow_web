@@ -5,9 +5,10 @@ from urllib.parse import parse_qsl, urlsplit
 
 from django.db import connections
 from django.http import Http404
+from django.utils import formats, timezone
 
 from procurement.service import central_alias, enabled
-from .sync import _date
+from .sync import _date, _money
 
 SENSITIVE = {'apikey', 'servicekey', 'accesskey', 'accesstoken', 'authorization', 'password', 'secret', 'token'}
 LABELS = {
@@ -103,6 +104,92 @@ def attachment_links(raw, summary, source):
     return list(found.values())
 
 
+def presentation(summary, raw, *, now=None):
+    """One display contract for both providers; never invent missing eligibility/results."""
+    now = now or timezone.now()
+    row = raw.get('notice', {}) if isinstance(raw, dict) else {}
+    row = row if isinstance(row, dict) else {}
+    if summary.get('source') == 'g2b':
+        for field, key in {
+            'award_method_name': 'sucsfbidMthdNm',
+            'registration_close_at': 'bidQlfctRgstDt',
+            'joint_contract_method': 'cmmnSpldmdMethdNm',
+            'vat_amount': 'VAT',
+        }.items():
+            if summary.get(field) in (None, ''):
+                summary[field] = row.get(key)
+    # KEPCO eligibility stays provider text. Do not parse it into G2B license codes,
+    # infer province restrictions from the agency, or invent an opening date.
+    for key in ('posted_at', 'bid_close_at', 'open_at', 'bid_begin_at', 'registration_close_at'):
+        try:
+            summary[key] = _date(summary.get(key))
+        except (ValueError, TypeError):
+            summary[key] = None
+
+    def text(value):
+        return str(value) if value not in (None, '') else '미제공'
+
+    def money(key):
+        value = _money(summary.get(key))
+        return formats.number_format(value, decimal_pos=0, use_l10n=True, force_grouping=True) + '원' if value is not None else '미제공'
+
+    def date(key):
+        value = summary.get(key)
+        return timezone.localtime(value).strftime('%Y.%m.%d %H:%M') if value else '미제공'
+
+    def row_values(*pairs):
+        return [{'label': label, 'value': value} for label, value in pairs]
+
+    summary['sections'] = [
+        dict(id='general', title='공고일반', rows=[
+            row_values(('발주기관', text(summary.get('notice_agency_name'))), ('수요기관', text(summary.get('demand_agency_name')))),
+            row_values(('업무구분', {'service': '용역'}.get(summary.get('business_type', 'service'), '미제공')), ('계약방법', text(summary.get('contract_method_name')))),
+            row_values(('입찰방법', text(summary.get('bid_method_name'))), ('낙찰방법', text(summary.get('award_method_name')))),
+            row_values(('게시일', date('posted_at')), ('개찰 예정', date('open_at'))),
+        ]),
+        dict(id='eligibility', title='참가자격', rows=[
+            row_values(('참가가능지역', text(summary.get('region_text')))),
+            row_values(('업종·면허', text(summary.get('industry_text')))),
+            row_values(('공동수급', text(summary.get('joint_contract_method')))),
+            row_values(('참가자격 원문', text(summary.get('qualification_text')))),
+        ]),
+        dict(id='amounts', title='금액', rows=[
+            row_values(('기초금액', money('basic_amount')), ('추정가격', money('estimated_price'))),
+            row_values(('부가가치세', money('vat_amount')), ('사업예산', money('budget_amount'))),
+        ]),
+    ]
+    cancelled = summary.get('notice_status') == 'cancelled'
+    cutoff = summary.get('bid_close_at') or summary.get('open_at')
+    start = summary.get('bid_begin_at')
+    if cancelled:
+        state = ('취소', 'secondary')
+    elif summary.get('notice_status') == 'closed' or (cutoff and cutoff <= now):
+        state = ('마감', 'secondary')
+    elif start and start > now:
+        state = ('접수 예정', 'secondary')
+    elif start and summary.get('bid_close_at') and start <= now < summary['bid_close_at']:
+        state = ('접수 중', 'primary')
+    else:
+        state = ('일정 확인 필요', 'secondary')
+    summary['schedule_label'], summary['schedule_color'] = state
+    summary['timeline'] = []
+    for key, label in [('posted_at', '공고 게시'), ('bid_begin_at', '접수 시작'),
+                       ('registration_close_at', '참가등록 마감'), ('bid_close_at', '투찰 마감'), ('open_at', '개찰 예정')]:
+        value = summary.get(key)
+        elapsed = bool(value and value <= now)
+        summary['timeline'].append(dict(key=key, label=label, at=value,
+            elapsed=elapsed and (not cancelled or key == 'posted_at'),
+            hint='취소된 공고 일정' if cancelled and key != 'posted_at' else
+                 ('시각 경과 · 결과 미확인' if key == 'open_at' and elapsed else
+                  ('시각 경과' if elapsed else ('예정' if value else '미제공')))))
+    opening = summary.get('open_at')
+    summary['opening_schedule'] = '취소 공고' if cancelled else (
+        '개찰 예정시각 경과' if opening and opening <= now else ('개찰 예정' if opening else '개찰일 미제공'))
+    # No result collector exists yet. Elapsed time/provider progress is not an award.
+    summary['result_message'] = '개찰 결과 자동 연동 전입니다. 공식 원문에서 결과를 확인하세요.'
+    return summary
+
+
 def load(alias, notice_id, *, history=False):
     central = enabled(alias)
     if central and not history:
@@ -136,15 +223,9 @@ def load(alias, notice_id, *, history=False):
     raw = public_payload(raw)
     source = summary['source']
     summary['source_label'] = '한국전력' if source == 'kepco' else '나라장터'
-    for key in ('posted_at', 'bid_close_at', 'open_at', 'bid_begin_at', 'registration_close_at'):
-        if not hasattr(summary.get(key), 'strftime'):
-            try:
-                summary[key] = _date(summary.get(key))
-            except (ValueError, TypeError):
-                summary[key] = None
     url = safe_url(summary.get('detail_url'), source)
     summary['original_is_search'] = not bool(url)
     summary['original_url'] = url or ('https://srm.kepco.net/' if source == 'kepco' else 'https://www.g2b.go.kr/')
     summary['attachments'] = attachment_links(raw, summary, source)
     summary['collected_fields'] = list(fields(raw))
-    return summary
+    return presentation(summary, raw)
