@@ -17,6 +17,8 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   await page.goto('http://bid-preview.local/bids/');
   await page.locator('.bid-title').click();
   const modal=page.locator('#bid-detail-modal');await modal.locator('#bid-general').waitFor();
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('#bid-detail-modal')).opacity==='1');
+  await page.evaluate(()=>document.fonts.ready);
   assert.equal(await modal.locator('#bid-general table').count(),1);
   assert.equal(await modal.locator('.bid-progress li').count(),5);
   assert.equal(await modal.getByRole('button',{name:'개찰 결과 보기'}).isEnabled(),false);
@@ -27,7 +29,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   await modal.locator('[data-bid-section][href="#bid-files"]').click();
   assert.equal(await page.evaluate(()=>document.activeElement.id),'bid-files');
   assert.equal(await modal.getByRole('link',{name:'예시공고문.pdf 다운로드'}).getAttribute('href'),source==='kepco'?'https://srm.kepco.net/example.pdf':'https://www.g2b.go.kr/example.pdf');
-  for(const width of [390,768]){
+  for(const width of [768,390]){
    await page.setViewportSize({width,height:844});
    assert(await modal.locator('.modal-body').evaluate(e=>e.scrollWidth<=e.clientWidth+1),`modal overflow: ${source} ${width}`);
   }
