@@ -74,6 +74,26 @@ class PersonalStateTests(TestCase):
         tenant_state.save('company_a',self.other,'central',[self.pk],'unsave')
         self.assertTrue(tenant_state.rows('company_b',self.user,'central')[self.pk]['saved'])
 
+    def test_retry_reconciles_newer_legacy_writes_and_preserves_newer_shared_state(self):
+        if connections['company_a'].vendor != 'postgresql':
+            self.skipTest('PostgreSQL deployment retry rehearsal')
+        with connections['company_a'].cursor() as cur:
+            cur.execute("""INSERT INTO bid.personal_state(user_id,origin,notice_id,saved,hidden,updated_at)
+                VALUES (%s,'central',%s,true,true,CURRENT_TIMESTAMP - interval '2 hours')""",
+                [self.user,self.pk])
+            tenant_state.refresh_personal_snapshot(cur)
+        self.assertEqual(tenant_state.rows('company_a',self.user,'central')[self.pk], {'saved':True,'hidden':True})
+        tenant_state.save('company_a',self.user,'central',[self.pk],'unsave')
+        with connections['company_a'].cursor() as cur:
+            tenant_state.refresh_personal_snapshot(cur)
+        self.assertFalse(tenant_state.rows('company_a',self.user,'central')[self.pk]['saved'])
+        with connections['company_a'].cursor() as cur:
+            cur.execute("UPDATE bid.personal_state SET saved=false,hidden=false,updated_at=CURRENT_TIMESTAMP + interval '1 hour'")
+            tenant_state.refresh_personal_snapshot(cur)
+            tenant_state.refresh_personal_snapshot(cur)
+        self.assertEqual(tenant_state.rows('company_a',self.user,'central')[self.pk], {'saved':False,'hidden':False})
+        self.assertEqual(tenant_state.rows('company_b',self.user,'central'), {})
+
     def test_invalid_batch_is_atomic_and_scope_fails_closed(self):
         for alias, actor, ids, action in [('default', self.user, [self.pk], 'hide'),
                 ('company_a', '', [self.pk], 'hide'), ('company_a', self.user, [self.pk,str(uuid4())], 'hide'),

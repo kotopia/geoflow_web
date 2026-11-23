@@ -56,3 +56,17 @@ def save(alias, actor, origin, notice_ids, action):
                 VALUES (%s,%s,%s) ON CONFLICT(origin,notice_id)
                 DO UPDATE SET {column}=excluded.{column},updated_at=CURRENT_TIMESTAMP""", [origin, pk, value])
     return ids
+
+
+def refresh_personal_snapshot(cur):
+    """Deployment only: reconcile newer legacy writes after a failed cutover.
+
+    Caller must drain legacy workers and confirm the previous code used personal
+    state. Preserve newer shared rows; never run during normal shared-state use.
+    """
+    cur.execute("""INSERT INTO bid.tenant_state(origin,notice_id,saved,hidden,updated_at)
+        SELECT origin,notice_id,bool_or(saved),bool_and(hidden),max(updated_at)
+        FROM bid.personal_state GROUP BY origin,notice_id
+        ON CONFLICT(origin,notice_id) DO UPDATE
+        SET saved=excluded.saved,hidden=excluded.hidden,updated_at=excluded.updated_at
+        WHERE excluded.updated_at > bid.tenant_state.updated_at""")
