@@ -99,6 +99,9 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
                 except (ValueError, TypeError):
                     notice[field] = None
         notice['saved'] = state.get(str(notice['id']), {}).get('saved', False)
+    progress = tenant_state.progress_rows(alias, tenant_state.user_id(request), origin, [n['id'] for n in notices])
+    for notice in notices:
+        tenant_state.apply_progress(notice, progress.get(str(notice['id']), {}))
     query_params = request.GET.copy()
     query_params["per_page"] = str(per_page)
     query_params.pop("page", None)
@@ -326,7 +329,17 @@ def notice_detail(request, alias, notice_id, *, can_review):
                 notice['badges'].insert(0, '관내')
     state = tenant_state.rows(alias, tenant_state.user_id(request), origin).get(str(notice_id), {})
     notice.update(saved=state.get('saved', False), hidden=state.get('hidden', False))
+    tenant_state.apply_progress(notice, tenant_state.progress_rows(alias, tenant_state.user_id(request), origin, [notice_id]).get(str(notice_id), {}))
     return render(request, 'geoflow_ops/bids/notice_detail.html', {
         'n': notice, 'can_review': can_review and not history, 'read_only': history,
         'return_to': request.GET.get('next') or reverse('tenant:bid_notice_list'),
     })
+
+
+def progress_save(request, alias, notice_id):
+    origin = 'central' if central_enabled(alias) else 'legacy'
+    try:
+        tenant_state.save_progress(alias, tenant_state.user_id(request), origin, notice_id, request.POST.get('action'))
+    except ValueError as exc:
+        return HttpResponseBadRequest(str(exc))
+    return list_redirect(request)

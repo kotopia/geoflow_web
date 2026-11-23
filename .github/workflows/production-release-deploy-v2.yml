@@ -337,6 +337,7 @@ jobs:
               ('0036_bid_interest_foundation', '0035_employee_education_career_settings'),
               ('0051_bid_personal_state', '0036_bid_interest_foundation'),
               ('0055_bid_tenant_state', '0051_bid_personal_state'),
+              ('0057_bid_progress', '0055_bid_tenant_state'),
           ]
           TENANT_MARKERS = ('ctr.contracts', 'prj.projects', 'hr.employee_profile', 'ops.settings_nodes')
 
@@ -454,7 +455,7 @@ jobs:
                       if sys.argv[2] == "no":
                           refresh_personal_snapshot(cur)
                       validate(cur)
-                      cur.execute('SELECT origin, notice_id, saved, hidden, updated_at FROM bid.tenant_state LIMIT 0')
+                      cur.execute('SELECT origin, notice_id, saved, hidden, updated_at, registered_at, submitted_at FROM bid.tenant_state LIMIT 0')
                       if row.db_name in central_names:
                           cur.execute('SELECT company_id, settings FROM bid.company_search_profiles LIMIT 0')
                           result = prepare_bid_cutover(cur)

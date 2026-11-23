@@ -13,6 +13,7 @@ import django
 django.setup()
 from django.template import Context, Engine
 from geoflow_ops.bids.detail import presentation
+from geoflow_ops.bids.tenant_state import apply_progress
 
 out = ROOT / 'artifacts/bid-detail'
 out.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,7 @@ for source in ('g2b','kepco','history'):
         original_url='https://srm.kepco.net/' if source == 'kepco' else 'https://www.g2b.go.kr/',
         attachments=[dict(name='예시공고문.pdf', url='https://srm.kepco.net/example.pdf' if source == 'kepco' else 'https://www.g2b.go.kr/example.pdf')],
         collected_fields=[dict(label='공고 / 알 수 없는 필드',value='<script>원본은 텍스트로 표시</script>')]), {}, now=now)
+    apply_progress(n, dict(registered_at=now, submitted_at=None, progress_badge='참가') if source != 'history' else {})
     context = dict(n=n,notices=[n],can_review=source!='history',read_only=source=='history',
         legacy_history=source=='history',return_to='/bids/?company=',personal_view='all',csrf_token='fixture-token')
     (out / (source+'-detail.html')).write_text(render('notice_detail', context))

@@ -23,6 +23,11 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   assert.equal(await modal.locator('.bid-progress li').count(),5);
   assert.equal(await modal.getByRole('button',{name:'개찰 결과 보기'}).isEnabled(),false);
   assert.equal(await modal.getByRole('button',{name:'기록 저장'}).count(),source==='history'?0:1);
+  assert.equal(await modal.getByRole('button',{name:'투찰 완료',exact:true}).count(),source==='history'?0:1);
+  if(source!=='history'){
+   assert.equal(await modal.locator('[aria-label="업무 진행"]').innerText(),'참가');
+   assert.equal(await modal.getByRole('button',{name:'참가등록 완료 취소',exact:true}).count(),1);
+  }
   if(source==='kepco')assert((await modal.innerText()).includes('한국전력'));
   assert((await modal.innerText()).includes('미연동'));
   await page.screenshot({path:`artifacts/bid-detail/${source}-desktop.png`});
