@@ -45,7 +45,11 @@ class BadgeTests(SimpleTestCase):
             source = re.sub(r'{% extends .*?%}', '', (root / (name+'.html')).read_text())
             source = re.sub(r'{% url .*?%}', '/bids/', source)
             rendered = engine.from_string(source).render(Context(context))
-            self.assertIn('시험회사', rendered)
+            if name == 'settings':
+                self.assertIn('시험회사', rendered)
+            else:
+                self.assertIn('name="company" value="'+company['id']+'"', rendered)
+                self.assertNotIn('검색 기준 회사', rendered)
             self.assertNotIn('name="status"', rendered)
             if name == 'notice_list':
                 self.assertNotIn('<th>지역 / 업종</th>', rendered)

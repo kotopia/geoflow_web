@@ -710,6 +710,15 @@ class TenantIsolationTests(TestCase):
              patch('procurement.client.urlopen') as api:
             context = notice_list(request, 'company_a', can_review=True, can_manage=True)
             self.assertEqual(context['region'], 'nationwide')
+            with patch('procurement.tenant.count_notices', return_value=300):
+                paged = notice_list(request, 'company_a', can_review=True, can_manage=True)
+            self.assertEqual([p['label'] for p in paged['page_links'] if p['active']], [3])
+            self.assertEqual(paged['page_links'][-1]['label'],20)
+            for link in paged['page_links']:
+                if link['query']:
+                    self.assertIn('region=nationwide',link['query'])
+                    self.assertIn('q=GIS',link['query'])
+                    self.assertIn('per_page=15',link['query'])
             self.assertTrue(all('page=' not in tab['query'] for tab in context['region_tabs']))
             with patch('geoflow_ops.bids.views.messages.info'), patch('geoflow_ops.bids.views.redirect'):
                 sync_now(request, 'company_a')

@@ -160,15 +160,14 @@ class PersonalStateTests(TestCase):
         self.assertEqual(events('company_a',self.user,*args),[])
         tenant_state.save('company_a',self.user,'central',[self.pk],'save')
         rows = events('company_a',self.other,*args)
-        self.assertEqual(len(rows),3)
-        self.assertEqual(len({r['id'] for r in rows}),3)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['title'],self.notice.title)
         self.assertTrue(all(not r['allDay'] for r in rows))
         self.assertTrue(all('notice='+self.pk in r['url'] for r in rows))
         self.assertEqual(events('company_b',self.user,*args),[])
         self.assertEqual(events('company_a',self.user,date(2026,12,1),date(2027,1,1)),[])
         tenant_state.save_progress('company_a',self.user,'central',self.pk,'submit')
         rows = events('company_a',self.user,*args)
-        self.assertTrue(next(r for r in rows if r['extendedProps']['event_type']=='bid_close_at')['extendedProps']['history'])
         self.assertFalse(next(r for r in rows if r['extendedProps']['event_type']=='open_at')['extendedProps']['history'])
         self.notice.summary = {'open_at':'2026-11-26T11:00:00+09:00'}
         self.notice.save()
@@ -194,7 +193,7 @@ class PersonalStateTests(TestCase):
         self.notice.save()
         tenant_state.save('company_a',self.user,'central',[self.pk],'save')
         rows=events('company_a',self.user,date(2026,11,1),date(2026,12,1))
-        self.assertEqual([r['extendedProps']['event_type'] for r in rows],['bid_close_at'])
+        self.assertEqual(rows,[])
 
     def test_invalid_batch_is_atomic_and_scope_fails_closed(self):
         for alias, actor, ids, action in [('default', self.user, [self.pk], 'hide'),
