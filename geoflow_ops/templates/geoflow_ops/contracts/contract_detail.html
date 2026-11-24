@@ -30,26 +30,6 @@
     </div>
   </div>
 
-  {% if obj and not edit_mode %}
-  <div class="card mb-3">
-    <div class="card-body py-3">
-      <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 gap-lg-3 small" aria-label="업무 프로세스">
-        <span aria-label="1. 준비" class="{% if wf.major_code == 'preparation' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준비</span>
-        <span class="text-muted">→</span>
-        <span aria-label="2. 계약" class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
-        <span class="text-muted">→</span>
-        <span aria-label="3. 착수" class="{% if wf.major_code == 'kickoff' %}text-primary fw-semibold{% else %}text-muted{% endif %}">착수</span>
-        <span class="text-muted">→</span>
-        <span aria-label="4. 수행" class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">수행</span>
-        <span class="text-muted">→</span>
-        <span aria-label="5. 준공" class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
-        <span class="text-muted">→</span>
-        <span aria-label="6. 완료" class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
   <div class="container-fluid px-0">
     {% if not edit_mode and obj %}
       <div class="row g-3 align-items-start">
@@ -57,6 +37,14 @@
           <div id="view-mode" class="card mb-0">
             <div class="card-header">
               <h5 class="card-title mb-0">계약정보</h5>
+              <div class="gf-contract-process mt-2" aria-label="업무 프로세스" title="현재: {{ wf.major_label }} · 기준: {{ wf.major_event_label|default:'-' }}">
+                <span aria-label="1. 준비" {% if wf.major_code == 'preparation' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'preparation' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준비</span>
+                <span aria-label="2. 계약" {% if wf.major_code == 'contract' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
+                <span aria-label="3. 착수" {% if wf.major_code == 'kickoff' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'kickoff' %}text-primary fw-semibold{% else %}text-muted{% endif %}">착수</span>
+                <span aria-label="4. 수행" {% if wf.major_code == 'execution' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">수행</span>
+                <span aria-label="5. 준공" {% if wf.major_code == 'closeout' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
+                <span aria-label="6. 완료" {% if wf.major_code == 'complete' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
+              </div>
             </div>
             <div class="card-body pt-0">
               <div class="row py-2 border-top">
@@ -92,10 +80,6 @@
               <div class="row py-2 border-top">
                 <div class="col-sm-4 col-lg-3 small text-muted">계약금액</div>
                 <div class="col-sm-8 col-lg-9">{% if obj.amount != None %}₩{{ obj.amount|intcomma }}{% else %}-{% endif %}</div>
-              </div>
-              <div class="row py-2 border-top">
-                <div class="col-sm-4 col-lg-3 small text-muted">현재 업무단계</div>
-                <div class="col-sm-8 col-lg-9"><span class="text-primary fw-semibold">{{ wf.major_label }}</span> / {{ wf.major_event_label|default:"-" }}<span class="visually-hidden">단계 기준: {{ wf.major_event_label|default:"-" }}</span></div>
               </div>
               <div class="row py-2 border-top">
                 <div class="col-sm-4 col-lg-3 small text-muted">기타정보</div>
