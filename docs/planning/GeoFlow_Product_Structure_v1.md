@@ -119,6 +119,8 @@
 - PR 검증 CI의 GeoDjango/폰트 패키지 다운로드는 `scripts/ci/use_ubuntu_https_mirrors.sh`로 공식 Ubuntu HTTPS 미러를 사용한다. 설치 지연 보완이며 서명 검사·패키지·테스트 항목·운영 호스트 설정은 변경하지 않는다.
 - 브라우저 검증은 DB를 사용하지 않는 실제 Django 템플릿·저장소 자산과 명시적인 검증용 데이터로 수행한다. 운영 계정 검증과 배포 여부는 별도로 보고한다.
 
+- 테넌트 사이드바의 파이낸스는 나의 기업정보 다음, 메뉴 목록의 맨 마지막에 표시한다. 기존 `finance.view` 권한과 서비스 표시 설정 및 하위 메뉴 순서는 유지한다.
+
 ### 관리자 종합 현황
 
 - 배포: 대시보드 view/service/template/JS 및 달력 API 변경은 기존 `phase4-workboard-production-deploy.yml` 코드 배포 경로를 사용한다. 기존 production Environment와 현재 release SHA 검증·롤백·서비스 정상 응답 확인을 유지한다.

@@ -12,6 +12,11 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
    if(route.request().method()==='POST'){const body=route.request().postDataJSON();const record={id:'1',...body};saved=[record];return route.fulfill({json:record});}
    return route.fulfill({json:{filters:saved}});
   }
+  // Simulate a browser retaining the pre-compact stylesheet at the old URL.
+  if(u.pathname.endsWith('/process-timeline-horizontal.css')&&!u.search){
+   const legacy=fs.readFileSync('geoflow_ops/static/geoflow_ops/css/process-timeline-horizontal.css','utf8').split('/* Contract detail:')[0].replaceAll(':not(.gf-contract-process)','');
+   return route.fulfill({body:legacy,contentType:'text/css'});
+  }
   if(u.pathname.startsWith('/fixture/'))return route.fulfill({json:{events:[],stages:[],types_by_stage:{}}});
   let f='artifacts/contract-filters/contracts.html';
   if(/^\/detail-[a-z]+\.html$/.test(u.pathname))f='artifacts/contract-filters'+u.pathname;
@@ -30,6 +35,8 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  const term=(origData,data,type,condition,value)=>({origData,data,type,condition,value});
  await page.goto('http://preview.local/contracts/');await page.waitForSelector('#contractsCard:not([hidden])');
  assert.deepEqual(await page.evaluate(()=>{const row=$('#datatables-contracts').DataTable().rows().nodes().toArray().find(r=>r.querySelector('.gf-event-count'));return [row.querySelector('.gf-event-count').textContent,row.querySelector('.gf-event-suspension').textContent];}),['3','Ⅱ']);
+ assert.equal(await page.locator('.sidebar-nav > .sidebar-item').last().locator('a').first().getAttribute('aria-label'),'파이낸스');
+ assert.match(await page.locator('link[href*="process-timeline-horizontal.css"]').getAttribute('href'),/\?v=contract-horizontal-2$/);
  assert.equal(await baseCount(),11);assert.equal(await page.locator('#contract-column-search').isVisible(),false);
  await page.click('#contract-column-toggle');
  await page.getByLabel('계약명 검색',{exact:true}).fill('시험 계약 2');assert.equal(await baseCount(),2);
@@ -96,7 +103,17 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   for(let j=index+1;j<states.length;j++){assert.notEqual(states[j].border,blue);assert.notEqual(states[j].text,blue);}
   const title=await page.locator('#view-mode .card-title').boundingBox(),box=await strip.boundingBox();
   assert(box.y>=title.y+title.height);
-  assert(box.height<30);
+  assert(box.height<45);
+  const geometry=await strip.locator('span[aria-label]').evaluateAll(els=>els.map(el=>{
+   const r=el.getBoundingClientRect(),dot=getComputedStyle(el,'::before'),line=getComputedStyle(el,'::after');
+   return {x:r.x,y:r.y,width:r.width,padding:parseFloat(getComputedStyle(el).paddingTop),dot:parseFloat(dot.height),lineTop:parseFloat(line.top),lineWidth:parseFloat(line.width)};
+  }));
+  assert(Math.abs(geometry[0].width*6-box.width)<2);
+  for(let j=0;j<6;j++){
+   assert.equal(geometry[j].y,geometry[0].y);
+   assert(geometry[j].padding>geometry[j].dot);
+   if(j<5){assert.equal(geometry[j].lineTop,5);assert(Math.abs(geometry[j].lineWidth-(geometry[j+1].x-geometry[j].x-12))<2);}
+  }
   if(phases[index]==='execution')await page.screenshot({path:'artifacts/contract-filters/detail-desktop.png',fullPage:true});
  }
  await page.goto('http://preview.local/detail-execution.html');

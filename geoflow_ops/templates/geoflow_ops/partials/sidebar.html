@@ -26,24 +26,6 @@
       </li>
       <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:project_list' %}" title="프로젝트" aria-label="프로젝트"><i class="align-middle" data-feather="folder"></i><span class="align-middle">프로젝트</span></a></li>
 
-      {% has_perm 'finance.view' as finance_can_view %}
-      {% if finance_can_view and service_menus.finance %}
-      <li class="sidebar-header">Finance</li>
-      <li class="sidebar-item">
-        <a href="#finance-menu" aria-controls="finance-menu" aria-expanded="false" data-bs-target="#finance-menu" data-bs-toggle="collapse" class="sidebar-link collapsed" title="파이낸스" aria-label="파이낸스"><i class="align-middle" data-feather="credit-card"></i><span class="align-middle">파이낸스</span></a>
-        <ul id="finance-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_page' %}">대장·현황</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_claims' %}">청구·수금</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_invoices' %}">세금계산서</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_payments' %}">지급</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_ledger' %}">입출금대장</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_balance' %}">미수·미지급</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_settings' %}">계좌·카드</a></li>
-          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_trash' %}">삭제함</a></li>
-        </ul>
-      </li>
-
-      {% endif %}
       {% if service_menus.gis %}
       <li class="sidebar-header">GIS</li>
       <li class="sidebar-item">
@@ -69,6 +51,25 @@
           <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:partner_list' %}">거래처</a></li>
         </ul>
       </li>
+
+      {% has_perm 'finance.view' as finance_can_view %}
+      {% if finance_can_view and service_menus.finance %}
+      <li class="sidebar-header">Finance</li>
+      <li class="sidebar-item">
+        <a href="#finance-menu" aria-controls="finance-menu" aria-expanded="false" data-bs-target="#finance-menu" data-bs-toggle="collapse" class="sidebar-link collapsed" title="파이낸스" aria-label="파이낸스"><i class="align-middle" data-feather="credit-card"></i><span class="align-middle">파이낸스</span></a>
+        <ul id="finance-menu" class="sidebar-dropdown list-unstyled collapse" data-bs-parent="#sidebar">
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_page' %}">대장·현황</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_claims' %}">청구·수금</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_invoices' %}">세금계산서</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_payments' %}">지급</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_ledger' %}">입출금대장</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_balance' %}">미수·미지급</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_settings' %}">계좌·카드</a></li>
+          <li class="sidebar-item"><a class="sidebar-link" href="{% url 'tenant:finance_trash' %}">삭제함</a></li>
+        </ul>
+      </li>
+
+      {% endif %}
     </ul>
   </div>
 </nav>
