@@ -10,10 +10,10 @@
 [aria-label="업무 프로세스"]:not(.gf-contract-process)>span:not([aria-label]){display:none!important}
 @media(max-width:767.98px){[aria-label="업무 프로세스"]:not(.gf-contract-process)>span[aria-label]{flex-basis:92px;font-size:.76rem}}
 
-/* Contract detail: compact dots below the information title. Project presentation is unchanged. */
-.gf-contract-process { display:flex; align-items:center; flex-wrap:wrap; gap:.35rem 0; font-size:.6875rem; line-height:1.5; }
-.gf-contract-process > span[aria-label] { display:inline-flex; align-items:center; gap:.25rem; white-space:nowrap; }
-.gf-contract-process > span[aria-label]::before { content:""; width:8px; height:8px; flex:0 0 8px; box-sizing:border-box; border:1.5px solid var(--bs-secondary); border-radius:50%; background:transparent; }
-.gf-contract-process > span[aria-label]:not(:last-child)::after { content:""; width:12px; height:1px; background:var(--bs-border-color); margin:0 .3rem; }
+/* Contract detail: full-width horizontal bid-style timeline, labels below the line. */
+.gf-contract-process { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); width:100%; padding:4px 0 0; font-size:.6875rem; line-height:1.5; }
+.gf-contract-process > span[aria-label] { position:relative; min-width:0; padding-top:18px; text-align:center; white-space:nowrap; }
+.gf-contract-process > span[aria-label]::before { content:""; position:absolute; top:0; left:50%; transform:translateX(-50%); width:12px; height:12px; box-sizing:border-box; border:2px solid var(--bs-secondary); border-radius:50%; background:transparent; }
+.gf-contract-process > span[aria-label]:not(:last-child)::after { content:""; position:absolute; top:5px; left:calc(50% + 6px); width:calc(100% - 12px); height:2px; background:var(--bs-border-color); }
 .gf-contract-process > span.gf-stage-complete::before { border-color:var(--bs-primary); }
 .gf-contract-process > span[aria-current="step"]::before { border-color:var(--bs-primary); background:var(--bs-primary); }
