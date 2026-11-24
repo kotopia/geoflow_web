@@ -32,7 +32,6 @@ def events(alias, actor, start, end):
                 raw=json.loads(raw) if isinstance(raw, str) else raw)
                 for pk, number, title, posted, close, opening, status, raw in cur.fetchall()]
     progress = tenant_state.progress_rows(alias, actor, origin, ids)
-    labels = {'registration_close_at': '참가등록 마감', 'bid_close_at': '투찰 마감', 'open_at': '개찰 예정'}
     result = []
     for notice in notices:
         summary = dict(notice['summary'] or {}, source=notice['source'], posted_at=notice['posted_at'], bid_close_at=notice['close_at'])
@@ -43,18 +42,17 @@ def events(alias, actor, start, end):
         current = progress.get(pk, {})
         for event in normalized['timeline']:
             key, at = event['key'], event['at']
-            if key not in labels or not at:
+            if key != 'open_at' or not at:
                 continue
             at = timezone.localtime(at)
             if not start <= at.date() < end:
                 continue
-            completed = bool(current.get('registered_at' if key == 'registration_close_at' else 'submitted_at')) if key != 'open_at' else False
             result.append({
-                'id': f'bid:{origin}:{pk}:{key}', 'title': f"{labels[key]} · {notice['title']}",
+                'id': f'bid:{origin}:{pk}:{key}', 'title': notice['title'],
                 'start': at.isoformat(), 'allDay': False,
                 'url': reverse('tenant:bid_notice_list') + '?' + urlencode({'view': 'saved', 'closed': '1', 'q': notice['number'], 'notice': pk}),
                 'extendedProps': {'scope_type': 'bid', 'scope_id': pk, 'scope_name': notice['title'],
-                    'event_type': key, 'kind': labels[key], 'history': completed, 'stage': 'bidding',
+                    'event_type': key, 'kind': '개찰 예정', 'history': False, 'stage': 'bidding',
                     'assignee': '미지정', 'progress_badge': current.get('progress_badge', '')},
             })
             if len(result) > 2000:

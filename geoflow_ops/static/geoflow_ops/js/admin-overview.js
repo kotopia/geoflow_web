@@ -18,7 +18,7 @@
         title.textContent = p.scope_name; if (e.url) title.href = e.url;
         var meta = document.createElement('div'); meta.className = 'small text-muted mt-1';
         meta.textContent = p.kind + ' · ' + p.assignee + ' · ' + (p.history ? '완료 이력' : '예정');
-        row.append(title, meta); details.appendChild(row);
+        row.appendChild(title); if(p.scope_type!=='bid')row.appendChild(meta); details.appendChild(row);
       });
     }
     if (!window.FullCalendar) { status.textContent = '달력 모듈을 불러오지 못했습니다.'; details.textContent = '일정을 조회할 수 없습니다.'; return; }

@@ -4,6 +4,7 @@ import math
 from datetime import timedelta
 
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db import IntegrityError
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
@@ -114,6 +115,14 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         next_params = query_params.copy()
         next_params["page"] = str(page + 1)
         next_query = next_params.urlencode()
+    page_links = []
+    paginator = Paginator(range(total_count), per_page)
+    for number in paginator.get_elided_page_range(page, on_each_side=2, on_ends=1):
+        params = query_params.copy()
+        if number != paginator.ELLIPSIS:
+            params['page'] = str(number)
+        page_links.append(dict(label=number, active=number == page,
+                               query=params.urlencode() if number != paginator.ELLIPSIS else ''))
     company_query = ('&company=' + company['id']) if company else ''
     return render(request, "geoflow_ops/bids/notice_list.html", {
         "companies": companies, "company": company, "company_query": company_query,
@@ -136,6 +145,7 @@ def notice_list(request, alias: str, *, can_review: bool, can_manage: bool):
         "total_count": total_count,
         "page_start": ((page - 1) * per_page + 1) if total_count else 0,
         "page_end": min(page * per_page, total_count),
+        "page_links": page_links,
         "previous_query": previous_query,
         "next_query": next_query,
         "can_review": can_review and not history,
