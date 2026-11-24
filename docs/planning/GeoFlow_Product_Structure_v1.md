@@ -494,3 +494,5 @@ GeoFlow v1의 인증·권한 주체는 중앙 `users.id`다. tenant `employee_pr
 ### 기업 대표페이지 상세 설계
 
 승인된 기업 현황 대시보드의 데이터 소유, 조회/편집 분리, HR·재무·증빙 권한 및 운영 활성화는 [기업 대표페이지](../architecture/company-profile.md)를 기준으로 한다. 1차 구현은 기능 플래그로 구 화면과 전환하며 운영 활성화는 별도 검증·승인 후 진행한다.
+
+- CI Ubuntu 미러 보정은 Azure 및 EC2 HTTP 미러를 공식 HTTPS archive로 전환하며, 기존 mirror 목록과 apt .list/.sources 형식을 함께 지원한다. 기업정보 검사도 같은 공통 스크립트를 사용한다. 패키지 서명 검증·테스트 항목·운영 서버 설정은 변경하지 않는다.
