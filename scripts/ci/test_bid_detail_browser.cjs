@@ -55,7 +55,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
    assert.equal(page.url(),before);assert(await modal.isVisible());
    assert.equal(await modal.locator('textarea').inputValue(),'미저장 메모 유지');
    assert.equal(await page.locator('[data-bid-progress-cell]').innerText(),'투찰');
-   assert.equal(await page.locator('thead th').last().innerText(),'진행');
+   assert.equal(await page.locator('.table-responsive > table > thead th').last().innerText(),'진행');
    await modal.getByRole('button',{name:'투찰 완료 취소',exact:true}).click();
    await modal.getByRole('button',{name:'투찰 완료',exact:true}).waitFor();
    assert.equal(await page.locator('[data-bid-progress-cell]').innerText(),'참가');
