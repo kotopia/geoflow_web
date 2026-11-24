@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.db import IntegrityError
-from django.http import HttpResponseBadRequest
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -339,7 +339,16 @@ def notice_detail(request, alias, notice_id, *, can_review):
 def progress_save(request, alias, notice_id):
     origin = 'central' if central_enabled(alias) else 'legacy'
     try:
-        tenant_state.save_progress(alias, tenant_state.user_id(request), origin, notice_id, request.POST.get('action'))
+        actor = tenant_state.user_id(request)
+        tenant_state.save_progress(alias, actor, origin, notice_id, request.POST.get('action'))
     except ValueError as exc:
         return HttpResponseBadRequest(str(exc))
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        state = tenant_state.progress_rows(alias, actor, origin, [notice_id]).get(str(notice_id), {})
+        notice = {'timeline': [{'key': key} for key in ('registration_close_at', 'bid_close_at')]}
+        tenant_state.apply_progress(notice, state)
+        for event in notice['timeline']:
+            at = event['completed_at']
+            event['completed_label'] = '완료 기록 · ' + timezone.localtime(at).strftime('%m.%d %H:%M') if at else ''
+        return JsonResponse({'progress_badge': state.get('progress_badge', ''), 'timeline': notice['timeline']})
     return list_redirect(request)

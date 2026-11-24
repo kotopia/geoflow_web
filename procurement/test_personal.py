@@ -137,6 +137,65 @@ class PersonalStateTests(TestCase):
         request.method='GET'
         self.assertEqual(security_views.progress_save(request,self.notice.pk).status_code,405)
 
+    def test_ajax_progress_returns_state_without_redirect(self):
+        import json
+        from geoflow_ops.bids import views
+        request = RequestFactory().post('/bids/progress/', {'action':'register'}, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        with patch.object(views.tenant_state,'user_id',return_value=self.user):
+            response = views.progress_save(request,'company_a',self.notice.pk)
+        self.assertEqual(response.status_code,200)
+        body = json.loads(response.content)
+        self.assertEqual(body['progress_badge'],'참가')
+        self.assertEqual(body['timeline'][0]['action'],'unregister')
+        self.assertTrue(body['timeline'][0]['completed_label'].startswith('완료 기록'))
+
+    def test_saved_bid_calendar_projection_tracks_changes_and_tenant_scope(self):
+        from geoflow_ops.bids.calendar import events
+        from datetime import date
+        self.notice.summary = {'open_at':'2026-11-25T11:00:00+09:00'}
+        self.notice.raw = {'notice':{'bidQlfctRgstDt':'2026-11-24 18:00:00'}}
+        self.notice.close_at = timezone.datetime(2026,11,25,1,tzinfo=timezone.get_fixed_timezone(0))
+        self.notice.save()
+        args = (date(2026,11,1),date(2026,12,1))
+        self.assertEqual(events('company_a',self.user,*args),[])
+        tenant_state.save('company_a',self.user,'central',[self.pk],'save')
+        rows = events('company_a',self.other,*args)
+        self.assertEqual(len(rows),3)
+        self.assertEqual(len({r['id'] for r in rows}),3)
+        self.assertTrue(all(not r['allDay'] for r in rows))
+        self.assertTrue(all('notice='+self.pk in r['url'] for r in rows))
+        self.assertEqual(events('company_b',self.user,*args),[])
+        self.assertEqual(events('company_a',self.user,date(2026,12,1),date(2027,1,1)),[])
+        tenant_state.save_progress('company_a',self.user,'central',self.pk,'submit')
+        rows = events('company_a',self.user,*args)
+        self.assertTrue(next(r for r in rows if r['extendedProps']['event_type']=='bid_close_at')['extendedProps']['history'])
+        self.assertFalse(next(r for r in rows if r['extendedProps']['event_type']=='open_at')['extendedProps']['history'])
+        self.notice.summary = {'open_at':'2026-11-26T11:00:00+09:00'}
+        self.notice.save()
+        self.assertIn('2026-11-26',next(r for r in events('company_a',self.user,*args) if r['extendedProps']['event_type']=='open_at')['start'])
+        tenant_state.save('company_a',self.user,'central',[self.pk],'hide')
+        self.assertEqual(events('company_a',self.user,*args),[])
+        tenant_state.save('company_a',self.user,'central',[self.pk],'restore')
+        self.notice.summary['notice_status']='cancelled'
+        self.notice.save()
+        self.assertEqual(events('company_a',self.user,*args),[])
+        self.notice.summary={}
+        self.notice.save()
+        tenant_state.save('company_a',self.user,'central',[self.pk],'unsave')
+        self.assertEqual(events('company_a',self.user,*args),[])
+
+    def test_kepco_calendar_does_not_invent_missing_dates(self):
+        from geoflow_ops.bids.calendar import events
+        from datetime import date
+        self.notice.source='kepco'
+        self.notice.summary={'open_at':'invalid'}
+        self.notice.raw={'notice':{'bidQlfctRgstDt':'2026-11-24 18:00:00'}}
+        self.notice.close_at=timezone.datetime(2026,11,25,1,tzinfo=timezone.get_fixed_timezone(0))
+        self.notice.save()
+        tenant_state.save('company_a',self.user,'central',[self.pk],'save')
+        rows=events('company_a',self.user,date(2026,11,1),date(2026,12,1))
+        self.assertEqual([r['extendedProps']['event_type'] for r in rows],['bid_close_at'])
+
     def test_invalid_batch_is_atomic_and_scope_fails_closed(self):
         for alias, actor, ids, action in [('default', self.user, [self.pk], 'hide'),
                 ('company_a', '', [self.pk], 'hide'), ('company_a', self.user, [self.pk,str(uuid4())], 'hide'),

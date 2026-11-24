@@ -15,3 +15,6 @@ control += [path("unrelated/" + name, unrelated, name=name) for name in
              "signup_reviews_admin", "account_password_change", "logout")]
 catalog = [path(name, unrelated, name=name) for name in ("categories_board", "facet_admin_list")]
 urlpatterns = [path("control/", include((control, "control"))), path("catalog/", include((catalog, "catalog")))]
+
+bid_routes = [path('bids/', unrelated, name='bid_notice_list')]
+urlpatterns += [path('', include((bid_routes, 'tenant')))]

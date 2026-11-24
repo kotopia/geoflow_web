@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET
 from .models import ProcessEvent
 from .services.entity_access import can_read_event, require_tenant_context
 from .views_events import _display_policy_from_payload
+from .bids import calendar as bid_calendar, tenant_state
 
 
 @login_required
@@ -108,8 +109,14 @@ def calendar_events(request):
             props['scope_name'] = names.get((props['scope_type'], props['scope_id']), '업무 일정')
             assignee_id = props.pop('assignee_id', None)
             props['assignee'] = employees.get(assignee_id, '미지정') if gf_has_perm(request, 'directory.view') else '열람 제한'
-        response = JsonResponse(result, safe=False)
-        response['Cache-Control'] = 'private, no-store'
-        response['X-Calendar-Limit'] = '2000'
-        return response
-    return JsonResponse(result, safe=False)
+    if start and end and gf_has_perm(request, 'contracts.view'):
+        try:
+            result.extend(bid_calendar.events(alias, tenant_state.user_id(request), start, end))
+        except ValueError:
+            return JsonResponse({'error': 'Calendar range exceeds 2000 events; narrow the date range.'}, status=422)
+    if len(result) > 2000:
+        return JsonResponse({'error': 'Calendar range exceeds 2000 events; narrow the date range.'}, status=422)
+    response = JsonResponse(result, safe=False)
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Calendar-Limit'] = '2000'
+    return response
