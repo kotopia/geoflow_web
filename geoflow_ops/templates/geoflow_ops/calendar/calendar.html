@@ -14,7 +14,7 @@
 document.addEventListener('DOMContentLoaded', function () {
   var el=document.getElementById('geoflow-calendar'); if(!el)return;
   if(!window.FullCalendar || !window.FullCalendar.Calendar){el.innerHTML='<div class="alert alert-warning mb-0">캘린더 모듈을 불러올 수 없습니다.</div>';return;}
-  var calendar=new FullCalendar.Calendar(el,{initialView:'dayGridMonth',locale:'ko',height:'auto',headerToolbar:{left:'prev,next today',center:'title',right:'dayGridMonth,listMonth'},buttonText:{today:'오늘',month:'월',list:'목록'},events:'{% url "tenant:calendar_events" %}',eventContent:function(info){if(info.event.extendedProps.scope_type!=='bid')return true;var title=document.createElement('span');title.textContent=info.event.title;return {domNodes:[title]};},eventDidMount:function(info){if(info.event.extendedProps.scope_type==='bid'){var time=info.el.querySelector('.fc-list-event-time');if(time)time.textContent='';}},eventClick:function(info){if(info.event.url){info.jsEvent.preventDefault();window.location.href=info.event.url;}}});
+  var calendar=new FullCalendar.Calendar(el,{initialView:'dayGridMonth',locale:'ko',height:'auto',headerToolbar:{left:'prev,next today',center:'title',right:'dayGridMonth,listMonth'},buttonText:{today:'오늘',month:'월',list:'목록'},events:'{% url "tenant:calendar_events" %}',eventDidMount:function(info){if(info.event.extendedProps.scope_type==='bid'){info.el.querySelectorAll('.fc-event-time,.fc-list-event-time').forEach(function(time){time.textContent='';});}},eventClick:function(info){if(info.event.url){info.jsEvent.preventDefault();window.location.href=info.event.url;}}});
   calendar.render();
 });
 </script>
