@@ -135,3 +135,21 @@ class OverviewTests(SimpleTestCase):
             self.assertEqual(access.call_count,2)
             projects.objects.using.return_value.filter.assert_called_once_with(pk__in=['project1'])
             self.assertEqual(response['Cache-Control'],'private, no-store')
+
+
+    def test_calendar_merges_bids_only_with_domain_permission(self):
+        import json
+        request=RequestFactory().get('/api/calendar/events/', {'overview':'1','start':'2026-11-01','end':'2026-12-01'})
+        request.user=Row(is_authenticated=True)
+        with patch('geoflow_ops.views_calendar.require_tenant_context',return_value='tenant_a'), \
+             patch('geoflow_ops.views_calendar.ProcessEvent') as model, \
+             patch('geoflow_ops.views_calendar.Contract'), patch('geoflow_ops.views_calendar.Project'), \
+             patch('geoflow_ops.views_calendar.gf_has_perm',return_value=False) as permission, \
+             patch('geoflow_ops.views_calendar.tenant_state.user_id',return_value='actor') as actor, \
+             patch('geoflow_ops.views_calendar.bid_calendar.events',return_value=[{'id':'bid:one'}]) as bids:
+            model.objects.using.return_value.filter.return_value.exclude.return_value.order_by.return_value.__getitem__.return_value=[]
+            self.assertEqual(json.loads(calendar_events(request).content),[])
+            bids.assert_not_called();actor.assert_not_called()
+            permission.side_effect=lambda req,perm:perm=='contracts.view'
+            self.assertEqual(json.loads(calendar_events(request).content),[{'id':'bid:one'}])
+            bids.assert_called_once_with('tenant_a','actor',date(2026,11,1),date(2026,12,1))
