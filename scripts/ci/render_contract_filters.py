@@ -17,8 +17,12 @@ sys.modules['filter_acl']=acl
 wf=types.ModuleType('filter_workflow'); wf.register=Library()
 @wf.register.simple_tag
 def contract_workflow(c):
+    if 'workflow' in c: return c['workflow']
     complete=c['code']=='24001'
     return dict(filter_key='complete' if complete else 'active',is_complete=complete,major_code='settlement' if complete else 'execution',major_label='완료' if complete else '수행',phase_class='bg-secondary' if complete else 'bg-success',active_event_labels=['중지'] if c['code']=='26002' else [],active_event_count=3 if c['code']=='26002' else 0,has_active_suspension=c['code']=='26002')
+@wf.register.simple_tag
+def contract_document_access(contract_id):
+    return dict(allowed=True, can_approve=False, pending=[])
 sys.modules['filter_workflow']=wf
 root=Path.cwd()
 engine=Engine(dirs=[str(root/'geoflow_ops/templates'),str(root/'control/templates')],libraries={'static':'django.templatetags.static','l10n':'django.templatetags.l10n','humanize':'django.contrib.humanize.templatetags.humanize','acl_tags':'filter_acl','workflow_tags':'filter_workflow'})
@@ -27,4 +31,7 @@ ctx=dict(contracts=rows,current_year=2026,request={'session':{},'user':{'is_auth
 out=Path('artifacts/contract-filters');out.mkdir(parents=True,exist_ok=True)
 with patch('django.urls.reverse',side_effect=lambda name,args=None,kwargs=None,**kw: '/contracts/saved-filters/' if name.endswith('contract_saved_filters') else '/fixture/'+name.replace(':','/')+'/'+('/'.join(str(a) for a in (args or [])))):
     (out/'contracts.html').write_text(engine.get_template('geoflow_ops/contracts/contract_list.html').render(Context(ctx)))
-print('Rendered actual contract template with 12 synthetic records')
+    for code,label in [('preparation','준비'),('contract','계약'),('kickoff','착수'),('execution','수행'),('closeout','준공'),('complete','완료')]:
+        obj={**rows[1], 'workflow':dict(major_code=code,major_label=label,major_event_label='검증용 기준 이벤트'), 'description':'검증용 계약', 'org_unit':{'name':'본사'}}
+        (out/('detail-'+code+'.html')).write_text(engine.get_template('geoflow_ops/contracts/contract_detail.html').render(Context({**ctx,'obj':obj,'edit_mode':False})))
+print('Rendered actual contract list and all six detail workflow stages; synthetic data only')

@@ -35,8 +35,9 @@ class ContractWorkflowPhaseTests(SimpleTestCase):
         self.assertIn("<th>상태</th>", listing)
         self.assertIn('data-col="workflow"', listing)
         self.assertNotIn("운영상태", listing)
-        self.assertIn("현재 업무단계", detail)
-        self.assertIn("단계 기준", detail)
+        self.assertIn('class="gf-contract-process mt-2"', detail)
+        self.assertIn('aria-current="step"', detail)
+        self.assertIn("현재: {{ wf.major_label }} · 기준: {{ wf.major_event_label", detail)
         self.assertNotIn("운영상태", detail)
         for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
             self.assertIn(label, detail)
