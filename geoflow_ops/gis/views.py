@@ -4,11 +4,12 @@ from urllib.parse import quote, urlencode
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import DatabaseError, connections
+from django.db import DatabaseError, connections, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 
 from control.gf_authz.permissions import gf_has_perm
 from geoflow_ops.models import Project
@@ -29,6 +30,7 @@ from .qfield_auth import (
     qfield_ticket_runtime_enabled,
 )
 from .registry import domain_counts_for_rows, feature_by_name, feature_rows
+from .spatial_reference_views import map_config
 
 
 _GEOJSON_PROPERTY_CANDIDATES = (
@@ -195,6 +197,7 @@ def _qfield_open_url(request, alias: str, project) -> str:
 
 @login_required
 @require_GET
+@ensure_csrf_cookie
 def dashboard(request):
     alias = _require_gis_view(request)
     policy = project_access_policy(request, alias)
@@ -208,7 +211,15 @@ def dashboard(request):
     else:
         queryset = queryset.filter(pk__in=enabled_ids)
 
-    projects = list(queryset[:200])
+    projects = list(queryset)
+    map_projects = []
+    for project in projects:
+        shape = _business_area(project.ext)
+        project.gis_location_registered = shape is not None
+        if shape is not None:
+            map_projects.append({"type": "Feature", "geometry": shape, "properties": {
+                "code": project.code or "번호 미등록", "name": project.name or "",
+                "url": reverse("gis:project_dashboard", args=[project.id])}})
     project_ids = [project.id for project in projects]
     dashboard_layers = (
         allowed_standard_names_for_projects(alias, project_ids)
@@ -229,6 +240,10 @@ def dashboard(request):
         "geoflow_ops/gis/dashboard.html",
         {
             "projects": projects,
+            "map_projects": map_projects,
+            "located_project_count": len(map_projects),
+            "unlocated_project_count": len(projects) - len(map_projects),
+            "vworld_map_config": map_config(),
             "features": rows,
             "domain_counts": domain_counts_for_rows(rows),
             "feature_count": len(rows),
@@ -241,6 +256,7 @@ def dashboard(request):
 
 @login_required
 @require_GET
+@ensure_csrf_cookie
 def project_dashboard(request, project_id):
     alias = _require_gis_view(request)
     project, plan = _require_project_gis_access(
@@ -280,7 +296,9 @@ def project_dashboard(request, project_id):
             "project": project,
             "features": rows,
             "map_layers": map_layers,
-            "vworld_map_config": {"tile_url": reverse("gis:project_reference_tile", args=[project.id,"Base",0,0,0]).replace("/0/0/0/", "/{z}/{y}/{x}/")},
+            "vworld_map_config": map_config(project.id),
+            "business_area": _business_area(project.ext),
+            "can_edit_business_area": gf_has_perm(request, "projects.edit") and project_access_policy(request, alias).can_edit_project(project.id),
             "webgis_revision": webgis_revision,
             "webgis_delta_enabled": webgis_delta_enabled,
             "webgis_realtime_enabled": realtime_runtime_enabled(),
@@ -442,3 +460,64 @@ def project_layer_geojson_api(request, project_id):
         },
         json_dumps_params={"ensure_ascii": False},
     )
+
+
+def _business_area(extension):
+    """Explicit project-owned geometry only; never infer from facility extents."""
+    from django.contrib.gis.geos import GEOSGeometry
+    from django.contrib.gis.geos.error import GEOSException
+    import math
+    value = extension.get("gis_business_area") if isinstance(extension, dict) else None
+    if value is None:
+        return None
+    try:
+        if not isinstance(value, dict) or value.get("type") not in {"Point", "Polygon", "MultiPolygon"}:
+            return None
+        shape = GEOSGeometry(json.dumps(value), srid=4326)
+        if shape.empty or not shape.valid or shape.num_coords > 5000:
+            return None
+        bounds = shape.extent
+        if not all(math.isfinite(v) for v in bounds) or not (
+            -180 <= bounds[0] <= bounds[2] <= 180 and -85 <= bounds[1] <= bounds[3] <= 85
+        ):
+            return None
+        return json.loads(shape.geojson)
+    except (ValueError, TypeError, GEOSException):
+        return None
+
+
+@login_required
+@require_POST
+@csrf_protect
+def project_business_area(request, project_id):
+    alias = _require_gis_view(request)
+    project, _plan = _require_project_gis_access(request, alias, project_id)
+    if not gf_has_perm(request, "projects.edit") or not project_access_policy(request, alias).can_edit_project(project.id):
+        raise PermissionDenied("Permission denied")
+    try:
+        if len(request.body) > 200000:
+            raise ValueError
+        payload = json.loads(request.body)
+        if not isinstance(payload, dict) or "geometry" not in payload or "previous" not in payload:
+            raise ValueError
+        shape = _business_area({"gis_business_area": payload["geometry"]})
+        if payload["geometry"] is not None and shape is None:
+            raise ValueError
+        with transaction.atomic(using=alias):
+            current = Project.objects.using(alias).select_for_update().get(pk=project.id)
+            if current.ext is not None and not isinstance(current.ext, dict):
+                raise ValueError
+            extension = dict(current.ext or {})
+            if _business_area(extension) != payload["previous"]:
+                return JsonResponse({"ok": False, "error": "사업지역이 변경되었습니다. 새로고침 후 다시 시도하세요."}, status=409)
+            if shape is None:
+                extension.pop("gis_business_area", None)
+            else:
+                extension["gis_business_area"] = shape
+            from django.utils import timezone
+            Project.objects.using(alias).filter(pk=project.id).update(ext=extension, updated_at=timezone.now())
+        response = JsonResponse({"ok": True, "geometry": shape})
+        response["Cache-Control"] = "no-store"
+        return response
+    except (ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "EPSG:4326의 점 또는 사업지역 면 GeoJSON을 지정하세요."}, status=400)

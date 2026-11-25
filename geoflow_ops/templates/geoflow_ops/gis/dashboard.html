@@ -1,4 +1,11 @@
 {% extends "geoflow_ops/base_tenant.html" %}
+{% load static %}
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20261125-1">
+{% endblock %}
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div>
@@ -8,17 +15,20 @@
   <span class="badge bg-primary">Scope-driven GIS</span>
 </div>
 
-{% if scope_capability_active %}
-<div class="alert alert-info">
-  아래 프로젝트는 현재 로그인 사용자가 조회할 수 있고, 프로젝트 업무범위에 활성 GIS Capability가 연결된 프로젝트만 표시됩니다.
-</div>
-{% else %}
-<div class="alert alert-danger" role="alert">
-  <strong>GIS 공통기반이 이 tenant에 적용되지 않았습니다.</strong>
-  전체 프로젝트나 전체 시설물 레지스트리로 대체하지 않습니다. 운영 관리자가 GIS Metadata·Profile·Capability를 적용한 뒤 사용할 수 있습니다.
-</div>
+{% if not scope_capability_active %}
+<div class="alert alert-warning">GIS 구성이 준비되지 않았습니다. 관리자에게 문의하세요.</div>
 {% endif %}
-
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between flex-wrap gap-2">
+    <strong>사업지역 지도</strong>
+    <span class="small text-muted">위치 등록 {{ located_project_count }} · 위치 미등록 {{ unlocated_project_count }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% csrf_token %}
+    <div id="gisDashboardMap" role="region" aria-label="프로젝트 사업지역 지도"></div>
+  </div>
+  <div class="card-footer small text-muted">확대하면 프로젝트 번호와 사업지역을 볼 수 있습니다. 번호나 사업지역을 누르면 프로젝트 GIS로 이동합니다.</div>
+</div>
 <div class="row g-3 mb-4">
   {% for item in domain_counts %}
   <div class="col-12 col-md-4">
@@ -64,7 +74,7 @@
               <strong class="text-body">{{ project.name|default:project.code|default:"프로젝트" }}</strong>
               <span class="badge bg-light text-dark">{{ project.status|default:"-" }}</span>
             </div>
-            <div class="text-muted small mt-1">{{ project.code|default:"코드 없음" }}</div>
+            <div class="text-muted small mt-1">{{ project.code|default:"코드 없음" }} · {% if project.gis_location_registered %}위치 등록{% else %}위치 미등록{% endif %}</div>
             <div class="text-muted small mt-2">{{ project.start_date|default:"-" }} ~ {{ project.end_date|default:"-" }}</div>
           </div>
         </a>
@@ -108,4 +118,13 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ map_projects|json_script:"gis-project-locations" }}
+{{ vworld_map_config|json_script:"gis-vworld-config" }}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js';"></script>
+<script src="{% static 'geoflow_ops/js/gis-map-references.js' %}?v=20261125-1"></script>
+<script src="{% static 'geoflow_ops/js/gis-dashboard-map.js' %}?v=20261125-1"></script>
 {% endblock %}

@@ -83,25 +83,44 @@
 
     var map = L.map(mapNode, { preferCanvas: true, zoomControl: true }).setView([36.5, 127.8], 7);
     var vworldConfig = parseJsonScript("gis-vworld-config", {});
-    var basemapNotice = document.createElement("div");
-    basemapNotice.className = "alert alert-warning py-2";
-    basemapNotice.setAttribute("role", "status");
-    basemapNotice.hidden = true;
-    mapNode.parentNode.insertBefore(basemapNotice, mapNode);
-    if (vworldConfig.tile_url) {
-      var background = L.tileLayer(
-        vworldConfig.tile_url,
-        { minZoom: 6, maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; <a href="https://www.vworld.kr/">VWorld</a>' }
-      ).addTo(map);
-      background.on("tileerror", function () {
-        basemapNotice.textContent = "VWorld 배경지도를 불러오지 못했습니다. 인증키와 서비스 도메인 설정을 확인해 주세요.";
-        basemapNotice.hidden = false;
-      });
-      background.on("tileload", function () { basemapNotice.hidden = true; });
-    } else {
-      basemapNotice.textContent = "VWorld 배경지도 인증키 등록 대기 중입니다.";
-      basemapNotice.hidden = false;
+    window.GeoFlowMapReferences.install(map, vworldConfig);
+    var area = parseJsonScript("gis-business-area", null);
+    var areaLayer = L.geoJSON(area, {style: {color: "#0d6efd", weight: 3, fillOpacity: 0.06}}).addTo(map);
+    if (area && areaLayer.getBounds().isValid()) map.fitBounds(areaLayer.getBounds(), {maxZoom: 17});
+    var fileInput = document.getElementById("gisBusinessAreaFile");
+    var removeArea = document.getElementById("gisBusinessAreaRemove");
+    var areaStatus = document.getElementById("gisBusinessAreaStatus");
+    var areaBusy = false;
+    async function saveArea(geometry) {
+      if (areaBusy) return;
+      areaBusy = true;
+      if (fileInput) fileInput.disabled = true;
+      if (removeArea) removeArea.disabled = true;
+      try {
+        var result = await window.GeoFlowMapReferences.post(mapNode.dataset.areaUrl, {geometry: geometry, previous: area});
+        area = result.geometry; areaLayer.clearLayers();
+        if (area) { areaLayer.addData(area); map.fitBounds(areaLayer.getBounds(), {maxZoom: 17}); }
+        areaStatus.textContent = area ? "사업지역 등록됨" : "위치 미등록";
+      } catch (error) { areaStatus.textContent = error.message; }
+      finally { areaBusy = false; if (fileInput) { fileInput.disabled = false; fileInput.value = ""; } if (removeArea) removeArea.disabled = false; }
     }
+    if (fileInput) fileInput.addEventListener("change", async function () {
+      var file = fileInput.files[0]; if (!file) return;
+      try {
+        if (file.size > 190000) throw new Error("사업지역 파일은 190KB 이내로 지정하세요.");
+        var value = JSON.parse(await file.text());
+        if (value.crs) throw new Error("EPSG:4326 좌표계의 GeoJSON으로 내보내세요.");
+        if (value.type === "FeatureCollection") {
+          if (value.features.length !== 1) throw new Error("점 또는 사업지역 면 객체 하나를 지정하세요.");
+          value = value.features[0];
+        }
+        if (value.type === "Feature") value = value.geometry;
+        await saveArea(value);
+      } catch (error) { areaStatus.textContent = error.message; }
+    });
+    if (removeArea) removeArea.addEventListener("click", function () {
+      if (window.confirm("사업지역 위치를 해제하시겠습니까?")) saveArea(null);
+    });
 
     var overlayMaps = {};
     var layerState = {};
@@ -320,7 +339,7 @@
       socket.onerror = function () { if (socket) socket.close(); };
     }
 
-    loadAll({ fit: true }).then(function () {
+    loadAll({ fit: !area }).then(function () {
       websocketStarted = true;
       connectWebSocket();
       scheduleDeltaPoll(pollDelay());

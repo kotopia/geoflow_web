@@ -11,6 +11,13 @@ on:
       - control/services/gis_reference_lookup.py
       - control/migrations/0012_gis_reference_provider_credential.py
       - geoflow_ops/gis/spatial_reference_views.py
+      - geoflow_ops/gis/test_map_references.py
+      - scripts/ci/test_gis_map_controls.cjs
+      - geoflow_ops/static/geoflow_ops/js/gis-map-references.js
+      - geoflow_ops/static/geoflow_ops/js/gis-dashboard-map.js
+      - geoflow_ops/static/geoflow_ops/css/gis-project-map.css
+      - geoflow_ops/templates/geoflow_ops/gis/dashboard.html
+      - geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html
       - control/services/gis_references.py
       - control/services/gis_reference_files.py
       - control/migrations/0011_gis_reference_datasets.py
@@ -317,7 +324,7 @@ jobs:
             case "$changed_path" in
               control/migrations/0011_gis_reference_datasets.py|control/migrations/0012_gis_reference_provider_credential.py|control/management/commands/deploy_gis_reference_datasets.py)
                 reference_datasets_required=yes; continue ;;
-              control/services/gis_reference_vworld.py|control/services/gis_reference_lookup.py|control/test_gis_reference_lookup.py|geoflow_ops/gis/spatial_reference_views.py|control/views_gis_references.py|control/services/gis_references.py|control/services/gis_reference_files.py|control/templates/control/gis/references.html|control/test_gis_references.py|control/test_gis_references_pg.py|docs/architecture/gis-reference-datasets.md|docs/architecture/central-admin.md) continue ;;
+              control/services/gis_reference_vworld.py|control/services/gis_reference_lookup.py|control/test_gis_reference_lookup.py|geoflow_ops/gis/spatial_reference_views.py|geoflow_ops/gis/test_map_references.py|scripts/ci/test_gis_map_controls.cjs|geoflow_ops/static/geoflow_ops/js/gis-map-references.js|geoflow_ops/static/geoflow_ops/js/gis-dashboard-map.js|geoflow_ops/static/geoflow_ops/css/gis-project-map.css|geoflow_ops/templates/geoflow_ops/gis/dashboard.html|geoflow_ops/templates/geoflow_ops/gis/project_dashboard.html|control/views_gis_references.py|control/services/gis_references.py|control/services/gis_reference_files.py|control/templates/control/gis/references.html|control/test_gis_references.py|control/test_gis_references_pg.py|docs/architecture/gis-reference-datasets.md|docs/architecture/central-admin.md) continue ;;
               # Reviewed documentation-only closeout of the already deployed project policy.
               docs/contracts/contract-list.md|docs/planning/GeoFlow_Product_Structure_v1.md) continue ;;
               control/management/commands/deploy_gis_reference_groups.py|control/migrations/0009_gis_reference_code_groups.py|geoflow_ops/migrations/0048_gis_project_reference_groups.py|geoflow_ops/gis/reference_groups.py|geoflow_ops/gis/test_reference_groups.py|docs/architecture/gis-reference-code-groups.md)

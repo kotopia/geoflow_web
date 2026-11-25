@@ -9,7 +9,7 @@
       integrity="sha256-p4NxAoJBhIINfQ3aOvS1RT/0Apk0E7VB4G1p4N1s4VY="
       crossorigin=""
       onerror="this.onerror=null;this.removeAttribute('integrity');this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';">
-<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20260906-1">
+<link rel="stylesheet" href="{% static 'geoflow_ops/css/gis-project-map.css' %}?v=20261125-1">
 {% endif %}
 {% endblock %}
 
@@ -121,7 +121,19 @@
         <div class="text-muted small gf-gis-map-status" id="gisMapStatus">지도 준비 중…</div>
       </div>
       <div class="card-body">
+        <div class="p-2 border-bottom small">
+          {% csrf_token %}
+          <span id="gisBusinessAreaStatus">{% if business_area %}사업지역 등록됨{% else %}위치 미등록{% endif %}</span>
+          {% if can_edit_business_area %}
+          <label class="btn btn-sm btn-outline-primary mb-0 ms-2">사업지역 GeoJSON 등록
+            <input id="gisBusinessAreaFile" type="file" accept=".geojson,.json" hidden>
+          </label>
+          <button id="gisBusinessAreaRemove" type="button" class="btn btn-sm btn-outline-secondary">위치 해제</button>
+          <span class="text-muted">EPSG:4326 · 대표점 또는 사업지역 면 1개</span>
+          {% endif %}
+        </div>
         <div id="gisProjectMap"
+             data-area-url="{% url 'gis:project_business_area' project.id %}"
              role="region"
              aria-label="프로젝트 GIS 지도"
              data-geojson-url="{% url 'gis:project_layer_geojson_api' project.id %}"
@@ -169,6 +181,7 @@
 </div>
 
 {{ features|json_script:"gis-map-layers" }}
+{{ business_area|json_script:"gis-business-area" }}
 {{ vworld_map_config|json_script:"gis-vworld-config" }}
 {% endblock %}
 
@@ -183,7 +196,8 @@
     document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
   }
 </script>
-<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20260916-2"></script>
+<script src="{% static 'geoflow_ops/js/gis-map-references.js' %}?v=20261125-1"></script>
+<script src="{% static 'geoflow_ops/js/gis-project-map.js' %}?v=20261125-1"></script>
 <script>
 (() => {
   const repositoryInput = document.getElementById("qgisPluginRepositoryUrl");
