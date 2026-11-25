@@ -37,10 +37,21 @@ jobs:
           python -m pip install boto3==1.35.94 openpyxl==3.1.5
           python -m unittest control.test_gis_references -v
           python -m unittest control.test_gis_reference_lookup -v
+          python -m pip install channels==4.3.2
+          python -m unittest geoflow_ops.gis.test_map_references -v
           python -m unittest control.test_gis_references_pg -v
           python -m py_compile control/views_gis_references.py control/services/gis_references.py control/services/gis_reference_files.py control/migrations/0011_gis_reference_datasets.py
         env:
           GEOFLOW_REFERENCES_ISOLATED_PG: '1'
+      - name: Browser map controls with isolated reference fixtures
+        run: |
+          mkdir -p /tmp/geoflow-map-assets
+          curl -fsSL --retry 3 https://unpkg.com/leaflet@1.9.4/dist/leaflet.js -o /tmp/geoflow-map-assets/leaflet.js
+          curl -fsSL --retry 3 https://unpkg.com/leaflet@1.9.4/dist/leaflet.css -o /tmp/geoflow-map-assets/leaflet.css
+          curl -fsSL --retry 3 https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js -o /tmp/geoflow-map-assets/cluster.js
+          npm install --prefix /tmp/gis-browser playwright@1.58.2
+          /tmp/gis-browser/node_modules/.bin/playwright install --with-deps chromium
+          NODE_PATH=/tmp/gis-browser/node_modules node scripts/ci/test_gis_map_controls.cjs
       - name: Compile changed GIS Python modules
         run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py control/services/gis_photo_policy.py control/management/commands/smoke_gis_photo_catalog.py control/management/commands/deploy_gis_photo_catalog_v2.py control/management/commands/cleanup_gis_standard_fields.py control/management/commands/repair_qgis_flow_dip.py geoflow_ops/gis/central_definitions.py geoflow_ops/gis/feature_photo_views.py geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py scripts/ops/inventory_gis_photo_catalog_v2.py
       - name: Validate central GIS admin JavaScript syntax
@@ -59,6 +70,9 @@ jobs:
           awk '/^<script>$/{on=1;next}/^<\/script>$/{on=0}on' \
             control/templates/control/gis/references.html > /tmp/gis-references.js
           node --check /tmp/gis-references.js
+          node --check geoflow_ops/static/geoflow_ops/js/gis-map-references.js
+          node --check geoflow_ops/static/geoflow_ops/js/gis-dashboard-map.js
+          node --check geoflow_ops/static/geoflow_ops/js/gis-project-map.js
       - name: Validate remote deployment shell without executing it
         run: |
           python - <<'PYCODE'

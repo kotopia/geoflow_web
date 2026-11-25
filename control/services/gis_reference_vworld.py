@@ -1,6 +1,7 @@
 """VWorld credentials and bounded requests to fixed official endpoints only."""
 
 import json
+import math
 import os
 import re
 from functools import lru_cache
@@ -29,6 +30,8 @@ SERVICES = {
     },
     "legal_ri": {"label": "법정리", "data": "LT_C_ADRI_INFO", "kind": "legal_boundary"},
 }
+MAP_STYLES = frozenset({"Base", "Satellite", "Hybrid", "Cadastral"})
+
 MAX_RESPONSE = 8 * 1024 * 1024
 
 
@@ -320,17 +323,26 @@ def features(service, geometry, key, domain, reader=read_response):
 
 def tile(style, z, y, x, key, domain, reader=read_response):
     if (
-        style not in {"Base", "Satellite", "Hybrid"}
+        style not in MAP_STYLES
         or not 0 <= z <= 19
         or not (0 <= x < 2**z and 0 <= y < 2**z)
     ):
         raise ReferenceError("지도 타일 범위가 올바르지 않습니다.")
     ext = "jpeg" if style == "Satellite" else "png"
-    value = reader(
-        f"https://api.vworld.kr/req/wmts/1.0.0/{key}/{style}/{z}/{y}/{x}.{ext}",
-        limit=2 * 1024 * 1024,
-        domain=domain,
-    )
+    if style == "Cadastral":
+        half = math.pi * 6378137
+        step = 2 * half / (2 ** z)
+        bbox = (-half + x * step, half - (y + 1) * step,
+                -half + (x + 1) * step, half - y * step)
+        params = {"service": "WMS", "request": "GetMap", "version": "1.3.0",
+                  "layers": "lt_c_landinfobasemap", "styles": "lt_c_landinfobasemap",
+                  "crs": "EPSG:3857", "bbox": ",".join(map(str, bbox)),
+                  "width": 256, "height": 256, "format": "image/png",
+                  "transparent": "true", "key": key, "domain": domain}
+        url = "https://api.vworld.kr/req/wms?" + urlencode(params)
+    else:
+        url = f"https://api.vworld.kr/req/wmts/1.0.0/{key}/{style}/{z}/{y}/{x}.{ext}"
+    value = reader(url, limit=2 * 1024 * 1024, domain=domain)
     if not value.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")):
         raise ReferenceError("브이월드 지도 타일을 받지 못했습니다.")
     return value, "image/jpeg" if ext == "jpeg" else "image/png"

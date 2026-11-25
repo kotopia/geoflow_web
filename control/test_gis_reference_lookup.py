@@ -509,4 +509,7 @@ class ProjectBoundaryTests(TestCase):
         root = Path(__file__).resolve().parents[1]
         js = (root / "geoflow_ops/static/geoflow_ops/js/gis-project-map.js").read_text()
         self.assertNotIn("vworldConfig.key", js)
-        self.assertIn("vworldConfig.tile_url", js)
+        shared = (root / "geoflow_ops/static/geoflow_ops/js/gis-map-references.js").read_text()
+        self.assertIn("GeoFlowMapReferences.install(map, vworldConfig)", js)
+        self.assertIn("config.tiles[style]", shared)
+        self.assertNotIn("api.vworld.kr/req", shared)
