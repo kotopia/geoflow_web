@@ -200,9 +200,69 @@ class ReferenceRolloutPostgresTests(unittest.TestCase):
         self.cur.execute(
             "CREATE TEMP TABLE django_migrations(app text,name text,applied timestamptz)"
         )
+        self.cur.execute("SELECT to_regclass('public.tenant_employee_registrations')")
+        if self.cur.fetchone()[0]:
+            raise RuntimeError("Refusing an existing registration table")
+        for table in ("users", "groups", "roles"):
+            self.cur.execute(
+                f"CREATE TABLE IF NOT EXISTS public.{table}(id uuid PRIMARY KEY)"
+            )
         self.cur.execute(
-            "INSERT INTO django_migrations VALUES ('control','0010_tenant_employee_registrations',now())"
+            importlib.import_module(
+                "control.migrations.0010_tenant_employee_registrations"
+            )
+            .Migration.operations[0]
+            .sql
         )
+        self.cur.execute(
+            "INSERT INTO django_migrations VALUES ('control','0009_gis_reference_code_groups',now()),('control','0010_tenant_employee_registrations',now())"
+        )
+
+    def test_missing_0010_is_applied_before_reference_without_other_migrations(self):
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_store,
+            state,
+        )
+
+        self.cur.execute("DROP TABLE public.tenant_employee_registrations")
+        self.cur.execute(
+            "DELETE FROM django_migrations WHERE name='0010_tenant_employee_registrations'"
+        )
+        identity = str(uuid4())
+        self.cur.execute("INSERT INTO public.users(id) VALUES (%s)", [identity])
+        self.assertFalse(state(self.cur))
+        apply_store(self.cur)
+        self.assertTrue(state(self.cur))
+        self.cur.execute(
+            "SELECT name FROM django_migrations WHERE app='control' ORDER BY name"
+        )
+        self.assertEqual(
+            [r[0] for r in self.cur.fetchall()],
+            [
+                "0009_gis_reference_code_groups",
+                "0010_tenant_employee_registrations",
+                "0011_gis_reference_datasets",
+            ],
+        )
+        self.cur.execute("SELECT count(*) FROM public.tenant_employee_registrations")
+        self.assertEqual(self.cur.fetchone()[0], 0)
+        self.cur.execute("SELECT id::text FROM public.users WHERE id=%s", [identity])
+        self.assertEqual(self.cur.fetchone()[0], identity)
+
+    def test_unrecorded_existing_prerequisite_is_not_faked(self):
+        from django.core.management.base import CommandError
+
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_store,
+        )
+
+        self.cur.execute(
+            "DELETE FROM django_migrations WHERE name='0010_tenant_employee_registrations'"
+        )
+        with self.assertRaises(CommandError):
+            apply_store(self.cur)
+        self.cur.execute("SELECT to_regclass('gis.reference_dataset')")
+        self.assertIsNone(self.cur.fetchone()[0])
 
     def test_narrow_rollout_is_idempotent_and_preserves_registered_data(self):
         from control.management.commands.deploy_gis_reference_datasets import (
