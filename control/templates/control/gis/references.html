@@ -100,7 +100,7 @@
    $('ref-new-dataset').disabled=$('ref-new-source').disabled=false;
    const old=$('ref-kind').value;$('ref-kind').innerHTML=option('','전체 종류')+Object.entries(data.kinds).map(([v,t])=>option(v,t)).join('');$('ref-kind').value=old;
    renderDatasets();
-   $('ref-source-rows').innerHTML=data.sources.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(data.source_kinds[s.kind])}</td><td>${s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">제공처 열기</a>`:'직접 파일 등록'}</td><td>${s.credential_configured?'서버 참조 등록됨 · 접속 미검증':'없음'}</td><td>${s.enabled?'등록됨':'비활성'}</td><td><button class="btn btn-sm btn-outline-secondary" data-edit-source="${s.id}">설정</button></td></tr>`).join('')||'<tr><td colspan="6" class="text-muted py-4">자료 연결을 등록하세요.</td></tr>';
+   $('ref-source-rows').innerHTML=data.sources.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(data.source_kinds[s.kind])}</td><td>${s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">제공처 열기</a>`:'직접 파일 등록'}</td><td>${s.kind==='api'&&s.url==='https://api.vworld.kr/req/data'?(data.vworld?.configured?'브이월드 공통 키':'키 등록 전'):(s.credential_configured?'서버 참조 등록됨 · 접속 미검증':'없음')}</td><td>${s.enabled?'등록됨':'비활성'}</td><td><button class="btn btn-sm btn-outline-secondary" data-edit-source="${s.id}">설정</button></td></tr>`).join('')||'<tr><td colspan="6" class="text-muted py-4">자료 연결을 등록하세요.</td></tr>';
    $('ref-event-rows').innerHTML=data.events.map(e=>`<tr><td>${esc(date(e.created_at))}</td><td>${esc(e.dataset_name||e.source_name||'브이월드 공통 키')}</td><td>${esc(actions[e.action]||e.action)}</td><td>${esc(e.version_label||'—')}</td></tr>`).join('')||'<tr><td colspan="4">아직 이력이 없습니다.</td></tr>';
    $('ref-page').textContent=`${page} / ${Math.max(1,Math.ceil(data.history_count/50))} 페이지`;
    $('ref-prev').disabled=page<=1;$('ref-next').disabled=page*50>=data.history_count;
@@ -163,8 +163,10 @@
  });
  $('ref-inspect').addEventListener('click',async()=>{
    $('ref-inspect').disabled=true;
-   try{const result=await post('lookup',{action:'inspect',dataset_id:selected,version_id:$('ref-query-version').value});queryLayers=result.layers;$('ref-query-layer').innerHTML=option('','레이어 선택')+queryLayers.map(l=>option(l.name,l.name)).join('');notice('ref-query-notice','레이어를 선택하고 좌표·필드를 확인하세요.',true);}catch(e){notice('ref-query-notice',e.message);}finally{$('ref-inspect').disabled=false;}
+   try{const result=await post('lookup',{action:'inspect',dataset_id:selected,version_id:$('ref-query-version').value});queryLayers=result.layers;$('ref-query-layer').innerHTML=option('','레이어 선택')+queryLayers.map(l=>option(l.name,l.name+' ('+(l.crs||'좌표계 확인 필요')+')')).join('');notice('ref-query-notice','레이어를 선택하고 좌표·필드를 확인하세요.',true);}catch(e){notice('ref-query-notice',e.message);}finally{$('ref-inspect').disabled=false;}
  });
+ $('ref-query-version').addEventListener('change',()=>{queryLayers=[];['ref-query-layer','ref-query-xfield','ref-query-yfield','ref-query-fields','ref-query-chosen'].forEach(k=>$(k).innerHTML=option('','선택하세요'));$('ref-query-reference-crs').value='';$('ref-query-results').innerHTML='';});
+ $('ref-query-service').addEventListener('change',()=>{['ref-query-fields','ref-query-chosen'].forEach(k=>$(k).innerHTML='');$('ref-query-results').innerHTML='';});
  $('ref-query-layer').addEventListener('change',()=>{
    const layer=queryLayers.find(l=>l.name===$('ref-query-layer').value);['ref-query-xfield','ref-query-yfield'].forEach(k=>{$(k).innerHTML=option('','좌표 필드 선택')+(layer?.fields||[]).map(f=>option(f,f)).join('');$(k).disabled=layer?.kind!=='xy';});$('ref-query-reference-crs').value=layer?.kind==='xy'?layer.crs||'':'';
  });

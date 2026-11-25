@@ -1,6 +1,7 @@
 """Temporary reference inspection and common exact-intersection selection rules."""
 
 import csv
+import ctypes
 import json
 import math
 import re
@@ -9,7 +10,8 @@ from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
 
-from django.contrib.gis.gdal import DataSource, GDALException
+from django.contrib.gis.gdal import DataSource, Driver, GDALException
+from django.contrib.gis.gdal.prototypes import ds as gdal_ds
 from django.contrib.gis.geos import GEOSException, GEOSGeometry, Point
 
 from control.services import gis_reference_files as files
@@ -213,7 +215,19 @@ def vectors(root):
         if path.suffix.lower() not in {".shp", ".gpkg", ".geojson"}:
             continue
         try:
-            source = DataSource(str(path))
+            name = {".shp": "ESRI Shapefile", ".gpkg": "GPKG", ".geojson": "GeoJSON"}[
+                path.suffix.lower()
+            ]
+            driver = Driver(name)
+            allowed = (ctypes.c_char_p * 2)(name.encode(), None)
+            pointer = gdal_ds.open_ds(
+                str(path).encode(),
+                gdal_ds.GDAL_OF_READONLY | gdal_ds.GDAL_OF_VECTOR,
+                allowed,
+                None,
+                None,
+            )
+            source = DataSource(pointer, ds_driver=driver.ptr)
             if str(source.driver) not in {"ESRI Shapefile", "GPKG", "GeoJSON"}:
                 raise refs.ReferenceError("지원하지 않는 공간자료 드라이버입니다.")
             for layer in source:
@@ -282,7 +296,9 @@ def inspect_file(item):
             {
                 "name": name,
                 "fields": list(layer.fields),
-                "crs": str(layer.srs) if layer.srs else "",
+                "crs": (f"EPSG:{layer.srs.srid}" if layer.srs.srid else layer.srs.name)
+                if layer.srs
+                else "",
                 "kind": "vector",
             }
             for name, layer in vectors(root)

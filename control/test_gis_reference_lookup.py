@@ -41,6 +41,32 @@ def feature(item_id="one", value="123-1", bounds=(-0.001, -0.001, 0.001, 0.001))
 
 
 class CredentialTests(TestCase):
+    def test_process_cache_is_version_pinned_and_rotation_reads_new_version(self):
+        vworld._version_key.cache_clear()
+        self.addCleanup(vworld._version_key.cache_clear)
+        cur = MagicMock()
+        cur.fetchone.side_effect = [
+            ("table",),
+            ("v1", "https://geoflow.co.kr"),
+            ("table",),
+            ("v1", "https://geoflow.co.kr"),
+            ("table",),
+            ("v2", "https://geoflow.co.kr"),
+        ]
+        with patch.object(vworld, "secret_client") as client:
+            client.return_value.get_secret_value.return_value = {
+                "SecretString": json.dumps(
+                    {"api_key": "test-only-credential-1234567890"}
+                )
+            }
+            vworld.credential(cur)
+            vworld.credential(cur)
+            vworld.credential(cur)
+            self.assertEqual(client.return_value.get_secret_value.call_count, 2)
+            self.assertEqual(
+                client.return_value.get_secret_value.call_args.kwargs["VersionId"], "v2"
+            )
+
     def test_new_key_is_pinned_and_never_written_to_database(self):
         cur, client = MagicMock(), MagicMock()
         cur.fetchone.side_effect = [("table",), None]
@@ -355,6 +381,13 @@ class FileLookupTests(TestCase):
 
     def test_pdf_is_preserved_as_document_not_invented_geometry(self):
         (self.root / "result.pdf").write_bytes(b"%PDF")
+        with self.assertRaises(ReferenceError):
+            engine.inspect_file(self.item)
+
+    def test_vrt_content_cannot_be_opened_under_geojson_extension(self):
+        (self.root / "disguised.geojson").write_text(
+            '<OGRVRTDataSource><OGRVRTLayer name="bad"><SrcDataSource>/nonexistent/reference.csv</SrcDataSource></OGRVRTLayer></OGRVRTDataSource>'
+        )
         with self.assertRaises(ReferenceError):
             engine.inspect_file(self.item)
 

@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from functools import lru_cache
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -197,6 +198,14 @@ def setup(cur, actor):
     return source
 
 
+@lru_cache(maxsize=4)
+@sensitive_variables()
+def _version_key(version):
+    # Process memory only, never Django's potentially shared/persistent cache backend.
+    response = secret_client().get_secret_value(SecretId=SECRET_ID, VersionId=version)
+    return validate_key(json.loads(response["SecretString"]).get("api_key"))
+
+
 @sensitive_variables()
 def credential(cur, client=None):
     if not credential_ready(cur):
@@ -210,6 +219,8 @@ def credential(cur, client=None):
             os.environ.get("GEOFLOW_VWORLD_DOMAIN", "https://geoflow.co.kr")
         )
     try:
+        if client is None:
+            return _version_key(row[0]), validate_domain(row[1])
         response = (client or secret_client()).get_secret_value(
             SecretId=SECRET_ID, VersionId=row[0]
         )
