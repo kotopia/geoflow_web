@@ -16,7 +16,7 @@ if not settings.configured:
     django.setup()
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, override_settings
 from django.urls import path
 from control.services import gis_reference_lookup as engine
 from control.services import gis_reference_vworld as vworld
@@ -112,6 +112,7 @@ class OverlayTests(TestCase):
             with self.assertRaises(PermissionDenied): api.map_reference_overlay(request(),uuid4())
             read.assert_not_called()
 
+    @override_settings(ALLOWED_HOSTS=["testserver"], ROOT_URLCONF=__name__, MIDDLEWARE=["django.middleware.csrf.CsrfViewMiddleware"])
     def test_csrf_required(self):
         client=Client(enforce_csrf_checks=True)
         self.assertEqual(client.post('/overlay/',data='{}',content_type='application/json').status_code,403)
