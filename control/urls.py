@@ -26,10 +26,15 @@ from .views_categories import categories_page, category_options
 from procurement import views_central as central_bids
 from . import views_gis_admin
 from . import views_gis_photo
+from . import views_gis_references
 
 app_name = "control"
 
 urlpatterns = [
+    path("central/gis/references/", views_gis_references.dashboard, name="gis_references"),
+    path("central/gis/references/api/", views_gis_references.catalog_api, name="gis_references_api"),
+    path("central/gis/references/<uuid:dataset_id>/upload/", views_gis_references.upload_original, name="gis_reference_upload"),
+    path("central/gis/references/original/<uuid:version_id>/", views_gis_references.download_original, name="gis_reference_download"),
     path("central/gis/definitions/", views_gis_admin.dashboard, name="gis_definitions"),
     path("central/gis/photo-catalog/api/", views_gis_photo.catalog_api, name="gis_photo_catalog_api"),
     path("central/gis/schema/<uuid:change_id>/<str:command>/", views_gis_admin.schema_change_command, name="gis_schema_change_command"),

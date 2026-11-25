@@ -30,6 +30,14 @@ jobs:
       - run: python -m unittest geoflow_ops.gis.test_form_definitions geoflow_ops.gis.test_central_definitions geoflow_ops.gis.test_definition_visibility control.test_gis_schema_manager control.test_gis_photo_policy -v
         env:
           GEOFLOW_FORMS_ISOLATED_PG: '1'
+      - name: Central reference metadata, original intake and SQL migration
+        run: |
+          python -m pip install boto3==1.35.94
+          python -m unittest control.test_gis_references -v
+          python -m unittest control.test_gis_references_pg -v
+          python -m py_compile control/views_gis_references.py control/services/gis_references.py control/services/gis_reference_files.py control/migrations/0011_gis_reference_datasets.py
+        env:
+          GEOFLOW_REFERENCES_ISOLATED_PG: '1'
       - name: Compile changed GIS Python modules
         run: python -m py_compile control/views_gis_admin.py control/services/gis_definitions.py control/services/gis_schema_manager.py control/services/gis_schema_execution.py control/services/gis_photo_policy.py control/management/commands/smoke_gis_photo_catalog.py control/management/commands/deploy_gis_photo_catalog_v2.py control/management/commands/cleanup_gis_standard_fields.py control/management/commands/repair_qgis_flow_dip.py geoflow_ops/gis/central_definitions.py geoflow_ops/gis/feature_photo_views.py geoflow_ops/migrations/0043_gis_feature_photo_catalog_v2.py scripts/ops/inventory_gis_photo_catalog_v2.py
       - name: Validate central GIS admin JavaScript syntax
@@ -45,6 +53,9 @@ jobs:
           awk '/^<script>$/{on=1;next}/^<\/script>$/{on=0}on' \
             control/templates/control/gis/photo_catalog.html > /tmp/gis-photo-catalog.js
           node --check /tmp/gis-photo-catalog.js
+          awk '/^<script>$/{on=1;next}/^<\/script>$/{on=0}on' \
+            control/templates/control/gis/references.html > /tmp/gis-references.js
+          node --check /tmp/gis-references.js
       - name: Validate remote deployment shell without executing it
         run: |
           python - <<'PYCODE'

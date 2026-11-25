@@ -1,0 +1,150 @@
+{% extends 'control/base_central.html' %}
+{% block title %}GIS 공통 참조자료{% endblock %}
+{% block content %}
+<div id="reference-app" data-api="{% url 'control:gis_references_api' %}">
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <div><h1 class="h3 mb-1">공통 참조자료</h1><p class="text-muted mb-0">공식 공간자료의 출처와 원본 버전을 중앙에서 관리합니다.</p></div>
+    <a class="btn btn-outline-secondary" href="{% url 'control:gis_definitions' %}">GIS 업무정의</a>
+  </div>
+  <div id="ref-notice" role="status" aria-live="polite"></div>
+  <form hidden>{% csrf_token %}</form>
+  <div class="alert alert-info py-2">원본 보관과 공간조회 준비 상태는 별개입니다. 현재 등록된 자료는 공간검증·배포 전까지 구조화에 사용되지 않습니다.</div>
+  <nav class="nav nav-pills gap-2 mb-3" aria-label="참조자료 관리">
+    <button type="button" class="nav-link active" data-pane="datasets" aria-pressed="true">자료 목록</button>
+    <button type="button" class="nav-link" data-pane="sources" aria-pressed="false">API·파일 연결</button>
+    <button type="button" class="nav-link" data-pane="history" aria-pressed="false">갱신 이력</button>
+  </nav>
+  <section id="ref-datasets" class="card card-body">
+    <div class="d-flex flex-wrap gap-2 justify-content-between mb-3"><h2 class="h5 mb-0">자료 목록 <span id="ref-count" class="text-muted"></span></h2><button type="button" id="ref-new-dataset" class="btn btn-primary" disabled>+ 자료 등록</button></div>
+    <div class="row g-2 mb-3"><label class="col-md-6">자료 검색<input id="ref-search" type="search" class="form-control" placeholder="자료명·지역·제공기관"></label><label class="col-md-4">자료 종류<select id="ref-kind" class="form-select"><option value="">전체 종류</option></select></label><label class="col-md-2 align-self-end"><input id="ref-inactive" type="checkbox" class="form-check-input"> 비활성 포함</label></div>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>자료명</th><th>종류</th><th>지역 / 제공기관</th><th>자료 연결</th><th>보관 원본</th><th>사용 상태</th><th>관리</th></tr></thead><tbody id="ref-dataset-rows"><tr><td colspan="7">불러오는 중…</td></tr></tbody></table></div>
+  </section>
+  <section id="ref-sources" class="card card-body" hidden>
+    <div class="d-flex justify-content-between mb-2"><h2 class="h5">API·파일 연결</h2><button type="button" id="ref-new-source" class="btn btn-primary" disabled>+ 연결 등록</button></div>
+    <p class="text-muted">공급기관 연결은 여러 자료에서 함께 사용합니다. 주소 등록만으로 수집·자동 갱신이 시작되지는 않습니다.</p>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>연결명</th><th>방식</th><th>주소</th><th>인증정보</th><th>상태</th><th>관리</th></tr></thead><tbody id="ref-source-rows"></tbody></table></div>
+  </section>
+  <section id="ref-history" class="card card-body" hidden>
+    <h2 class="h5">갱신 이력</h2><p class="text-muted">등록·설정 변경·원본 저장 이력입니다. 원본 저장 완료는 공간검증 완료를 의미하지 않습니다.</p>
+    <div class="table-responsive"><table class="table"><thead><tr><th>처리 시각</th><th>자료 / 연결</th><th>내용</th><th>원본 버전</th></tr></thead><tbody id="ref-event-rows"></tbody></table></div>
+    <div class="d-flex gap-2 align-items-center"><button type="button" class="btn btn-outline-secondary" id="ref-prev">이전</button><span id="ref-page"></span><button type="button" class="btn btn-outline-secondary" id="ref-next">다음</button></div>
+  </section>
+</div>
+<dialog id="ref-editor" class="ref-dialog">
+  <form id="ref-edit-form" class="p-4">
+    <div class="d-flex justify-content-between mb-3"><h2 id="ref-editor-title" class="h5"></h2><button type="button" class="btn-close" data-close aria-label="닫기"></button></div>
+    <div id="ref-editor-notice" role="status" aria-live="polite"></div><div id="ref-editor-fields"></div>
+    <div class="d-flex justify-content-end gap-2 mt-4"><button type="button" class="btn btn-outline-secondary" data-close>취소</button><button id="ref-save" class="btn btn-primary">저장</button></div>
+  </form>
+</dialog>
+<dialog id="ref-detail" class="ref-dialog ref-detail-dialog">
+  <div class="p-4"><div class="d-flex justify-content-between mb-2"><h2 id="ref-detail-title" class="h5"></h2><button type="button" class="btn-close" data-close aria-label="닫기"></button></div>
+    <p id="ref-detail-description" class="text-muted"></p><dl id="ref-detail-meta" class="row"></dl>
+    <h3 class="h6 mt-4">보관 원본</h3><p class="small text-muted">ZIP을 직접 풀지 않고 올릴 수 있습니다. 파일 안전성 검사 후 원본을 보관하며, 레이어·좌표계·필드 검증은 다음 단계입니다.</p>
+    <div id="ref-version-rows" class="table-responsive"></div>
+    <div id="ref-upload-notice" role="status" aria-live="polite"></div>
+    <form id="ref-upload-form" class="border rounded p-3 mt-3">
+      <div class="row g-2"><label class="col-md-6">버전명<input name="label" class="form-control" maxlength="120" required placeholder="예: 제공기관 배포일 또는 버전"></label><label class="col-md-6">자료 기준일<input name="published_on" class="form-control" type="date"></label><label class="col-md-6">원본 좌표계 (선택)<input name="declared_crs" class="form-control" placeholder="EPSG:5186" maxlength="40"></label><label class="col-md-6">원본 파일 (100MB 이하)<input name="file" class="form-control" type="file" required accept=".zip,.gpkg,.geojson,.csv,.xlsx,.pdf"></label></div>
+      <p class="small text-muted mt-2">좌표계 입력은 제공기관 표기를 기록하는 용도입니다. 모르면 비워 두세요. 기관·프로젝트 전용 비공개 자료는 등록하지 마세요.</p><button id="ref-upload" class="btn btn-primary">새 원본 보관</button>
+    </form>
+  </div>
+</dialog>
+<style>
+.ref-dialog{width:min(720px,94vw);max-width:none;max-height:90vh;overflow:auto;border:0;border-radius:12px;box-shadow:0 20px 70px #0004;padding:0}.ref-dialog::backdrop{background:#14213780}.ref-detail-dialog{width:min(1050px,96vw)}#reference-app th{white-space:nowrap;background:var(--bs-tertiary-bg,#f5f7fb)}#reference-app td{max-width:350px;overflow-wrap:anywhere}.ref-dialog label{display:block;margin-bottom:.75rem}.ref-dialog textarea{min-height:78px}#ref-detail-meta dd{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+(()=>{
+ 'use strict';
+ const $=id=>document.getElementById(id), api=$('reference-app').dataset.api;
+ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const option=(v,t)=>`<option value="${esc(v)}">${esc(t)}</option>`;
+ const status={pending:'저장 처리 중',stored:'원본 보관됨',failed:'저장 실패'};
+ const actions={dataset_created:'자료 등록',dataset_updated:'자료 설정 변경',source_created:'연결 등록',source_updated:'연결 설정 변경',upload_started:'원본 저장 시작',upload_stored:'원본 저장 완료',upload_failed:'원본 저장 실패'};
+ let data=null, editing=null, selected='', page=1;
+ const notice=(id,message,success=false)=>{$(id).innerHTML=`<div class="alert alert-${success?'success':'danger'} py-2">${esc(message)}</div>`;};
+ const csrf=()=>document.querySelector('[name=csrfmiddlewaretoken]').value;
+ async function request(url,options={}){
+   const response=await fetch(url,{credentials:'same-origin',...options});let value;
+   try{value=await response.json();}catch(_){throw Error(`요청을 처리할 수 없습니다 (HTTP ${response.status}).`);}
+   if(!response.ok||!value.ok)throw Error(value.error||'요청에 실패했습니다.');return value;
+ }
+ const date=v=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'—';
+ async function load(){data=await request(`${api}?history_page=${page}`);render();}
+ function render(){
+   $('ref-new-dataset').disabled=$('ref-new-source').disabled=false;
+   const old=$('ref-kind').value;$('ref-kind').innerHTML=option('','전체 종류')+Object.entries(data.kinds).map(([v,t])=>option(v,t)).join('');$('ref-kind').value=old;
+   renderDatasets();
+   $('ref-source-rows').innerHTML=data.sources.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(data.source_kinds[s.kind])}</td><td>${s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">제공처 열기</a>`:'직접 파일 등록'}</td><td>${s.credential_configured?'서버 참조 등록됨 · 접속 미검증':'없음'}</td><td>${s.enabled?'등록됨':'비활성'}</td><td><button class="btn btn-sm btn-outline-secondary" data-edit-source="${s.id}">설정</button></td></tr>`).join('')||'<tr><td colspan="6" class="text-muted py-4">자료 연결을 등록하세요.</td></tr>';
+   $('ref-event-rows').innerHTML=data.events.map(e=>`<tr><td>${esc(date(e.created_at))}</td><td>${esc(e.dataset_name||e.source_name)}</td><td>${esc(actions[e.action]||e.action)}</td><td>${esc(e.version_label||'—')}</td></tr>`).join('')||'<tr><td colspan="4">아직 이력이 없습니다.</td></tr>';
+   $('ref-page').textContent=`${page} / ${Math.max(1,Math.ceil(data.history_count/50))} 페이지`;
+   $('ref-prev').disabled=page<=1;$('ref-next').disabled=page*50>=data.history_count;
+ }
+ function renderDatasets(){
+   const query=$('ref-search').value.trim().toLocaleLowerCase(),kind=$('ref-kind').value;
+   const items=data.datasets.filter(d=>($('ref-inactive').checked||d.enabled)&&(!kind||d.kind===kind)&&`${d.name} ${d.region} ${d.publisher}`.toLocaleLowerCase().includes(query));
+   $('ref-count').textContent=`${items.length}건`;
+   $('ref-dataset-rows').innerHTML=items.map(d=>{const s=data.sources.find(s=>s.id===d.source_id);return `<tr><td><button class="btn btn-link p-0 text-start" data-detail="${d.id}">${esc(d.name)}</button></td><td>${esc(data.kinds[d.kind])}</td><td>${esc(d.region||'미지정')}<br><small class="text-muted">${esc(d.publisher)}</small></td><td>${esc(s?.name||'미연결')}${s&&!s.enabled?' (비활성)':''}</td><td>${d.stored_versions?`${Number(d.stored_versions)}개`:'없음'}</td><td><span class="badge bg-secondary">${d.enabled?'공간조회 준비 전':'비활성'}</span></td><td><button class="btn btn-sm btn-outline-secondary" data-edit-dataset="${d.id}">설정</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="text-center text-muted py-5">등록된 자료가 없습니다. 자료명과 출처부터 등록하세요.</td></tr>';
+ }
+ const input=(key,label,value='',extra='')=>`<label>${esc(label)}<input class="form-control" name="${key}" value="${esc(value)}" ${extra}></label>`;
+ const textarea=(key,label,value='')=>`<label>${esc(label)}<textarea class="form-control" name="${key}" maxlength="2000">${esc(value)}</textarea></label>`;
+ function edit(kind,id){
+   const row=(kind==='source'?data.sources:data.datasets).find(r=>r.id===id)||{};editing={kind,row};
+   $('ref-editor-notice').innerHTML='';$('ref-editor-title').textContent=(kind==='source'?'자료 연결':'참조자료')+(id?' 설정':' 등록');
+   let html=input('name',kind==='source'?'연결명':'자료명',row.name,'required maxlength="160"');
+   const kinds=kind==='source'?data.source_kinds:data.kinds;
+   html+=`<label>종류<select name="kind" class="form-select">${Object.entries(kinds).map(([v,t])=>option(v,t)).join('')}</select></label>`;
+   if(kind==='source'){
+     html+=input('url','공개 API 또는 자료 주소',row.url,'type="url" maxlength="1000" placeholder="https://…"');
+     html+='<p class="small text-muted">인증키나 쿼리가 없는 HTTPS 기본 주소를 등록하세요. 자동 수집은 아직 실행되지 않습니다.</p>';
+     html+=input('secret_ref','서버 비밀 참조 (API 전용 · 선택)','','type="password" autocomplete="new-password" maxlength="300" placeholder="aws-secretsmanager:geoflow/gis/references/…"');
+     html+=`<p class="small text-muted">API 키 원문은 입력하지 마세요. ${row.credential_configured?'기존 참조가 등록되어 있습니다. 비워 두면 유지합니다.':'운영자가 등록한 서버 비밀 참조를 연결합니다.'}</p><label><input name="clear_secret" type="checkbox"> 기존 인증정보 연결 해제</label>`;
+   }else{
+     html+=input('code','자료 코드',row.code,`required maxlength="64" pattern="[a-z][a-z0-9_]{1,63}" placeholder="예: daejeon_map_sheet_1000" ${id?'readonly':''}`);
+     html+=input('region','지역',row.region,'maxlength="160"')+input('publisher','제공기관',row.publisher,'maxlength="160"');
+     html+=`<label>자료 연결<select name="source_id" class="form-select">${option('','추후 연결')+data.sources.map(s=>option(s.id,s.name+(s.enabled?'':' (비활성)'))).join('')}</select></label>`;
+     html+=textarea('description','자료 설명',row.description)+textarea('usage_terms','이용조건·출처 표기',row.usage_terms);
+     html+='<p class="small text-muted">현재는 중앙 공통자료만 관리합니다. 회사·프로젝트 전용 비공개 자료는 등록하지 마세요.</p>';
+   }
+   html+=`<label><input type="checkbox" name="enabled" ${row.enabled!==false?'checked':''}> 활성</label>`;
+   $('ref-editor-fields').innerHTML=html;const form=$('ref-edit-form');form.elements.kind.value=row.kind||Object.keys(kinds)[0];if(form.elements.source_id)form.elements.source_id.value=row.source_id||'';
+   $('ref-editor').showModal();
+ }
+ async function detail(id){
+   selected=id;const d=data.datasets.find(r=>r.id===id);if(!d)return;
+   $('ref-detail-title').textContent=d.name;$('ref-detail-description').textContent=d.description||'등록된 설명이 없습니다.';
+   $('ref-detail-meta').innerHTML=[['자료 종류',data.kinds[d.kind]],['지역',d.region],['제공기관',d.publisher],['이용조건',d.usage_terms]].map(([k,v])=>`<dt class="col-sm-3">${esc(k)}</dt><dd class="col-sm-9">${esc(v||'미지정')}</dd>`).join('');
+   $('ref-version-rows').textContent='원본 목록을 불러오는 중…';$('ref-upload-notice').innerHTML='';$('ref-upload-form').reset();$('ref-upload-form').hidden=!data.uploads_enabled||!d.enabled;
+   if(!data.uploads_enabled)notice('ref-upload-notice','현재 원본 파일 저장은 운영 설정 전입니다. 자료 정보 등록은 사용할 수 있습니다.');
+   if(!$('ref-detail').open)$('ref-detail').showModal();
+   try{
+     const result=await request(`${api}?dataset=${encodeURIComponent(id)}`);if(selected!==id)return;
+     $('ref-version-rows').innerHTML=`<table class="table table-sm"><thead><tr><th>버전</th><th>기준일 / 좌표계 표기</th><th>파일</th><th>저장 상태</th><th></th></tr></thead><tbody>${result.versions.map(v=>`<tr><td>${esc(v.label)}</td><td>${esc(v.published_on||'미지정')}<br>${esc(v.declared_crs||'미지정')}</td><td title="SHA256: ${esc(v.sha256)}">${esc(v.filename)}<br><small>${(v.size_bytes/1048576).toFixed(2)} MB</small></td><td>${esc(status[v.status])}</td><td>${v.status==='stored'?`<a class="btn btn-sm btn-outline-secondary" href="${api.replace(/api\/$/,'')}original/${v.id}/">원본 받기</a>`:''}</td></tr>`).join('')||'<tr><td colspan="5">보관된 원본이 없습니다.</td></tr>'}</tbody></table>`;
+   }catch(e){notice('ref-upload-notice',e.message);}
+ }
+ $('ref-edit-form').addEventListener('submit',async e=>{
+   e.preventDefault();const f=e.target,p=Object.fromEntries(new FormData(f));p.action=editing.kind==='source'?'save_source':'save_dataset';p.enabled=f.elements.enabled.checked;
+   if(editing.row.id){p.id=editing.row.id;p.revision=editing.row.revision;}
+   if(editing.kind==='source'){if(f.elements.clear_secret.checked)p.secret_ref='';else if(!p.secret_ref)delete p.secret_ref;delete p.clear_secret;}
+   $('ref-save').disabled=true;
+   try{await request(api,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},body:JSON.stringify(p)});$('ref-editor').close();await load();notice('ref-notice','저장했습니다.',true);}catch(e){notice('ref-editor-notice',e.message);}finally{$('ref-save').disabled=false;}
+ });
+ $('ref-upload-form').addEventListener('submit',async e=>{
+   e.preventDefault();$('ref-upload').disabled=true;
+   try{await request(`${api.replace(/api\/$/,'')}${selected}/upload/`,{method:'POST',headers:{'X-CSRFToken':csrf()},body:new FormData(e.target)});await load();await detail(selected);notice('ref-upload-notice','원본을 보관했습니다. 공간조회에는 아직 사용되지 않습니다.',true);}catch(e){notice('ref-upload-notice',e.message);await load().catch(()=>{});}finally{$('ref-upload').disabled=false;}
+ });
+ document.addEventListener('click',e=>{
+   const button=e.target.closest('button');if(!button)return;
+   if(button.hasAttribute('data-close')){button.closest('dialog').close();return;}
+   if(button.dataset.pane){document.querySelectorAll('[data-pane]').forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));$('ref-'+b.dataset.pane).hidden=!active;});return;}
+   if(!data)return;
+   if(button.id==='ref-new-dataset')edit('dataset');else if(button.id==='ref-new-source')edit('source');
+   else if(button.dataset.editDataset)edit('dataset',button.dataset.editDataset);else if(button.dataset.editSource)edit('source',button.dataset.editSource);else if(button.dataset.detail)detail(button.dataset.detail);
+   else if(button.id==='ref-prev'||button.id==='ref-next'){page+=button.id==='ref-prev'?-1:1;load().catch(e=>notice('ref-notice',e.message));}
+ });
+ ['ref-search','ref-kind','ref-inactive'].forEach(id=>$(id).addEventListener('input',()=>{if(data)renderDatasets();}));
+ load().catch(e=>{notice('ref-notice',e.message);$('ref-dataset-rows').innerHTML='<tr><td colspan="7">자료 목록을 불러올 수 없습니다.</td></tr>';});
+})();
+</script>
+{% endblock %}
