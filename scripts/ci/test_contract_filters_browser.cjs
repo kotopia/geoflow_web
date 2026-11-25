@@ -126,6 +126,8 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   for(const span of await strip.locator('span[aria-label]').all()){const b=await span.boundingBox();assert(b.x>=box.x&&b.x+b.width<=box.x+box.width+1);}
   await page.screenshot({path:'artifacts/contract-filters/detail-mobile-'+width+'.png',fullPage:true});
  }
+ await page.goto('http://preview.local/detail-denied.html');
+ assert.equal(await page.locator('#contract-finance-link').count(),0);
  assert.deepEqual(errors,[]);
  console.log('PASS column toggle, completion filter, 10/25/50, compound amount, AND/OR, date, event search, selection, tabs, save/reload, responsive and JS errors');
  await browser.close();

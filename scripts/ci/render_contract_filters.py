@@ -12,7 +12,9 @@ from django.template import Engine, Context, Library
 acl=types.ModuleType('filter_acl'); acl.register=Library()
 acl.register.simple_tag(takes_context=True)(lambda context, value: True)
 # Named tag required by shared sidebar.
-acl.register.simple_tag(lambda value: True, name='has_perm')
+@acl.register.simple_tag(takes_context=True)
+def has_perm(context, value):
+    return value != 'finance.view' or context.get('finance_allowed', True)
 sys.modules['filter_acl']=acl
 wf=types.ModuleType('filter_workflow'); wf.register=Library()
 @wf.register.simple_tag
@@ -34,4 +36,5 @@ with patch('django.urls.reverse',side_effect=lambda name,args=None,kwargs=None,*
     for code,label in [('preparation','준비'),('contract','계약'),('kickoff','착수'),('execution','수행'),('closeout','준공'),('complete','완료')]:
         obj={**rows[1], 'workflow':dict(major_code=code,major_label=label,major_event_label='검증용 기준 이벤트'), 'description':'검증용 계약', 'org_unit':{'name':'본사'}}
         (out/('detail-'+code+'.html')).write_text(engine.get_template('geoflow_ops/contracts/contract_detail.html').render(Context({**ctx,'obj':obj,'edit_mode':False})))
+    (out/'detail-denied.html').write_text(engine.get_template('geoflow_ops/contracts/contract_detail.html').render(Context({**ctx,'obj':obj,'edit_mode':False,'finance_allowed':False})))
 print('Rendered actual contract list and all six detail workflow stages; synthetic data only')
