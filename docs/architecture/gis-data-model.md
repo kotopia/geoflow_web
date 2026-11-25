@@ -5,6 +5,10 @@
 - 적용 범위: GeoFlow WebGIS, QGIS, QField, PostGIS tenant DB
 - 상세 구현 전제: 운영 DB 적용은 별도 승인 없이 수행하지 않는다.
 
+공통 공간 참조자료의 중앙 등록·원본 보관·향후 임시 소비 경계는
+[중앙 GIS 공통 참조자료](gis-reference-datasets.md)를 따른다.
+이는 `definition_code*`의 참조코드와 별도이며 프로젝트에 공통 원본을 복제하지 않는다.
+
 ## 1. 목적
 GeoFlow의 WebGIS, QGIS, QField가 하나의 GIS 데이터 모델을 사용하도록 하고, 기존 GeoFlow의 계약·프로젝트·직원·권한·이벤트 체계와 자연스럽게 연결한다.
 

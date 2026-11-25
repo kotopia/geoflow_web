@@ -19,6 +19,9 @@
       </li>
       {% if central_is_staff %}
       <li class="sidebar-item">
+        <a class="sidebar-link" href="{% url 'control:gis_references' %}" title="GIS 공통 참조자료" aria-label="GIS 공통 참조자료"><i class="align-middle" data-feather="layers"></i><span class="align-middle">GIS 공통 참조자료</span></a>
+      </li>
+      <li class="sidebar-item">
         <a class="sidebar-link" href="{% url 'control:gis_definitions' %}" title="GIS 업무정의" aria-label="GIS 업무정의"><i class="align-middle" data-feather="map"></i><span class="align-middle">GIS 업무정의</span></a>
       </li>
       <li class="sidebar-item">
