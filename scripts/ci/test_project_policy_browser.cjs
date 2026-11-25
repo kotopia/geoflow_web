@@ -42,7 +42,10 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.screenshot({path:'artifacts/project-policy/contract-tab-desktop.png',fullPage:true});
  await page.click('#project-info-tab');
  for(const width of [390,320]){
-  await page.setViewportSize({width,height:844});
+  await page.setViewportSize({width,height:844});await page.waitForTimeout(450);
+  if((await page.locator('.main').boundingBox()).x>100){await page.getByRole('button',{name:'메뉴 열기·닫기'}).click();await page.waitForTimeout(450);}
+  const progressBox=await page.locator('.gf-contract-process').boundingBox();
+  assert(progressBox.x>=0&&progressBox.x+progressBox.width<=width);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({path:`artifacts/project-policy/detail-mobile-${width}.png`,fullPage:true});
  }

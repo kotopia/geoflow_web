@@ -121,6 +121,9 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.goto('http://preview.local/detail-execution.html');
  for(const width of [390,320]){
   await page.setViewportSize({width,height:844});await page.waitForTimeout(450);
+  if((await page.locator('.main').boundingBox()).x>100){await page.getByRole('button',{name:'메뉴 열기·닫기'}).click();await page.waitForTimeout(450);}
+  const progressBox=await page.locator('.gf-contract-process').boundingBox();
+  assert(progressBox.x>=0&&progressBox.x+progressBox.width<=width);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   const strip=page.locator('.gf-contract-process'),box=await strip.boundingBox();
   for(const span of await strip.locator('span[aria-label]').all()){const b=await span.boundingBox();assert(b.x>=box.x&&b.x+b.width<=box.x+box.width+1);}
