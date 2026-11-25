@@ -2,6 +2,7 @@ from django.urls import path
 from . import form_definition_views
 from . import photo_policy_views
 from . import feature_photo_views
+from . import spatial_reference_views
 
 from . import (
     qfield_connection_views,
@@ -63,6 +64,9 @@ urlpatterns = [
     path("projects/<uuid:project_id>/api/survey-points/bulk-delete/", survey_views.project_survey_points_bulk_delete_api, name="project_survey_points_bulk_delete_api"),
     path("projects/<uuid:project_id>/api/survey-points/<uuid:survey_id>/", survey_views.project_survey_point_api, name="project_survey_point_api"),
     path("projects/<uuid:project_id>/api/reference-catalog/", reference_views.qgis_reference_catalog_api, name="project_reference_catalog_api"),
+    path("projects/<uuid:project_id>/api/reference-lookup/", spatial_reference_views.project_reference_lookup, name="project_reference_lookup"),
+    path("projects/<uuid:project_id>/api/spatial-references/", spatial_reference_views.project_reference_options, name="project_reference_options"),
+    path("projects/<uuid:project_id>/api/reference-tiles/<str:style>/<int:z>/<int:y>/<int:x>/", spatial_reference_views.project_reference_tile, name="project_reference_tile"),
     path("projects/<uuid:project_id>/api/qfield/bootstrap/", qfield_device_views.qfield_bootstrap_api, name="qfield_bootstrap_api"),
     path("projects/<uuid:project_id>/api/qfield/install-status/", qfield_package_views.qfield_install_status_api, name="qfield_install_status_api"),
     path("projects/<uuid:project_id>/api/qfield/package/", qfield_package_views.qfield_package_api, name="qfield_package_api"),

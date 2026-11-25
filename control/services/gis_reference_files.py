@@ -5,8 +5,9 @@ import os
 import stat
 import zipfile
 import zlib
-from pathlib import PurePosixPath
-from tempfile import SpooledTemporaryFile
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
+from tempfile import SpooledTemporaryFile, TemporaryDirectory
 
 from boto3.exceptions import S3UploadFailedError
 from botocore.exceptions import BotoCoreError, ClientError
@@ -40,8 +41,11 @@ class ReferenceStorageError(RuntimeError):
 
 
 def uploads_enabled():
+    # The private bucket is the existing application store. Explicit false still disables intake.
     return (
-        os.environ.get("GEOFLOW_CENTRAL_REFERENCE_UPLOAD_ENABLED", "").lower() == "true"
+        bool(os.environ.get("AWS_S3_BUCKET"))
+        and os.environ.get("GEOFLOW_CENTRAL_REFERENCE_UPLOAD_ENABLED", "true").lower()
+        == "true"
     )
 
 
@@ -191,3 +195,64 @@ def download_url(key, filename):
         )
     except (BotoCoreError, ClientError, OSError, ValueError):
         raise ReferenceStorageError("Reference original download unavailable") from None
+
+
+@contextmanager
+def local_original(version):
+    """Bounded verified local copy, removed on success/error; never a project attachment."""
+    from geoflow_ops.services.s3_service import get_bucket_name, get_s3_client
+
+    with TemporaryDirectory(prefix="geoflow-reference-") as directory:
+        root = Path(directory)
+        suffix = Path(version["filename"]).suffix.lower()
+        path = root / ("original" + suffix)
+        body = None
+        try:
+            response = get_s3_client().get_object(
+                Bucket=get_bucket_name(), Key=version["object_key"]
+            )
+            body = response["Body"]
+            digest, total = hashlib.sha256(), 0
+            with path.open("wb") as output:
+                while chunk := body.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > MAX_BYTES:
+                        raise ReferenceError("원본 파일 크기 제한을 초과했습니다.")
+                    digest.update(chunk)
+                    output.write(chunk)
+            if (
+                total != version["size_bytes"]
+                or digest.hexdigest() != version["sha256"]
+            ):
+                raise ReferenceError("원본 파일의 크기·해시가 등록 정보와 다릅니다.")
+            if suffix == ".zip":
+                with path.open("rb") as stream:
+                    inspect_zip(stream)
+                with zipfile.ZipFile(path) as archive:
+                    total = 0
+                    for entry in archive.infolist():
+                        destination = root / "unpacked" / entry.filename
+                        if not destination.resolve().is_relative_to(
+                            (root / "unpacked").resolve()
+                        ):
+                            raise ReferenceError("안전하지 않은 압축 경로입니다.")
+                        if entry.is_dir():
+                            continue
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        with (
+                            archive.open(entry) as source,
+                            destination.open("xb") as target,
+                        ):
+                            while chunk := source.read(1024 * 1024):
+                                total += len(chunk)
+                                if total > MAX_EXPANDED:
+                                    raise ReferenceError(
+                                        "압축 해제 크기 제한을 초과했습니다."
+                                    )
+                                target.write(chunk)
+            yield root
+        except (BotoCoreError, ClientError, OSError):
+            raise ReferenceStorageError("Reference original read unavailable") from None
+        finally:
+            if body is not None:
+                body.close()

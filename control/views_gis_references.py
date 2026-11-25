@@ -6,11 +6,14 @@ import logging
 from django.db import DatabaseError, IntegrityError, connections, transaction
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_http_methods
 
 from control.decorators import require_central_admin
 from control.services import gis_reference_files as files
+from control.services import gis_reference_vworld as vworld
 from control.services import gis_references as references
 from control.services_identity import lookup_user_id_from_request
 
@@ -58,9 +61,14 @@ def catalog_api(request):
                     payload = json.loads(request.body)
                 except (TypeError, ValueError):
                     raise references.ReferenceError("요청 JSON을 확인하세요.") from None
-                item_id = references.mutate(
-                    cur, payload, lookup_user_id_from_request(request)
-                )
+                actor = lookup_user_id_from_request(request)
+                if (
+                    isinstance(payload, dict)
+                    and payload.get("action") == "setup_vworld"
+                ):
+                    item_id = vworld.setup(cur, actor)
+                else:
+                    item_id = references.mutate(cur, payload, actor)
             data = references.snapshot(cur, page)
             if request.GET.get("dataset"):
                 data["versions"] = references.versions(cur, request.GET["dataset"])
@@ -69,6 +77,8 @@ def catalog_api(request):
                     "ok": True,
                     "id": item_id,
                     "uploads_enabled": files.uploads_enabled(),
+                    "vworld": vworld.credential_status(cur),
+                    "vworld_services": vworld.SERVICES,
                     **data,
                 }
             )
@@ -82,6 +92,89 @@ def catalog_api(request):
     except DatabaseError:
         # Do not log SQL parameters, source URLs, or credential references.
         logger.error("Central GIS reference catalogue database unavailable")
+        return unavailable()
+
+
+@require_central_admin
+@require_http_methods(["POST"])
+@csrf_protect
+@never_cache
+@sensitive_post_parameters("api_key")
+@sensitive_variables("payload")
+def vworld_key(request):
+    # Form encoding allows Django's error reporter to scrub the named secret field.
+    try:
+        if len(request.body) > 4096:
+            raise references.ReferenceError("키 등록 요청이 너무 큽니다.")
+        payload = {
+            "api_key": request.POST.get("api_key"),
+            "domain": request.POST.get("domain"),
+            "revision": int(request.POST.get("revision", "-1")),
+        }
+        with (
+            transaction.atomic(using="default"),
+            connections["default"].cursor() as cur,
+        ):
+            status = vworld.save_credential(
+                cur, payload, lookup_user_id_from_request(request)
+            )
+        return JsonResponse({"ok": True, **status})
+    except (references.ReferenceError, ValueError) as exc:
+        # Never echo input, upstream response or exception text from secret SDKs.
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": str(exc)
+                if isinstance(exc, references.ReferenceError)
+                else "키 등록 요청 형식을 확인하세요.",
+            },
+            status=400,
+        )
+    except DatabaseError:
+        return unavailable()
+
+
+@require_central_admin
+@require_http_methods(["POST"])
+@csrf_protect
+@never_cache
+def lookup_api(request):
+    from control.services import gis_reference_lookup as lookup
+
+    try:
+        if len(request.body) > 200000:
+            raise references.ReferenceError("조회 요청이 너무 큽니다.")
+        payload = json.loads(request.body)
+        if not isinstance(payload, dict):
+            raise references.ReferenceError("요청은 객체여야 합니다.")
+        with connections["default"].cursor() as cur:
+            if payload.get("action") == "inspect":
+                result = {
+                    "layers": lookup.inspect_file(
+                        lookup.dataset(
+                            cur, payload.get("dataset_id"), payload.get("version_id")
+                        )
+                    )
+                }
+            else:
+                result = lookup.lookup(cur, payload)
+        return JsonResponse({"ok": True, **result})
+    except (
+        references.ReferenceError,
+        files.ReferenceStorageError,
+        ValueError,
+        KeyError,
+    ) as exc:
+        return JsonResponse(
+            {
+                "ok": False,
+                "error": str(exc)
+                if isinstance(exc, references.ReferenceError)
+                else "참조자료 조회 설정 또는 원본 읽기 상태를 확인하세요.",
+            },
+            status=400,
+        )
+    except DatabaseError:
         return unavailable()
 
 

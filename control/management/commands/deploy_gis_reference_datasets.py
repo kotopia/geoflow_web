@@ -11,6 +11,7 @@ from django.test import RequestFactory
 from control.services import gis_references
 
 MIGRATION = "0011_gis_reference_datasets"
+LOOKUP_MIGRATION = "0012_gis_reference_provider_credential"
 PREREQUISITE = "0010_tenant_employee_registrations"
 FOUNDATION = "0009_gis_reference_code_groups"
 TABLES = (
@@ -26,8 +27,8 @@ def state(cur):
     if not cur.fetchone()[0]:
         raise CommandError("reference_datasets_migration_history=missing")
     cur.execute(
-        "SELECT name FROM django_migrations WHERE app='control' AND name IN (%s,%s,%s)",
-        [FOUNDATION, PREREQUISITE, MIGRATION],
+        "SELECT name FROM django_migrations WHERE app='control' AND name IN (%s,%s,%s,%s)",
+        [FOUNDATION, PREREQUISITE, MIGRATION, LOOKUP_MIGRATION],
     )
     applied = {row[0] for row in cur.fetchall()}
     if FOUNDATION not in applied:
@@ -55,12 +56,17 @@ def state(cur):
     if all(found):
         # Exercise the actual columns consumed by the service, without row output.
         gis_references.snapshot(cur)
-    return MIGRATION in applied
+    cur.execute("SELECT to_regclass('gis.reference_provider_credential')")
+    if bool(cur.fetchone()[0]) != (LOOKUP_MIGRATION in applied) or (
+        LOOKUP_MIGRATION in applied and MIGRATION not in applied
+    ):
+        raise CommandError("reference_datasets_lookup_schema_history=mismatch")
+    return LOOKUP_MIGRATION in applied
 
 
 def apply_migration(cur, name):
     # Exact reviewed additive migrations only, not a general migrate/fake path.
-    if name not in (PREREQUISITE, MIGRATION):
+    if name not in (PREREQUISITE, MIGRATION, LOOKUP_MIGRATION):
         raise CommandError("reference_datasets_migration=outside_contract")
     operations = importlib.import_module(
         "control.migrations." + name
@@ -84,19 +90,21 @@ def apply_store(cur):
         "SELECT pg_advisory_xact_lock(hashtext('geoflow.central.gis.reference_datasets'))"
     )
     if not state(cur):
-        cur.execute(
-            "SELECT EXISTS(SELECT 1 FROM django_migrations WHERE app='control' AND name=%s)",
-            [PREREQUISITE],
-        )
-        if not cur.fetchone()[0]:
-            apply_migration(cur, PREREQUISITE)
-        apply_migration(cur, MIGRATION)
+        for name in (PREREQUISITE, MIGRATION, LOOKUP_MIGRATION):
+            cur.execute(
+                "SELECT EXISTS(SELECT 1 FROM django_migrations WHERE app='control' AND name=%s)",
+                [name],
+            )
+            if not cur.fetchone()[0]:
+                apply_migration(cur, name)
     if not state(cur):
         raise CommandError("reference_datasets_apply=incomplete")
 
 
 class Command(BaseCommand):
-    help = "Apply central reference 0011 and its exact 0010 prerequisite; verify page/API read-only"
+    help = (
+        "Apply exact central reference 0010/0011/0012 stages; verify page/API read-only"
+    )
 
     def add_arguments(self, parser):
         mode = parser.add_mutually_exclusive_group(required=True)
@@ -117,6 +125,12 @@ class Command(BaseCommand):
             with connections["default"].cursor() as cur:
                 applied = state(cur)
             if options["check"]:
+                # Fail before service stop when required GEOS/GDAL/PROJ libraries are absent.
+                from control.services import gis_reference_lookup as engine
+
+                engine.geometry(
+                    {"type": "Point", "coordinates": [237000, 420000]}, "EPSG:5186"
+                )
                 self.stdout.write(
                     "reference_datasets_pending=" + ("no" if applied else "yes")
                 )
@@ -132,6 +146,9 @@ class Command(BaseCommand):
         from django.contrib.auth.models import AnonymousUser
 
         from control import views_gis_references as views
+        from control.services import gis_reference_lookup as engine
+
+        engine.geometry({"type": "Point", "coordinates": [237000, 420000]}, "EPSG:5186")
 
         with connections["default"].cursor() as cur:
             cur.execute(
@@ -174,3 +191,22 @@ class Command(BaseCommand):
         self.stdout.write("reference_datasets_staff_page_api=200")
         self.stdout.write("reference_datasets_anonymous_page_api=403")
         self.stdout.write("reference_datasets_runtime=SUCCESS")
+        self.stdout.write("reference_datasets_geometry_engine=ready")
+        from control.services import gis_reference_vworld as vworld
+
+        try:
+            with connections["default"].cursor() as cur:
+                status = vworld.credential_status(cur)
+                if not status.get("configured"):
+                    self.stdout.write("reference_datasets_vworld_probe=key_pending")
+                    return
+                key, domain = vworld.credential(cur)
+            point = engine.geometry(
+                {"type": "Point", "coordinates": [127.3845, 36.3504]}
+            )
+            vworld.features("parcel", point, key, domain)
+            self.stdout.write("reference_datasets_vworld_probe=ready")
+        except gis_references.ReferenceError:
+            self.stdout.write(
+                "reference_datasets_vworld_probe=requires_key_domain_check"
+            )
