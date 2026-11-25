@@ -125,7 +125,8 @@
         crs.value = selected ? selected.crs : ""; refresh();
       }
       async function refresh() {
-        invalidate(); if (!state.enabled || inspectedVersion !== version.value || !layerSelect.value) return;
+        if (!state.enabled || inspectedVersion !== version.value || !layerSelect.value) return;
+        invalidate();
         var bounds = map.getBounds(), west = bounds.getWest(), east = bounds.getEast(), south = bounds.getSouth(), north = bounds.getNorth();
         if (east - west > 0.02 || north - south > 0.02) { message.textContent = "지도를 확대하면 표시됩니다 · 가로·세로 약 2km 이내"; return; }
         if (!xy.hidden && (!x.value || !y.value || !crs.value)) { message.textContent = "X·Y 필드와 좌표계를 선택하세요."; return; }

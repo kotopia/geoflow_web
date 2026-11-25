@@ -167,6 +167,8 @@ def map_reference_options(request, project_id=None):
 @never_cache
 def map_reference_overlay(request, project_id=None):
     _map_context(request, project_id)
+    from django.contrib.gis.geos import GEOSGeometry, GEOSException
+    from django.contrib.gis.gdal import GDALException
     from control.services import gis_reference_lookup as engine
     try:
         if len(request.body) > 16000:
@@ -183,7 +185,6 @@ def map_reference_overlay(request, project_id=None):
         features = []
         coordinate_count = 0
         for candidate in engine.file_features(item, target, payload):
-            from django.contrib.gis.geos import GEOSGeometry
             shape = GEOSGeometry(json.dumps(candidate["geometry"]), srid=4326)
             coordinate_count += shape.num_coords
             if coordinate_count > 100000:
@@ -201,7 +202,7 @@ def map_reference_overlay(request, project_id=None):
                              "written": False, "reference": {"dataset_id": str(item["id"]),
                              "version_id": str(item["version"]["id"]),
                              "sha256": item["version"]["sha256"]}})
-    except (refs.ReferenceError, ValueError, TypeError, files.ReferenceStorageError):
+    except (refs.ReferenceError, ValueError, TypeError, OverflowError, GEOSException, GDALException, files.ReferenceStorageError):
         return JsonResponse({"ok": False, "error": "자료·좌표 설정을 확인하고 지도를 확대하세요. 조회 범위는 가로·세로 약 2km 이내입니다."}, status=400)
     except DatabaseError:
         return JsonResponse({"ok": False, "error": "참조자료를 읽지 못했습니다."}, status=503)

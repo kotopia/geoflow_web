@@ -19,7 +19,7 @@ const json = (id,value) => `<script id="${id}" type="application/json">${JSON.st
     if(u.pathname==='/options')return route.fulfill({json:{ok:true,datasets:[{id:'dataset',name:'기준점 시험자료',versions:[{id:'version',label:'시험 버전'}]}]}});
     if(u.pathname==='/overlay'){
       const data=route.request().postDataJSON();
-      if(data.action==='inspect')return route.fulfill({json:{ok:true,layers:[{name:'points',kind:'vector',crs:'EPSG:4326',fields:['번호']}]}});
+      if(data.action==='inspect') { await new Promise(resolve=>setTimeout(resolve,150)); return route.fulfill({json:{ok:true,layers:[{name:'points',kind:'vector',crs:'EPSG:4326',fields:['번호']}]}}); }
       overlayCount++;return route.fulfill({json:{ok:true,type:'FeatureCollection',features:[point],written:false}});
     }
     if(u.pathname.startsWith('/tiles/')){tileStyles.add(u.pathname.split('/')[2]);return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64')});}
@@ -38,6 +38,7 @@ const json = (id,value) => `<script id="${id}" type="application/json">${JSON.st
   assert(await page.getByLabel('지적편집도',{exact:true}).isChecked());
   await page.evaluate(()=>window.testMaps[0].setView([36,127],17,{animate:false}));
   await page.locator('summary').click(); await page.getByLabel('기준점 시험자료',{exact:true}).check();
+  await page.evaluate(()=>window.testMaps[0].panBy([10,10],{animate:false}));
   await page.waitForFunction(()=>document.body.textContent.includes('1개 · 시험 버전'));
   await page.getByText('TEST-001',{exact:true}).count();
   const initial=overlayCount;
