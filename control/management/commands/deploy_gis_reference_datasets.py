@@ -1,0 +1,141 @@
+"""Central-only additive rollout and read-only runtime verification."""
+
+import importlib
+import json
+
+from django.core.management.base import BaseCommand, CommandError
+from django.db import DatabaseError, connections, transaction
+from django.test import RequestFactory
+
+from control.services import gis_references
+
+MIGRATION = "0011_gis_reference_datasets"
+PREREQUISITE = "0010_tenant_employee_registrations"
+TABLES = (
+    "reference_source",
+    "reference_dataset",
+    "reference_version",
+    "reference_event",
+)
+
+
+def state(cur):
+    cur.execute("SELECT to_regclass('django_migrations')")
+    if not cur.fetchone()[0]:
+        raise CommandError("reference_datasets_migration_history=missing")
+    cur.execute(
+        "SELECT name FROM django_migrations WHERE app='control' AND name IN (%s,%s)",
+        [PREREQUISITE, MIGRATION],
+    )
+    applied = {row[0] for row in cur.fetchall()}
+    if PREREQUISITE not in applied:
+        raise CommandError("reference_datasets_prerequisite=missing_0010")
+    cur.execute(
+        "SELECT to_regclass(%s),to_regclass(%s),to_regclass(%s),to_regclass(%s)",
+        ["gis." + table for table in TABLES],
+    )
+    found = cur.fetchone()
+    if (any(found) and not all(found)) or bool(all(found)) != (MIGRATION in applied):
+        raise CommandError(
+            "reference_datasets_schema_history=mismatch_restore_required"
+        )
+    if all(found):
+        # Exercise the actual columns consumed by the service, without row output.
+        gis_references.snapshot(cur)
+    return MIGRATION in applied
+
+
+def apply_store(cur):
+    cur.execute("SET LOCAL lock_timeout='8s'; SET LOCAL statement_timeout='180s'")
+    cur.execute(
+        "SELECT pg_advisory_xact_lock(hashtext('geoflow.central.gis.reference_datasets'))"
+    )
+    if not state(cur):
+        cur.execute(importlib.import_module("control.migrations." + MIGRATION).SQL)
+        cur.execute(
+            "INSERT INTO django_migrations(app,name,applied) VALUES ('control',%s,now())",
+            [MIGRATION],
+        )
+    if not state(cur):
+        raise CommandError("reference_datasets_apply=incomplete")
+
+
+class Command(BaseCommand):
+    help = "Check/apply only central control.0011, or verify the reference page/API read-only"
+
+    def add_arguments(self, parser):
+        mode = parser.add_mutually_exclusive_group(required=True)
+        mode.add_argument("--check", action="store_true")
+        mode.add_argument("--apply", action="store_true")
+        mode.add_argument("--verify", action="store_true")
+
+    def handle(self, *args, **options):
+        try:
+            if options["apply"]:
+                with (
+                    transaction.atomic(using="default"),
+                    connections["default"].cursor() as cur,
+                ):
+                    apply_store(cur)
+                self.stdout.write("reference_datasets_apply=ready")
+                return
+            with connections["default"].cursor() as cur:
+                applied = state(cur)
+            if options["check"]:
+                self.stdout.write(
+                    "reference_datasets_pending=" + ("no" if applied else "yes")
+                )
+                return
+            if not applied:
+                raise CommandError("reference_datasets_runtime=schema_pending")
+            self.verify()
+        except DatabaseError:
+            raise CommandError("reference_datasets_database=unavailable") from None
+
+    def verify(self):
+        from django.contrib.auth import get_user_model
+        from django.contrib.auth.models import AnonymousUser
+
+        from control import views_gis_references as views
+
+        with connections["default"].cursor() as cur:
+            cur.execute(
+                "SELECT email FROM users WHERE is_staff=true AND is_active=true ORDER BY id LIMIT 1"
+            )
+            row = cur.fetchone()
+        if not row:
+            raise CommandError("reference_datasets_smoke=active_staff_missing")
+        # Unsaved identity bridge, no account creation, real central-admin guard.
+        user = get_user_model()(username=row[0], email=row[0], is_staff=True)
+        factory = RequestFactory()
+        for view, path in (
+            (views.dashboard, "/control/central/gis/references/"),
+            (views.catalog_api, "/control/central/gis/references/api/"),
+        ):
+            request = factory.get(path)
+            request.user, request.session = (
+                user,
+                {"scope": "central", "roles": [], "avatar_attachment_id": ""},
+            )
+            response = view(request)
+            if response.status_code != 200:
+                raise CommandError("reference_datasets_smoke=staff_get_failed")
+            if view is views.dashboard:
+                html = response.content.decode()
+                if not all(
+                    marker in html
+                    for marker in (
+                        'data-pane="datasets"',
+                        'data-pane="sources"',
+                        'data-pane="history"',
+                    )
+                ):
+                    raise CommandError("reference_datasets_smoke=workspace_missing")
+            elif not json.loads(response.content).get("ok"):
+                raise CommandError("reference_datasets_smoke=api_failed")
+            request.user = AnonymousUser()
+            if view(request).status_code != 403:
+                raise CommandError("reference_datasets_smoke=anonymous_not_denied")
+        self.stdout.write("reference_datasets_staff_page_api=200")
+        self.stdout.write("reference_datasets_anonymous_page_api=403")
+        self.stdout.write("reference_datasets_runtime=SUCCESS")

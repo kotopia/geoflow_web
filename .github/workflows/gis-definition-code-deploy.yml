@@ -6,6 +6,11 @@ on:
     branches: [release/stabilized-deploy]
     paths:
       - control/views_gis_admin.py
+      - control/views_gis_references.py
+      - control/services/gis_references.py
+      - control/services/gis_reference_files.py
+      - control/migrations/0011_gis_reference_datasets.py
+      - control/management/commands/deploy_gis_reference_datasets.py
       - control/views_gis_photo.py
       - control/services/gis_admin.py
       - control/services/gis_catalog_navigation.py
@@ -303,8 +308,12 @@ jobs:
           survey_target_removal_required=no
           stable_plugin_required=no
           reference_groups_required=no
+          reference_datasets_required=no
           while IFS= read -r changed_path; do
             case "$changed_path" in
+              control/migrations/0011_gis_reference_datasets.py|control/management/commands/deploy_gis_reference_datasets.py)
+                reference_datasets_required=yes; continue ;;
+              control/views_gis_references.py|control/services/gis_references.py|control/services/gis_reference_files.py|control/templates/control/gis/references.html|control/test_gis_references.py|control/test_gis_references_pg.py|docs/architecture/gis-reference-datasets.md|docs/architecture/central-admin.md) continue ;;
               # Reviewed documentation-only closeout of the already deployed project policy.
               docs/contracts/contract-list.md|docs/planning/GeoFlow_Product_Structure_v1.md) continue ;;
               control/management/commands/deploy_gis_reference_groups.py|control/migrations/0009_gis_reference_code_groups.py|geoflow_ops/migrations/0048_gis_project_reference_groups.py|geoflow_ops/gis/reference_groups.py|geoflow_ops/gis/test_reference_groups.py|docs/architecture/gis-reference-code-groups.md)
@@ -434,6 +443,12 @@ jobs:
             reference_groups_pending=no) ;;
             *) fail 'reference_groups_status_invalid' ;;
           esac
+          reference_datasets_status="$(PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" deploy_gis_reference_datasets --check)"
+          case "$reference_datasets_status" in
+            reference_datasets_pending=yes) reference_datasets_required=yes ;;
+            reference_datasets_pending=no) ;;
+            *) fail 'reference_datasets_status_invalid' ;;
+          esac
           survey_inventory_args=()
           if [ "$survey_final_required" = yes ]; then
             survey_inventory_args=(--survey-final-readonly)
@@ -443,6 +458,10 @@ jobs:
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             inspect_gis_definition_rows --write "$backup_dir/definition-row-counts-before.json" "${survey_inventory_args[@]}"
           sudo -n systemctl stop "$service"
+          if [ "$reference_datasets_required" = yes ]; then
+            # Additive central tables only; previous code remains compatible.
+            "$python" "$repo/manage.py" deploy_gis_reference_datasets --apply
+          fi
           if [ "$reference_groups_required" = yes ]; then
             schema_committed=1
             "$python" "$repo/manage.py" deploy_gis_reference_groups --apply --backup-dir "$backup_dir"
@@ -531,6 +550,9 @@ jobs:
             "$python" "$repo/manage.py" deploy_gis_survey_final_fields --apply \
               --backup-dir "$backup_dir/post-restart"
           fi
+
+          PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
+            deploy_gis_reference_datasets --verify
 
           PGOPTIONS='-c default_transaction_read_only=on' "$python" "$repo/manage.py" \
             smoke_gis_definition_admin --minimum-layers 19 --minimum-fields 400 --minimum-codes 111

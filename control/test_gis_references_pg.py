@@ -176,5 +176,94 @@ class ReferencePostgresTests(unittest.TestCase):
             refs.reserve_version(self.cur, self.actor, dataset, {"label": "v1"}, {})
 
 
+@unittest.skipUnless(
+    os.environ.get("GEOFLOW_REFERENCES_ISOLATED_PG") == "1",
+    "Disposable PostgreSQL opt-in required",
+)
+class ReferenceRolloutPostgresTests(unittest.TestCase):
+    def setUp(self):
+        import psycopg2
+
+        self.connection = psycopg2.connect(
+            host="127.0.0.1",
+            port=55440,
+            dbname="geoflow_forms_test",
+            user="geoflow_test",
+            password="geoflow_test",
+            connect_timeout=5,
+        )
+        self.addCleanup(self.connection.close)
+        self.cur = self.connection.cursor()
+        self.cur.execute("SELECT to_regclass('gis.reference_dataset')")
+        if self.cur.fetchone()[0]:
+            raise RuntimeError("Refusing a populated reference catalogue")
+        self.cur.execute(
+            "CREATE TEMP TABLE django_migrations(app text,name text,applied timestamptz)"
+        )
+        self.cur.execute(
+            "INSERT INTO django_migrations VALUES ('control','0010_tenant_employee_registrations',now())"
+        )
+
+    def test_narrow_rollout_is_idempotent_and_preserves_registered_data(self):
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_store,
+            state,
+        )
+
+        self.assertFalse(state(self.cur))
+        apply_store(self.cur)
+        self.assertTrue(state(self.cur))
+        actor = str(uuid4())
+        refs.mutate(
+            self.cur,
+            {
+                "action": "save_dataset",
+                "code": "map_sheet",
+                "kind": "map_sheet",
+                "name": "도엽",
+            },
+            actor,
+        )
+        apply_store(self.cur)
+        self.assertEqual(refs.snapshot(self.cur)["datasets"][0]["name"], "도엽")
+        self.cur.execute(
+            "SELECT count(*) FROM django_migrations WHERE name='0011_gis_reference_datasets'"
+        )
+        self.assertEqual(self.cur.fetchone()[0], 1)
+
+    def test_missing_prerequisite_never_applies_other_migrations(self):
+        from django.core.management.base import CommandError
+
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_store,
+        )
+
+        self.cur.execute("DELETE FROM django_migrations")
+        with self.assertRaises(CommandError):
+            apply_store(self.cur)
+        self.cur.execute("SELECT to_regclass('gis.reference_dataset')")
+        self.assertIsNone(self.cur.fetchone()[0])
+
+    def test_partial_or_lost_schema_is_not_silently_recreated(self):
+        from django.core.management.base import CommandError
+
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_store,
+            state,
+        )
+
+        self.cur.execute(
+            "CREATE SCHEMA IF NOT EXISTS gis; CREATE TABLE gis.reference_source(id uuid)"
+        )
+        with self.assertRaises(CommandError):
+            state(self.cur)
+        self.cur.execute("DROP TABLE gis.reference_source")
+        self.cur.execute(
+            "INSERT INTO django_migrations VALUES ('control','0011_gis_reference_datasets',now())"
+        )
+        with self.assertRaises(CommandError):
+            apply_store(self.cur)
+
+
 if __name__ == "__main__":
     unittest.main()

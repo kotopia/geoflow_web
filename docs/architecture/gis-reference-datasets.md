@@ -140,7 +140,12 @@ DNS/리다이렉트의 사설망 차단, 시간·응답 크기·페이지 제한
 - 코드: `control/services/gis_references.py`, `gis_reference_files.py`,
   `control/views_gis_references.py`, `control/templates/control/gis/references.html`.
 - 중앙 migration: `control.0011_gis_reference_datasets`. 기존 자료·코드 이관은 없고 빈 저장소로 시작한다.
-  운영 적용 승인을 받은 뒤 중앙 DB에서만 `python manage.py migrate control 0011 --database=default`.
+  운영 배포 승인을 받으면 기존 production Environment 보호 배포에서
+  `deploy_gis_reference_datasets --check → --apply → --verify`를 사용한다.
+  중앙 `0010` 적용을 선행조건으로 확인하고, 같은 migration SQL과 `0011` 적용 기록만
+  하나의 트랜잭션으로 반영한다. 다른 migration을 따라 적용하지 않는다.
+  부분 생성·적용 기록과 테이블 불일치는 자동 복구하지 않고 중지한다.
+  재실행은 기존 등록 자료를 보존하며, 검증은 실제 관리자 GET 화면/API 200과 익명 403을 확인한다.
   `migrate_all_tenants`를 실행하지 않는다.
 - 원본 저장은 `GEOFLOW_CENTRAL_REFERENCE_UPLOAD_ENABLED=true`로 별도 활성화해야 한다.
   기존 `AWS_S3_BUCKET`, SSE/KMS 설정과 새 중앙 prefix의 정확한 IAM 권한을 사전 확인한다.
