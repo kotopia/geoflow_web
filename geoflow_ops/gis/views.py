@@ -280,7 +280,7 @@ def project_dashboard(request, project_id):
             "project": project,
             "features": rows,
             "map_layers": map_layers,
-            "vworld_map_config": {"key": getattr(settings, "VWORLD_API_KEY", "")},
+            "vworld_map_config": {"tile_url": reverse("gis:project_reference_tile", args=[project.id,"Base",0,0,0]).replace("/0/0/0/", "/{z}/{y}/{x}/")},
             "webgis_revision": webgis_revision,
             "webgis_delta_enabled": webgis_delta_enabled,
             "webgis_realtime_enabled": realtime_runtime_enabled(),

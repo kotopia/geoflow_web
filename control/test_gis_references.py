@@ -39,6 +39,8 @@ from control.services import gis_references as refs
 urlpatterns = [
     path("catalog/", views.catalog_api),
     path("upload/<uuid:dataset_id>/", views.upload_original),
+    path("key/", views.vworld_key),
+    path("lookup/", views.lookup_api),
 ]
 
 
@@ -174,7 +176,7 @@ class OriginalIntakeTests(unittest.TestCase):
         with self.assertRaises(refs.ReferenceError):
             self.inspect("map.zip", stream.getvalue())
 
-    def test_storage_disabled_by_default_and_uses_existing_private_storage(self):
+    def test_storage_requires_bucket_and_uses_existing_private_storage(self):
         with (
             patch.dict("os.environ", {}, clear=True),
             self.assertRaises(refs.ReferenceError),
@@ -182,7 +184,11 @@ class OriginalIntakeTests(unittest.TestCase):
             files.store(io.BytesIO(b"x"), "key")
         with (
             patch.dict(
-                "os.environ", {"GEOFLOW_CENTRAL_REFERENCE_UPLOAD_ENABLED": "true"}
+                "os.environ",
+                {
+                    "AWS_S3_BUCKET": "isolated-test-bucket",
+                    "GEOFLOW_CENTRAL_REFERENCE_UPLOAD_ENABLED": "true",
+                },
             ),
             patch("geoflow_ops.services.s3_service.get_s3_client") as client,
             patch(
@@ -198,6 +204,15 @@ class OriginalIntakeTests(unittest.TestCase):
             options = client.return_value.upload_fileobj.call_args.kwargs["ExtraArgs"]
             self.assertEqual(options["ServerSideEncryption"], "AES256")
             self.assertNotIn("ACL", options)
+        with patch.dict(
+            "os.environ",
+            {
+                "AWS_S3_BUCKET": "isolated-test-bucket",
+                "GEOFLOW_CENTRAL_REFERENCE_UPLOAD_ENABLED": "false",
+            },
+            clear=True,
+        ):
+            self.assertFalse(files.uploads_enabled())
 
     def test_download_is_short_lived_attachment(self):
         with patch(
@@ -254,7 +269,7 @@ class CentralRouteTests(unittest.TestCase):
 
     def test_csrf_is_enforced_for_mutations(self):
         self.authorized()
-        for url in ("/catalog/", f"/upload/{uuid4()}/"):
+        for url in ("/catalog/", f"/upload/{uuid4()}/", "/key/", "/lookup/"):
             response = Client(enforce_csrf_checks=True).post(
                 url, data="{}", content_type="application/json"
             )
@@ -331,7 +346,7 @@ class CentralRouteTests(unittest.TestCase):
             'data-pane="datasets"',
             'data-pane="sources"',
             'data-pane="history"',
-            "공간조회 준비 전",
+            "ref-query-form",
         ):
             self.assertIn(value, template)
         source = (root / "control/views_gis_references.py").read_text()

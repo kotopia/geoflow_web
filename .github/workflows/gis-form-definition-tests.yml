@@ -32,8 +32,11 @@ jobs:
           GEOFLOW_FORMS_ISOLATED_PG: '1'
       - name: Central reference metadata, original intake and SQL migration
         run: |
-          python -m pip install boto3==1.35.94
+          sudo apt-get update -qq
+          sudo apt-get install -y libgdal-dev libgeos-dev
+          python -m pip install boto3==1.35.94 openpyxl==3.1.5
           python -m unittest control.test_gis_references -v
+          python -m unittest control.test_gis_reference_lookup -v
           python -m unittest control.test_gis_references_pg -v
           python -m py_compile control/views_gis_references.py control/services/gis_references.py control/services/gis_reference_files.py control/migrations/0011_gis_reference_datasets.py
         env:

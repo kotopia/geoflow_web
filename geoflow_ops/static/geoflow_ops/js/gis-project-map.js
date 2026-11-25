@@ -88,9 +88,9 @@
     basemapNotice.setAttribute("role", "status");
     basemapNotice.hidden = true;
     mapNode.parentNode.insertBefore(basemapNotice, mapNode);
-    if (vworldConfig.key) {
+    if (vworldConfig.tile_url) {
       var background = L.tileLayer(
-        "https://api.vworld.kr/req/wmts/1.0.0/" + encodeURIComponent(vworldConfig.key) + "/Base/{z}/{y}/{x}.png",
+        vworldConfig.tile_url,
         { minZoom: 6, maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; <a href="https://www.vworld.kr/">VWorld</a>' }
       ).addTo(map);
       background.on("tileerror", function () {

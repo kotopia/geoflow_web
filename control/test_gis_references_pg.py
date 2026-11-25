@@ -242,12 +242,74 @@ class ReferenceRolloutPostgresTests(unittest.TestCase):
                 "0009_gis_reference_code_groups",
                 "0010_tenant_employee_registrations",
                 "0011_gis_reference_datasets",
+                "0012_gis_reference_provider_credential",
             ],
         )
         self.cur.execute("SELECT count(*) FROM public.tenant_employee_registrations")
         self.assertEqual(self.cur.fetchone()[0], 0)
         self.cur.execute("SELECT id::text FROM public.users WHERE id=%s", [identity])
         self.assertEqual(self.cur.fetchone()[0], identity)
+
+    def test_existing_0011_catalogue_survives_credential_extension(self):
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_migration,
+            apply_store,
+            state,
+        )
+
+        apply_migration(self.cur, "0011_gis_reference_datasets")
+        dataset = refs.mutate(
+            self.cur,
+            {
+                "action": "save_dataset",
+                "code": "existing_sheet",
+                "kind": "map_sheet",
+                "name": "기존 도곽",
+            },
+            str(uuid4()),
+        )
+        self.assertFalse(state(self.cur))
+        apply_store(self.cur)
+        self.assertTrue(state(self.cur))
+        self.assertEqual(str(refs.snapshot(self.cur)["datasets"][0]["id"]), dataset)
+
+    def test_vworld_setup_reuses_one_source_and_key_version_is_not_key_material(self):
+        from unittest.mock import MagicMock
+
+        from control.management.commands.deploy_gis_reference_datasets import (
+            apply_store,
+        )
+        from control.services import gis_reference_vworld as provider
+
+        apply_store(self.cur)
+        actor = str(uuid4())
+        first = provider.setup(self.cur, actor)
+        self.assertEqual(provider.setup(self.cur, actor), first)
+        self.assertEqual(len(refs.snapshot(self.cur)["sources"]), 1)
+        self.assertEqual(len(refs.snapshot(self.cur)["datasets"]), 2)
+        client = MagicMock()
+        client.create_secret.side_effect = lambda **kw: {
+            "VersionId": kw["ClientRequestToken"]
+        }
+        provider.save_credential(
+            self.cur,
+            {
+                "api_key": "test-only-credential-1234567890",
+                "domain": "https://geoflow.co.kr",
+                "revision": 0,
+            },
+            actor,
+            client,
+        )
+        self.cur.execute(
+            "SELECT to_jsonb(c)::text FROM gis.reference_provider_credential c"
+        )
+        self.assertNotIn("test-only-credential", self.cur.fetchone()[0])
+        self.assertTrue(provider.credential_status(self.cur)["configured"])
+        self.cur.execute(
+            "SELECT action FROM gis.reference_event WHERE action='credential_updated'"
+        )
+        self.assertIsNotNone(self.cur.fetchone())
 
     def test_unrecorded_existing_prerequisite_is_not_faked(self):
         from django.core.management.base import CommandError
