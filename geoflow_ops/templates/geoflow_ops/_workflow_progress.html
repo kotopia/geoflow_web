@@ -1,0 +1,8 @@
+<div class="gf-contract-process" aria-label="업무 프로세스" title="현재: {{ wf.major_label }} · 기준: {{ wf.major_event_label|default:'-' }}">
+                <span aria-label="1. 준비" {% if wf.major_code == 'preparation' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'preparation' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준비</span>
+                <span aria-label="2. 계약" {% if wf.major_code == 'contract' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
+                <span aria-label="3. 착수" {% if wf.major_code == 'kickoff' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'kickoff' %}text-primary fw-semibold{% else %}text-muted{% endif %}">착수</span>
+                <span aria-label="4. 수행" {% if wf.major_code == 'execution' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">수행</span>
+                <span aria-label="5. 준공" {% if wf.major_code == 'closeout' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
+                <span aria-label="6. 완료" {% if wf.major_code == 'complete' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
+              </div>

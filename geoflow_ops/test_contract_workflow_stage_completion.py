@@ -78,7 +78,7 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertIn("event_type: 'closeout_approved'", detail)
         self.assertNotIn("event_type: 'closeout_complete'", detail)
         for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
-            self.assertIn(label, detail)
+            self.assertIn(label, (ROOT / "templates/geoflow_ops/_workflow_progress.html").read_text())
 
     def test_legacy_completed_status_is_converted_then_preserved_as_history(self):
         migration = (ROOT / "migrations" / "0026_contract_completion_event_backfill.py").read_text(encoding="utf-8")
@@ -114,4 +114,4 @@ class ContractWorkflowStageCompletionTests(SimpleTestCase):
         self.assertIn("contract_workflow.major_label", detail)
         self.assertIn("업무단계", detail)
         for label in ("1. 준비", "2. 계약", "3. 착수", "4. 수행", "5. 준공", "6. 완료"):
-            self.assertIn(label, detail)
+            self.assertIn(label, (ROOT / "templates/geoflow_ops/_workflow_progress.html").read_text())

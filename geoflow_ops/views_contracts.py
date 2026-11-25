@@ -131,7 +131,7 @@ def contract_detail_page(request, pk):
         if form.is_valid():
             inst = form.save(commit=False)
             try:
-                save_contract(alias, inst, form.cleaned_data["project_mode"], confirm_single=form.cleaned_data["confirm_single"])
+                save_contract(alias, inst, form.cleaned_data["project_mode"])
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:

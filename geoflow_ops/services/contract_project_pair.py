@@ -56,7 +56,7 @@ def _next_code(alias, contract):
     return code
 
 
-def _create_locked(alias, contract, values, *, allow_duplicate=False, now=None):
+def _create_locked(alias, contract, values, *, now=None):
     mode = project_mode(contract)
     projects = Project.objects.using(alias).filter(contract_id=contract.pk)
     if mode == "SINGLE" and projects.exists():
@@ -66,9 +66,9 @@ def _create_locked(alias, contract, values, *, allow_duplicate=False, now=None):
         values["name"] = contract.name
     elif not normalized_name(values["name"]):
         raise ValidationError("프로젝트명을 입력하세요.")
-    elif not allow_duplicate and any(normalized_name(n) == normalized_name(values["name"])
+    elif any(normalized_name(n) == normalized_name(values["name"])
                                     for n in projects.values_list("name", flat=True)):
-        raise ValidationError("같은 계약에 동일한 프로젝트명이 있습니다. 중복 이름 확인을 선택하세요.", code="duplicate_name")
+        raise ValidationError("같은 계약에 동일한 프로젝트명이 있습니다. 다른 프로젝트명을 입력하세요.", code="duplicate_name")
     stamp = now or timezone.now()
     return Project.objects.using(alias).create(
         contract_id=contract.pk, code=_next_code(alias, contract), **values,
@@ -76,12 +76,12 @@ def _create_locked(alias, contract, values, *, allow_duplicate=False, now=None):
     )
 
 
-def create_project(alias, contract_id, values, *, allow_duplicate=False, now=None):
+def create_project(alias, contract_id, values, *, now=None):
     if not alias or alias == "default":
         raise ValueError("tenant database alias is required")
     with transaction.atomic(using=alias):
         contract = Contract.objects.using(alias).select_for_update().get(pk=contract_id)
-        return _create_locked(alias, contract, values, allow_duplicate=allow_duplicate, now=now)
+        return _create_locked(alias, contract, values, now=now)
 
 
 def create_project_for_new_contract(alias: str, contract: Contract, *, now=None):
@@ -94,19 +94,16 @@ def create_project_for_new_contract(alias: str, contract: Contract, *, now=None)
     }, now=now)
 
 
-def save_contract(alias, instance, mode, *, confirm_single=False):
+def save_contract(alias, instance, mode):
     if mode not in dict(PROJECT_MODES):
         raise ValidationError("프로젝트 운영방식이 올바르지 않습니다.")
     with transaction.atomic(using=alias):
         locked = Contract.objects.using(alias).select_for_update().get(pk=instance.pk)
         ext = policy_ext(locked)
-        previous_mode = ext.get("project_mode")
         projects = Project.objects.using(alias).filter(contract_id=locked.pk)
         if mode == "SINGLE":
             if projects.count() > 1:
                 raise ValidationError("프로젝트가 2개 이상이면 단일 방식으로 변경할 수 없습니다.")
-            if previous_mode == "MULTIPLE" and projects.exists() and not confirm_single:
-                raise ValidationError("단일 방식 전환 시 프로젝트명이 계약명으로 바뀝니다. 확인을 선택하세요.")
         for field in CONTRACT_FIELDS:
             setattr(locked, field, getattr(instance, field))
         ext["project_mode"] = mode
@@ -118,7 +115,7 @@ def save_contract(alias, instance, mode, *, confirm_single=False):
         return locked
 
 
-def save_project(alias, project_id, values, *, allow_duplicate=False):
+def save_project(alias, project_id, values):
     # Lock order always Contract then Project, shared with mode/name changes.
     contract_id = Project.objects.using(alias).values_list("contract_id", flat=True).get(pk=project_id)
     if not contract_id:
@@ -129,14 +126,13 @@ def save_project(alias, project_id, values, *, allow_duplicate=False):
         mode = project_mode(contract)
         name = values.get("name")
         if mode == "SINGLE":
-            if name != contract.name:
-                raise ValidationError("단일 프로젝트명은 계약명을 따릅니다. 새로고침 후 저장하세요.")
+            values = {**values, "name": contract.name}
         elif not normalized_name(name):
             raise ValidationError("프로젝트명을 입력하세요.")
-        elif not allow_duplicate:
+        else:
             others = Project.objects.using(alias).filter(contract_id=contract_id).exclude(pk=project_id)
             if any(normalized_name(n) == normalized_name(name) for n in others.values_list("name", flat=True)):
-                raise ValidationError("같은 계약에 동일한 프로젝트명이 있습니다. 중복 이름 확인을 선택하세요.", code="duplicate_name")
+                raise ValidationError("같은 계약에 동일한 프로젝트명이 있습니다. 다른 프로젝트명을 입력하세요.", code="duplicate_name")
         for field in PROJECT_FIELDS:
             setattr(project, field, values.get(field))
         project.updated_at = timezone.now()

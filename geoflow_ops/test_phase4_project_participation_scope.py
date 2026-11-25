@@ -85,7 +85,8 @@ class Phase4ProjectParticipationScopeTests(unittest.TestCase):
             'aria-label="5. 준공"',
             'aria-label="6. 완료"',
         ):
-            self.assertIn(label, detail)
+            self.assertIn(label, source("geoflow_ops/templates/geoflow_ops/_workflow_progress.html"))
+        self.assertIn('with wf=contract_workflow only', detail)
         self.assertIn('class="col-md-8"', detail)
         self.assertIn('class="col-md-4"', detail)
         for pane in ("project-scope-pane", "project-timeline-pane", "project-members-pane"):

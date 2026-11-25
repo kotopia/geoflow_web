@@ -89,6 +89,8 @@ Finance 상단의 귀속회사 필터는 세션에 유지되며, 목록과 대�
 
 현재 Finance는 목록 우선(list-first) UI와 Bootstrap modal 입력/수정 방식을 사용한다.
 
+계약 상세에는 계약금액 옆의 “파이낸스 열기” 링크만 표시한다(`finance.view` 필요). 계약 상세에 자동 삽입하던 Finance 요약 카드는 제거했으며, 기존 Finance 페이지·요약 API·권한 규칙은 유지한다.
+
 ### 4.1 대시보드
 
 - 청구/지급/입출금 등 Finance 요약

@@ -36,7 +36,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.goto('http://preview.local/contracts/');await page.waitForSelector('#contractsCard:not([hidden])');
  assert.deepEqual(await page.evaluate(()=>{const row=$('#datatables-contracts').DataTable().rows().nodes().toArray().find(r=>r.querySelector('.gf-event-count'));return [row.querySelector('.gf-event-count').textContent,row.querySelector('.gf-event-suspension').textContent];}),['3','Ⅱ']);
  assert.equal(await page.locator('.sidebar-nav > .sidebar-item').last().locator('a').first().getAttribute('aria-label'),'파이낸스');
- assert.match(await page.locator('link[href*="process-timeline-horizontal.css"]').getAttribute('href'),/\?v=contract-horizontal-2$/);
+ assert.match(await page.locator('link[href*="process-timeline-horizontal.css"]').getAttribute('href'),/\?v=detail-heading-3$/);
  assert.equal(await baseCount(),11);assert.equal(await page.locator('#contract-column-search').isVisible(),false);
  await page.click('#contract-column-toggle');
  await page.getByLabel('계약명 검색',{exact:true}).fill('시험 계약 2');assert.equal(await baseCount(),2);
@@ -89,7 +89,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.setViewportSize({width:1440,height:1000});
  for(let index=0;index<phases.length;index++){
   await page.goto('http://preview.local/detail-'+phases[index]+'.html');
-  const strip=page.locator('#view-mode .card-header .gf-contract-process');
+  const strip=page.locator('.gf-detail-heading .gf-contract-process');
   assert.equal(await strip.count(),1);
   assert.equal(await page.locator('[aria-label="업무 프로세스"]').count(),1);
   assert.equal(await strip.locator('[aria-current="step"]').count(),1);
@@ -101,8 +101,10 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   assert.equal(states[index].fill,blue);
   for(let j=0;j<index;j++){assert.equal(states[j].border,blue);assert.equal(states[j].fill,'rgba(0, 0, 0, 0)');assert.notEqual(states[j].text,blue);}
   for(let j=index+1;j<states.length;j++){assert.notEqual(states[j].border,blue);assert.notEqual(states[j].text,blue);}
-  const title=await page.locator('#view-mode .card-title').boundingBox(),box=await strip.boundingBox();
-  assert(box.y>=title.y+title.height);
+  const title=await page.locator('h1').boundingBox(),box=await strip.boundingBox();
+  assert(box.x>=title.x+title.width);
+  assert.equal(await page.locator('#contract-finance-link').innerText(),'파이낸스 열기');
+  assert.equal(await page.locator('script[src*="contract-finance-summary"]').count(),0);
   assert(box.height<45);
   const geometry=await strip.locator('span[aria-label]').evaluateAll(els=>els.map(el=>{
    const r=el.getBoundingClientRect(),dot=getComputedStyle(el,'::before'),line=getComputedStyle(el,'::after');
@@ -119,11 +121,16 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.goto('http://preview.local/detail-execution.html');
  for(const width of [390,320]){
   await page.setViewportSize({width,height:844});await page.waitForTimeout(450);
+  if((await page.locator('.main').boundingBox()).x>100){await page.getByRole('button',{name:'메뉴 열기·닫기'}).click();await page.waitForTimeout(450);}
+  const progressBox=await page.locator('.gf-contract-process').boundingBox();
+  assert(progressBox.x>=0&&progressBox.x+progressBox.width<=width);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   const strip=page.locator('.gf-contract-process'),box=await strip.boundingBox();
   for(const span of await strip.locator('span[aria-label]').all()){const b=await span.boundingBox();assert(b.x>=box.x&&b.x+b.width<=box.x+box.width+1);}
   await page.screenshot({path:'artifacts/contract-filters/detail-mobile-'+width+'.png',fullPage:true});
  }
+ await page.goto('http://preview.local/detail-denied.html');
+ assert.equal(await page.locator('#contract-finance-link').count(),0);
  assert.deepEqual(errors,[]);
  console.log('PASS column toggle, completion filter, 10/25/50, compound amount, AND/OR, date, event search, selection, tabs, save/reload, responsive and JS errors');
  await browser.close();

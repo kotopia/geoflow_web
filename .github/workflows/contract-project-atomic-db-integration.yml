@@ -13,6 +13,12 @@ on:
       - geoflow_ops/security_views.py
       - geoflow_ops/services/contract_project_pair.py
       - scripts/test_contract_project_pair_db.py
+      - scripts/ci/render_project_policy.py
+      - scripts/ci/test_project_policy_browser.cjs
+      - geoflow_ops/templates/geoflow_ops/_workflow_progress.html
+      - geoflow_ops/templates/geoflow_ops/projects/**
+      - geoflow_ops/static/geoflow_ops/css/process-timeline-horizontal.css
+      - geoflow_ops/static/geoflow_ops/js/gf-list-core.js
       - control/test_contract_project_atomic_create_contract.py
       - .github/workflows/contract-project-atomic-db-integration.yml
   push:
@@ -27,6 +33,12 @@ on:
       - geoflow_ops/security_views.py
       - geoflow_ops/services/contract_project_pair.py
       - scripts/test_contract_project_pair_db.py
+      - scripts/ci/render_project_policy.py
+      - scripts/ci/test_project_policy_browser.cjs
+      - geoflow_ops/templates/geoflow_ops/_workflow_progress.html
+      - geoflow_ops/templates/geoflow_ops/projects/**
+      - geoflow_ops/static/geoflow_ops/css/process-timeline-horizontal.css
+      - geoflow_ops/static/geoflow_ops/js/gf-list-core.js
       - control/test_contract_project_atomic_create_contract.py
       - .github/workflows/contract-project-atomic-db-integration.yml
 
