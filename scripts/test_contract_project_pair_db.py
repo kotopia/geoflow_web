@@ -33,26 +33,26 @@ class PolicyTests(unittest.TestCase):
         return Contract.objects.using('tenant').create(code=code,name='Contract',amount=12345,ext={'project_mode':mode,'keep':'preserved'})
     def values(self,name='Project',status='active'):
         return dict(name=name,status=status,start_date=None,end_date=None,description='Note')
-    def test_single_atomic_sync_and_reject_direct_name(self):
+    def test_single_atomic_sync_and_authoritative_name(self):
         with transaction.atomic(using='tenant'):
             c=self.contract();p=create_project_for_new_contract('tenant',c)
         self.assertEqual((p.name,p.code),('Contract','A-26-001'))
         c.name='Changed';save_contract('tenant',c,'SINGLE')
         p.refresh_from_db(using='tenant');self.assertEqual(p.name,'Changed')
-        with self.assertRaises(ValidationError):save_project('tenant',p.pk,self.values('Bad'))
+        saved=save_project('tenant',p.pk,self.values('Bad'))
+        self.assertEqual(saved.name,'Changed')
         self.assertEqual(Contract.objects.using('tenant').get(pk=c.pk).amount,12345)
         self.assertFalse(hasattr(p,'amount'))
-    def test_multiple_modes_independent_and_confirmation(self):
+    def test_multiple_modes_independent_and_automatic_single_name(self):
         c=self.contract('MULTIPLE');self.assertIsNone(create_project_for_new_contract('tenant',c))
         a=create_project('tenant',c.pk,self.values('A','complete'))
         b=create_project('tenant',c.pk,self.values('B','pause'))
         c.name='Renamed';save_contract('tenant',c,'MULTIPLE')
         a.refresh_from_db(using='tenant');b.refresh_from_db(using='tenant')
         self.assertEqual((a.name,b.name,a.status,b.status),('A','B','complete','pause'))
-        with self.assertRaises(ValidationError):save_contract('tenant',c,'SINGLE',confirm_single=True)
-        Project.objects.using('tenant').filter(pk=b.pk).delete()
         with self.assertRaises(ValidationError):save_contract('tenant',c,'SINGLE')
-        save_contract('tenant',c,'SINGLE',confirm_single=True)
+        Project.objects.using('tenant').filter(pk=b.pk).delete()
+        save_contract('tenant',c,'SINGLE')
         a.refresh_from_db(using='tenant');self.assertEqual(a.name,'Renamed')
     def test_sequence_survives_deletion_and_mode_change(self):
         c=self.contract();a=create_project_for_new_contract('tenant',c)
@@ -65,7 +65,9 @@ class PolicyTests(unittest.TestCase):
     def test_duplicate_warning_and_tenant_contract_lookup(self):
         c=self.contract('MULTIPLE');create_project('tenant',c.pk,self.values(' A  B '))
         with self.assertRaises(ValidationError):create_project('tenant',c.pk,self.values('a b'))
-        create_project('tenant',c.pk,self.values('a b'),allow_duplicate=True)
+        other=create_project('tenant',c.pk,self.values('Other'))
+        with self.assertRaises(ValidationError):save_project('tenant',other.pk,self.values('Ａ B'))
+        self.assertEqual(Project.objects.using('tenant').get(pk=other.pk).name,'Other')
         from uuid import uuid4
         with self.assertRaises(Contract.DoesNotExist):create_project('tenant',uuid4(),self.values())
         with self.assertRaises(ValueError):create_project('default',c.pk,self.values())

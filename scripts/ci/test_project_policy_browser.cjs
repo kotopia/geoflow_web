@@ -16,7 +16,7 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  });
  await page.goto('http://preview.local/projects/');
  await page.waitForSelector('#projectsCard:not([hidden])');
- assert.deepEqual(await page.evaluate(()=>$('#datatables-projects').DataTable().order()),[[6,'desc']]);
+ assert.deepEqual(await page.evaluate(()=>$('#datatables-projects').DataTable().order()),[[1,'desc']]);
  assert.equal(await page.locator('#datatables-projects tbody tr:first-child [data-col="name"]').innerText(),'독립 프로젝트 3');
  await page.locator('.gf-k-pause').click();
  assert.equal(await page.locator('#datatables-projects tbody tr').count(),1);
@@ -27,8 +27,31 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  fixture='detail';await page.goto('http://preview.local/projects/detail/');
  await page.waitForSelector('#view-mode');
  const detail=await page.locator('#view-mode').innerText();
- for(const value of ['독립 수행단위','계약명 원본','A26-001','중지','2026-11-20','2026-12-31','프로젝트 비고'])assert(detail.includes(value),value);
+ for(const value of ['독립 수행단위','A26-001','중지','2026-11-20','프로젝트 비고'])assert(detail.includes(value),value);
  await page.screenshot({path:'artifacts/project-policy/detail-desktop.png',fullPage:true});
+ assert(await page.locator('#project-info-pane').isVisible());
+ assert.equal(await page.locator('#project-contract-pane').isVisible(),false);
+ const strip=page.locator('.gf-detail-heading .gf-contract-process');
+ assert.equal(await strip.locator('.gf-stage-complete').count(),3);
+ const heading=await page.locator('h1').boundingBox(),progress=await strip.boundingBox();
+ assert(progress.x>=heading.x+heading.width);
+ await page.click('#project-contract-tab');
+ assert(await page.locator('#project-contract-pane').isVisible());
+ const contract=await page.locator('#project-contract-pane').innerText();
+ for(const value of ['계약명 원본','2026-12-31'])assert(contract.includes(value));
+ await page.screenshot({path:'artifacts/project-policy/contract-tab-desktop.png',fullPage:true});
+ await page.click('#project-info-tab');
+ for(const width of [390,320]){
+  await page.setViewportSize({width,height:844});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.screenshot({path:`artifacts/project-policy/detail-mobile-${width}.png`,fullPage:true});
+ }
+ await page.setViewportSize({width:1440,height:1000});
+ fixture='edit';await page.goto('http://preview.local/projects/detail/?edit=1');
+ assert.equal(await page.locator('input#id_name').count(),1);
+ assert(await page.locator('#id_name').isDisabled());
+ assert.equal(await page.locator('#id_confirm_duplicate').count(),0);
+ await page.screenshot({path:'artifacts/project-policy/edit-desktop.png',fullPage:true});
  fixture='create';await page.goto('http://preview.local/projects/new/');
  await page.selectOption('#id_contract','single');
  assert(await page.locator('#id_name').evaluate(e=>e.readOnly));assert.equal(await page.inputValue('#id_name'),'단일 계약 원본');

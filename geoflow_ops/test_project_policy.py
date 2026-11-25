@@ -6,7 +6,8 @@ from django.test import RequestFactory, override_settings
 from django.template.loader import get_template
 from . import security_views
 from .models import Project,Contract
-from .forms import ProjectForm
+from .forms import ProjectForm, ContractForm
+from django.forms import TextInput
 from .services.contract_project_pair import project_mode,normalized_name
 
 class ProjectPolicyTests(TestCase):
@@ -74,6 +75,9 @@ class ProjectPolicyTests(TestCase):
                             cursor.fetchall.return_value = [(str(project.pk), '검증 담당자')]
                             response = security_views.project_list(request)
                             response.render()
+                            order = query.order_by.call_args_list[0].args
+                            self.assertEqual(order[0].expression.name, 'code')
+                            self.assertTrue(order[0].descending)
                             self.assertEqual(response.status_code, 200)
                             self.assertEqual(response.context_data['projects'], rows)
                             self.assertEqual(response.context_data['can_create_project'], role in ('project_admin', 'project_manager'))
@@ -120,6 +124,9 @@ class ProjectPolicyTests(TestCase):
             self.assertEqual(form.fields['name'].disabled,mode=='SINGLE')
             self.assertTrue(form.fields['contract'].disabled)
             self.assertNotIn('code',form.fields)
+            self.assertNotIn('confirm_duplicate',form.fields)
+            self.assertIsInstance(form.fields['name'].widget,TextInput)
+        self.assertNotIn('confirm_single', ContractForm.base_fields)
     def test_changed_templates_compile(self):
         for path in ('projects/project_list.html','projects/project_detail.html','projects/project_form.html','contracts/contract_detail.html'):
             get_template('geoflow_ops/'+path)

@@ -25,7 +25,6 @@ class ContractForm(forms.ModelForm):
     """Edit contract facts only; lifecycle is derived from milestone events."""
 
     project_mode = forms.ChoiceField(choices=PROJECT_MODES, label="프로젝트 운영방식", initial="SINGLE", widget=forms.Select(attrs={"class": "form-select"}))
-    confirm_single = forms.BooleanField(required=False, label="단일 방식 전환 시 프로젝트명을 계약명으로 변경합니다.")
     kind = forms.ChoiceField(choices=KIND_CHOICES, required=False)
 
     start_date = forms.DateField(
@@ -125,7 +124,6 @@ class PartnerForm(forms.ModelForm):
 
 
 class ProjectForm(forms.ModelForm):
-    confirm_duplicate = forms.BooleanField(required=False, label="같은 계약의 중복 이름을 확인했습니다.")
     status = forms.ChoiceField(required=False, label="수행상태")
     start_date = forms.DateField(required=False, input_formats=["%Y-%m-%d", "%Y%m%d"], widget=ISODateInput(), label="시작일")
     end_date = forms.DateField(required=False, input_formats=["%Y-%m-%d", "%Y%m%d"], widget=ISODateInput(), label="종료일")
@@ -134,13 +132,14 @@ class ProjectForm(forms.ModelForm):
         model = Project
         fields = ["contract", "name", "start_date", "end_date", "status", "description"]
         labels = {"contract": "연결 계약", "name": "프로젝트명", "description": "기타사항"}
-        widgets = {"description": forms.Textarea(attrs={"rows": 4})}
+        widgets = {"name": forms.TextInput(), "description": forms.Textarea(attrs={"rows": 4})}
 
     def __init__(self, *args, alias, contracts=None, **kwargs):
         super().__init__(*args, **kwargs)
         from .services.project_status import project_status_options
         self.fields["contract"].queryset = contracts if contracts is not None else Contract.objects.using(alias).none()
         self.fields["contract"].required = True
+        self.fields["name"].required = False
         self.fields["contract"].label_from_instance = lambda c: f"{c.code} · {c.name}"
         self.fields["status"].choices = [("", "미설정"), *project_status_options(alias)]
         current = self.instance.status

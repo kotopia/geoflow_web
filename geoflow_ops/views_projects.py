@@ -71,7 +71,7 @@ class ProjectListView(ListView):
                 queryset = queryset.filter(contract_id=UUID(contract_id))
             except ValueError:
                 queryset = queryset.none()
-        queryset = queryset.annotate(modified_order=Coalesce("updated_at", "created_at")).order_by(F("modified_order").desc(nulls_last=True), "id")
+        queryset = queryset.annotate(modified_order=Coalesce("updated_at", "created_at")).order_by(F("code").desc(nulls_last=True), "id")
         if self.request.GET.get("overview") == "1":
             from .services.dashboard import workflow_map, filter_records
             rows = list(queryset)
@@ -125,8 +125,7 @@ def project_create(request):
     form = ProjectForm(request.POST if request.method == "POST" else None, alias=alias, contracts=contracts, initial=initial)
     if request.method == "POST" and form.is_valid():
         try:
-            obj = create_project(alias, form.cleaned_data["contract"].pk, form.cleaned_data,
-                                 allow_duplicate=form.cleaned_data["confirm_duplicate"])
+            obj = create_project(alias, form.cleaned_data["contract"].pk, form.cleaned_data)
         except ValidationError as exc:
             form.add_error(None, exc)
         else:
@@ -204,7 +203,7 @@ def project_detail_page(request, pk):
         form = ProjectForm(request.POST, instance=obj, alias=alias)
         if form.is_valid():
             try:
-                save_project(alias, obj.pk, form.cleaned_data, allow_duplicate=form.cleaned_data["confirm_duplicate"])
+                save_project(alias, obj.pk, form.cleaned_data)
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:

@@ -1,5 +1,5 @@
 {% extends "geoflow_ops/base_tenant.html" %}
-{% load static humanize workflow_tags %}
+{% load static humanize workflow_tags acl_tags %}
 
 {% block title %}계약 상세 | GeoFlow{% endblock %}
 
@@ -15,14 +15,16 @@
 
 <div>
   <div class="mb-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
-    <div>
+    <div class="flex-grow-1 gf-detail-heading-group">
       <nav aria-label="breadcrumb" class="mb-2">
         <ol class="breadcrumb m-0 small">
           <li class="breadcrumb-item"><a href="{% url 'tenant:contract_list' %}">계약관리</a></li>
           <li class="breadcrumb-item active" aria-current="page">계약 상세</li>
         </ol>
       </nav>
-      <h1 class="h3 mb-0">계약 상세</h1>
+      <div class="gf-detail-heading"><h1 class="h3 mb-0">계약 상세</h1>
+        {% if obj and not edit_mode %}{% include "geoflow_ops/_workflow_progress.html" with wf=wf only %}{% endif %}
+      </div>
     </div>
     <div class="d-flex gap-2">
       {% if not edit_mode and obj %}<a href="{{ request.path }}?edit=1" class="btn btn-primary btn-sm">편집</a>{% endif %}
@@ -37,14 +39,7 @@
           <div id="view-mode" class="card mb-0">
             <div class="card-header">
               <h5 class="card-title mb-0">계약정보</h5>
-              <div class="gf-contract-process mt-2" aria-label="업무 프로세스" title="현재: {{ wf.major_label }} · 기준: {{ wf.major_event_label|default:'-' }}">
-                <span aria-label="1. 준비" {% if wf.major_code == 'preparation' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'preparation' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준비</span>
-                <span aria-label="2. 계약" {% if wf.major_code == 'contract' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'contract' %}text-primary fw-semibold{% else %}text-muted{% endif %}">계약</span>
-                <span aria-label="3. 착수" {% if wf.major_code == 'kickoff' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'kickoff' %}text-primary fw-semibold{% else %}text-muted{% endif %}">착수</span>
-                <span aria-label="4. 수행" {% if wf.major_code == 'execution' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'execution' %}text-primary fw-semibold{% else %}text-muted{% endif %}">수행</span>
-                <span aria-label="5. 준공" {% if wf.major_code == 'closeout' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'closeout' %}text-primary fw-semibold{% else %}text-muted{% endif %}">준공</span>
-                <span aria-label="6. 완료" {% if wf.major_code == 'complete' %}aria-current="step"{% endif %} class="{% if wf.major_code == 'complete' %}text-primary fw-semibold{% else %}text-muted{% endif %}">완료</span>
-              </div>
+
             </div>
             <div class="card-body pt-0">
               <div class="row py-2 border-top">
@@ -79,7 +74,11 @@
               </div>
               <div class="row py-2 border-top">
                 <div class="col-sm-4 col-lg-3 small text-muted">계약금액</div>
-                <div class="col-sm-8 col-lg-9">{% if obj.amount != None %}₩{{ obj.amount|intcomma }}{% else %}-{% endif %}</div>
+                <div class="col-sm-8 col-lg-9 d-flex align-items-center gap-2 flex-wrap">
+                  <span>{% if obj.amount != None %}₩{{ obj.amount|intcomma }}{% else %}-{% endif %}</span>
+                  {% has_perm 'finance.view' as finance_can_view %}
+                  {% if finance_can_view %}<a class="btn btn-outline-primary btn-sm" href="{% url 'tenant:finance_page' %}" id="contract-finance-link">파이낸스 열기</a>{% endif %}
+                </div>
               </div>
               <div class="row py-2 border-top">
                 <div class="col-sm-4 col-lg-3 small text-muted">기타정보</div>
@@ -204,7 +203,6 @@
             <div class="row g-3">
               <h5 class="h6 card-title">계약정보</h5>
               <div class="col-12"><label class="form-label">프로젝트 운영방식</label>{{ form.project_mode }}<div class="form-text">단일: 계약과 함께 프로젝트 1개를 생성하고 이름을 연동합니다. 복수: 계약 저장 후 프로젝트를 추가합니다.</div></div>
-              {% if not force_create %}<div class="col-12 form-check">{{ form.confirm_single }} {{ form.confirm_single.label_tag }}</div>{% endif %}
               <div class="col-md-4"><label class="form-label">계약번호 <span class="text-danger">*</span></label><input type="text" name="code" class="form-control" value="{{ form.code.value|default_if_none:'' }}" required></div>
               <div class="col-md-12"><label class="form-label">계약명 <span class="text-danger">*</span></label><input type="text" name="name" class="form-control" required value="{{ form.name.value|default_if_none:'' }}"></div>
               <div class="col-md-6"><label class="form-label">시작일</label><input type="text" id="start_date" name="start_date" class="form-control" data-provider="flatpickr" data-date-format="Y-m-d" data-alt-input="true" data-alt-format="Y/m/d" placeholder="YYYY/MM/DD" autocomplete="off" value="{{ form.instance.start_date|date:'Y-m-d' }}"></div>
