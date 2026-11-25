@@ -24,6 +24,7 @@ def render(name, context):
     source = (ROOT / 'geoflow_ops/templates/geoflow_ops/bids' / (name + '.html')).read_text()
     source = re.sub(r'{% extends .*?%}', '', source)
     source = re.sub(r"{% url 'tenant:bid_notice_detail'.*?%}", '/detail/', source)
+    source = re.sub(r"{% url 'tenant:bid_progress_save'.*?%}", '/bids/00000000-0000-0000-0000-000000000001/progress/', source)
     source = re.sub(r'{% url .*?%}', '/action/', source)
     return engine.from_string(source).render(Context(context))
 

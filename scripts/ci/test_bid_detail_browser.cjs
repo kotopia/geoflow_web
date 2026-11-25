@@ -3,15 +3,23 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
 (async()=>{
  const browser=await chromium.launch({channel:process.env.CHROME_CHANNEL||undefined,headless:true});
  const page=await browser.newPage({viewport:{width:1440,height:1000}});
- const errors=[],posts=[];let source='g2b',failProgress=false;page.on('pageerror',e=>errors.push(e.message));
+ const progressPath='/bids/00000000-0000-0000-0000-000000000001/progress/';
+ const errors=[],posts=[],invalidPosts=[];let source='g2b',failProgress=false;page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',route=>{
   const u=new URL(route.request().url());if(u.hostname!=='bid-preview.local')return route.abort();
   if(u.pathname==='/events/')return route.fulfill({json:[{id:'bid-calendar',title:'관심공고 제목',start:new Date().toISOString().slice(0,10)+'T11:00:00',extendedProps:{scope_type:'bid'}},{id:'project-calendar',title:'프로젝트 일정',start:new Date().toISOString().slice(0,10)+'T12:00:00',extendedProps:{scope_type:'project'}}]});
   if(route.request().method()==='POST'){
+   if(![progressPath,'/action/'].includes(u.pathname)){invalidPosts.push(u.pathname);return route.fulfill({status:404,body:'Not found'});}
    posts.push(route.request().postData());const action=new URLSearchParams(posts.at(-1)).get('action');
-   if(['submit','unsubmit'].includes(action)){
+   if(['register','unregister','submit','unsubmit'].includes(action)){
+    assert.equal(u.pathname,progressPath);
+    assert.equal(route.request().headers()['x-requested-with'],'XMLHttpRequest');
+    assert.equal(new URLSearchParams(posts.at(-1)).get('csrfmiddlewaretoken'),'fixture-token');
     if(failProgress)return route.fulfill({status:403,body:'Denied'});
-    const done=action==='submit';return route.fulfill({contentType:'application/json',body:JSON.stringify({progress_badge:done?'투찰':'참가',timeline:[{key:'bid_close_at',action:done?'unsubmit':'submit',action_label:done?'취소':'완료',action_title:done?'투찰 완료 취소':'투찰 완료',completed_at:done?'2026-11-24T01:00:00Z':null,completed_label:done?'완료 기록 · 11.24 10:00':''}]})});
+    const registration=['register','unregister'].includes(action),done=['register','submit'].includes(action);
+    const key=registration?'registration_close_at':'bid_close_at';
+    const nextAction=registration?(done?'unregister':'register'):(done?'unsubmit':'submit');
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({progress_badge:registration?(done?'참가':''):(done?'투찰':'참가'),timeline:[{key,action:nextAction,action_label:done?'취소':'완료',action_title:(registration?'참가등록':'투찰')+(done?' 완료 취소':' 완료'),completed_at:done?'2026-11-24T01:00:00Z':null,completed_label:done?'완료 기록 · 11.24 10:00':''}]})});
    }
    return route.fulfill({body:'saved',contentType:'text/html'});
   }
@@ -50,7 +58,15 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
   await modal.locator('.modal-body').evaluate(e=>{e.scrollTop=0});
   await page.screenshot({path:`artifacts/bid-detail/${source}-mobile.png`});
   if(source!=='history'){
+   // A control named action masks form.action in the real browser. Never use it as a URL.
+   assert.equal(await modal.locator('[data-bid-progress-form]').first().evaluate(f=>f.action instanceof HTMLButtonElement),true);
    await modal.locator('textarea').fill('미저장 메모 유지');
+   await modal.getByRole('button',{name:'참가등록 완료 취소',exact:true}).click();
+   await modal.getByRole('button',{name:'참가등록 완료',exact:true}).waitFor();
+   assert.equal(await page.locator('[data-bid-progress-cell]').innerText(),'');
+   await modal.getByRole('button',{name:'참가등록 완료',exact:true}).click();
+   await modal.getByRole('button',{name:'참가등록 완료 취소',exact:true}).waitFor();
+   assert.equal(await page.locator('[data-bid-progress-cell]').innerText(),'참가');
    const before=page.url();
    await modal.getByRole('button',{name:'투찰 완료',exact:true}).click();
    await modal.getByRole('button',{name:'투찰 완료 취소',exact:true}).waitFor();
@@ -109,5 +125,6 @@ const fs=require('fs'),path=require('path'),assert=require('node:assert/strict')
  await page.locator('.fc-list-event').filter({hasText:'관심공고 제목'}).waitFor();
  assert.equal(await page.locator('.fc-list-event').filter({hasText:'관심공고 제목'}).locator('.fc-list-event-time').innerText(),'');
  assert.notEqual(await page.locator('.fc-list-event').filter({hasText:'프로젝트 일정'}).locator('.fc-list-event-time').innerText(),'');
+ assert.deepEqual(invalidPosts,[]);
  assert.deepEqual(errors,[]);await browser.close();console.log('PASS: bid modal, shared source tables, read-only history, memo submission and responsive layout');
 })().catch(e=>{console.error(e);process.exit(1)});
