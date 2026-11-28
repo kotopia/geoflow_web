@@ -1,21 +1,35 @@
-{% extends "geoflow_ops/base_tenant.html" %}
 {% load humanize %}
-{% block content %}
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if kind == 'bill' %}청구서{% else %}거래명세서{% endif %} · {{ data.contract }}</title>
 <style>
-.finance-paper{background:white;max-width:190mm;margin:1rem auto;padding:12mm;color:#172d42;border-top:5px solid #234f66}
-.finance-paper h1{font-size:2rem;letter-spacing:.14em;margin:2rem 0}.finance-paper header{display:flex;justify-content:space-between}
-.finance-paper dl{display:grid;grid-template-columns:7em 1fr;gap:.7em}.finance-paper dt{color:#476372}
-.finance-paper table th{background:#eef4f6;color:#284c60}.finance-paper table td,.finance-paper table th{padding:12px}.finance-paper th:not(:first-child),.finance-paper td:not(:first-child){text-align:right}.finance-paper .bank{background:#f1f6f6;margin-top:24px;padding:16px}.finance-paper footer{text-align:right;border-top:2px solid #234f66;padding-top:1em;font-size:1.3rem}
-@page{size:A4;margin:12mm}@media print{.sidebar,.navbar,nav,.no-print,footer.footer{display:none!important}.main,.content{margin:0!important;padding:0!important}.finance-paper{box-shadow:none;margin:0;width:100%}}
-</style>
-<div class="no-print text-center"><a href="{% url 'tenant:finance_claims' %}">청구 목록</a>
-{% if can_write %}<form class="d-inline" method="post">{% csrf_token %}
-{% if not issued %}{% if kind == 'bill' and accounts %}<label>입금 계좌 <select name="account"><option value="">표시 안 함</option>{% for a in accounts %}<option value="{{ a.id }}">{{ a.bank_name }} {{ a.account_name }}</option>{% endfor %}</select></label>{% endif %}<button class="btn btn-primary">발급</button>{% elif kind == 'bill' and not submitted %}<button class="btn btn-outline-primary" name="submit" value="1">제출 완료 표시</button>{% endif %}</form>{% endif %}
-<button class="btn btn-light" onclick="window.print()">인쇄 / PDF</button></div>
-<article class="finance-paper"><header><strong>{{ data.issuer|default:"" }}</strong><span>{% if issued %}발급 {{ issued|date:"Y.m.d" }}{% else %}미리보기{% endif %}</span></header>
+*{box-sizing:border-box}body{margin:0;background:#eef2f4;color:#183244;font:15px/1.6 system-ui,"Malgun Gothic",sans-serif}
+nav{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:1rem;padding:1rem}
+button,select{font:inherit;padding:.35rem .8rem;border:1px solid #a9bac3;border-radius:5px;background:white;color:#163e51}
+button{cursor:pointer}a{color:#16546a}.primary{background:#194f63;color:white;border-color:#194f63}
+article{max-width:190mm;margin:0 auto 2rem;padding:12mm;background:white;border-top:5px solid #23546b}
+header{display:flex;justify-content:space-between;color:#526978;font-size:.9rem}
+h1{margin:12mm 0 9mm;font-size:32px;letter-spacing:.16em}dl{display:grid;grid-template-columns:6em 1fr;gap:8px;margin:0}
+dt{color:#566d7a}dd{margin:0;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;margin:12mm 0 7mm}
+th,td{padding:10px;border-bottom:1px solid #beced5;text-align:right}th{background:#eef4f6;color:#284c60}
+th:first-child,td:first-child{text-align:left}footer{text-align:right;border-top:2px solid #234f66;padding-top:1em;font-size:1.25rem}
+.bank{background:#f1f6f6;margin-top:24px;padding:16px}strong{font-weight:700}
+@page{size:A4;margin:14mm}@media print{body{background:white}nav{display:none}article{margin:0;padding:8mm 0;max-width:none}th,.bank{print-color-adjust:exact}}
+</style></head><body>
+<nav><a href="{% url 'tenant:finance_claim_detail' record_id %}">청구 상세</a>
+{% if can_write %}<form method="post">{% csrf_token %}
+{% if not issued %}
+{% if kind == 'bill' and accounts %}<label>입금 계좌 <select name="account"><option value="">표시 안 함</option>{% for a in accounts %}<option value="{{ a.id }}">{{ a.bank_name }} {{ a.account_name }}</option>{% endfor %}</select></label>{% endif %}
+<button class="primary">발급</button>
+{% elif kind == 'bill' and not submitted %}<button name="submit" value="1">제출 완료 표시</button>{% endif %}</form>{% endif %}
+<button onclick="window.print()">인쇄 / PDF</button></nav>
+<article><header><strong>{{ data.issuer|default:"" }}</strong><span>{% if issued %}발급 {{ issued|date:"Y.m.d" }}{% else %}미리보기{% endif %}</span></header>
 <h1>{% if kind == 'bill' %}청구서{% else %}거래명세서{% endif %}</h1>
-<dl><dt>수신</dt><dd>{{ data.recipient|default:"—" }} 귀중</dd><dt>사업명</dt><dd>{{ data.contract }}</dd><dt>청구일</dt><dd>{{ data.date|default:"—" }}</dd><dt>공급자</dt><dd>{{ data.issuer|default:"—" }} · {{ data.biz_no|default:"" }}</dd></dl>
-<table class="table my-5"><thead><tr><th>품목 / 내역</th><th>공급가액</th><th>부가세</th></tr></thead><tbody><tr><td>{{ data.title }}</td><td>{{ data.supply|intcomma }}원</td><td>{{ data.vat|intcomma }}원</td></tr></tbody></table>
-<footer>{% if kind == 'bill' %}청구금액{% else %}합계금액{% endif %} <strong>{{ data.total|intcomma }}원</strong></footer>
-{% if data.bank_account %}<p class="bank"><strong>입금 계좌</strong>　{{ data.bank_account.bank_name }}　{{ data.bank_account.account_number }}　 예금주 {{ data.bank_account.holder|default:data.issuer }}</p>{% endif %}</article>
-{% endblock %}
+<dl><dt>수신</dt><dd>{% if data.recipient %}{{ data.recipient }} 귀중{% else %}—{% endif %}</dd>
+<dt>사업명</dt><dd>{{ data.contract|default:"—" }}</dd><dt>청구일</dt><dd>{{ data.date|default:"—" }}</dd>
+<dt>공급자</dt><dd>{{ data.issuer|default:"—" }}{% if data.biz_no %} · {{ data.biz_no }}{% endif %}</dd></dl>
+<table><thead><tr><th>품목 / 내역</th><th>공급가액</th><th>부가세</th></tr></thead>
+<tbody><tr><td>{{ data.title }}</td><td>{{ data.supply|intcomma }}원</td><td>{{ data.vat|intcomma }}원</td></tr></tbody></table>
+<footer>{% if kind == 'bill' %}청구금액{% else %}합계금액{% endif %}　<strong>{{ data.total|intcomma }}원</strong></footer>
+{% if data.bank_account %}<p class="bank"><strong>입금 계좌</strong>　{{ data.bank_account.bank_name }}　{{ data.bank_account.account_number|default:"" }}　예금주 {{ data.bank_account.holder|default:data.issuer }}</p>{% endif %}
+</article></body></html>

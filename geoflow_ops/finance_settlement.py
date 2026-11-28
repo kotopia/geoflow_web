@@ -70,13 +70,13 @@ def candidates(cur, kind, source_kind, source):
     table, amount, date, key = TARGETS[kind]
     cur.execute(
         f"""SELECT t.id,t.title,t.{date} AS date,c.name AS contract,p.name AS partner,
-          t.{amount} AS total, COALESCE(a.amount,0) AS assigned,
+          t.is_deleted,t.{amount} AS total, COALESCE(a.amount,0) AS assigned,
           t.partner_id=%s AS partner_match,t.contract_id=%s AS contract_match,
           t.{amount}=%s AS amount_match,t.{date}=%s AS date_match
         FROM {table} t LEFT JOIN ctr.contracts c ON c.id=t.contract_id
         LEFT JOIN ctr.partners p ON p.id=t.partner_id
         LEFT JOIN fin.confirmed_links a ON a.{key}=t.id AND a.{source_kind}_id=%s
-        WHERE NOT t.is_deleted AND t.my_org_unit_id=%s
+        WHERE (NOT t.is_deleted OR a.amount IS NOT NULL) AND t.my_org_unit_id=%s
         ORDER BY (a.amount IS NOT NULL) DESC,contract_match DESC NULLS LAST,
           partner_match DESC NULLS LAST,amount_match DESC,date_match DESC NULLS LAST,t.title,t.id""",
         [
@@ -101,7 +101,8 @@ def parse_allocations(post):
             continue
         if not value.isascii() or not value.isdigit() or len(value) > 18:
             raise ValueError("배분액은 원 단위 양수로 입력하세요.")
-        result[UUID(name[9:])] = int(value)
+        if int(value):
+            result[UUID(name[9:])] = int(value)
     return result
 
 
@@ -260,6 +261,7 @@ def claim_document(request, record_id, kind):
             "data": json.loads(saved[0]) if saved else data[0],
             "kind": kind,
             "accounts": accounts,
+            "record_id": record_id,
             "issued": saved and saved[1],
             "submitted": saved and saved[2],
             "can_write": can_edit_finance(request),
