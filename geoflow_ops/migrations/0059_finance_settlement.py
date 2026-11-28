@@ -61,5 +61,5 @@ WHERE system_key='finance.value.claim_type.advance' AND name='선금';
 
 
 class Migration(migrations.Migration):
-    dependencies = [("webgisapp", "0058_merge_bid_progress")]
+    dependencies = [("webgisapp", "0034_finance_account_card_trash")]
     operations = [migrations.RunSQL(SQL)]
