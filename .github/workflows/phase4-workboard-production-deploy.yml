@@ -224,13 +224,7 @@ jobs:
                 git -C "$repo" checkout --detach "$previous_sha" >/dev/null 2>&1
               fi
               "$python" -m pip install --disable-pip-version-check --no-input -r "$repo/requirements.txt" >/dev/null 2>&1
-              finance_command='control/management/commands/activate_finance_settlement.py'
-          if ! git -C "$repo" cat-file -e "$previous_sha:$finance_command" 2>/dev/null; then
-            finance_backup="/var/backups/geoflow/finance-settlement/$candidate_sha/$policy_run_id"
-            sudo -n install -d -m 0700 -o "$(id -un)" "$finance_backup"
-            "$python" "$repo/manage.py" activate_finance_settlement --apply --backup-dir "$finance_backup"
-          fi
-          "$python" "$repo/manage.py" collectstatic --noinput >/dev/null 2>&1
+              "$python" "$repo/manage.py" collectstatic --noinput >/dev/null 2>&1
               sudo -n systemctl restart "$service"
               sleep 3
               echo "phase4_workboard_deploy_rollback_service_state=$(systemctl is-active "$service" 2>/dev/null || true)"
@@ -376,6 +370,9 @@ jobs:
             sudo -n systemctl stop "$service"
             "$python" "$repo/$policy_command" "$policy_run_id"
           fi
+          finance_backup="/var/backups/geoflow/finance-settlement/$candidate_sha/$policy_run_id"
+          sudo -n install -d -m 0700 -o "$(id -un)" "$finance_backup"
+          "$python" "$repo/manage.py" activate_finance_settlement --apply --backup-dir "$finance_backup"
           "$python" "$repo/manage.py" collectstatic --noinput
 
           sudo -n systemctl restart "$service"
