@@ -47,7 +47,7 @@ def settings_page(request):
         cur.execute(
             """
             SELECT a.id::text,a.bank_name,a.account_name,COALESCE(a.account_number,''),a.currency,a.active,
-                   a.my_org_unit_id::text,COALESCE(o.name,''),COALESCE(a.memo,'')
+                   a.my_org_unit_id::text,COALESCE(o.name,''),COALESCE(a.memo,''),a.holder,a.attachment_id
               FROM fin.accounts a
               LEFT JOIN ops.my_org_units o ON o.id=a.my_org_unit_id
              WHERE a.is_deleted=false
@@ -58,13 +58,13 @@ def settings_page(request):
         )
         accounts = [
             {"id": r[0], "bank_name": r[1], "account_name": r[2], "account_number": r[3], "currency": r[4],
-             "active": bool(r[5]), "org_unit_id": r[6] or "", "org_unit_name": r[7], "memo": r[8]}
+             "active": bool(r[5]), "org_unit_id": r[6] or "", "org_unit_name": r[7], "memo": r[8], "holder":r[9], "attachment":r[10]}
             for r in cur.fetchall()
         ]
         cur.execute(
             """
             SELECT c.id::text,c.my_org_unit_id::text,COALESCE(o.name,''),c.issuer,c.card_name,
-                   COALESCE(c.masked_number,''),c.active,COALESCE(c.memo,'')
+                   COALESCE(c.masked_number,''),c.active,COALESCE(c.memo,''),c.custodian,c.settlement_account_id,c.attachment_id
               FROM fin.cards c
               LEFT JOIN ops.my_org_units o ON o.id=c.my_org_unit_id
              WHERE c.is_deleted=false
@@ -75,7 +75,7 @@ def settings_page(request):
         )
         cards = [
             {"id": r[0], "org_unit_id": r[1], "org_unit_name": r[2], "issuer": r[3], "card_name": r[4],
-             "masked_number": r[5], "active": bool(r[6]), "memo": r[7]}
+             "masked_number": r[5], "active": bool(r[6]), "memo": r[7], "custodian":r[8],"settlement_account":r[9],"attachment":r[10]}
             for r in cur.fetchall()
         ]
     return render(request, "geoflow_ops/finance/finance_accounts_cards.html", {
@@ -154,13 +154,13 @@ def account_save(request):
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
             if record_id:
-                cur.execute("""UPDATE fin.accounts SET my_org_unit_id=%s,bank_name=%s,account_name=%s,account_number=%s,currency=%s,memo=%s,active=true,updated_at=now() WHERE id=%s AND is_deleted=false""",
-                            [str(org_id), bank_name, account_name, account_number, currency, memo, str(record_id)])
+                cur.execute("""UPDATE fin.accounts SET my_org_unit_id=%s,bank_name=%s,account_name=%s,account_number=%s,holder=%s,currency=%s,memo=%s,active=true,updated_at=now() WHERE id=%s AND is_deleted=false""",
+                            [str(org_id), bank_name, account_name, account_number, request.POST.get("holder"), currency, memo, str(record_id)])
                 if not cur.rowcount: return HttpResponseBadRequest("수정할 계좌를 찾을 수 없습니다.")
                 messages.success(request, "계좌를 수정했습니다.")
             else:
-                cur.execute("INSERT INTO fin.accounts(my_org_unit_id,bank_name,account_name,account_number,currency,memo) VALUES(%s,%s,%s,%s,%s,%s)",
-                            [str(org_id), bank_name, account_name, account_number, currency, memo])
+                cur.execute("INSERT INTO fin.accounts(my_org_unit_id,bank_name,account_name,account_number,holder,currency,memo) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                            [str(org_id), bank_name, account_name, account_number, request.POST.get("holder"), currency, memo])
                 messages.success(request, "계좌를 등록했습니다.")
     return redirect("tenant:finance_settings")
 
@@ -174,14 +174,19 @@ def card_save(request):
         return HttpResponseBadRequest("귀속회사, 카드사, 카드명을 확인하세요.")
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
+            settlement = request.POST.get("settlement_account_id") or None
+            if settlement:
+                cur.execute("SELECT id FROM fin.accounts WHERE id=%s AND my_org_unit_id=%s AND NOT is_deleted FOR SHARE", [_uuid(settlement),org_id])
+                if not cur.fetchone():
+                    return HttpResponseBadRequest("같은 귀속회사의 결제계좌를 선택하세요.")
             if record_id:
-                cur.execute("UPDATE fin.cards SET my_org_unit_id=%s,issuer=%s,card_name=%s,masked_number=%s,memo=%s,active=true,updated_at=now() WHERE id=%s AND is_deleted=false",
-                            [str(org_id), issuer, card_name, masked_number, memo, str(record_id)])
+                cur.execute("UPDATE fin.cards SET my_org_unit_id=%s,issuer=%s,card_name=%s,masked_number=%s,custodian=%s,settlement_account_id=%s,memo=%s,active=true,updated_at=now() WHERE id=%s AND is_deleted=false",
+                            [str(org_id), issuer, card_name, masked_number, request.POST.get("custodian"), settlement, memo, str(record_id)])
                 if not cur.rowcount: return HttpResponseBadRequest("수정할 카드를 찾을 수 없습니다.")
                 messages.success(request, "카드를 수정했습니다.")
             else:
-                cur.execute("INSERT INTO fin.cards(my_org_unit_id,issuer,card_name,masked_number,memo) VALUES(%s,%s,%s,%s,%s)",
-                            [str(org_id), issuer, card_name, masked_number, memo])
+                cur.execute("INSERT INTO fin.cards(my_org_unit_id,issuer,card_name,masked_number,custodian,settlement_account_id,memo) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                            [str(org_id), issuer, card_name, masked_number, request.POST.get("custodian"), settlement, memo])
                 messages.success(request, "카드를 등록했습니다.")
     return redirect("tenant:finance_settings")
 
@@ -236,10 +241,10 @@ def record_hard_delete(request, kind, record_id):
     alias = require_tenant_context(request)
     if kind == "account":
         with connections[alias].cursor() as cur:
-            cur.execute("SELECT count(*) FROM fin.transactions WHERE account_id=%s", [str(record_id)])
+            cur.execute("SELECT (SELECT count(*) FROM fin.transactions WHERE account_id=%s)+(SELECT count(*) FROM fin.cards WHERE settlement_account_id=%s)", [record_id,record_id])
             linked = int(cur.fetchone()[0] or 0)
             if linked:
-                messages.error(request, f"연결된 입출금 {linked}건이 있어 계좌를 완전삭제할 수 없습니다.")
+                messages.error(request, f"연결된 거래 또는 카드 {linked}건이 있어 계좌를 완전삭제할 수 없습니다.")
                 return _redirect_back(request, None, "tenant:finance_trash")
             cur.execute("DELETE FROM fin.accounts WHERE id=%s AND is_deleted=true", [str(record_id)])
         messages.success(request, "계좌를 완전삭제했습니다.")

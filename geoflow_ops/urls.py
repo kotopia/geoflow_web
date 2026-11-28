@@ -7,7 +7,13 @@ from .views_home_security import tenant_home
 
 app_name = "tenant"
 
+from . import finance_settlement
+
 urlpatterns = [
+    path("finance/ledger/classify/", finance_security_views.classify_transactions, name="finance_classify"),
+    path("finance/link/<str:kind>/<uuid:record_id>/", finance_settlement.reconcile, name="finance_reconcile"),
+    path("finance/claims/<uuid:record_id>/", finance_settlement.claim_detail, name="finance_claim_detail"),
+    path("finance/claims/<uuid:record_id>/document/<str:kind>/", finance_settlement.claim_document, name="finance_claim_document"),
     path('', tenant_home, name='home'),
     path('calendar/', views_calendar.calendar_page, name='calendar'),
     path('api/calendar/events/', views_calendar.calendar_events, name='calendar_events'),

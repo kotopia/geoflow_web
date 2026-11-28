@@ -1,0 +1,20 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
+{% block content %}
+<style>
+.finance-paper{background:white;max-width:190mm;margin:1rem auto;padding:12mm;color:#172d42;border-top:5px solid #234f66}
+.finance-paper h1{font-size:2rem;letter-spacing:.14em;margin:2rem 0}.finance-paper header{display:flex;justify-content:space-between}
+.finance-paper dl{display:grid;grid-template-columns:7em 1fr;gap:.7em}.finance-paper dt{color:#476372}
+.finance-paper footer{text-align:right;border-top:2px solid #234f66;padding-top:1em;font-size:1.3rem}
+@page{size:A4;margin:12mm}@media print{.sidebar,.navbar,nav,.no-print,footer.footer{display:none!important}.main,.content{margin:0!important;padding:0!important}.finance-paper{box-shadow:none;margin:0;width:100%}}
+</style>
+<div class="no-print text-center"><a href="{% url 'tenant:finance_claims' %}">청구 목록</a>
+{% if can_write %}<form class="d-inline" method="post">{% csrf_token %}
+{% if not issued %}<button class="btn btn-primary">발급</button>{% elif kind == 'bill' and not submitted %}<button class="btn btn-outline-primary" name="submit" value="1">제출 완료 표시</button>{% endif %}</form>{% endif %}
+<button class="btn btn-light" onclick="window.print()">인쇄 / PDF</button></div>
+<article class="finance-paper"><header><strong>{{ data.issuer|default:"" }}</strong><span>{% if issued %}발급 {{ issued|date:"Y.m.d" }}{% else %}미리보기{% endif %}</span></header>
+<h1>{% if kind == 'bill' %}청구서{% else %}거래명세서{% endif %}</h1>
+<dl><dt>수신</dt><dd>{{ data.recipient|default:"—" }} 귀중</dd><dt>사업명</dt><dd>{{ data.contract }}</dd><dt>청구일</dt><dd>{{ data.date|default:"—" }}</dd><dt>공급자</dt><dd>{{ data.issuer|default:"—" }} · {{ data.biz_no|default:"" }}</dd></dl>
+<table class="table my-5"><thead><tr><th>품목 / 내역</th><th>공급가액</th><th>부가세</th></tr></thead><tbody><tr><td>{{ data.title }}</td><td>{{ data.supply|intcomma }}원</td><td>{{ data.vat|intcomma }}원</td></tr></tbody></table>
+<footer>{% if kind == 'bill' %}청구금액{% else %}합계금액{% endif %} <strong>{{ data.total|intcomma }}원</strong></footer></article>
+{% endblock %}

@@ -550,6 +550,12 @@ def record_hard_delete(request, kind, record_id):
         return HttpResponseBadRequest("완전 삭제 대상을 확인하세요.")
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
+            if kind in ("claim","payment"):
+                key = "claim_id" if kind == "claim" else "payment_request_id"
+                cur.execute(f"SELECT 1 FROM fin.allocations WHERE {key}=%s LIMIT 1",[record_id])
+                if cur.fetchone():
+                    messages.error(request,"확정된 배분이 있습니다. 원본에서 연결을 해제하세요.")
+                    return redirect("tenant:finance_trash")
             if kind == "claim":
                 cur.execute("UPDATE fin.tax_invoices SET claim_id=NULL WHERE claim_id=%s", [str(record_id)])
                 cur.execute("UPDATE fin.transactions SET claim_id=NULL WHERE claim_id=%s", [str(record_id)])
@@ -581,8 +587,10 @@ def contract_finance_summary(request, contract_id):
         payreq = Decimal(cur.fetchone()[0] or 0)
         cur.execute("SELECT COALESCE(SUM(amount),0) FROM fin.transactions WHERE contract_id=%s AND transaction_type=%s AND is_deleted=false", [str(contract_id), out_code])
         paid = Decimal(cur.fetchone()[0] or 0)
+    from .finance_pages_v4 import balance_totals
+    balances = balance_totals(alias,contract_id=str(contract_id))
     return JsonResponse({
         "contract_amount": amount, "claimed": claimed, "received": received,
-        "unclaimed": max(amount - claimed, Decimal("0")), "receivable": max(claimed - received, Decimal("0")),
-        "payment_requested": payreq, "paid": paid, "payable": max(payreq - paid, Decimal("0")),
+        "unclaimed": max(amount - claimed, Decimal("0")), "receivable": balances["receivable"],
+        "payment_requested": payreq, "paid": paid, "payable": balances["payable"],
     })

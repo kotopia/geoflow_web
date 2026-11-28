@@ -48,6 +48,7 @@ class OverviewTests(SimpleTestCase):
         states = {str(c.id): {'filter_key': 'active', 'major_label': '수행', 'is_complete': False}
                   for c in contracts}
         request = RequestFactory().get('/')
+        request.session = {}
         with patch.object(views_dashboard, 'require_tenant_context', return_value='tenant_a'), \
              patch.object(views_dashboard, 'gf_has_perm') as permission, \
              patch.object(views_dashboard, 'visible_projects') as projects, \

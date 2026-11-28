@@ -7,6 +7,10 @@
     <div><h1 class="h3 mb-1">관리자 종합 현황</h1><div class="text-muted small">전체 기간 · 현재 테넌트에서 열람 가능한 업무 기준</div></div>
     <span class="text-muted">{{ today|date:'Y.m.d' }}</span>
   </div>
+  {% if service_menus.finance and finance_totals %}<section class="card"><div class="card-body"><h2 class="h5">재무 현황</h2>
+<a class="me-4" href="{% url 'tenant:finance_claims' %}?outstanding=1">미수금 {{ finance_totals.receivable|intcomma }}원</a>
+<a href="{% url 'tenant:finance_payments' %}?outstanding=1">미지급금 {{ finance_totals.payable|intcomma }}원</a></div></section>
+{% elif service_menus.finance and finance_error %}<p>재무 현황을 불러올 수 없습니다.</p>{% endif %}
   {% if overview_error %}<div class="alert alert-danger" role="alert">업무 현황을 조회하지 못했습니다. 잠시 후 새로고침해 주세요.</div>{% else %}
   <div class="row">
     {% for card in cards %}<div class="col-md-6"><div class="card"><div class="card-body">

@@ -11,7 +11,7 @@ from django.test import RequestFactory, SimpleTestCase
 
 from geoflow_ops import (
     event_security_views, finance_attachment_views, finance_documents_views,
-    finance_import_views_v5, finance_security_views, upload_guard_views,
+    finance_import_views_v5, finance_security_views, finance_settlement, upload_guard_views,
     views_calendar, views_events, views_uploads, views_workboard,
 )
 from geoflow_ops.models import ProcessEvent
@@ -115,12 +115,22 @@ class FinanceRoutePermissionTests(SimpleTestCase):
                 with self.subTest(view=view.__name__), self.assertRaises(PermissionDenied):
                     view(request_for({"finance.view"}, method="post", roles={"tenant_admin"}), "invoice", uuid4())
 
+    def test_settlement_changes_require_edit_before_record_lookup(self):
+        with patch("geoflow_ops.services.entity_access.current_db_alias", return_value="tenant-test"):
+            for view, args in (
+                (finance_settlement.reconcile, ("invoice", uuid4())),
+                (finance_settlement.claim_document, (uuid4(), "bill")),
+                (finance_security_views.classify_transactions, ()),
+            ):
+                with self.subTest(view=view.__name__), self.assertRaises(PermissionDenied):
+                    view(request_for({"finance.view"}, method="post"), *args)
+
     @patch("geoflow_ops.finance_pages_v4.finance_section")
     def test_finance_reader_can_enter_without_contract_permissions(self, section):
         with patch("geoflow_ops.services.entity_access.current_db_alias", return_value="tenant-test"):
             request = request_for({"finance.view"})
             finance_security_views.finance_page(request)
-        section.assert_called_once_with(request, "dashboard")
+        section.assert_called_once_with(request, "claims")
 
     def test_finance_editor_can_write_without_contract_permissions(self):
         with patch("geoflow_ops.services.entity_access.current_db_alias", return_value="tenant-test"):

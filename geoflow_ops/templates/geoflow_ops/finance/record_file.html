@@ -1,0 +1,8 @@
+<details data-fin-attachment-panel data-record-type="{{ kind }}" data-record-id="{{ id }}">
+  <summary>{{ label }} · {% if attachment %}등록{% else %}미등록{% endif %}</summary>
+  <form onsubmit="return false">{% csrf_token %}
+    {% if attachment %}<button type="button" class="btn btn-link" data-fin-attachment-download>내려받기</button>{% endif %}
+    {% if can_write %}<input type="file" aria-label="{{ label }}" data-fin-attachment-file><button type="button" class="btn btn-light" data-fin-attachment-upload>올리기</button>{% endif %}
+    <small role="status" data-fin-attachment-status></small>
+  </form>
+</details>

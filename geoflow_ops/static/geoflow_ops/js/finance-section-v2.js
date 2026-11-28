@@ -42,7 +42,7 @@
   function applyAccount(form){var a=form.querySelector(".js-fin-account"),org=form.querySelector(".js-fin-org");if(!a||!a.value)return;var o=selectedOption(a),orgId=o?o.dataset.orgUnitId||"":"";if(orgId)setSelect(org,orgId);}
 
   var maps={
-    claim:{record_id:"id",claim_date:"date",due_date:"dueDate",expected_receipt_date:"receiptDate",title:"titleValue",contract_id:"contractId",partner_id:"partnerId",my_org_unit_id:"orgUnitId",claim_type:"claimType",supply_amount:"supply",vat_amount:"vat",total_amount:"total",status:"status",memo:"memo"},
+    claim:{record_id:"id",claim_date:"date",due_date:"dueDate",expected_receipt_date:"receiptDate",title:"titleValue",contract_id:"contractId",partner_id:"partnerId",my_org_unit_id:"orgUnitId",claim_type:"claimType",installment:"installment",supply_amount:"supply",vat_amount:"vat",total_amount:"total",status:"status",memo:"memo"},
     invoice:{record_id:"id",written_date:"writtenDate",issued_date:"issuedDate",invoice_type:"type",contract_id:"contractId",partner_id:"partnerId",my_org_unit_id:"orgUnitId",claim_id:"claimId",payment_request_id:"paymentId",approval_no:"approvalNo",supply_amount:"supply",vat_amount:"vat",total_amount:"total",status:"status",memo:"memo"},
     payment:{record_id:"id",request_date:"date",due_date:"dueDate",title:"titleValue",contract_id:"contractId",partner_id:"partnerId",my_org_unit_id:"orgUnitId",amount:"amount",category_code:"category",status:"status",memo:"memo"},
     transaction:{record_id:"id",transaction_date:"date",transaction_type:"type",amount:"amount",contract_id:"contractId",partner_id:"partnerId",my_org_unit_id:"orgUnitId",account_id:"accountId",description:"description",claim_id:"claimId",payment_request_id:"paymentId",category_code:"category",evidence_type:"evidence",memo:"memo"}
@@ -62,7 +62,7 @@
     var putHeaders=Object.assign({},pdata.headers||{});if(!putHeaders["Content-Type"]&&file.type)putHeaders["Content-Type"]=file.type;
     var put=await fetch(pdata.presigned_url,{method:"PUT",headers:putHeaders,body:file});if(!put.ok)throw new Error("S3 업로드 실패");
     var commit=await fetch("/finance/attachments/commit/",{method:"POST",headers:{"Content-Type":"application/json","X-CSRFToken":token},credentials:"same-origin",body:JSON.stringify({record_type:type,record_id:id,object_key:pdata.object_key,filename:file.name})});
-    var cdata=await commit.json();if(!commit.ok)throw new Error(cdata.error||"첨부 저장 실패");panel.dataset.hasAttachment="1";if(status)status.textContent="첨부 완료: "+(cdata.original_name||file.name);
+    var cdata=await commit.json();if(!commit.ok)throw new Error(cdata.error||"첨부 저장 실패");panel.dataset.hasAttachment="1";if(status)status.textContent="첨부 완료: "+(cdata.original_name||file.name);if(panel.tagName==="DETAILS")window.location.reload();
   }
   async function downloadAttachment(panel){var id=panel.dataset.recordId,type=panel.dataset.recordType,status=panel.querySelector("[data-fin-attachment-status]");if(!id)return;var r=await fetch("/finance/attachments/"+type+"/"+id+"/download/",{credentials:"same-origin"}),data=await r.json();if(!r.ok){if(status)status.textContent=data.error||"첨부가 없습니다.";return;}window.location.href=data.presigned_url;}
 
