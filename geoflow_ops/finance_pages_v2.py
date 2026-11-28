@@ -157,7 +157,7 @@ def _rows(alias, section=None):
                        (SELECT issued_at FROM fin.claim_documents WHERE claim_id=c.id AND kind='bill'),
                        (SELECT submitted_at FROM fin.claim_documents WHERE claim_id=c.id AND kind='bill'),
                        (SELECT issued_at FROM fin.claim_documents WHERE claim_id=c.id AND kind='statement'),
-                       ARRAY(SELECT l.invoice_id::text FROM fin.confirmed_links l JOIN fin.tax_invoices i ON i.id=l.invoice_id WHERE l.claim_id=c.id AND (i.issued_date IS NOT NULL OR NULLIF(i.approval_no,'') IS NOT NULL))
+                       ARRAY(SELECT l.invoice_id::text FROM fin.issued_invoice_links l WHERE l.claim_id=c.id)
                   FROM fin.claims c
                   LEFT JOIN ctr.partners p ON p.id=c.partner_id
                   LEFT JOIN ctr.contracts k ON k.id=c.contract_id
@@ -210,7 +210,7 @@ def _rows(alias, section=None):
                        COALESCE(q.status,''),COALESCE(q.memo,''),
                        COALESCE((SELECT settled FROM fin.settlements WHERE payment_request_id=q.id),0)
                        ,q.bill_attachment_id,q.statement_attachment_id,
-                       ARRAY(SELECT l.invoice_id::text FROM fin.confirmed_links l JOIN fin.tax_invoices i ON i.id=l.invoice_id WHERE l.payment_request_id=q.id AND (i.issued_date IS NOT NULL OR NULLIF(i.approval_no,'') IS NOT NULL))
+                       ARRAY(SELECT l.invoice_id::text FROM fin.issued_invoice_links l WHERE l.payment_request_id=q.id)
                   FROM fin.payment_requests q
                   LEFT JOIN ctr.partners p ON p.id=q.partner_id
                   LEFT JOIN ctr.contracts k ON k.id=q.contract_id
@@ -367,9 +367,12 @@ def invoice_save(request):
             else:
                 cur.execute("""INSERT INTO fin.tax_invoices(written_date,issued_date,invoice_type,partner_id,contract_id,project_id,
                     my_org_unit_id,claim_id,payment_request_id,supply_amount,vat_amount,total_amount,approval_no,status,memo,created_by,source_type)
-                    VALUES(NULLIF(%s,'')::date,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual')""",
+                    VALUES(NULLIF(%s,'')::date,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual') RETURNING id""",
                     params + [legacy._actor(request)])
+                record_id = cur.fetchone()[0]
                 messages.success(request, "세금계산서를 등록했습니다.")
+    if request.POST.get("connect"):
+        return redirect("tenant:finance_reconcile",kind="invoice",record_id=record_id)
     return redirect("tenant:finance_invoices")
 
 
@@ -428,9 +431,12 @@ def transaction_save(request):
             else:
                 cur.execute("""INSERT INTO fin.transactions(transaction_date,transaction_type,amount,partner_id,account_id,description,contract_id,
                     project_id,my_org_unit_id,claim_id,payment_request_id,category_code,evidence_type,memo,created_by,source_type)
-                    VALUES(NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual')""",
+                    VALUES(NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual') RETURNING id""",
                     params + [legacy._actor(request)])
+                record_id = cur.fetchone()[0]
                 messages.success(request, "입출금 내역을 등록했습니다.")
+    if request.POST.get("connect"):
+        return redirect("tenant:finance_reconcile",kind="transaction",record_id=record_id)
     return redirect("tenant:finance_ledger")
 
 

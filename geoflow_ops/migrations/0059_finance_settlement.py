@@ -30,6 +30,13 @@ UNION ALL
 SELECT NULL,id,claim_id,payment_request_id,amount FROM fin.transactions
 WHERE NOT is_deleted AND num_nonnulls(claim_id,payment_request_id)>0;
 
+CREATE VIEW fin.issued_invoice_links AS
+SELECT l.* FROM fin.confirmed_links l JOIN fin.tax_invoices i ON i.id=l.invoice_id
+WHERE i.status IS DISTINCT FROM COALESCE((SELECT code FROM ops.settings_nodes
+    WHERE system_key='finance.value.invoice_status.cancelled' AND active LIMIT 1),'cancelled')
+AND (i.issued_date IS NOT NULL OR NULLIF(i.approval_no,'') IS NOT NULL OR i.status=COALESCE(
+    (SELECT code FROM ops.settings_nodes WHERE system_key='finance.value.invoice_status.issued' AND active LIMIT 1),'issued'));
+
 CREATE VIEW fin.settlements AS
 SELECT claim_id,payment_request_id,
        COALESCE(sum(amount) FILTER (WHERE transaction_id IS NOT NULL),0) AS settled
