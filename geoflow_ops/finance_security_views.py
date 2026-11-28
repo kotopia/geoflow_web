@@ -7,6 +7,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from control.gf_authz.permissions import gf_has_role
 
+from .finance_settlement import save_record
 from . import views_finance
 from . import finance_pages_v2
 from . import finance_pages_v3
@@ -105,7 +106,7 @@ def _validate_contract_account_org(alias, request):
 @require_GET
 def finance_page(request):
     _require_view(request)
-    return finance_pages_v4.finance_section(request, "dashboard")
+    return finance_pages_v4.finance_section(request, "claims")
 
 
 @login_required
@@ -140,7 +141,9 @@ def finance_ledger(request):
 @require_GET
 def finance_balance(request):
     _require_view(request)
-    return finance_pages_v4.finance_section(request, "balance")
+    from django.shortcuts import redirect
+    from django.urls import reverse
+    return redirect(reverse("tenant:finance_claims") + "?outstanding=1")
 
 
 @login_required
@@ -186,7 +189,7 @@ def claim_save(request):
         error = _validate_reference(alias, request, field_ref, post_name)
         if error:
             return error
-    return finance_pages_v2.claim_save(request)
+    return save_record(request, alias, "claim", finance_pages_v2.claim_save)
 
 
 @login_required
@@ -207,7 +210,7 @@ def invoice_save(request):
         return HttpResponseBadRequest("매출 세금계산서는 지급건에 연결할 수 없습니다.")
     if invoice_type == purchase_code and claim_id:
         return HttpResponseBadRequest("매입 세금계산서는 청구건에 연결할 수 없습니다.")
-    return finance_pages_v2.invoice_save(request)
+    return save_record(request, alias, "invoice", finance_pages_v2.invoice_save)
 
 
 @login_required
@@ -219,7 +222,7 @@ def payment_request_save(request):
         error = _validate_reference(alias, request, field_ref, post_name)
         if error:
             return error
-    return finance_pages_v2.payment_save(request)
+    return save_record(request, alias, "payment", finance_pages_v2.payment_save)
 
 
 @login_required
@@ -247,7 +250,7 @@ def transaction_save(request):
         return HttpResponseBadRequest("입금은 지급건에 연결할 수 없습니다.")
     if transaction_type == outgoing_code and claim_id:
         return HttpResponseBadRequest("출금은 청구건에 연결할 수 없습니다.")
-    return finance_pages_v2.transaction_save(request)
+    return save_record(request, alias, "transaction", finance_pages_v2.transaction_save)
 
 
 @login_required
@@ -304,3 +307,30 @@ def record_hard_delete(request, kind, record_id):
 def contract_finance_summary(request, contract_id):
     _require_view(request)
     return views_finance.contract_finance_summary(request, contract_id)
+
+
+@login_required
+@require_POST
+def classify_transactions(request):
+    from uuid import UUID
+    from django.db import transaction
+    from django.shortcuts import redirect
+
+    alias = _require_write(request)
+    category = request.POST.get("category_code")
+    if not _active_reference_code(alias, "finance.transaction_category", category):
+        return HttpResponseBadRequest("분류를 선택하세요.")
+    try:
+        selected = {UUID(value) for value in request.POST.getlist("record")}
+    except ValueError:
+        return HttpResponseBadRequest("선택한 거래를 확인하세요.")
+    if not selected:
+        return HttpResponseBadRequest("거래를 하나 이상 선택하세요.")
+    with transaction.atomic(using=alias), connections[alias].cursor() as cur:
+        cur.execute("""SELECT id FROM fin.transactions WHERE id=ANY(%s::uuid[]) AND NOT is_deleted
+                       ORDER BY id FOR UPDATE""",[list(map(str,selected))])
+        if {r[0] for r in cur.fetchall()} != selected:
+            return HttpResponseBadRequest("거래가 변경되었습니다. 목록을 다시 확인하세요.")
+        cur.execute("UPDATE fin.transactions SET category_code=%s,updated_at=now() WHERE id=ANY(%s::uuid[])",
+                    [category,list(map(str,selected))])
+    return redirect("tenant:finance_ledger")

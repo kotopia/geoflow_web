@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from django.core.paginator import Paginator
 
 from django.db import connections
 from django.http import JsonResponse
@@ -42,62 +42,60 @@ def _filter_rows(rows, org_id):
     return [row for row in rows if str(row.get("org_unit_id") or "") == str(org_id)]
 
 
-def _dashboard_for_org(alias, org_id):
-    if not org_id:
-        return v2.legacy._dashboard(alias)
-    in_code = v2.legacy._semantic_code(alias, "finance.value.transaction_type.in", "in")
-    out_code = v2.legacy._semantic_code(alias, "finance.value.transaction_type.out", "out")
-    cancelled_claim = v2.legacy._semantic_code(alias, "finance.value.claim_status.cancelled", "cancelled")
-    cancelled_payment = v2.legacy._semantic_code(alias, "finance.value.payment_status.cancelled", "cancelled")
-    with connections[alias].cursor() as cur:
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM ctr.contracts WHERE org_unit_id=%s", [org_id])
-        contract_total = cur.fetchone()[0] or 0
-        cur.execute("SELECT COALESCE(SUM(total_amount),0) FROM fin.claims WHERE is_deleted=false AND my_org_unit_id=%s AND COALESCE(status,'')<>%s", [org_id, cancelled_claim])
-        claim_total = cur.fetchone()[0] or 0
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM fin.transactions WHERE is_deleted=false AND my_org_unit_id=%s AND transaction_type=%s", [org_id, in_code])
-        received_total = cur.fetchone()[0] or 0
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM fin.payment_requests WHERE is_deleted=false AND my_org_unit_id=%s AND COALESCE(status,'')<>%s", [org_id, cancelled_payment])
-        payment_total = cur.fetchone()[0] or 0
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM fin.transactions WHERE is_deleted=false AND my_org_unit_id=%s AND transaction_type=%s", [org_id, out_code])
-        paid_total = cur.fetchone()[0] or 0
-    return {
-        "contract_total": contract_total,
-        "claim_total": claim_total,
-        "received_total": received_total,
-        "unclaimed_total": max(Decimal(contract_total) - Decimal(claim_total), Decimal("0")),
-        "receivable_total": max(Decimal(claim_total) - Decimal(received_total), Decimal("0")),
-        "payment_total": payment_total,
-        "paid_total": paid_total,
-        "payable_total": max(Decimal(payment_total) - Decimal(paid_total), Decimal("0")),
-    }
+def balance_totals(alias, org_id="", contract_id=""):
+    totals = {}
+    for key, table, amount, link, cancelled in (
+        ("receivable", "claims", "total_amount", "claim_id", "claim_status"),
+        ("payable", "payment_requests", "amount", "payment_request_id", "payment_status"),
+    ):
+        code = v2.legacy._semantic_code(alias, f"finance.value.{cancelled}.cancelled", "cancelled")
+        with connections[alias].cursor() as cur:
+            cur.execute(f"""SELECT COALESCE(sum(greatest(t.{amount}-coalesce(s.settled,0),0)),0)
+                FROM fin.{table} t LEFT JOIN fin.settlements s ON s.{link}=t.id
+                WHERE NOT t.is_deleted AND t.status IS DISTINCT FROM %s
+                AND (%s='' OR t.my_org_unit_id::text=%s) AND (%s='' OR t.contract_id::text=%s)""",
+                [code,org_id,org_id,contract_id,contract_id])
+            totals[key] = cur.fetchone()[0]
+    return totals
 
 
-def finance_section(request, section="dashboard"):
+def finance_section(request, section="claims"):
     alias = require_tenant_context(request)
     org_units, contracts, partners, accounts, cards = v2._master_data(alias)
     selected_org = _selected_org(request, org_units)
-    claims, invoices, payments, transactions = v2._rows(alias)
+    claims, invoices, payments, transactions = v2._rows(alias, section)
     claims = _filter_rows(claims, selected_org)
     invoices = _filter_rows(invoices, selected_org)
     payments = _filter_rows(payments, selected_org)
     transactions = _filter_rows(transactions, selected_org)
+    outstanding = request.GET.get("outstanding") == "1"
+    if outstanding:
+        for key, items in (("claim_status", claims), ("payment_status", payments)):
+            cancelled = v2.legacy._semantic_code(alias, f"finance.value.{key}.cancelled", "cancelled")
+            items[:] = [r for r in items if r["balance"] > 0 and r["status"] != cancelled]
+    if request.GET.get("id"):
+        invoices = [r for r in invoices if r["id"] == request.GET["id"]]
     if selected_org:
         accounts = [a for a in accounts if str(a.get("org_unit_id") or "") == selected_org]
         cards = [c for c in cards if str(c.get("org_unit_id") or "") == selected_org]
+    listing = {"claims":claims, "payments":payments, "ledger":transactions, "invoices":invoices}
+    size = 30 if request.GET.get("size") == "30" else 15
+    page = Paginator(listing[section], size).get_page(request.GET.get("page"))
+    listing[section] = page.object_list
+    query = request.GET.copy()
+    query.pop("page", None)
     return render(request, "geoflow_ops/finance/finance_section.html", {
         "finance_section": section,
-        "finance": _dashboard_for_org(alias, selected_org),
+        "outstanding": outstanding,
         "org_units": org_units,
         "finance_selected_org": selected_org,
         "contracts": contracts,
         "partners": partners,
         "accounts": accounts,
         "cards": cards,
-        "claims": claims,
-        "invoices": invoices,
-        "payments": payments,
-        "transactions": transactions,
-        "trash": v2.legacy._trash(alias),
+        **listing,
+        "page":page,
+        "query":query.urlencode(),
         "refs": v2._refs(alias),
         "can_write": can_edit_finance(request),
         "can_hard_delete": can_edit_finance(request) and gf_has_role(request, "tenant_admin"),

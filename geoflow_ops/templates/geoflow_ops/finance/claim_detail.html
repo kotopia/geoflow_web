@@ -1,0 +1,19 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize %}
+{% block content %}
+<a href="{% url 'tenant:finance_claims' %}">청구 목록</a>
+<h1 class="h3 mt-3">{{ claim.title }}</h1><p>{{ claim.contract }} · {{ claim.partner|default:"거래처 미지정" }}</p>
+<div class="card"><div class="card-body"><div class="row">
+<div class="col"><small>청구액</small><div>{{ claim.total_amount|intcomma }}원</div></div>
+<div class="col"><small>수금액</small><div>{{ claim.received|intcomma }}원</div></div>
+<div class="col"><small>미수 잔액</small><div><strong>{{ claim.balance|intcomma }}원</strong></div></div>
+<div class="col"><small>입금 예정일</small><div>{{ claim.expected|date:"Y-m-d"|default:"예정일 미정" }}</div></div>
+</div></div></div>
+<div class="card"><div class="card-body"><h2 class="h5">청구 서류</h2>
+<p><a href="{% url 'tenant:finance_claim_document' id 'bill' %}">청구서</a> · {% if documents.bill.submitted_at %}제출 {{ documents.bill.submitted_at|date:"Y-m-d" }}{% elif documents.bill %}발급 {{ documents.bill.issued_at|date:"Y-m-d" }}{% else %}미작성{% endif %}</p>
+<p><a href="{% url 'tenant:finance_claim_document' id 'statement' %}">거래명세서</a> · {% if documents.statement %}발급 {{ documents.statement.issued_at|date:"Y-m-d" }}{% else %}미작성{% endif %}</p>
+<a href="{% url 'tenant:finance_invoices' %}">세금계산서 목록</a></div></div>
+<table class="table"><caption>연결된 세금계산서와 입금 내역</caption><thead><tr><th>자료</th><th>일자</th><th>승인번호</th><th>연결 금액</th></tr></thead><tbody>
+{% for row in links %}<tr><td>{% if row.invoice_id %}<a href="{% url 'tenant:finance_reconcile' 'invoice' row.invoice_id %}">세금계산서</a>{% else %}<a href="{% url 'tenant:finance_reconcile' 'transaction' row.transaction_id %}">입금 내역</a>{% endif %}</td><td>{{ row.date|date:"Y-m-d" }}</td><td>{{ row.approval_no|default:"—" }}</td><td>{{ row.amount|intcomma }}원</td></tr>
+{% empty %}<tr><td colspan="4">연결된 자료가 없습니다.</td></tr>{% endfor %}</tbody></table>
+{% endblock %}

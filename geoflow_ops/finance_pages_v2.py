@@ -143,105 +143,117 @@ def _master_data(alias):
     return org_units, contracts, partners, accounts, cards
 
 
-def _rows(alias):
+def _rows(alias, section=None):
+    claims, invoices, payments, transactions = [], [], [], []
     with connections[alias].cursor() as cur:
-        cur.execute(
-            """
-            SELECT c.id::text,c.claim_date,c.due_date,c.expected_receipt_date,c.title,c.partner_id::text,COALESCE(p.name,''),
-                   c.contract_id::text,COALESCE(k.name,''),c.my_org_unit_id::text,COALESCE(o.name,''),
-                   c.supply_amount,c.vat_amount,c.total_amount,COALESCE(c.claim_type,''),COALESCE(c.status,''),COALESCE(c.memo,''),
-                   COALESCE((SELECT SUM(t.amount) FROM fin.transactions t WHERE t.claim_id=c.id AND t.is_deleted=false),0)
-              FROM fin.claims c
-              LEFT JOIN ctr.partners p ON p.id=c.partner_id
-              LEFT JOIN ctr.contracts k ON k.id=c.contract_id
-              LEFT JOIN ops.my_org_units o ON o.id=c.my_org_unit_id
-             WHERE c.is_deleted=false
-             ORDER BY c.claim_date DESC NULLS LAST,c.created_at DESC
-             LIMIT 1000
-            """
-        )
-        claims = []
-        for r in cur.fetchall():
-            claims.append({
-                "id": r[0], "date": r[1], "due_date": r[2], "expected_receipt_date": r[3], "title": r[4],
-                "partner_id": r[5] or "", "partner": r[6], "contract_id": r[7] or "", "contract": r[8],
-                "org_unit_id": r[9] or "", "org_unit": r[10], "supply": r[11], "vat": r[12], "total": r[13],
-                "claim_type": r[14], "status": r[15], "memo": r[16], "received": r[17],
-                "balance": Decimal(r[13] or 0) - Decimal(r[17] or 0),
-            })
+        if section is None or section == "claims":
+            cur.execute(
+                """
+                SELECT c.id::text,c.claim_date,c.due_date,c.expected_receipt_date,c.title,c.partner_id::text,COALESCE(p.name,''),
+                       c.contract_id::text,COALESCE(k.name,''),c.my_org_unit_id::text,COALESCE(o.name,''),
+                       c.supply_amount,c.vat_amount,c.total_amount,COALESCE(c.claim_type,''),COALESCE(c.status,''),COALESCE(c.memo,''),
+                       COALESCE((SELECT settled FROM fin.settlements WHERE claim_id=c.id),0)
+                  , c.installment,
+                       (SELECT issued_at FROM fin.claim_documents WHERE claim_id=c.id AND kind='bill'),
+                       (SELECT submitted_at FROM fin.claim_documents WHERE claim_id=c.id AND kind='bill'),
+                       (SELECT issued_at FROM fin.claim_documents WHERE claim_id=c.id AND kind='statement'),
+                       ARRAY(SELECT l.invoice_id::text FROM fin.issued_invoice_links l WHERE l.claim_id=c.id)
+                  FROM fin.claims c
+                  LEFT JOIN ctr.partners p ON p.id=c.partner_id
+                  LEFT JOIN ctr.contracts k ON k.id=c.contract_id
+                  LEFT JOIN ops.my_org_units o ON o.id=c.my_org_unit_id
+                 WHERE c.is_deleted=false
+                 ORDER BY c.claim_date DESC NULLS LAST,c.created_at DESC
 
-        cur.execute(
-            """
-            SELECT i.id::text,i.written_date,i.issued_date,COALESCE(i.invoice_type,''),i.partner_id::text,
-                   COALESCE(p.name,i.source_partner_name,''),i.contract_id::text,COALESCE(k.name,''),
-                   i.my_org_unit_id::text,COALESCE(o.name,''),i.claim_id::text,i.payment_request_id::text,
-                   i.supply_amount,i.vat_amount,i.total_amount,COALESCE(i.approval_no,''),COALESCE(i.status,''),
-                   COALESCE(i.memo,''),COALESCE(i.source_type,'manual'),i.attachment_id::text
-              FROM fin.tax_invoices i
-              LEFT JOIN ctr.partners p ON p.id=i.partner_id
-              LEFT JOIN ctr.contracts k ON k.id=i.contract_id
-              LEFT JOIN ops.my_org_units o ON o.id=i.my_org_unit_id
-             WHERE i.is_deleted=false
-             ORDER BY COALESCE(i.issued_date,i.written_date) DESC NULLS LAST,i.created_at DESC
-             LIMIT 1000
-            """
-        )
-        invoices = [
-            {"id": r[0], "written_date": r[1], "issued_date": r[2], "type": r[3], "partner_id": r[4] or "",
-             "partner": r[5], "contract_id": r[6] or "", "contract": r[7], "org_unit_id": r[8] or "", "org_unit": r[9],
-             "claim_id": r[10] or "", "payment_request_id": r[11] or "", "supply": r[12], "vat": r[13], "total": r[14],
-             "approval_no": r[15], "status": r[16], "memo": r[17], "source_type": r[18], "attachment_id": r[19] or ""}
-            for r in cur.fetchall()
-        ]
+                """
+            )
+            claims = []
+            for r in cur.fetchall():
+                claims.append({
+                    "id": r[0], "date": r[1], "due_date": r[2], "expected_receipt_date": r[3], "title": r[4],
+                    "partner_id": r[5] or "", "partner": r[6], "contract_id": r[7] or "", "contract": r[8],
+                    "org_unit_id": r[9] or "", "org_unit": r[10], "supply": r[11], "vat": r[12], "total": r[13],
+                    "claim_type": r[14], "status": r[15], "memo": r[16], "received": r[17], "installment":r[18], "bill":r[19], "submitted":r[20], "statement":r[21], "issued_invoices":r[22],
+                    "balance": Decimal(r[13] or 0) - Decimal(r[17] or 0),
+                })
 
-        cur.execute(
-            """
-            SELECT q.id::text,q.request_date,q.due_date,q.title,q.partner_id::text,COALESCE(p.name,''),q.contract_id::text,
-                   COALESCE(k.name,''),q.my_org_unit_id::text,COALESCE(o.name,''),q.amount,COALESCE(q.category_code,''),
-                   COALESCE(q.status,''),COALESCE(q.memo,''),
-                   COALESCE((SELECT SUM(t.amount) FROM fin.transactions t WHERE t.payment_request_id=q.id AND t.is_deleted=false),0)
-              FROM fin.payment_requests q
-              LEFT JOIN ctr.partners p ON p.id=q.partner_id
-              LEFT JOIN ctr.contracts k ON k.id=q.contract_id
-              LEFT JOIN ops.my_org_units o ON o.id=q.my_org_unit_id
-             WHERE q.is_deleted=false
-             ORDER BY q.request_date DESC NULLS LAST,q.created_at DESC
-             LIMIT 1000
-            """
-        )
-        payments = []
-        for r in cur.fetchall():
-            payments.append({
-                "id": r[0], "date": r[1], "due_date": r[2], "title": r[3], "partner_id": r[4] or "", "partner": r[5],
-                "contract_id": r[6] or "", "contract": r[7], "org_unit_id": r[8] or "", "org_unit": r[9],
-                "amount": r[10], "category": r[11], "status": r[12], "memo": r[13], "paid": r[14],
-                "balance": Decimal(r[10] or 0) - Decimal(r[14] or 0),
-            })
+        if section is None or section == "invoices":
+            cur.execute(
+                """
+                SELECT i.id::text,i.written_date,i.issued_date,COALESCE(i.invoice_type,''),i.partner_id::text,
+                       COALESCE(p.name,i.source_partner_name,''),i.contract_id::text,COALESCE(k.name,''),
+                       i.my_org_unit_id::text,COALESCE(o.name,''),i.claim_id::text,i.payment_request_id::text,
+                       i.supply_amount,i.vat_amount,i.total_amount,COALESCE(i.approval_no,''),COALESCE(i.status,''),
+                       COALESCE(i.memo,''),COALESCE(i.source_type,'manual'),i.attachment_id::text
+                  FROM fin.tax_invoices i
+                  LEFT JOIN ctr.partners p ON p.id=i.partner_id
+                  LEFT JOIN ctr.contracts k ON k.id=i.contract_id
+                  LEFT JOIN ops.my_org_units o ON o.id=i.my_org_unit_id
+                 WHERE i.is_deleted=false
+                 ORDER BY COALESCE(i.issued_date,i.written_date) DESC NULLS LAST,i.created_at DESC
 
-        cur.execute(
-            """
-            SELECT t.id::text,t.transaction_date,COALESCE(t.transaction_type,''),t.amount,t.partner_id::text,
-                   COALESCE(p.name,t.source_partner_name,''),t.account_id::text,COALESCE(a.bank_name||' '||a.account_name,''),
-                   COALESCE(t.description,''),t.contract_id::text,COALESCE(k.name,''),t.my_org_unit_id::text,COALESCE(o.name,''),
-                   t.claim_id::text,t.payment_request_id::text,COALESCE(t.category_code,''),COALESCE(t.evidence_type,''),
-                   COALESCE(t.memo,''),COALESCE(t.source_type,'manual'),t.evidence_attachment_id::text
-              FROM fin.transactions t
-              LEFT JOIN ctr.partners p ON p.id=t.partner_id
-              LEFT JOIN fin.accounts a ON a.id=t.account_id
-              LEFT JOIN ctr.contracts k ON k.id=t.contract_id
-              LEFT JOIN ops.my_org_units o ON o.id=t.my_org_unit_id
-             WHERE t.is_deleted=false
-             ORDER BY t.transaction_date DESC,t.created_at DESC
-             LIMIT 1500
-            """
-        )
-        transactions = [
-            {"id": r[0], "date": r[1], "type": r[2], "amount": r[3], "partner_id": r[4] or "", "partner": r[5],
-             "account_id": r[6] or "", "account": r[7], "description": r[8], "contract_id": r[9] or "", "contract": r[10],
-             "org_unit_id": r[11] or "", "org_unit": r[12], "claim_id": r[13] or "", "payment_request_id": r[14] or "",
-             "category": r[15], "evidence": r[16], "memo": r[17], "source_type": r[18], "attachment_id": r[19] or ""}
-            for r in cur.fetchall()
-        ]
+                """
+            )
+            invoices = [
+                {"id": r[0], "written_date": r[1], "issued_date": r[2], "type": r[3], "partner_id": r[4] or "",
+                 "partner": r[5], "contract_id": r[6] or "", "contract": r[7], "org_unit_id": r[8] or "", "org_unit": r[9],
+                 "claim_id": r[10] or "", "payment_request_id": r[11] or "", "supply": r[12], "vat": r[13], "total": r[14],
+                 "approval_no": r[15], "status": r[16], "memo": r[17], "source_type": r[18], "attachment_id": r[19] or ""}
+                for r in cur.fetchall()
+            ]
+
+        if section is None or section == "payments":
+            cur.execute(
+                """
+                SELECT q.id::text,q.request_date,q.due_date,q.title,q.partner_id::text,COALESCE(p.name,''),q.contract_id::text,
+                       COALESCE(k.name,''),q.my_org_unit_id::text,COALESCE(o.name,''),q.amount,COALESCE(q.category_code,''),
+                       COALESCE(q.status,''),COALESCE(q.memo,''),
+                       COALESCE((SELECT settled FROM fin.settlements WHERE payment_request_id=q.id),0)
+                       ,q.bill_attachment_id,q.statement_attachment_id,
+                       ARRAY(SELECT l.invoice_id::text FROM fin.issued_invoice_links l WHERE l.payment_request_id=q.id)
+                  FROM fin.payment_requests q
+                  LEFT JOIN ctr.partners p ON p.id=q.partner_id
+                  LEFT JOIN ctr.contracts k ON k.id=q.contract_id
+                  LEFT JOIN ops.my_org_units o ON o.id=q.my_org_unit_id
+                 WHERE q.is_deleted=false
+                 ORDER BY q.request_date DESC NULLS LAST,q.created_at DESC
+
+                """
+            )
+            payments = []
+            for r in cur.fetchall():
+                payments.append({
+                    "id": r[0], "date": r[1], "due_date": r[2], "title": r[3], "partner_id": r[4] or "", "partner": r[5],
+                    "contract_id": r[6] or "", "contract": r[7], "org_unit_id": r[8] or "", "org_unit": r[9],
+                    "amount": r[10], "category": r[11], "status": r[12], "memo": r[13], "paid": r[14], "bill_attachment":r[15], "statement_attachment":r[16], "issued_invoices":r[17],
+                    "balance": Decimal(r[10] or 0) - Decimal(r[14] or 0),
+                })
+
+        if section is None or section == "ledger":
+            cur.execute(
+                """
+                SELECT t.id::text,t.transaction_date,COALESCE(t.transaction_type,''),t.amount,t.partner_id::text,
+                       COALESCE(p.name,t.source_partner_name,''),t.account_id::text,COALESCE(a.bank_name||' '||a.account_name,''),
+                       COALESCE(t.description,''),t.contract_id::text,COALESCE(k.name,''),t.my_org_unit_id::text,COALESCE(o.name,''),
+                       t.claim_id::text,t.payment_request_id::text,COALESCE(t.category_code,''),COALESCE(t.evidence_type,''),
+                       COALESCE(t.memo,''),COALESCE(t.source_type,'manual'),t.evidence_attachment_id::text
+                  FROM fin.transactions t
+                  LEFT JOIN ctr.partners p ON p.id=t.partner_id
+                  LEFT JOIN fin.accounts a ON a.id=t.account_id
+                  LEFT JOIN ctr.contracts k ON k.id=t.contract_id
+                  LEFT JOIN ops.my_org_units o ON o.id=t.my_org_unit_id
+                 WHERE t.is_deleted=false
+                 ORDER BY t.transaction_date DESC,t.created_at DESC
+
+                """
+            )
+            transactions = [
+                {"id": r[0], "date": r[1], "type": r[2], "amount": r[3], "partner_id": r[4] or "", "partner": r[5],
+                 "account_id": r[6] or "", "account": r[7], "description": r[8], "contract_id": r[9] or "", "contract": r[10],
+                 "org_unit_id": r[11] or "", "org_unit": r[12], "claim_id": r[13] or "", "payment_request_id": r[14] or "",
+                 "category": r[15], "evidence": r[16], "memo": r[17], "source_type": r[18], "attachment_id": r[19] or ""}
+                for r in cur.fetchall()
+            ]
     return claims, invoices, payments, transactions
 
 
@@ -298,22 +310,25 @@ def claim_save(request):
     partner_id = _uuid(request.POST.get("partner_id")) or _uuid(_client_id_from_contract(alias, contract_id))
     project_id = legacy._default_project_id(alias, contract_id)
     supply = legacy._money(request.POST.get("supply_amount")); vat = legacy._money(request.POST.get("vat_amount")); total = supply + vat
+    installment = request.POST.get("installment") or None
+    if installment and (not installment.isascii() or not installment.isdigit() or not 0 < int(installment[:10]) <= 2147483647 or len(installment)>10):
+        return HttpResponseBadRequest("회차는 양의 정수로 입력하세요.")
     params = [str(contract_id), project_id, str(partner_id) if partner_id else None, str(org_id),
               request.POST.get("claim_date", ""), request.POST.get("due_date", ""), request.POST.get("expected_receipt_date", ""),
-              request.POST.get("title") or "청구", request.POST.get("claim_type") or None, supply, vat, total,
+              request.POST.get("title") or "청구", request.POST.get("claim_type") or None, installment, supply, vat, total,
               request.POST.get("status") or None, request.POST.get("memo") or None]
     with transaction.atomic(using=alias):
         with connections[alias].cursor() as cur:
             if record_id:
                 cur.execute("""UPDATE fin.claims SET contract_id=%s,project_id=%s,partner_id=%s,my_org_unit_id=%s,
                     claim_date=NULLIF(%s,'')::date,due_date=NULLIF(%s,'')::date,expected_receipt_date=NULLIF(%s,'')::date,
-                    title=%s,claim_type=%s,supply_amount=%s,vat_amount=%s,total_amount=%s,status=%s,memo=%s,updated_at=now()
+                    title=%s,claim_type=%s,installment=%s,supply_amount=%s,vat_amount=%s,total_amount=%s,status=%s,memo=%s,updated_at=now()
                     WHERE id=%s AND is_deleted=false""", params + [str(record_id)])
                 messages.success(request, "청구 건을 수정했습니다.")
             else:
                 cur.execute("""INSERT INTO fin.claims(contract_id,project_id,partner_id,my_org_unit_id,claim_date,due_date,
-                    expected_receipt_date,title,claim_type,supply_amount,vat_amount,total_amount,status,memo,created_by)
-                    VALUES(%s,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    expected_receipt_date,title,claim_type,installment,supply_amount,vat_amount,total_amount,status,memo,created_by)
+                    VALUES(%s,%s,%s,%s,NULLIF(%s,'')::date,NULLIF(%s,'')::date,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     params + [legacy._actor(request)])
                 messages.success(request, "청구 건을 등록했습니다.")
     return redirect("tenant:finance_claims")
@@ -322,7 +337,7 @@ def claim_save(request):
 def invoice_save(request):
     alias = require_tenant_context(request)
     record_id = _uuid(request.POST.get("record_id")); contract_id = _uuid(request.POST.get("contract_id"))
-    if not contract_id or not _valid_id(alias, "ctr.contracts", contract_id):
+    if request.POST.get("contract_id") and (not contract_id or not _valid_id(alias, "ctr.contracts", contract_id)):
         return HttpResponseBadRequest("계약을 확인하세요.")
     org_id = _org_for_write(alias, request, contract_id=contract_id)
     if not org_id:
@@ -338,7 +353,7 @@ def invoice_save(request):
     if claim_id and payment_id:
         return HttpResponseBadRequest("관련 청구와 지급건은 동시에 지정할 수 없습니다.")
     params = [request.POST.get("written_date", ""), request.POST.get("issued_date", ""), invoice_type,
-              str(partner_id) if partner_id else None, str(contract_id), project_id, str(org_id),
+              str(partner_id) if partner_id else None, str(contract_id) if contract_id else None, project_id, str(org_id),
               str(claim_id) if claim_id else None, str(payment_id) if payment_id else None,
               supply, vat, total, request.POST.get("approval_no") or None, request.POST.get("status") or None, request.POST.get("memo") or None]
     with transaction.atomic(using=alias):
@@ -352,9 +367,12 @@ def invoice_save(request):
             else:
                 cur.execute("""INSERT INTO fin.tax_invoices(written_date,issued_date,invoice_type,partner_id,contract_id,project_id,
                     my_org_unit_id,claim_id,payment_request_id,supply_amount,vat_amount,total_amount,approval_no,status,memo,created_by,source_type)
-                    VALUES(NULLIF(%s,'')::date,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual')""",
+                    VALUES(NULLIF(%s,'')::date,NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual') RETURNING id""",
                     params + [legacy._actor(request)])
+                record_id = cur.fetchone()[0]
                 messages.success(request, "세금계산서를 등록했습니다.")
+    if request.POST.get("connect"):
+        return redirect("tenant:finance_reconcile",kind="invoice",record_id=record_id)
     return redirect("tenant:finance_invoices")
 
 
@@ -413,9 +431,12 @@ def transaction_save(request):
             else:
                 cur.execute("""INSERT INTO fin.transactions(transaction_date,transaction_type,amount,partner_id,account_id,description,contract_id,
                     project_id,my_org_unit_id,claim_id,payment_request_id,category_code,evidence_type,memo,created_by,source_type)
-                    VALUES(NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual')""",
+                    VALUES(NULLIF(%s,'')::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'manual') RETURNING id""",
                     params + [legacy._actor(request)])
+                record_id = cur.fetchone()[0]
                 messages.success(request, "입출금 내역을 등록했습니다.")
+    if request.POST.get("connect"):
+        return redirect("tenant:finance_reconcile",kind="transaction",record_id=record_id)
     return redirect("tenant:finance_ledger")
 
 

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div><h1 class="h3 mb-1">Finance 삭제함</h1><div class="text-muted">청구·세금계산서·지급·입출금·계좌·카드의 삭제 항목을 복원하거나 완전삭제할 수 있습니다.</div></div>
-  <a href="{% url 'tenant:finance_page' %}" class="btn btn-outline-secondary btn-sm">대장·현황</a>
+  <a href="{% url 'tenant:finance_page' %}" class="btn btn-outline-secondary btn-sm">청구/지급</a>
 </div>
 {% if messages %}{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} py-2">{{ message }}</div>{% endfor %}{% endif %}
 <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>종류</th><th>일자</th><th>내용</th><th class="text-end">금액</th><th>삭제시각</th><th></th></tr></thead><tbody>

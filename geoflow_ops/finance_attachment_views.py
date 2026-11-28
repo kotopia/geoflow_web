@@ -21,6 +21,10 @@ from .services.s3_service import (
 
 MAX_BYTES = 25 * 1024 * 1024
 ALLOWED_RECORDS = {
+    "payment_bill": ("fin.payment_requests", "bill_attachment_id", "finance_evidence"),
+    "payment_statement": ("fin.payment_requests", "statement_attachment_id", "finance_evidence"),
+    "account": ("fin.accounts", "attachment_id", "finance_evidence"),
+    "card": ("fin.cards", "attachment_id", "finance_evidence"),
     "invoice": ("fin.tax_invoices", "attachment_id", "finance_invoice"),
     "transaction": ("fin.transactions", "evidence_attachment_id", "finance_evidence"),
 }
@@ -51,9 +55,10 @@ def _record(alias, record_type, record_id):
     if not config or not record_id:
         return None
     table, attachment_column, purpose = config
+    contract = "NULL" if record_type in ("account", "card") else "contract_id"
     with connections[alias].cursor() as cur:
         cur.execute(
-            f"SELECT contract_id::text, my_org_unit_id::text, {attachment_column}::text FROM {table} WHERE id=%s AND is_deleted=false LIMIT 1",
+            f"SELECT {contract}::text, my_org_unit_id::text, {attachment_column}::text FROM {table} WHERE id=%s AND is_deleted=false LIMIT 1",
             [str(record_id)],
         )
         row = cur.fetchone()

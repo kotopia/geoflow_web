@@ -45,4 +45,12 @@ def tenant_dashboard(request):
     except DatabaseError:
         logger.exception('Dashboard overview query failed')
         context['overview_error'] = True
+    from .services.finance_access import can_view_finance
+    from .finance_pages_v4 import balance_totals
+    if can_view_finance(request):
+        try:
+            context["finance_totals"] = balance_totals(alias,request.session.get("finance_org_filter") or "")
+        except DatabaseError:
+            logger.exception("Finance balances unavailable")
+            context["finance_error"] = True
     return render(request, 'geoflow_ops/home.html', context)

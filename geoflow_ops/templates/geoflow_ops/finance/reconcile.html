@@ -1,0 +1,36 @@
+{% extends "geoflow_ops/base_tenant.html" %}
+{% load humanize static %}
+{% block content %}
+<h1 class="h3">{% if kind == 'invoice' %}세금계산서{% else %}입출금{% endif %} 연결</h1>
+<div class="card"><div class="card-body">
+<p>{{ source.date|date:"Y-m-d" }} · {{ source.contract|default:"계약 미지정" }} · 원본 {{ source.amount|intcomma }}원 · 확정 {{ assigned|intcomma }}원</p>
+{% if kind == 'invoice' %}<section class="border border-primary rounded p-4 mb-4"><h2 class="h4">세금계산서 등록 내역</h2>
+<p>승인번호 {{ source.approval_no|default:"미등록" }} · 발급일 {{ source.issued_date|date:"Y.m.d"|default:"미확인" }}</p>
+<table class="table"><tr><th>귀속회사</th><td>{{ source.org }}</td><th>거래처</th><td>{{ source.partner|default:"미지정" }}</td></tr>
+<tr><th>사업명</th><td colspan="3">{{ source.contract|default:"계약 미지정" }}</td></tr>
+<tr><th>공급가액</th><td>{{ source.supply_amount|intcomma }}원</td><th>부가세</th><td>{{ source.vat_amount|intcomma }}원</td></tr></table>
+{% if source.attachment_id %}<span data-fin-attachment-panel data-record-type="invoice" data-record-id="{{ source.id }}"><button type="button" class="btn btn-light" data-fin-attachment-download>원본 내려받기</button><small data-fin-attachment-status></small></span>{% endif %}</section>{% endif %}
+<form method="post" id="allocation-form">{% csrf_token %}<input type="hidden" name="version" value="{{ version }}">
+{% if can_write and kind == 'invoice' and not assigned and source.contract %}<button class="btn btn-outline-primary mb-3" name="start" value="1">{% if target == 'claim' %}미수{% else %}미지급{% endif %} 관리 시작</button>{% endif %}
+<p>연결할 건에 금액을 입력하세요. 여러 건에 나눌 수 있으며, 금액을 지우면 연결이 해제됩니다.</p>
+<label>계약·거래처·제목 검색 <input type="search" id="find-target" class="form-control"></label>
+<div class="table-responsive"><table class="table"><thead><tr><th>계약 / 건명</th><th>거래처</th><th>일자</th><th>금액</th><th>추천 근거</th><th>배분액 (원)</th></tr></thead><tbody>
+{% for row in options %}<tr><td>{{ row.contract|default:"" }} · {{ row.title }}{% if row.is_deleted %} (삭제함){% endif %}</td><td>{{ row.partner|default:"—" }}</td><td>{{ row.date|date:"Y-m-d" }}</td><td>{{ row.total|intcomma }}</td><td>{% if row.contract_match %}계약 {% endif %}{% if row.partner_match %}거래처 {% endif %}{% if row.amount_match %}금액 {% endif %}{% if row.date_match %}날짜{% endif %}</td><td><input class="form-control" aria-label="{{ row.title }} 배분액" type="number" min="0" step="1" data-allocation name="allocate_{{ row.id }}" value="{% if row.assigned %}{{ row.assigned|stringformat:'d' }}{% endif %}" {% if not can_write %}disabled{% endif %}></td></tr>
+{% empty %}<tr><td colspan="6">이 귀속회사에 연결할 건이 없습니다.</td></tr>{% endfor %}
+</tbody></table></div>
+{% if can_write %}<output class="me-3" id="unassigned" data-total="{{ source.amount|stringformat:'d' }}"></output><button class="btn btn-primary">연결 확정</button>{% endif %}
+<a class="btn btn-light" href="{% if kind == 'invoice' %}{% url 'tenant:finance_invoices' %}{% else %}{% url 'tenant:finance_ledger' %}{% endif %}">목록</a>
+</form></div></div>{% endblock %}
+{% block scripts %}{{ block.super }}<script src="{% static 'geoflow_ops/js/finance-section-v2.js' %}"></script><script>
+document.getElementById("allocation-form").addEventListener("submit",function(){for(const input of this.querySelectorAll("input[type=number]")) if(!input.value)input.disabled=true;});
+const remainder=document.getElementById("unassigned");
+if(remainder){
+  function refresh(){let total=BigInt(remainder.dataset.total);
+    for(const input of document.querySelectorAll("[data-allocation]")) if(/^\d+$/.test(input.value)) total-=BigInt(input.value);
+    remainder.textContent="미배분 "+total.toLocaleString("ko-KR")+"원";}
+  document.getElementById("allocation-form").addEventListener("input",refresh);refresh();
+}
+document.getElementById("find-target").addEventListener("input",function(){
+  for(const row of document.querySelectorAll("tbody tr")) row.hidden=!row.textContent.includes(this.value.trim());
+});
+</script>{% endblock %}
